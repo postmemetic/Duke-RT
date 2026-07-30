@@ -68,17 +68,6 @@ struct SceneTextureCacheDebugStats
 	uint32_t stableDescriptorMissesLastBuild = 0;
 };
 
-struct SceneTextureResolveResult
-{
-	nri::Descriptor* descriptor = nullptr;
-	bool cacheMiss = false;
-	bool inserted = false;
-	bool pending = false;
-	bool activeCanvasSelfReference = false;
-	double lookupMs = 0.0;
-	double realizeMs = 0.0;
-};
-
 enum class NRISceneTextureMissPolicy : uint8_t
 {
 	Synchronous,
@@ -116,6 +105,19 @@ enum class NRISceneTextureClosureFailure : uint8_t
 	ResourceCreation,
 	DescriptorUnavailable,
 	ResidencyLost,
+};
+
+struct SceneTextureResolveResult
+{
+	nri::Descriptor* descriptor = nullptr;
+	bool cacheMiss = false;
+	bool inserted = false;
+	bool pending = false;
+	bool activeCanvasSelfReference = false;
+	NRISceneTextureClosureState closureState = NRISceneTextureClosureState::Ready;
+	NRISceneTextureClosureFailure closureFailure = NRISceneTextureClosureFailure::None;
+	double lookupMs = 0.0;
+	double realizeMs = 0.0;
 };
 
 struct NRISceneTextureClosureResult

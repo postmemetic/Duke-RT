@@ -1861,14 +1861,14 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	RequestHistoryReset("level-unload", true, true);
 	ResetSmoke("level-unload");
 
+	nri_scene::ResetPersistentVoxelActorCache("level-unload");
+	mPersistentVoxels.ResetLevelSchedulingState(
+		"level-unload",
+		(int)nri_ptloadingtrace >= 1 || (bool)nri_voxelstats,
+		BuildNRIPersistentVoxelResetServices(*this));
+	mVoxelRepresentationPolicy.Reset();
 	if (info.oldLevel != info.newLevel)
 	{
-		nri_scene::ResetPersistentVoxelActorCache("level-unload");
-		mPersistentVoxels.ResetLevelSchedulingState(
-			"level-unload",
-			(int)nri_ptloadingtrace >= 1 || (bool)nri_voxelstats,
-			BuildNRIPersistentVoxelResetServices(*this));
-		mVoxelRepresentationPolicy.Reset();
 		mPersistentVoxels.CompactMaterialRangesForQuiescentLevelTransition(
 			"level-unload",
 			(int)nri_ptloadingtrace >= 1 || (bool)nri_voxelstats);
@@ -2047,15 +2047,12 @@ void NRIRenderer::OnLevelUnloadComplete(const LevelTransitionInfo& info)
 void NRIRenderer::OnLevelLoadBegin(const LevelTransitionInfo& info)
 {
 	mWeaponEventBatch.Reset();
-	if (info.oldLevel != info.newLevel)
-	{
-		nri_scene::ResetPersistentVoxelActorCache("level-load");
-		mPersistentVoxels.ResetLevelSchedulingState(
-			"level-load",
-			(int)nri_ptloadingtrace >= 1 || (bool)nri_voxelstats,
-			BuildNRIPersistentVoxelResetServices(*this));
-		mVoxelRepresentationPolicy.Reset();
-	}
+	nri_scene::ResetPersistentVoxelActorCache("level-load");
+	mPersistentVoxels.ResetLevelSchedulingState(
+		"level-load",
+		(int)nri_ptloadingtrace >= 1 || (bool)nri_voxelstats,
+		BuildNRIPersistentVoxelResetServices(*this));
+	mVoxelRepresentationPolicy.Reset();
 
 	mMapWorld = {};
 	mObservedMapWorldBuildSerial = 0;

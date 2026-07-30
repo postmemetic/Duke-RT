@@ -716,6 +716,8 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 			{
 				outResult.inserted = closureResult.realized;
 				outResult.pending = closureResult.state == NRISceneTextureClosureState::Pending;
+				outResult.closureState = closureResult.state;
+				outResult.closureFailure = closureResult.failure;
 				outResult.realizeMs += closureResult.realizeMs;
 				return false;
 			}
@@ -746,6 +748,8 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 				{
 					outResult.inserted = closureResult.realized;
 					outResult.pending = closureResult.state == NRISceneTextureClosureState::Pending;
+					outResult.closureState = closureResult.state;
+					outResult.closureFailure = closureResult.failure;
 					outResult.realizeMs += closureResult.realizeMs;
 					return false;
 				}
@@ -1457,6 +1461,20 @@ bool NRIRenderer::EnsureSceneTextures(
 			{
 				if (!textureResult.pending)
 				{
+					if (nri_ptdebug > 0)
+					{
+						Printf("NRI PT scene textures: event=resolve_failed reason=%s upload=%u key=0x%llx size=%ux%u indexed=%u pixels=%zu source=%p closure_state=%u closure_failure=%u\n",
+							reason != nullptr ? reason : "unknown",
+							i,
+							(unsigned long long)upload.key,
+							upload.width,
+							upload.height,
+							upload.indexed ? 1u : 0u,
+							upload.pixels.size(),
+							(void*)upload.sourceTexture,
+							(uint32_t)textureResult.closureState,
+							(uint32_t)textureResult.closureFailure);
+					}
 					return false;
 				}
 				const uint32_t descriptorSlot = mSceneTextureStableSlotsActive ? stableHandle.slot : i;

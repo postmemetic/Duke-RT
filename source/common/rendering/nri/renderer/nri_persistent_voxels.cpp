@@ -1250,6 +1250,7 @@ bool NRIPersistentVoxelResidency::PublishCanonicalMaterialResource(
 	auto existingIt = materialVariantResources.find(candidate.materialKeyHash);
 	if (existingIt != materialVariantResources.end() &&
 		existingIt->second.materialSignature == candidate.materialSignature &&
+		existingIt->second.materialBridgeBuildSerial == candidate.materialBridgeBuildSerial &&
 		existingIt->second.materialCount != 0 &&
 		existingIt->second.materialSlotGeneration != 0 &&
 		!existingIt->second.materialBridge.materials.empty())
@@ -5506,6 +5507,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		const bool materialReady =
 			entry.uploadMaterialResource.materialKeyHash == variant.materialKeyHash &&
 			entry.uploadMaterialResource.materialSignature == validatedMaterialSignature &&
+			entry.uploadMaterialResource.materialBridgeBuildSerial == residencyLastBuildSerial &&
 			entry.uploadMaterialResource.materialCount != 0 &&
 			entry.uploadMaterialResource.materialSlotGeneration != 0 &&
 			!entry.uploadMaterialResource.materialBridge.materials.empty();
@@ -5571,6 +5573,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			entry.uploadMaterialResource.materialKeyHash = variant.materialKeyHash;
 			entry.uploadMaterialResource.materialSignature = validatedMaterialSignature;
 			entry.uploadMaterialResource.materialBridge = std::move(builtMaterials);
+			entry.uploadMaterialResource.materialBridgeBuildSerial = residencyLastBuildSerial;
 			entry.uploadMaterialResource.materialCount = (uint32_t)entry.uploadMaterialResource.materialBridge.materials.size();
 			entry.uploadMaterialResource.materialPayloadHash =
 				HashPersistentVoxelMaterialPayloadData(entry.uploadMaterialResource.materialBridge);
@@ -6783,6 +6786,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			const bool materialVariantWasReady =
 				materialResource.materialKeyHash == cacheEntry.materialKeyHash &&
 				materialResource.materialSignature == validatedMaterialSignature &&
+				materialResource.materialBridgeBuildSerial == residencyLastBuildSerial &&
 				materialResource.materialSlotGeneration != 0 &&
 				!materialResource.materialBridge.materials.empty();
 			if (materialVariantWasReady && materialResource.materialPayloadHash == 0)
@@ -6896,6 +6900,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				materialResource.materialKeyHash = cacheEntry.materialKeyHash;
 				materialResource.materialSignature = validatedMaterialSignature;
 				materialResource.materialBridge = std::move(builtMaterials);
+				materialResource.materialBridgeBuildSerial = residencyLastBuildSerial;
 				materialResource.materialCount = (uint32_t)materialResource.materialBridge.materials.size();
 				materialResource.materialPayloadHash = HashPersistentVoxelMaterialPayloadData(materialResource.materialBridge);
 				materialResource.materialUploadHash = 0;
@@ -10262,6 +10267,7 @@ bool NRIPersistentVoxelResidency::PreloadMaterialPayloads(
 			existingIt != materialVariantResources.end() &&
 			existingIt->second.materialKeyHash == variant.materialKeyHash &&
 			existingIt->second.materialSignature == validatedMaterialSignature &&
+			existingIt->second.materialBridgeBuildSerial == buildSerial &&
 			existingIt->second.materialCount != 0 &&
 			existingIt->second.materialSlotGeneration != 0 &&
 			!existingIt->second.materialBridge.materials.empty();
@@ -10350,6 +10356,7 @@ bool NRIPersistentVoxelResidency::PreloadMaterialPayloads(
 		resource.materialKeyHash = variant.materialKeyHash;
 		resource.materialSignature = validatedMaterialSignature;
 		resource.materialBridge = std::move(builtMaterials);
+		resource.materialBridgeBuildSerial = buildSerial;
 		resource.materialCount = (uint32_t)resource.materialBridge.materials.size();
 		resource.lastDesiredMapGeneration = residencyMapGeneration;
 		resource.lastUsedMapGeneration = residencyMapGeneration;

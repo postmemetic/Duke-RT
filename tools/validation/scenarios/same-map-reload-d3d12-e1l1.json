@@ -1,0 +1,34 @@
+{
+  "name": "same-map-reload-d3d12-e1l1",
+  "backend": "d3d12",
+  "debugMode": 1,
+  "traceFrames": 2048,
+  "minSelfTestFrames": 16,
+  "commands": "+wait 45; echo NRI_SAMEMAP checkpoint=begin; map e1l1; wait 1; closemenu; wait 255; echo NRI_SAMEMAP checkpoint=reload; map e1l1; wait 1; closemenu; wait 255; echo NRI_SAMEMAP checkpoint=complete",
+  "extraArgs": [
+    "+set",
+    "r_voxels",
+    "true",
+    "+set",
+    "nri_ptwaitpresent",
+    "false",
+    "+set",
+    "nri_ptloadingtrace",
+    "1"
+  ],
+  "requiredPrefixes": [
+    "NRI_SAMEMAP checkpoint=complete",
+    "NRI PT selftest:",
+    "NRI PT level transition: phase=first-frame-release serial=3"
+  ],
+  "forbiddenPatterns": [
+    "NRI PT fallback: PT runtime/dynamic overlay update failed",
+    "NRI PT scene textures: event=resolve_failed",
+    "Device removed",
+    "device lost",
+    "NRI render failed",
+    "validation error",
+    "assertion failed",
+    "fatal error"
+  ]
+}

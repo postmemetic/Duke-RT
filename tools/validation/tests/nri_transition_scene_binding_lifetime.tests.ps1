@@ -9,6 +9,7 @@ $dispatch = Get-Content -LiteralPath (Join-Path $repoRoot 'source/common/renderi
 $descriptorSets = Get-Content -LiteralPath (Join-Path $repoRoot 'source/common/rendering/nri/renderer/nri_descriptor_sets.cpp') -Raw
 $renderer = Get-Content -LiteralPath (Join-Path $repoRoot 'source/common/rendering/nri/renderer/nri_renderer.cpp') -Raw
 $persistentVoxels = Get-Content -LiteralPath (Join-Path $repoRoot 'source/common/rendering/nri/renderer/nri_persistent_voxels.cpp') -Raw
+$persistentVoxelsHeader = Get-Content -LiteralPath (Join-Path $repoRoot 'source/common/rendering/nri/renderer/nri_persistent_voxels.h') -Raw
 
 $snapshotStart = $sceneUpload.IndexOf('const auto acquireSceneDataDescriptorSnapshot', [StringComparison]::Ordinal)
 $snapshotEnd = $sceneUpload.IndexOf('if (sceneInstances.empty())', $snapshotStart, [StringComparison]::Ordinal)
@@ -26,6 +27,33 @@ foreach ($required in @(
 	if (-not $snapshot.Contains($required)) {
 		throw "scene-data snapshots must use command-fence lifetime (missing '$required')"
 	}
+}
+
+$unloadStart = $renderer.IndexOf('void NRIRenderer::OnLevelUnloadBegin', [StringComparison]::Ordinal)
+$unloadEnd = $renderer.IndexOf('void NRIRenderer::OnLevelUnloadComplete', $unloadStart, [StringComparison]::Ordinal)
+$loadStart = $renderer.IndexOf('void NRIRenderer::OnLevelLoadBegin', $unloadEnd, [StringComparison]::Ordinal)
+$loadEnd = $renderer.IndexOf('void NRIRenderer::OnLevelFirstFrameRelease', $loadStart, [StringComparison]::Ordinal)
+if ($unloadStart -lt 0 -or $unloadEnd -lt 0 -or $loadStart -lt 0 -or $loadEnd -lt 0) {
+	throw 'could not isolate renderer level-transition lifecycle'
+}
+$unload = $renderer.Substring($unloadStart, $unloadEnd - $unloadStart)
+$load = $renderer.Substring($loadStart, $loadEnd - $loadStart)
+foreach ($lifecycle in @($unload, $load)) {
+	$actorReset = $lifecycle.IndexOf('ResetPersistentVoxelActorCache(', [StringComparison]::Ordinal)
+	$schedulingReset = $lifecycle.IndexOf('ResetLevelSchedulingState(', [StringComparison]::Ordinal)
+	$mapIdentityGuard = $lifecycle.IndexOf('if (info.oldLevel != info.newLevel)', [StringComparison]::Ordinal)
+	if ($actorReset -lt 0 -or $schedulingReset -lt 0) {
+		throw 'every real level lifetime must reset voxel actors and scheduling, including a same-name reload'
+	}
+	if ($mapIdentityGuard -ge 0 -and ($actorReset -gt $mapIdentityGuard -or $schedulingReset -gt $mapIdentityGuard)) {
+		throw 'same-name level reloads must not retain old voxel actor or scheduling occurrences'
+	}
+}
+if (-not $persistentVoxelsHeader.Contains('uint64_t materialBridgeBuildSerial = 0;') -or
+	-not $persistentVoxels.Contains('existingIt->second.materialBridgeBuildSerial == candidate.materialBridgeBuildSerial') -or
+	-not $persistentVoxels.Contains('materialResource.materialBridgeBuildSerial == residencyLastBuildSerial') -or
+	-not $persistentVoxels.Contains('existingIt->second.materialBridgeBuildSerial == buildSerial')) {
+	throw 'retained voxel material bridges must be refreshed when the map build lifetime changes'
 }
 if ($snapshot.Contains('renderer.mFrameIndex + 1u') -or $snapshot.Contains('IsFrameFenceValueComplete')) {
 	throw 'scene-data snapshot lifetime must not mix renderer frame identity with GPU fence identity'
