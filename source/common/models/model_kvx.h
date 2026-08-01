@@ -84,6 +84,9 @@ struct FVoxelRawMeshStats
 	uint32_t coalescedFaceCount = 0;
 	uint32_t noDedupeVertexCount = 0;
 	uint32_t indexCount = 0;
+	uint32_t unitSurfaceFaceCount = 0;
+	uint32_t unitSurfaceVertexCount = 0;
+	uint32_t unitSurfaceIndexCount = 0;
 	uint64_t rawByteCount = 0;
 	uint64_t contentHash = 0;
 	float pivotX = 0.0f;

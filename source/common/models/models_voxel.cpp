@@ -30,6 +30,7 @@
 #include "colormatcher.h"
 #include "bitmap.h"
 #include "model_kvx.h"
+#include "voxel_surface_emission.h"
 #include "image.h"
 #include "texturemanager.h"
 #include "modelrenderer.h"
@@ -502,6 +503,7 @@ void FVoxelModel::BuildRawMeshStats(
 				outStats.bottomFaceCount += bottomFaces;
 				outStats.sideFaceSpanCount += sideFaceSpans;
 				outStats.coalescedFaceCount += faceCount;
+				outStats.unitSurfaceFaceCount += CountVoxelUnitSurfaceFaces(cull, zleng);
 
 				if (outSlabs != nullptr)
 				{
@@ -521,6 +523,8 @@ void FVoxelModel::BuildRawMeshStats(
 
 	outStats.noDedupeVertexCount = outStats.coalescedFaceCount * 4u;
 	outStats.indexCount = outStats.coalescedFaceCount * 6u;
+	outStats.unitSurfaceVertexCount = outStats.unitSurfaceFaceCount * 4u;
+	outStats.unitSurfaceIndexCount = outStats.unitSurfaceFaceCount * 6u;
 }
 
 //===========================================================================

@@ -457,73 +457,6 @@ bool TryResolveSmoothVertexNormal(PrimitiveData primitive, float3 weights, float
 	return dot(smoothNormal, geometricNormal) > 1.0e-4f;
 }
 
-float ResolveVoxelBevelMask(uint dataSource, PrimitiveData primitive, float3 weights, float3 geometricNormal, float3 smoothNormal)
-{
-	const float3 p0 = GetVertexData(dataSource, primitive.indices.x).position;
-	const float3 p1 = GetVertexData(dataSource, primitive.indices.y).position;
-	const float3 p2 = GetVertexData(dataSource, primitive.indices.z).position;
-	const float3 edge01 = p1 - p0;
-	const float3 edge12 = p2 - p1;
-	const float3 edge20 = p0 - p2;
-	const float edge01LengthSq = dot(edge01, edge01);
-	const float edge12LengthSq = dot(edge12, edge12);
-	const float edge20LengthSq = dot(edge20, edge20);
-
-	float3 axisU;
-	float3 axisV;
-	float u;
-	float v;
-	if (edge12LengthSq >= edge20LengthSq && edge12LengthSq >= edge01LengthSq)
-	{
-		axisU = edge01;
-		axisV = -edge20;
-		u = weights.y;
-		v = weights.z;
-	}
-	else if (edge20LengthSq >= edge01LengthSq)
-	{
-		axisU = -edge01;
-		axisV = edge12;
-		u = weights.x;
-		v = weights.z;
-	}
-	else
-	{
-		axisU = edge20;
-		axisV = -edge12;
-		u = weights.x;
-		v = weights.y;
-	}
-
-	const float axisULengthSq = dot(axisU, axisU);
-	const float axisVLengthSq = dot(axisV, axisV);
-	const float axisDot = dot(axisU, axisV);
-	const float areaSq = axisULengthSq * axisVLengthSq - axisDot * axisDot;
-	if (axisULengthSq <= 1.0e-12f || axisVLengthSq <= 1.0e-12f ||
-		areaSq <= 1.0e-8f * axisULengthSq * axisVLengthSq)
-	{
-		return 0.0f;
-	}
-
-	const float uSpan = sqrt(areaSq / axisVLengthSq);
-	const float vSpan = sqrt(areaSq / axisULengthSq);
-	const float shortSpan = min(uSpan, vSpan);
-	if (shortSpan <= 1.0e-6f)
-	{
-		return 0.0f;
-	}
-
-	u = saturate(u);
-	v = saturate(v);
-	const float uDistance = min(u, 1.0f - u) * uSpan;
-	const float vDistance = min(v, 1.0f - v) * vSpan;
-	const float normalizedEdgeDistance = min(uDistance, vDistance) / shortSpan;
-	const float perimeterMask = 1.0f - smoothstep(0.0f, 0.16f, normalizedEdgeDistance);
-	const float angularDelta = 1.0f - saturate(dot(geometricNormal, smoothNormal));
-	const float angularEvidence = smoothstep(0.01f, 0.20f, angularDelta);
-	return perimeterMask * angularEvidence;
-}
-
 float3 ResolveHitNormal(uint materialIndex, uint dataSource, uint primitiveIndex, PrimitiveData primitive, float2 uv, float3 weights)
 {
 	const MaterialData material = GetMaterialData(materialIndex, dataSource);
@@ -532,8 +465,7 @@ float3 ResolveHitNormal(uint materialIndex, uint dataSource, uint primitiveIndex
 	const float blend = (float)((gTraceConstants.Flags >> NRI_VOXEL_NORMAL_BLEND_SHIFT) & 0xffu) * (1.0f / 255.0f);
 	if (blend > 0.0f && TryResolveSmoothVertexNormal(primitive, weights, resolvedNormal, smoothNormal))
 	{
-		const float bevelMask = ResolveVoxelBevelMask(dataSource, primitive, weights, resolvedNormal, smoothNormal);
-		resolvedNormal = normalize(lerp(resolvedNormal, smoothNormal, blend * bevelMask));
+		resolvedNormal = normalize(lerp(resolvedNormal, smoothNormal, blend));
 	}
 	if (material.normalTextureIndex == 0xffffffffu)
 	{

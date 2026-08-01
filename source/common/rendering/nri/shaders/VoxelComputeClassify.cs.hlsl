@@ -31,7 +31,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	scratch.FaceCount = 0u;
 	scratch.FaceOffset = 0u;
 	scratch.VoxelCount = 0u;
-	scratch.StatusMask = gVoxelComputeConstants.AlgorithmVersion == 1u ? 0u : NRI_VOXEL_COMPUTE_MISMATCH_ALGORITHM;
+	scratch.StatusMask = gVoxelComputeConstants.AlgorithmVersion == 2u ? 0u : NRI_VOXEL_COMPUTE_MISMATCH_ALGORITHM;
 
 	const uint scratchIndex = job.ScratchOffset + localSlab;
 	if (job.SlabOffset > gVoxelComputeConstants.SlabRecordCount ||
@@ -50,7 +50,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		((slab.CullMask & 4u) != 0u ? 1u : 0u) +
 		((slab.CullMask & 8u) != 0u ? 1u : 0u);
 
-	uint faceCount = sideDirections * slab.ColorRunCount;
+	uint faceCount = 0u;
 	if (slab.ColorRunCount != 0u)
 	{
 		if (slab.ColorRunOffset > gVoxelComputeConstants.ColorRunRecordCount ||
@@ -63,13 +63,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			const uint capFaceCount =
 				((slab.CullMask & 16u) != 0u ? 1u : 0u) +
 				((slab.CullMask & 32u) != 0u ? 1u : 0u);
-			if (capFaceCount > 0xffffffffu - faceCount)
+			const bool sideCountFits = sideDirections == 0u || slab.ZLength <= 0x3fffffffu;
+			if (!sideCountFits)
 			{
 				scratch.StatusMask |= NRI_VOXEL_COMPUTE_MISMATCH_ARITHMETIC_OVERFLOW;
 			}
 			else
 			{
-				faceCount += capFaceCount;
+				faceCount = sideDirections * slab.ZLength + capFaceCount;
 			}
 		}
 	}

@@ -55,6 +55,7 @@ bool EmitFace(
 	uint color,
 	uint materialIndex,
 	NRIVoxelComputeSlabRecord slab,
+	int voxelZ,
 	inout uint emittedFaces)
 {
 	const uint localVertexBase = emittedFaces * 4u;
@@ -74,10 +75,7 @@ bool EmitFace(
 	const float3 rawNormal = cross(p1 - p0, p3 - p0);
 	const float normalLengthSq = dot(rawNormal, rawNormal);
 	const float3 faceNormal = normalLengthSq > 1.0e-12f ? rawNormal * rsqrt(normalLengthSq) : float3(0.0f, 1.0f, 0.0f);
-	const uint n0 = BuildVoxelCornerNormal(int3(x.x, y.x, z.x), faceNormal, slab, true);
-	const uint n1 = BuildVoxelCornerNormal(int3(x.y, y.y, z.y), faceNormal, slab, true);
-	const uint n2 = BuildVoxelCornerNormal(int3(x.w, y.w, z.w), faceNormal, slab, true);
-	const uint n3 = BuildVoxelCornerNormal(int3(x.z, y.z, z.z), faceNormal, slab, true);
+	const uint shadingNormal = BuildVoxelSurfaceNormal(voxelZ, faceNormal, slab);
 	const float2 uv = VoxelUv(color);
 	const uint vertexBase = job.VertexOffset + localVertexBase;
 	const uint indexBase = job.IndexOffset + localIndexBase;
@@ -109,8 +107,8 @@ bool EmitFace(
 		VoxelComputeIndices[indexBase + i] = localIndices[i];
 	}
 
-	VoxelComputePrimitives[primitiveBase + 0u] = MakePrimitive(uint3(primitiveIndices[0], primitiveIndices[1], primitiveIndices[2]), materialIndex, uv, uv, uv, faceNormal, uint3(n0, n1, n3));
-	VoxelComputePrimitives[primitiveBase + 1u] = MakePrimitive(uint3(primitiveIndices[3], primitiveIndices[4], primitiveIndices[5]), materialIndex, uv, uv, uv, faceNormal, uint3(n1, n2, n3));
+	VoxelComputePrimitives[primitiveBase + 0u] = MakePrimitive(uint3(primitiveIndices[0], primitiveIndices[1], primitiveIndices[2]), materialIndex, uv, uv, uv, faceNormal, uint3(shadingNormal, shadingNormal, shadingNormal));
+	VoxelComputePrimitives[primitiveBase + 1u] = MakePrimitive(uint3(primitiveIndices[3], primitiveIndices[4], primitiveIndices[5]), materialIndex, uv, uv, uv, faceNormal, uint3(shadingNormal, shadingNormal, shadingNormal));
 	++emittedFaces;
 	return true;
 }
@@ -162,35 +160,38 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	if ((slab.CullMask & 16u) != 0u && slab.ColorRunCount != 0u)
 	{
 		const uint color = VoxelComputeColorRuns[slab.ColorRunOffset].Color;
-		overflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y, y, y + 1, y + 1), int4(zTop, zTop, zTop, zTop), color, 0u, slab, emittedFaces);
+		overflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y, y, y + 1, y + 1), int4(zTop, zTop, zTop, zTop), color, 0u, slab, zTop, emittedFaces);
 	}
 	for (uint localRun = 0u; localRun < slab.ColorRunCount && !overflow; ++localRun)
 	{
 		const NRIVoxelComputeColorRunRecord run = VoxelComputeColorRuns[slab.ColorRunOffset + localRun];
-		const int z0 = zTop + int(run.ZOffset);
-		const int z1 = z0 + int(run.ZLength);
-		if ((slab.CullMask & 1u) != 0u)
+		for (uint localVoxel = 0u; localVoxel < run.ZLength && !overflow; ++localVoxel)
 		{
-			overflow = !EmitFace(job, int4(x, x, x, x), int4(y, y + 1, y, y + 1), int4(z0, z0, z1, z1), run.Color, 0u, slab, emittedFaces);
-		}
-		if (!overflow && (slab.CullMask & 2u) != 0u)
-		{
-			overflow = !EmitFace(job, int4(x + 1, x + 1, x + 1, x + 1), int4(y + 1, y, y + 1, y), int4(z0, z0, z1, z1), run.Color, 0u, slab, emittedFaces);
-		}
-		if (!overflow && (slab.CullMask & 4u) != 0u)
-		{
-			overflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y, y), int4(z0, z0, z1, z1), run.Color, 0u, slab, emittedFaces);
-		}
-		if (!overflow && (slab.CullMask & 8u) != 0u)
-		{
-			overflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y + 1, y + 1, y + 1, y + 1), int4(z0, z0, z1, z1), run.Color, 0u, slab, emittedFaces);
+			const int z0 = zTop + int(run.ZOffset + localVoxel);
+			const int z1 = z0 + 1;
+			if ((slab.CullMask & 1u) != 0u)
+			{
+				overflow = !EmitFace(job, int4(x, x, x, x), int4(y, y + 1, y, y + 1), int4(z0, z0, z1, z1), run.Color, 0u, slab, z0, emittedFaces);
+			}
+			if (!overflow && (slab.CullMask & 2u) != 0u)
+			{
+				overflow = !EmitFace(job, int4(x + 1, x + 1, x + 1, x + 1), int4(y + 1, y, y + 1, y), int4(z0, z0, z1, z1), run.Color, 0u, slab, z0, emittedFaces);
+			}
+			if (!overflow && (slab.CullMask & 4u) != 0u)
+			{
+				overflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y, y), int4(z0, z0, z1, z1), run.Color, 0u, slab, z0, emittedFaces);
+			}
+			if (!overflow && (slab.CullMask & 8u) != 0u)
+			{
+				overflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y + 1, y + 1, y + 1, y + 1), int4(z0, z0, z1, z1), run.Color, 0u, slab, z0, emittedFaces);
+			}
 		}
 	}
 	if (!overflow && (slab.CullMask & 32u) != 0u && slab.ColorRunCount != 0u)
 	{
 		const uint color = VoxelComputeColorRuns[slab.ColorRunOffset + slab.ColorRunCount - 1u].Color;
 		const int z = zTop + int(slab.ZLength);
-		overflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y + 1, y + 1), int4(z, z, z, z), color, 0u, slab, emittedFaces);
+		overflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y + 1, y + 1), int4(z, z, z, z), color, 0u, slab, z - 1, emittedFaces);
 	}
 
 	if (overflow)

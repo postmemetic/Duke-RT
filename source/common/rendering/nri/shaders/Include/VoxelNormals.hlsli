@@ -18,43 +18,33 @@ uint PackVoxelNormal(float3 normal)
 	return packed.x | (packed.y << 8u);
 }
 
-uint BuildVoxelCornerNormal(
-	int3 corner,
+uint BuildVoxelSurfaceNormal(
+	int voxelZ,
 	float3 faceNormal,
-	NRIVoxelComputeSlabRecord slab,
-	bool hasSlab)
+	NRIVoxelComputeSlabRecord slab)
 {
-	if (!hasSlab)
-	{
-		return PackVoxelNormal(faceNormal);
-	}
-
 	float3 occupancyNormal = 0.0f;
-	const int slabX = (int)slab.X;
-	const int slabY = (int)slab.Y;
-	const int slabTop = (int)slab.ZTop;
-	const int slabBottom = slabTop + (int)slab.ZLength;
-	if (corner.x == slabX && (slab.CullMask & 1u) != 0u)
+	if ((slab.CullMask & 1u) != 0u)
 	{
 		occupancyNormal += float3(-1.0f, 0.0f, 0.0f);
 	}
-	if (corner.x == slabX + 1 && (slab.CullMask & 2u) != 0u)
+	if ((slab.CullMask & 2u) != 0u)
 	{
 		occupancyNormal += float3(1.0f, 0.0f, 0.0f);
 	}
-	if (corner.y == slabY && (slab.CullMask & 4u) != 0u)
+	if ((slab.CullMask & 4u) != 0u)
 	{
 		occupancyNormal += float3(0.0f, 0.0f, 1.0f);
 	}
-	if (corner.y == slabY + 1 && (slab.CullMask & 8u) != 0u)
+	if ((slab.CullMask & 8u) != 0u)
 	{
 		occupancyNormal += float3(0.0f, 0.0f, -1.0f);
 	}
-	if (corner.z == slabTop && (slab.CullMask & 16u) != 0u)
+	if (voxelZ == (int)slab.ZTop && (slab.CullMask & 16u) != 0u)
 	{
 		occupancyNormal += float3(0.0f, 1.0f, 0.0f);
 	}
-	if (corner.z == slabBottom && (slab.CullMask & 32u) != 0u)
+	if (voxelZ + 1 == (int)(slab.ZTop + slab.ZLength) && (slab.CullMask & 32u) != 0u)
 	{
 		occupancyNormal += float3(0.0f, -1.0f, 0.0f);
 	}
