@@ -1397,7 +1397,7 @@ CUSTOM_CVAR(Float, nri_voxelemissionboost, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG
 	NotifyActiveMaterialLightingCalibrationChange();
 }
 
-CUSTOM_CVAR(Float, nri_ptvoxelnormalblend, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_ptvoxelnormalblend, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.0f)
 	{
