@@ -29,9 +29,9 @@ namespace
 	constexpr uint32_t RawArchiveColorRunPageCapacity = 4u * 1024u * 1024u / sizeof(NRIVoxelComputeColorRunRecord);
 	constexpr uint32_t RuntimeRawSourceScansPerFrame = 1;
 
-	uint32_t UnitSurfacePrimitiveCount(const FVoxelRawMeshStats& stats)
+	uint32_t AdjacencySurfacePrimitiveCount(const FVoxelRawMeshStats& stats)
 	{
-		return stats.unitSurfaceFaceCount * 2u;
+		return stats.adjacencySurfaceFaceCount * 2u;
 	}
 
 	double DurationMs(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end)
@@ -422,7 +422,7 @@ namespace
 	NRIVoxelComputeAlgorithm SelectedComputeAlgorithm()
 	{
 		return (int)nri_ptvoxelcomputealgorithm > 0 ?
-			NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyV2 :
+			NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyCoalescedV3 :
 			NRIVoxelComputeAlgorithm::SerialV1;
 	}
 
@@ -656,7 +656,7 @@ namespace
 		if (IsTraceEnabled())
 		{
 			Printf(
-				"PERF pt voxel raw source archive NRI: event=record phase=%s model=%p serial=%llu page=%u slab_offset=%u color_run_offset=%u raw_bytes=%llu slab_upload_bytes=%llu color_run_bytes=%llu transient_face_bytes=%llu slabs=%u color_runs=%u faces=%u voxels=%u\n",
+				"PERF pt voxel raw source archive NRI: event=record phase=%s model=%p serial=%llu page=%u slab_offset=%u color_run_offset=%u raw_bytes=%llu slab_upload_bytes=%llu color_run_bytes=%llu transient_face_bytes=%llu slabs=%u color_runs=%u faces=%u adjacency_faces=%u unit_faces=%u voxels=%u\n",
 				preloadRecorded ? "preload" : "runtime",
 				(void*)model,
 				(unsigned long long)archived.recordSerial,
@@ -670,6 +670,8 @@ namespace
 				archived.slabCount,
 				archived.colorRunCount,
 				archived.stats.coalescedFaceCount,
+				archived.stats.adjacencySurfaceFaceCount,
+				archived.stats.unitSurfaceFaceCount,
 				archived.stats.voxelCount);
 		}
 		return &archived;
@@ -1705,11 +1707,11 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 		}
 
 		const FVoxelRawMeshStats& rawStats = archivedSource->stats;
-		const uint32_t expectedPrimitives = UnitSurfacePrimitiveCount(rawStats);
+		const uint32_t expectedPrimitives = AdjacencySurfacePrimitiveCount(rawStats);
 		const bool overPrimitiveBudget = maxDirectPublishPrimitives != 0 && expectedPrimitives > maxDirectPublishPrimitives;
-		if (rawStats.slabCount == 0 || rawStats.unitSurfaceFaceCount == 0 || overPrimitiveBudget ||
-			rawStats.unitSurfaceVertexCount > request.vertices.capacity ||
-			rawStats.unitSurfaceIndexCount > request.indices.capacity ||
+		if (rawStats.slabCount == 0 || rawStats.adjacencySurfaceFaceCount == 0 || overPrimitiveBudget ||
+			rawStats.adjacencySurfaceVertexCount > request.vertices.capacity ||
+			rawStats.adjacencySurfaceIndexCount > request.indices.capacity ||
 			expectedPrimitives > request.primitives.capacity)
 		{
 			outResult.status = NRIVoxelComputeGeneratedGeometryStatus::Failed;
@@ -1742,8 +1744,8 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 			archivedSource->colorRunOffset,
 			archivedSource->colorRunCount
 		};
-		planRequest.vertices = { request.vertices.offset, rawStats.unitSurfaceVertexCount, request.vertices.capacity };
-		planRequest.indices = { request.indices.offset, rawStats.unitSurfaceIndexCount, request.indices.capacity };
+		planRequest.vertices = { request.vertices.offset, rawStats.adjacencySurfaceVertexCount, request.vertices.capacity };
+		planRequest.indices = { request.indices.offset, rawStats.adjacencySurfaceIndexCount, request.indices.capacity };
 		planRequest.primitives = { request.primitives.offset, expectedPrimitives, request.primitives.capacity };
 		planRequest.reservationBytes =
 			(uint64_t)request.vertices.capacity * sizeof(NRIVoxelComputeSceneVertex) +
@@ -2018,7 +2020,7 @@ bool QueryNRIVoxelComputeRawSourceArchiveStats(FVoxelModel* model, FVoxelRawMesh
 	if (archived == state.rawSourceArchive.end() ||
 		archived->second.failed ||
 		archived->second.stats.slabCount == 0 ||
-		archived->second.stats.unitSurfaceFaceCount == 0)
+		archived->second.stats.adjacencySurfaceFaceCount == 0)
 	{
 		return false;
 	}
@@ -2044,7 +2046,7 @@ bool CopyNRIVoxelComputeRawSourceArchiveSnapshot(
 		return false;
 	}
 	const RawVoxelSourceArchiveEntry& entry = archived->second;
-	if (entry.stats.slabCount == 0 || entry.stats.unitSurfaceFaceCount == 0 ||
+	if (entry.stats.slabCount == 0 || entry.stats.adjacencySurfaceFaceCount == 0 ||
 		entry.pageIndex >= state.rawArchivePages.size())
 	{
 		return false;
@@ -2060,8 +2062,8 @@ bool CopyNRIVoxelComputeRawSourceArchiveSnapshot(
 	outSnapshot.sizeX = entry.stats.sizeX;
 	outSnapshot.sizeY = entry.stats.sizeY;
 	outSnapshot.sizeZ = entry.stats.sizeZ;
-	outSnapshot.exactFaceCount = entry.stats.unitSurfaceFaceCount;
-	outSnapshot.exactPrimitiveCount = UnitSurfacePrimitiveCount(entry.stats);
+	outSnapshot.exactFaceCount = entry.stats.adjacencySurfaceFaceCount;
+	outSnapshot.exactPrimitiveCount = AdjacencySurfacePrimitiveCount(entry.stats);
 	outSnapshot.pivotX = entry.stats.pivotX;
 	outSnapshot.pivotY = entry.stats.pivotY;
 	outSnapshot.pivotZ = entry.stats.pivotZ;
@@ -2087,7 +2089,7 @@ bool QueryNRIVoxelComputeRawSourceStats(FVoxelModel* model, FVoxelRawMeshStats& 
 	if (archived != state.rawSourceArchive.end() &&
 		!archived->second.failed &&
 		archived->second.stats.slabCount != 0 &&
-		archived->second.stats.unitSurfaceFaceCount != 0)
+		archived->second.stats.adjacencySurfaceFaceCount != 0)
 	{
 		outStats = archived->second.stats;
 		return true;
@@ -2341,7 +2343,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 	}
 	const int requestedAlgorithm = (int)nri_ptvoxelcomputealgorithm;
 	bool parallelArchivedEmit =
-		directSource && SelectedComputeAlgorithm() == NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyV2;
+		directSource && SelectedComputeAlgorithm() == NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyCoalescedV3;
 	std::vector<NRIVoxelComputeJob> gpuJobs;
 	std::vector<NRIVoxelComputeSlabRecord> gpuSlabs;
 	std::vector<NRIVoxelComputeFaceRecord> gpuFaces;
@@ -2473,9 +2475,9 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 		gpuJob.SlabOffset = directSource ? jobArchive->slabOffset : slabOffset;
 		gpuJob.SlabCount = directSource ? jobArchive->slabCount : (uint32_t)queued.slabs.size();
 		gpuJob.FaceOffset = directSource ? 0u : faceOffset;
-		gpuJob.ExpectedFaces = queued.directPublication ? queued.stats.unitSurfaceFaceCount : queued.stats.coalescedFaceCount;
-		gpuJob.ExpectedIndices = queued.directPublication ? queued.stats.unitSurfaceIndexCount : queued.stats.indexCount;
-		gpuJob.ExpectedVerticesNoDedupe = queued.directPublication ? queued.stats.unitSurfaceVertexCount : queued.stats.noDedupeVertexCount;
+		gpuJob.ExpectedFaces = queued.directPublication ? queued.stats.adjacencySurfaceFaceCount : queued.stats.coalescedFaceCount;
+		gpuJob.ExpectedIndices = queued.directPublication ? queued.stats.adjacencySurfaceIndexCount : queued.stats.indexCount;
+		gpuJob.ExpectedVerticesNoDedupe = queued.directPublication ? queued.stats.adjacencySurfaceVertexCount : queued.stats.noDedupeVertexCount;
 		gpuJob.ExpectedVoxels = queued.stats.voxelCount;
 		gpuJob.JobId = queued.jobId;
 		gpuJob.VertexOffset = queued.directPublication ? queued.vertices.offset : vertexOffset;
@@ -2535,9 +2537,9 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 			outputVertexBuffer = queued.outputBuffers.vertices;
 			outputIndexBuffer = queued.outputBuffers.indices;
 			outputPrimitiveBuffer = queued.outputBuffers.primitives;
-			emittedVertexCount += queued.stats.unitSurfaceVertexCount;
-			emittedIndexCount += queued.stats.unitSurfaceIndexCount;
-			emittedPrimitiveCount += UnitSurfacePrimitiveCount(queued.stats);
+			emittedVertexCount += queued.stats.adjacencySurfaceVertexCount;
+			emittedIndexCount += queued.stats.adjacencySurfaceIndexCount;
+			emittedPrimitiveCount += AdjacencySurfacePrimitiveCount(queued.stats);
 		}
 		TraceAdmission(frameNumber, pending, pending.admissionState, "dispatch");
 
@@ -2816,7 +2818,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 	constants.ColorRunRecordCount = directSource ? (uint32_t)directArchivePage->colorRuns.size() : 0u;
 	constants.ScratchRecordCount = parallelArchivedEmit ? parallelPlan.scratchRecordCount : 0u;
 	constants.MaxSlabsPerJob = parallelArchivedEmit ? parallelPlan.maxSlabsPerJob : 0u;
-	constants.AlgorithmVersion = parallelArchivedEmit ? (uint32_t)NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyV2 : (uint32_t)NRIVoxelComputeAlgorithm::SerialV1;
+	constants.AlgorithmVersion = parallelArchivedEmit ? (uint32_t)NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyCoalescedV3 : (uint32_t)NRIVoxelComputeAlgorithm::SerialV1;
 	constants.VertexRecordCount = emit ? (uint32_t)std::min<uint64_t>(emitVertexBuffer.size / sizeof(NRIVoxelComputeSceneVertex), UINT32_MAX) : 0u;
 	constants.IndexRecordCount = emit ? (uint32_t)std::min<uint64_t>(emitIndexBuffer.size / sizeof(uint32_t), UINT32_MAX) : 0u;
 	constants.PrimitiveRecordCount = emit ? (uint32_t)std::min<uint64_t>(emitPrimitiveBuffer.size / sizeof(NRIVoxelComputePrimitiveData), UINT32_MAX) : 0u;
@@ -2913,9 +2915,9 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 		Printf(
 			"PERF pt voxel compute stages NRI: frame=%llu algorithm=%s requested_version=%d active_version=%u fallback=%s jobs=%u scratch_records=%u scratch_bytes=%llu max_slabs_per_job=%u classify_dispatch=%u,%u,1 scan_dispatch=%u,1,1 emit_dispatch=%u,%u,1 finalize_dispatch=%u,1,1 classify_record_ms=%.6f scan_record_ms=%.6f emit_record_ms=%.6f finalize_record_ms=%.6f transition_record_ms=%.6f hashes=%s\n",
 			(unsigned long long)frameNumber,
-			parallelArchivedEmit ? "parallel_voxel_adjacency_v2" : "serial_v1",
+			parallelArchivedEmit ? "parallel_voxel_adjacency_coalesced_v3" : "serial_v1",
 			requestedAlgorithm,
-			parallelArchivedEmit ? (uint32_t)NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyV2 : (uint32_t)NRIVoxelComputeAlgorithm::SerialV1,
+			parallelArchivedEmit ? (uint32_t)NRIVoxelComputeAlgorithm::ParallelVoxelAdjacencyCoalescedV3 : (uint32_t)NRIVoxelComputeAlgorithm::SerialV1,
 			fallback,
 			(uint32_t)gpuJobs.size(),
 			parallelArchivedEmit ? parallelPlan.scratchRecordCount : 0u,
@@ -3148,7 +3150,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 			"PERF pt voxel compute dispatch NRI: frame=%llu mode=%s algorithm=%s source=%s jobs=%u slab_records=%u color_run_records=%u face_records=%u scratch_records=%u job_bytes=%llu slab_bytes=%llu color_run_bytes=%llu face_bytes=%llu scratch_bytes=%llu result_bytes=%llu vertex_bytes=%llu index_bytes=%llu primitive_bytes=%llu production_readback_bytes=%llu validation_readback_bytes=%llu direct_gpu=%u raw_archive=%u direct_publish=%u\n",
 			(unsigned long long)frameNumber,
 			emit ? (buildBlas ? "emit_blas" : "emit") : "count",
-			parallelArchivedEmit ? "parallel_voxel_adjacency_v2" : "serial_v1",
+			parallelArchivedEmit ? "parallel_voxel_adjacency_coalesced_v3" : "serial_v1",
 			directSource ? "archive_decode" : (emit ? "face_records" : "slab_count"),
 			(unsigned)gpuJobs.size(),
 			directSource ? (uint32_t)directArchivePage->slabs.size() : (uint32_t)gpuSlabs.size(),

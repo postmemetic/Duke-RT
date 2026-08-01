@@ -8,7 +8,7 @@
 enum class NRIVoxelComputeAlgorithm : uint32_t
 {
 	SerialV1 = 0,
-	ParallelVoxelAdjacencyV2 = 2,
+	ParallelVoxelAdjacencyCoalescedV3 = 3,
 };
 
 constexpr uint32_t NRI_VOXEL_COMPUTE_PARALLEL_THREADS = 128;

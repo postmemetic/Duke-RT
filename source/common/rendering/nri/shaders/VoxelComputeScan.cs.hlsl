@@ -16,7 +16,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const NRIVoxelComputeJob job = VoxelComputeJobs[jobIndex];
 	uint faceCount = 0u;
 	uint voxelCount = 0u;
-	uint mismatchMask = gVoxelComputeConstants.AlgorithmVersion == 2u ? 0u : NRI_VOXEL_COMPUTE_MISMATCH_ALGORITHM;
+	uint mismatchMask = gVoxelComputeConstants.AlgorithmVersion == 3u ? 0u : NRI_VOXEL_COMPUTE_MISMATCH_ALGORITHM;
 	if (job.ScratchCount != job.SlabCount || job.ScratchOffset > gVoxelComputeConstants.ScratchRecordCount ||
 		job.ScratchCount > gVoxelComputeConstants.ScratchRecordCount - job.ScratchOffset)
 	{

@@ -2057,8 +2057,8 @@ namespace
 		{
 			return hashes;
 		}
-		hashes.geometryContentHash = HashCombine64(0x565847454f4d3032ull, stats.contentHash); // VXGEOM02
-		uint64_t renderHash = HashCombine64(0x5658525052493033ull, stats.contentHash); // VXRPRI03
+		hashes.geometryContentHash = HashCombine64(0x565847454f4d3033ull, stats.contentHash); // VXGEOM03
+		uint64_t renderHash = HashCombine64(0x5658525052493034ull, stats.contentHash); // VXRPRI04
 		renderHash = HashCombine64(renderHash, (uint64_t)(uint32_t)sourcePicnum);
 		renderHash = HashCombine64(renderHash, (uint64_t)(uint32_t)resolvedVoxelIndex);
 		hashes.renderPrimitiveHash = renderHash;
@@ -2647,7 +2647,7 @@ namespace
 			routing.directOnlyAdmission = true;
 			return routing;
 		}
-		const uint32_t primitiveCount = rawStats.unitSurfaceFaceCount * 2u;
+		const uint32_t primitiveCount = rawStats.adjacencySurfaceFaceCount * 2u;
 		if (primitiveCount == 0)
 		{
 			routing.cpuMeshClassification = "failure";
@@ -7333,7 +7333,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 
 		FVoxelRawMeshStats rawStats = {};
 		const bool rawStatsReady = QueryNRIVoxelComputeRawSourceArchiveStats(request.model, rawStats);
-		const uint32_t primitiveCount = rawStatsReady ? rawStats.unitSurfaceFaceCount * 2u : request.primitiveCount;
+		const uint32_t primitiveCount = rawStatsReady ? rawStats.adjacencySurfaceFaceCount * 2u : request.primitiveCount;
 		const bool cpuSurfaceReady = IsVoxelMeshVariantSurfaceReady(request.meshVariantHash);
 		const bool legacyGpuCandidate = IsLoadingVoxelRequestGpuCandidate(request);
 		const bool explicitGpu =

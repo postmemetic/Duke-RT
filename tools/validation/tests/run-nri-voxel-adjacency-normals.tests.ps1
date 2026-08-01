@@ -28,16 +28,23 @@ $parallelEmitter = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\co
 $classifyShader = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\shaders\VoxelComputeClassify.cs.hlsl')
 $hitShader = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\shaders\Include\RaytracingShared.hlsli')
 $sceneBridge = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\scene\nri_scene_bridge.cpp')
+$persistentVoxels = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\renderer\nri_persistent_voxels.cpp')
+$meshing = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\renderer\nri_voxel_compute_meshing.cpp')
 
 if ($normalShader -notmatch 'BuildVoxelSurfaceNormal' -or
-	$normalShader -notmatch 'voxelZ \+ 1 == \(int\)\(slab\.ZTop \+ slab\.ZLength\)' -or
-	$parallelEmitter -notmatch 'localVoxel < run\.ZLength' -or
+	$normalShader -notmatch 'BuildVoxelSurfaceNormalKey' -or
+	$normalShader -notmatch 'BuildVoxelAdjacencyNormalSpans' -or
+	$parallelEmitter -notmatch 'EmitVoxelSideSpansForRun' -or
+	$parallelEmitter -match 'localVoxel < run\.ZLength' -or
 	$parallelEmitter -notmatch 'uint3\(shadingNormal, shadingNormal, shadingNormal\)' -or
-	$classifyShader -notmatch 'sideDirections \* slab\.ZLength \+ capFaceCount' -or
+	$classifyShader -notmatch 'CountVoxelAdjacencyNormalSpans' -or
+	$classifyShader -notmatch 'AlgorithmVersion == 3u' -or
 	$hitShader -match 'ResolveVoxelBevelMask' -or
 	$hitShader -notmatch 'lerp\(resolvedNormal, smoothNormal, blend\)' -or
-	$sceneBridge -notmatch 'VXGEOM02' -or
-	$sceneBridge -notmatch 'VXRPRI03')
+	$sceneBridge -notmatch 'VXGEOM03' -or
+	$sceneBridge -notmatch 'VXRPRI04' -or
+	$persistentVoxels -notmatch 'PVMESHR3' -or
+	$meshing -notmatch 'parallel_voxel_adjacency_coalesced_v3')
 {
 	throw 'Voxel adjacency-normal source contract is incomplete.'
 }

@@ -441,6 +441,8 @@ void FVoxelModel::BuildRawMeshStats(
 				}
 
 				uint32_t colorRuns = 0;
+				uint32_t adjacencySideFaceSpans = 0;
+				const uint32_t sideCullBits[] = { 1u, 2u, 4u, 8u };
 				const uint8_t* col = voxptr->col;
 				uint32_t z = 0;
 				const uint32_t colorRunOffset = outColorRuns != nullptr ? (uint32_t)outColorRuns->Size() : 0u;
@@ -452,6 +454,13 @@ void FVoxelModel::BuildRawMeshStats(
 						++run;
 					}
 					++colorRuns;
+					for (const uint32_t faceCullBit : sideCullBits)
+					{
+						if ((cull & faceCullBit) != 0u)
+						{
+							adjacencySideFaceSpans += CountVoxelAdjacencyNormalSpans(cull, z, run, zleng, faceCullBit);
+						}
+					}
 					if (outColorRuns != nullptr)
 					{
 						FVoxelRawColorRunRecord runRecord = {};
@@ -504,6 +513,7 @@ void FVoxelModel::BuildRawMeshStats(
 				outStats.sideFaceSpanCount += sideFaceSpans;
 				outStats.coalescedFaceCount += faceCount;
 				outStats.unitSurfaceFaceCount += CountVoxelUnitSurfaceFaces(cull, zleng);
+				outStats.adjacencySurfaceFaceCount += topFaces + bottomFaces + adjacencySideFaceSpans;
 
 				if (outSlabs != nullptr)
 				{
@@ -525,6 +535,8 @@ void FVoxelModel::BuildRawMeshStats(
 	outStats.indexCount = outStats.coalescedFaceCount * 6u;
 	outStats.unitSurfaceVertexCount = outStats.unitSurfaceFaceCount * 4u;
 	outStats.unitSurfaceIndexCount = outStats.unitSurfaceFaceCount * 6u;
+	outStats.adjacencySurfaceVertexCount = outStats.adjacencySurfaceFaceCount * 4u;
+	outStats.adjacencySurfaceIndexCount = outStats.adjacencySurfaceFaceCount * 6u;
 }
 
 //===========================================================================

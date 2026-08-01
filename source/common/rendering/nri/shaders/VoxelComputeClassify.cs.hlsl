@@ -1,4 +1,5 @@
 #include "Include/VoxelComputeConstants.hlsli"
+#include "Include/VoxelNormals.hlsli"
 
 StructuredBuffer<NRIVoxelComputeJob> VoxelComputeJobs : register(t0, space0);
 StructuredBuffer<NRIVoxelComputeSlabRecord> VoxelComputeSlabs : register(t1, space0);
@@ -31,7 +32,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	scratch.FaceCount = 0u;
 	scratch.FaceOffset = 0u;
 	scratch.VoxelCount = 0u;
-	scratch.StatusMask = gVoxelComputeConstants.AlgorithmVersion == 2u ? 0u : NRI_VOXEL_COMPUTE_MISMATCH_ALGORITHM;
+	scratch.StatusMask = gVoxelComputeConstants.AlgorithmVersion == 3u ? 0u : NRI_VOXEL_COMPUTE_MISMATCH_ALGORITHM;
 
 	const uint scratchIndex = job.ScratchOffset + localSlab;
 	if (job.SlabOffset > gVoxelComputeConstants.SlabRecordCount ||
@@ -44,12 +45,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
 	const NRIVoxelComputeSlabRecord slab = VoxelComputeSlabs[job.SlabOffset + localSlab];
 	scratch.VoxelCount = slab.ZLength;
-	const uint sideDirections =
-		((slab.CullMask & 1u) != 0u ? 1u : 0u) +
-		((slab.CullMask & 2u) != 0u ? 1u : 0u) +
-		((slab.CullMask & 4u) != 0u ? 1u : 0u) +
-		((slab.CullMask & 8u) != 0u ? 1u : 0u);
-
 	uint faceCount = 0u;
 	if (slab.ColorRunCount != 0u)
 	{
@@ -60,17 +55,34 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 		else
 		{
-			const uint capFaceCount =
+			faceCount =
 				((slab.CullMask & 16u) != 0u ? 1u : 0u) +
 				((slab.CullMask & 32u) != 0u ? 1u : 0u);
-			const bool sideCountFits = sideDirections == 0u || slab.ZLength <= 0x3fffffffu;
-			if (!sideCountFits)
+			for (uint localRun = 0u; localRun < slab.ColorRunCount; ++localRun)
 			{
-				scratch.StatusMask |= NRI_VOXEL_COMPUTE_MISMATCH_ARITHMETIC_OVERFLOW;
-			}
-			else
-			{
-				faceCount = sideDirections * slab.ZLength + capFaceCount;
+				const NRIVoxelComputeColorRunRecord run = VoxelComputeColorRuns[slab.ColorRunOffset + localRun];
+				if (run.ZLength == 0u || run.ZOffset > slab.ZLength || run.ZLength > slab.ZLength - run.ZOffset)
+				{
+					scratch.StatusMask |= NRI_VOXEL_COMPUTE_MISMATCH_SOURCE_RANGE;
+					continue;
+				}
+				[unroll]
+				for (uint faceCullBit = 1u; faceCullBit <= 8u; faceCullBit <<= 1u)
+				{
+					if ((slab.CullMask & faceCullBit) == 0u)
+					{
+						continue;
+					}
+					const uint spanCount = CountVoxelAdjacencyNormalSpans(slab, run, faceCullBit);
+					if (faceCount > 0xffffffffu - spanCount)
+					{
+						scratch.StatusMask |= NRI_VOXEL_COMPUTE_MISMATCH_ARITHMETIC_OVERFLOW;
+					}
+					else
+					{
+						faceCount += spanCount;
+					}
+				}
 			}
 		}
 	}

@@ -334,7 +334,7 @@ CVAR(Bool, nri_ptvoxelcompute, true, 0)
 
 CVAR(Int, nri_ptvoxelcomputemode, 6, 0)
 
-CVAR(Int, nri_ptvoxelcomputealgorithm, 2, 0)
+CVAR(Int, nri_ptvoxelcomputealgorithm, 3, 0)
 
 CVAR(Int, nri_ptvoxelcomputemaxjobs, 4, 0)
 
