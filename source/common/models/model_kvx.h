@@ -53,6 +53,7 @@ struct FVoxelRawSlabRecord
 	uint32_t zLength = 0;
 	uint32_t colorRunCount = 0;
 	uint32_t colorRunOffset = 0;
+	uint32_t capExposureMask = 0;
 };
 
 struct FVoxelRawColorRunRecord
@@ -60,6 +61,7 @@ struct FVoxelRawColorRunRecord
 	uint32_t zOffset = 0;
 	uint32_t zLength = 0;
 	uint32_t color = 0;
+	uint32_t lateralExposureMask = 0;
 };
 
 struct FVoxelRawFaceRecord

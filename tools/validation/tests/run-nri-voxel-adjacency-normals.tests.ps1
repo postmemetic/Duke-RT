@@ -30,20 +30,30 @@ $hitShader = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\r
 $sceneBridge = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\scene\nri_scene_bridge.cpp')
 $persistentVoxels = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\renderer\nri_persistent_voxels.cpp')
 $meshing = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\rendering\nri\renderer\nri_voxel_compute_meshing.cpp')
+$modelVoxel = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'source\common\models\models_voxel.cpp')
 
 if ($normalShader -notmatch 'BuildVoxelSurfaceNormal' -or
 	$normalShader -notmatch 'BuildVoxelSurfaceNormalKey' -or
 	$normalShader -notmatch 'BuildVoxelAdjacencyNormalSpans' -or
+	$normalShader -notmatch 'run\.LateralExposureMask' -or
+	$normalShader -notmatch 'slab\.CapExposureMask' -or
 	$parallelEmitter -notmatch 'EmitVoxelSideSpansForRun' -or
+	$parallelEmitter -notmatch 'BuildVoxelSurfaceNormal\(exposureMask, faceCullBit\)' -or
+	$parallelEmitter -notmatch 'run\.LateralExposureMask, slab\.CapExposureMask, spans\[spanIndex\]\.ZOffset' -or
+	$parallelEmitter -notmatch 'EmitVoxelSideSpan\([^;]+exposureMask, faceCullBit' -or
 	$parallelEmitter -match 'localVoxel < run\.ZLength' -or
 	$parallelEmitter -notmatch 'uint3\(shadingNormal, shadingNormal, shadingNormal\)' -or
 	$classifyShader -notmatch 'CountVoxelAdjacencyNormalSpans' -or
 	$classifyShader -notmatch 'AlgorithmVersion == 3u' -or
 	$hitShader -match 'ResolveVoxelBevelMask' -or
 	$hitShader -notmatch 'lerp\(resolvedNormal, smoothNormal, blend\)' -or
-	$sceneBridge -notmatch 'VXGEOM03' -or
-	$sceneBridge -notmatch 'VXRPRI04' -or
-	$persistentVoxels -notmatch 'PVMESHR3' -or
+	$sceneBridge -notmatch 'VXGEOM04' -or
+	$sceneBridge -notmatch 'VXRPRI05' -or
+	$persistentVoxels -notmatch 'PVMESHR4' -or
+	$meshing -notmatch 'run\.LateralExposureMask' -or
+	$modelVoxel -notmatch 'VoxelSurfaceRunLength' -or
+	$modelVoxel -notmatch 'runRecord\.lateralExposureMask = lateralExposureMask' -or
+	$modelVoxel -notmatch 'record\.capExposureMask = capExposureMask' -or
 	$meshing -notmatch 'parallel_voxel_adjacency_coalesced_v3')
 {
 	throw 'Voxel adjacency-normal source contract is incomplete.'

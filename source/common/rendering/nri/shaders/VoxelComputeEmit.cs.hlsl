@@ -61,9 +61,8 @@ bool EmitFace(
 	int4 z,
 	uint color,
 	uint materialIndex,
-	NRIVoxelComputeSlabRecord slab,
-	bool hasSlab,
-	int voxelZ,
+	uint exposureMask,
+	bool hasExposure,
 	uint faceCullBit,
 	inout uint emittedFaces,
 	inout uint vertexHash,
@@ -88,7 +87,7 @@ bool EmitFace(
 	const float3 rawNormal = cross(p1 - p0, p3 - p0);
 	const float normalLengthSq = dot(rawNormal, rawNormal);
 	const float3 faceNormal = normalLengthSq > 1.0e-12f ? rawNormal * rsqrt(normalLengthSq) : float3(0.0f, 1.0f, 0.0f);
-	const uint shadingNormal = hasSlab ? BuildVoxelSurfaceNormal(voxelZ, faceCullBit, slab) : PackVoxelNormal(faceNormal);
+	const uint shadingNormal = hasExposure ? BuildVoxelSurfaceNormal(exposureMask, faceCullBit) : PackVoxelNormal(faceNormal);
 
 	const uint vertexBase = job.VertexOffset + localVertexBase;
 	const uint indexBase = job.IndexOffset + localIndexBase;
@@ -156,8 +155,8 @@ bool EmitVoxelSideSpan(
 	int z0,
 	int z1,
 	uint color,
+	uint exposureMask,
 	uint faceCullBit,
-	NRIVoxelComputeSlabRecord slab,
 	inout uint emittedFaces,
 	inout uint vertexHash,
 	inout uint indexHash,
@@ -165,17 +164,17 @@ bool EmitVoxelSideSpan(
 {
 	if (faceCullBit == 1u)
 	{
-		return EmitFace(job, int4(x, x, x, x), int4(y, y + 1, y, y + 1), int4(z0, z0, z1, z1), color, 0u, slab, true, z0, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
+		return EmitFace(job, int4(x, x, x, x), int4(y, y + 1, y, y + 1), int4(z0, z0, z1, z1), color, 0u, exposureMask, true, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
 	}
 	if (faceCullBit == 2u)
 	{
-		return EmitFace(job, int4(x + 1, x + 1, x + 1, x + 1), int4(y + 1, y, y + 1, y), int4(z0, z0, z1, z1), color, 0u, slab, true, z0, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
+		return EmitFace(job, int4(x + 1, x + 1, x + 1, x + 1), int4(y + 1, y, y + 1, y), int4(z0, z0, z1, z1), color, 0u, exposureMask, true, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
 	}
 	if (faceCullBit == 4u)
 	{
-		return EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y, y), int4(z0, z0, z1, z1), color, 0u, slab, true, z0, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
+		return EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y, y), int4(z0, z0, z1, z1), color, 0u, exposureMask, true, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
 	}
-	return EmitFace(job, int4(x, x + 1, x, x + 1), int4(y + 1, y + 1, y + 1, y + 1), int4(z0, z0, z1, z1), color, 0u, slab, true, z0, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
+	return EmitFace(job, int4(x, x + 1, x, x + 1), int4(y + 1, y + 1, y + 1, y + 1), int4(z0, z0, z1, z1), color, 0u, exposureMask, true, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash);
 }
 
 bool EmitVoxelSideSpansForRun(
@@ -196,7 +195,9 @@ bool EmitVoxelSideSpansForRun(
 	{
 		const int z0 = int(slab.ZTop + spans[spanIndex].ZOffset);
 		const int z1 = z0 + int(spans[spanIndex].ZLength);
-		if (!EmitVoxelSideSpan(job, x, y, z0, z1, run.Color, faceCullBit, slab, emittedFaces, vertexHash, indexHash, primitiveHash))
+		const uint exposureMask = BuildVoxelSurfaceExposureMask(
+			run.LateralExposureMask, slab.CapExposureMask, spans[spanIndex].ZOffset, slab.ZLength);
+		if (!EmitVoxelSideSpan(job, x, y, z0, z1, run.Color, exposureMask, faceCullBit, emittedFaces, vertexHash, indexHash, primitiveHash))
 		{
 			return false;
 		}
@@ -238,8 +239,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const uint runIndex = slab.ColorRunOffset;
 				if (runIndex < gVoxelComputeConstants.ColorRunRecordCount)
 				{
-					const uint color = VoxelComputeColorRuns[runIndex].Color;
-					outputOverflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y, y, y + 1, y + 1), int4(zTop, zTop, zTop, zTop), color, 0u, slab, true, zTop, 16u, emittedFaces, vertexHash, indexHash, primitiveHash);
+					const NRIVoxelComputeColorRunRecord run = VoxelComputeColorRuns[runIndex];
+					const uint exposureMask = BuildVoxelSurfaceExposureMask(
+						run.LateralExposureMask, slab.CapExposureMask, 0u, slab.ZLength);
+					outputOverflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y, y, y + 1, y + 1), int4(zTop, zTop, zTop, zTop), run.Color, 0u, exposureMask, true, 16u, emittedFaces, vertexHash, indexHash, primitiveHash);
 				}
 			}
 			for (uint localRun = 0u; localRun < slab.ColorRunCount && !outputOverflow; ++localRun)
@@ -264,9 +267,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const uint runIndex = slab.ColorRunOffset + slab.ColorRunCount - 1u;
 				if (runIndex < gVoxelComputeConstants.ColorRunRecordCount)
 				{
-					const uint color = VoxelComputeColorRuns[runIndex].Color;
+					const NRIVoxelComputeColorRunRecord run = VoxelComputeColorRuns[runIndex];
 					const int z = zTop + int(slab.ZLength);
-					outputOverflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y + 1, y + 1), int4(z, z, z, z), color, 0u, slab, true, z - 1, 32u, emittedFaces, vertexHash, indexHash, primitiveHash);
+					const uint exposureMask = BuildVoxelSurfaceExposureMask(
+						run.LateralExposureMask, slab.CapExposureMask, slab.ZLength - 1u, slab.ZLength);
+					outputOverflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y + 1, y + 1), int4(z, z, z, z), run.Color, 0u, exposureMask, true, 32u, emittedFaces, vertexHash, indexHash, primitiveHash);
 				}
 			}
 			if (outputOverflow)
@@ -285,7 +290,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				break;
 			}
 			const NRIVoxelComputeFaceRecord face = VoxelComputeFaces[faceIndex];
-			outputOverflow = !EmitFace(job, int4(face.X[0], face.X[1], face.X[2], face.X[3]), int4(face.Y[0], face.Y[1], face.Y[2], face.Y[3]), int4(face.Z[0], face.Z[1], face.Z[2], face.Z[3]), face.Color, face.MaterialIndex, (NRIVoxelComputeSlabRecord)0, false, face.Z[0], 0u, emittedFaces, vertexHash, indexHash, primitiveHash);
+			outputOverflow = !EmitFace(job, int4(face.X[0], face.X[1], face.X[2], face.X[3]), int4(face.Y[0], face.Y[1], face.Y[2], face.Y[3]), int4(face.Z[0], face.Z[1], face.Z[2], face.Z[3]), face.Color, face.MaterialIndex, 0u, false, 0u, emittedFaces, vertexHash, indexHash, primitiveHash);
 		}
 	}
 

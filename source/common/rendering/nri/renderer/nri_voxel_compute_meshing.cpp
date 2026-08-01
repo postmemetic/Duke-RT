@@ -120,7 +120,7 @@ namespace
 		const std::vector<NRIVoxelComputeColorRunRecord>& colorRuns)
 	{
 		uint64_t hash = 1469598103934665603ull;
-		hash = HashRawArchiveValue(hash, 0x5658524157483031ull); // VXRAWH01
+		hash = HashRawArchiveValue(hash, 0x5658524157483032ull); // VXRAWH02
 		hash = HashRawArchiveValue(hash, stats.sizeX);
 		hash = HashRawArchiveValue(hash, stats.sizeY);
 		hash = HashRawArchiveValue(hash, stats.sizeZ);
@@ -141,12 +141,14 @@ namespace
 			hash = HashRawArchiveValue(hash, slab.CullMask);
 			hash = HashRawArchiveValue(hash, slab.ColorRunOffset);
 			hash = HashRawArchiveValue(hash, slab.ColorRunCount);
+			hash = HashRawArchiveValue(hash, slab.CapExposureMask);
 		}
 		for (const NRIVoxelComputeColorRunRecord& run : colorRuns)
 		{
 			hash = HashRawArchiveValue(hash, run.ZOffset);
 			hash = HashRawArchiveValue(hash, run.ZLength);
 			hash = HashRawArchiveValue(hash, run.Color);
+			hash = HashRawArchiveValue(hash, run.LateralExposureMask);
 		}
 		return hash;
 	}
@@ -521,6 +523,7 @@ namespace
 			record.ZLength = slab.zLength;
 			record.ColorRunCount = slab.colorRunCount;
 			record.ColorRunOffset = slab.colorRunOffset;
+			record.CapExposureMask = slab.capExposureMask;
 			target.push_back(record);
 		}
 	}
@@ -536,6 +539,7 @@ namespace
 			record.ZOffset = run.zOffset;
 			record.ZLength = run.zLength;
 			record.Color = run.color;
+			record.LateralExposureMask = run.lateralExposureMask;
 			target.push_back(record);
 		}
 	}
