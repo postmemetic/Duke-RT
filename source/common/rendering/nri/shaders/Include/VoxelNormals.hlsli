@@ -35,15 +35,15 @@ int3 VoxelFaceAxis(uint faceCullBit)
 	return int3(0, -1, 0);
 }
 
-int3 ResolveVoxelSurfaceNormalVector(uint exposureMask, uint faceCullBit)
+int3 ResolveVoxelSurfaceNormalVector(int voxelZ, uint faceCullBit, NRIVoxelComputeSlabRecord slab)
 {
 	int3 occupancyNormal = int3(0, 0, 0);
-	if ((exposureMask & 1u) != 0u) occupancyNormal.x -= 1;
-	if ((exposureMask & 2u) != 0u) occupancyNormal.x += 1;
-	if ((exposureMask & 4u) != 0u) occupancyNormal.z += 1;
-	if ((exposureMask & 8u) != 0u) occupancyNormal.z -= 1;
-	if ((exposureMask & 16u) != 0u) occupancyNormal.y += 1;
-	if ((exposureMask & 32u) != 0u) occupancyNormal.y -= 1;
+	if ((slab.CullMask & 1u) != 0u) occupancyNormal.x -= 1;
+	if ((slab.CullMask & 2u) != 0u) occupancyNormal.x += 1;
+	if ((slab.CullMask & 4u) != 0u) occupancyNormal.z += 1;
+	if ((slab.CullMask & 8u) != 0u) occupancyNormal.z -= 1;
+	if (voxelZ == (int)slab.ZTop && (slab.CullMask & 16u) != 0u) occupancyNormal.y += 1;
+	if (voxelZ + 1 == (int)(slab.ZTop + slab.ZLength) && (slab.CullMask & 32u) != 0u) occupancyNormal.y -= 1;
 
 	const int3 faceAxis = VoxelFaceAxis(faceCullBit);
 	if (all(occupancyNormal == int3(0, 0, 0)) || dot(occupancyNormal, faceAxis) <= 0)
@@ -58,46 +58,25 @@ uint EncodeVoxelSurfaceNormalKey(int3 normal)
 	return uint(normal.x + 1) | (uint(normal.y + 1) << 2u) | (uint(normal.z + 1) << 4u);
 }
 
-uint BuildVoxelSurfaceNormalKey(uint exposureMask, uint faceCullBit)
+uint BuildVoxelSurfaceNormalKey(int voxelZ, uint faceCullBit, NRIVoxelComputeSlabRecord slab)
 {
-	return EncodeVoxelSurfaceNormalKey(ResolveVoxelSurfaceNormalVector(exposureMask, faceCullBit));
+	return EncodeVoxelSurfaceNormalKey(ResolveVoxelSurfaceNormalVector(voxelZ, faceCullBit, slab));
 }
 
-uint BuildVoxelSurfaceNormal(uint exposureMask, uint faceCullBit)
+uint BuildVoxelSurfaceNormal(int voxelZ, uint faceCullBit, NRIVoxelComputeSlabRecord slab)
 {
-	return PackVoxelNormal((float3)ResolveVoxelSurfaceNormalVector(exposureMask, faceCullBit));
-}
-
-uint BuildVoxelSurfaceExposureMask(
-	uint lateralExposureMask,
-	uint capExposureMask,
-	uint voxelOffset,
-	uint slabLength)
-{
-	uint exposureMask = lateralExposureMask & 15u;
-	if (voxelOffset == 0u)
-	{
-		exposureMask |= capExposureMask & 16u;
-	}
-	if (slabLength != 0u && voxelOffset + 1u == slabLength)
-	{
-		exposureMask |= capExposureMask & 32u;
-	}
-	return exposureMask;
+	return PackVoxelNormal((float3)ResolveVoxelSurfaceNormalVector(voxelZ, faceCullBit, slab));
 }
 
 void AppendVoxelAdjacencySpan(
 	NRIVoxelComputeSlabRecord slab,
-	NRIVoxelComputeColorRunRecord run,
 	uint faceCullBit,
 	uint zOffset,
 	uint zLength,
 	inout NRIVoxelAdjacencySpan spans[3],
 	inout uint spanCount)
 {
-	const uint exposureMask = BuildVoxelSurfaceExposureMask(
-		run.LateralExposureMask, slab.CapExposureMask, zOffset, slab.ZLength);
-	const uint normalKey = BuildVoxelSurfaceNormalKey(exposureMask, faceCullBit);
+	const uint normalKey = BuildVoxelSurfaceNormalKey(int(slab.ZTop + zOffset), faceCullBit, slab);
 	if (spanCount != 0u && spans[spanCount - 1u].NormalKey == normalKey)
 	{
 		spans[spanCount - 1u].ZLength += zLength;
@@ -132,19 +111,19 @@ uint BuildVoxelAdjacencyNormalSpans(
 	const uint end = run.ZOffset + run.ZLength;
 	if (cursor == 0u)
 	{
-		AppendVoxelAdjacencySpan(slab, run, faceCullBit, cursor, 1u, spans, spanCount);
+		AppendVoxelAdjacencySpan(slab, faceCullBit, cursor, 1u, spans, spanCount);
 		++cursor;
 	}
 	const uint bottomOffset = slab.ZLength - 1u;
 	const uint interiorEnd = min(end, bottomOffset);
 	if (cursor < interiorEnd)
 	{
-		AppendVoxelAdjacencySpan(slab, run, faceCullBit, cursor, interiorEnd - cursor, spans, spanCount);
+		AppendVoxelAdjacencySpan(slab, faceCullBit, cursor, interiorEnd - cursor, spans, spanCount);
 		cursor = interiorEnd;
 	}
 	if (cursor < end)
 	{
-		AppendVoxelAdjacencySpan(slab, run, faceCullBit, cursor, end - cursor, spans, spanCount);
+		AppendVoxelAdjacencySpan(slab, faceCullBit, cursor, end - cursor, spans, spanCount);
 	}
 	return spanCount;
 }

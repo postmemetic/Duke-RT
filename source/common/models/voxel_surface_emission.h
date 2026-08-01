@@ -9,40 +9,17 @@ struct FVoxelAdjacencySpan
 	uint32_t normalKey = 0;
 };
 
-inline uint32_t VoxelExposureMaskFromOccupiedNeighbors(uint32_t occupiedNeighborMask)
-{
-	return (~occupiedNeighborMask) & 0x3fu;
-}
-
-template<typename LateralExposureAt>
-inline uint32_t VoxelSurfaceRunLength(
-	const uint8_t* colors,
-	uint32_t runOffset,
-	uint32_t slabLength,
-	uint32_t lateralExposureMask,
-	LateralExposureAt&& lateralExposureAt)
-{
-	uint32_t runLength = 1u;
-	while (runOffset + runLength < slabLength &&
-		colors[runOffset + runLength] == colors[runOffset] &&
-		lateralExposureAt(runOffset + runLength) == lateralExposureMask)
-	{
-		++runLength;
-	}
-	return runLength;
-}
-
-inline uint32_t VoxelSurfaceNormalKey(uint32_t exposureMask, uint32_t faceCullBit)
+inline uint32_t VoxelSurfaceNormalKey(uint32_t cullMask, uint32_t voxelOffset, uint32_t slabLength, uint32_t faceCullBit)
 {
 	int x = 0;
 	int y = 0;
 	int z = 0;
-	if ((exposureMask & 1u) != 0u) x -= 1;
-	if ((exposureMask & 2u) != 0u) x += 1;
-	if ((exposureMask & 4u) != 0u) z += 1;
-	if ((exposureMask & 8u) != 0u) z -= 1;
-	if ((exposureMask & 16u) != 0u) y += 1;
-	if ((exposureMask & 32u) != 0u) y -= 1;
+	if ((cullMask & 1u) != 0u) x -= 1;
+	if ((cullMask & 2u) != 0u) x += 1;
+	if ((cullMask & 4u) != 0u) z += 1;
+	if ((cullMask & 8u) != 0u) z -= 1;
+	if (voxelOffset == 0u && (cullMask & 16u) != 0u) y += 1;
+	if (slabLength != 0u && voxelOffset + 1u == slabLength && (cullMask & 32u) != 0u) y -= 1;
 
 	int faceX = 0;
 	int faceY = 0;
@@ -63,27 +40,8 @@ inline uint32_t VoxelSurfaceNormalKey(uint32_t exposureMask, uint32_t faceCullBi
 	return (uint32_t)(x + 1) | ((uint32_t)(y + 1) << 2u) | ((uint32_t)(z + 1) << 4u);
 }
 
-inline uint32_t VoxelSurfaceExposureMask(
-	uint32_t lateralExposureMask,
-	uint32_t capExposureMask,
-	uint32_t voxelOffset,
-	uint32_t slabLength)
-{
-	uint32_t exposureMask = lateralExposureMask & 15u;
-	if (voxelOffset == 0u)
-	{
-		exposureMask |= capExposureMask & 16u;
-	}
-	if (slabLength != 0u && voxelOffset + 1u == slabLength)
-	{
-		exposureMask |= capExposureMask & 32u;
-	}
-	return exposureMask;
-}
-
 inline uint32_t BuildVoxelAdjacencyNormalSpans(
-	uint32_t lateralExposureMask,
-	uint32_t capExposureMask,
+	uint32_t cullMask,
 	uint32_t runOffset,
 	uint32_t runLength,
 	uint32_t slabLength,
@@ -99,9 +57,7 @@ inline uint32_t BuildVoxelAdjacencyNormalSpans(
 	uint32_t previousNormalKey = 0u;
 	const auto append = [&](uint32_t zOffset, uint32_t zLength)
 	{
-		const uint32_t exposureMask = VoxelSurfaceExposureMask(
-			lateralExposureMask, capExposureMask, zOffset, slabLength);
-		const uint32_t normalKey = VoxelSurfaceNormalKey(exposureMask, faceCullBit);
+		const uint32_t normalKey = VoxelSurfaceNormalKey(cullMask, zOffset, slabLength, faceCullBit);
 		if (spanCount != 0u && previousNormalKey == normalKey)
 		{
 			if (outSpans != nullptr)
@@ -140,14 +96,13 @@ inline uint32_t BuildVoxelAdjacencyNormalSpans(
 }
 
 inline uint32_t CountVoxelAdjacencyNormalSpans(
-	uint32_t lateralExposureMask,
-	uint32_t capExposureMask,
+	uint32_t cullMask,
 	uint32_t runOffset,
 	uint32_t runLength,
 	uint32_t slabLength,
 	uint32_t faceCullBit)
 {
-	return BuildVoxelAdjacencyNormalSpans(lateralExposureMask, capExposureMask, runOffset, runLength, slabLength, faceCullBit, nullptr);
+	return BuildVoxelAdjacencyNormalSpans(cullMask, runOffset, runLength, slabLength, faceCullBit, nullptr);
 }
 
 inline uint32_t CountVoxelUnitSurfaceFaces(uint32_t cullMask, uint32_t zLength)

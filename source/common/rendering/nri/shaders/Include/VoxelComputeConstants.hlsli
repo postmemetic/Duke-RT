@@ -70,7 +70,7 @@ struct NRIVoxelComputeSlabRecord
 	uint ZLength;
 	uint ColorRunCount;
 	uint ColorRunOffset;
-	uint CapExposureMask;
+	uint Reserved0;
 };
 
 struct NRIVoxelComputeColorRunRecord
@@ -78,7 +78,7 @@ struct NRIVoxelComputeColorRunRecord
 	uint ZOffset;
 	uint ZLength;
 	uint Color;
-	uint LateralExposureMask;
+	uint Reserved0;
 };
 
 struct NRIVoxelComputeResult

@@ -40,8 +40,6 @@
 #include "textures.h"
 #include "imagehelpers.h"
 #include <algorithm>
-#include <limits>
-#include <vector>
 
 #ifdef _MSC_VER
 #pragma warning(disable:4244) // warning C4244: conversion from 'double' to 'float', possible loss of data
@@ -394,63 +392,6 @@ void FVoxelModel::BuildRawMeshStats(
 		return;
 	}
 
-	const size_t sizeX = (size_t)mip->SizeX;
-	const size_t sizeY = (size_t)mip->SizeY;
-	const size_t sizeZ = (size_t)mip->SizeZ;
-	size_t occupancyCount = sizeX;
-	if (occupancyCount > std::numeric_limits<size_t>::max() / sizeY)
-	{
-		return;
-	}
-	occupancyCount *= sizeY;
-	if (occupancyCount > std::numeric_limits<size_t>::max() / sizeZ)
-	{
-		return;
-	}
-	occupancyCount *= sizeZ;
-	std::vector<uint8_t> occupancy(occupancyCount, 0u);
-	const auto occupancyIndex = [sizeY, sizeZ](int x, int y, int z)
-	{
-		return ((size_t)x * sizeY + (size_t)y) * sizeZ + (size_t)z;
-	};
-	for (int x = 0; x < mip->SizeX; ++x)
-	{
-		const uint8_t* slabxoffs = &slabData[mip->OffsetX[x]];
-		const short* xyoffs = &mip->OffsetXY[x * (mip->SizeY + 1)];
-		for (int y = 0; y < mip->SizeY; ++y)
-		{
-			kvxslab_t* voxptr = (kvxslab_t*)(slabxoffs + xyoffs[y]);
-			kvxslab_t* voxend = (kvxslab_t*)(slabxoffs + xyoffs[y + 1]);
-			for (; voxptr < voxend; voxptr = (kvxslab_t*)((uint8_t*)voxptr + voxptr->zleng + 3))
-			{
-				const int zEnd = std::min<int>(mip->SizeZ, (int)voxptr->ztop + (int)voxptr->zleng);
-				for (int z = (int)voxptr->ztop; z < zEnd; ++z)
-				{
-					occupancy[occupancyIndex(x, y, z)] = 1u;
-				}
-			}
-		}
-	}
-	const auto isOccupied = [&](int x, int y, int z)
-	{
-		return
-			x >= 0 && x < mip->SizeX &&
-			y >= 0 && y < mip->SizeY &&
-			z >= 0 && z < mip->SizeZ &&
-			occupancy[occupancyIndex(x, y, z)] != 0u;
-	};
-	const auto buildExposureMask = [&](int x, int y, int z)
-	{
-		uint32_t occupiedNeighborMask = 0u;
-		if (isOccupied(x - 1, y, z)) occupiedNeighborMask |= 1u;
-		if (isOccupied(x + 1, y, z)) occupiedNeighborMask |= 2u;
-		if (isOccupied(x, y - 1, z)) occupiedNeighborMask |= 4u;
-		if (isOccupied(x, y + 1, z)) occupiedNeighborMask |= 8u;
-		if (isOccupied(x, y, z - 1)) occupiedNeighborMask |= 16u;
-		if (isOccupied(x, y, z + 1)) occupiedNeighborMask |= 32u;
-		return VoxelExposureMaskFromOccupiedNeighbors(occupiedNeighborMask);
-	};
-
 	const auto pushFace = [&](int x1, int y1, int z1, int x2, int y2, int z2, int x3, int y3, int z3, int x4, int y4, int z4, uint8_t color)
 	{
 		if (outFaces == nullptr)
@@ -493,9 +434,6 @@ void FVoxelModel::BuildRawMeshStats(
 				{
 					continue;
 				}
-				const uint32_t capExposureMask =
-					(buildExposureMask(x, y, (int)ztop) & 16u) |
-					(buildExposureMask(x, y, (int)(ztop + zleng - 1u)) & 32u);
 
 				if ((cull & 16u) != 0)
 				{
@@ -510,20 +448,17 @@ void FVoxelModel::BuildRawMeshStats(
 				const uint32_t colorRunOffset = outColorRuns != nullptr ? (uint32_t)outColorRuns->Size() : 0u;
 				while (z < zleng)
 				{
-					const uint32_t lateralExposureMask = buildExposureMask(x, y, (int)(ztop + z)) & 15u;
-					const uint32_t run = VoxelSurfaceRunLength(
-						voxptr->col, z, zleng, lateralExposureMask,
-						[&](uint32_t voxelOffset)
-						{
-							return buildExposureMask(x, y, (int)(ztop + voxelOffset)) & 15u;
-						});
+					uint32_t run = 1;
+					while (z + run < zleng && col[run] == col[0])
+					{
+						++run;
+					}
 					++colorRuns;
 					for (const uint32_t faceCullBit : sideCullBits)
 					{
 						if ((cull & faceCullBit) != 0u)
 						{
-							adjacencySideFaceSpans += CountVoxelAdjacencyNormalSpans(
-								lateralExposureMask, capExposureMask, z, run, zleng, faceCullBit);
+							adjacencySideFaceSpans += CountVoxelAdjacencyNormalSpans(cull, z, run, zleng, faceCullBit);
 						}
 					}
 					if (outColorRuns != nullptr)
@@ -532,7 +467,6 @@ void FVoxelModel::BuildRawMeshStats(
 						runRecord.zOffset = z;
 						runRecord.zLength = run;
 						runRecord.color = col[0];
-						runRecord.lateralExposureMask = lateralExposureMask;
 						outColorRuns->Push(runRecord);
 					}
 					const int z0 = (int)(ztop + z);
@@ -591,7 +525,6 @@ void FVoxelModel::BuildRawMeshStats(
 					record.zLength = zleng;
 					record.colorRunCount = colorRuns;
 					record.colorRunOffset = colorRunOffset;
-					record.capExposureMask = capExposureMask;
 					outSlabs->Push(record);
 				}
 			}

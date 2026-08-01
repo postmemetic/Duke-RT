@@ -54,7 +54,8 @@ bool EmitFace(
 	int4 z,
 	uint color,
 	uint materialIndex,
-	uint exposureMask,
+	NRIVoxelComputeSlabRecord slab,
+	int voxelZ,
 	uint faceCullBit,
 	inout uint emittedFaces)
 {
@@ -75,7 +76,7 @@ bool EmitFace(
 	const float3 rawNormal = cross(p1 - p0, p3 - p0);
 	const float normalLengthSq = dot(rawNormal, rawNormal);
 	const float3 faceNormal = normalLengthSq > 1.0e-12f ? rawNormal * rsqrt(normalLengthSq) : float3(0.0f, 1.0f, 0.0f);
-	const uint shadingNormal = BuildVoxelSurfaceNormal(exposureMask, faceCullBit);
+	const uint shadingNormal = BuildVoxelSurfaceNormal(voxelZ, faceCullBit, slab);
 	const float2 uv = VoxelUv(color);
 	const uint vertexBase = job.VertexOffset + localVertexBase;
 	const uint indexBase = job.IndexOffset + localIndexBase;
@@ -120,23 +121,23 @@ bool EmitVoxelSideSpan(
 	int z0,
 	int z1,
 	uint color,
-	uint exposureMask,
 	uint faceCullBit,
+	NRIVoxelComputeSlabRecord slab,
 	inout uint emittedFaces)
 {
 	if (faceCullBit == 1u)
 	{
-		return EmitFace(job, int4(x, x, x, x), int4(y, y + 1, y, y + 1), int4(z0, z0, z1, z1), color, 0u, exposureMask, faceCullBit, emittedFaces);
+		return EmitFace(job, int4(x, x, x, x), int4(y, y + 1, y, y + 1), int4(z0, z0, z1, z1), color, 0u, slab, z0, faceCullBit, emittedFaces);
 	}
 	if (faceCullBit == 2u)
 	{
-		return EmitFace(job, int4(x + 1, x + 1, x + 1, x + 1), int4(y + 1, y, y + 1, y), int4(z0, z0, z1, z1), color, 0u, exposureMask, faceCullBit, emittedFaces);
+		return EmitFace(job, int4(x + 1, x + 1, x + 1, x + 1), int4(y + 1, y, y + 1, y), int4(z0, z0, z1, z1), color, 0u, slab, z0, faceCullBit, emittedFaces);
 	}
 	if (faceCullBit == 4u)
 	{
-		return EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y, y), int4(z0, z0, z1, z1), color, 0u, exposureMask, faceCullBit, emittedFaces);
+		return EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y, y), int4(z0, z0, z1, z1), color, 0u, slab, z0, faceCullBit, emittedFaces);
 	}
-	return EmitFace(job, int4(x, x + 1, x, x + 1), int4(y + 1, y + 1, y + 1, y + 1), int4(z0, z0, z1, z1), color, 0u, exposureMask, faceCullBit, emittedFaces);
+	return EmitFace(job, int4(x, x + 1, x, x + 1), int4(y + 1, y + 1, y + 1, y + 1), int4(z0, z0, z1, z1), color, 0u, slab, z0, faceCullBit, emittedFaces);
 }
 
 bool EmitVoxelSideSpansForRun(
@@ -154,9 +155,7 @@ bool EmitVoxelSideSpansForRun(
 	{
 		const int z0 = int(slab.ZTop + spans[spanIndex].ZOffset);
 		const int z1 = z0 + int(spans[spanIndex].ZLength);
-		const uint exposureMask = BuildVoxelSurfaceExposureMask(
-			run.LateralExposureMask, slab.CapExposureMask, spans[spanIndex].ZOffset, slab.ZLength);
-		if (!EmitVoxelSideSpan(job, x, y, z0, z1, run.Color, exposureMask, faceCullBit, emittedFaces))
+		if (!EmitVoxelSideSpan(job, x, y, z0, z1, run.Color, faceCullBit, slab, emittedFaces))
 		{
 			return false;
 		}
@@ -210,10 +209,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
 	if ((slab.CullMask & 16u) != 0u && slab.ColorRunCount != 0u)
 	{
-		const NRIVoxelComputeColorRunRecord run = VoxelComputeColorRuns[slab.ColorRunOffset];
-		const uint exposureMask = BuildVoxelSurfaceExposureMask(
-			run.LateralExposureMask, slab.CapExposureMask, 0u, slab.ZLength);
-		overflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y, y, y + 1, y + 1), int4(zTop, zTop, zTop, zTop), run.Color, 0u, exposureMask, 16u, emittedFaces);
+		const uint color = VoxelComputeColorRuns[slab.ColorRunOffset].Color;
+		overflow = !EmitFace(job, int4(x, x + 1, x, x + 1), int4(y, y, y + 1, y + 1), int4(zTop, zTop, zTop, zTop), color, 0u, slab, zTop, 16u, emittedFaces);
 	}
 	for (uint localRun = 0u; localRun < slab.ColorRunCount && !overflow; ++localRun)
 	{
@@ -229,11 +226,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 	if (!overflow && (slab.CullMask & 32u) != 0u && slab.ColorRunCount != 0u)
 	{
-		const NRIVoxelComputeColorRunRecord run = VoxelComputeColorRuns[slab.ColorRunOffset + slab.ColorRunCount - 1u];
+		const uint color = VoxelComputeColorRuns[slab.ColorRunOffset + slab.ColorRunCount - 1u].Color;
 		const int z = zTop + int(slab.ZLength);
-		const uint exposureMask = BuildVoxelSurfaceExposureMask(
-			run.LateralExposureMask, slab.CapExposureMask, slab.ZLength - 1u, slab.ZLength);
-		overflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y + 1, y + 1), int4(z, z, z, z), run.Color, 0u, exposureMask, 32u, emittedFaces);
+		overflow = !EmitFace(job, int4(x + 1, x, x + 1, x), int4(y, y, y + 1, y + 1), int4(z, z, z, z), color, 0u, slab, z - 1, 32u, emittedFaces);
 	}
 
 	if (overflow)

@@ -2057,8 +2057,8 @@ namespace
 		{
 			return hashes;
 		}
-		hashes.geometryContentHash = HashCombine64(0x565847454f4d3034ull, stats.contentHash); // VXGEOM04
-		uint64_t renderHash = HashCombine64(0x5658525052493035ull, stats.contentHash); // VXRPRI05
+		hashes.geometryContentHash = HashCombine64(0x565847454f4d3033ull, stats.contentHash); // VXGEOM03
+		uint64_t renderHash = HashCombine64(0x5658525052493034ull, stats.contentHash); // VXRPRI04
 		renderHash = HashCombine64(renderHash, (uint64_t)(uint32_t)sourcePicnum);
 		renderHash = HashCombine64(renderHash, (uint64_t)(uint32_t)resolvedVoxelIndex);
 		hashes.renderPrimitiveHash = renderHash;
