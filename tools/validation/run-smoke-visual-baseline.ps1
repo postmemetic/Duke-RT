@@ -6,7 +6,7 @@ param(
     [string]$GameGrp = 'C:/Program Files (x86)/Steam/steamapps/common/Duke Nukem 3D Twentieth Anniversary World Tour/DUKE3D.GRP',
     [string]$ConfigTemplate = 'C:/Users/brian/Documents/My Games/duke-rt/duke-rt.ini',
     [string]$OutputDirectory,
-    [int]$SmokeEvolutionTics = 360,
+    [int]$SmokeEvolutionTics = 600,
     [int]$TimeoutSeconds = 300,
     [switch]$ValidateOnly
 )
@@ -15,8 +15,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($SaveName -notmatch '^[A-Za-z0-9_.-]+$') { throw 'SaveName contains unsupported console characters.' }
-if ($SmokeEvolutionTics -lt 300 -or $SmokeEvolutionTics -gt 525) {
-    throw 'SmokeEvolutionTics must stay within the requested 10-15 second comparison window (300-525 tics).'
+if ($SmokeEvolutionTics -lt 300 -or $SmokeEvolutionTics -gt 900) {
+    throw 'SmokeEvolutionTics must stay within the supported 10-30 second comparison window (300-900 tics).'
 }
 
 $resolvedRaze = Resolve-Path -LiteralPath $RazePath -ErrorAction Stop
