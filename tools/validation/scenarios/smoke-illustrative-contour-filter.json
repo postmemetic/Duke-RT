@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "description": "Twenty-second regression gallery for the filtered illustrative contour fix, retaining broad bands as the control",
+  "variants": [
+    {
+      "id": "200-guard-broad-bands",
+      "label": "108 broad bands regression guard",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandstrength": 0.90, "nri_ptsmokebandcount": 2, "nri_ptsmokebandsoftness": 0.15 }
+    },
+    {
+      "id": "201-filtered-ink-contours",
+      "label": "109 ink contours after filtering",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.12, "nri_ptsmokecontourstrength": 0.55 }
+    },
+    {
+      "id": "202-filtered-painterly",
+      "label": "110 painterly after filtering",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandstrength": 0.55, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.30, "nri_ptsmokecontourstrength": 0.30 }
+    },
+    {
+      "id": "203-filtered-combined-dense",
+      "label": "111 combined dense after filtering",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokethicknessstrength": 0.25, "nri_ptsmokethicknesspivot": 0.50, "nri_ptsmokethicknesssteps": 3, "nri_ptsmokeflowhighlight": 0.20, "nri_ptsmokeflowspeedreference": 24, "nri_ptsmokecurlhighlight": 0.40, "nri_ptsmokecurlreference": 0.60, "nri_ptsmokecompressionsculpt": 0.20, "nri_ptsmokedivergencereference": 0.60, "nri_ptsmokebandstrength": 0.45, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.30, "nri_ptsmokecontourstrength": 0.25 }
+    },
+    {
+      "id": "204-filtered-combined-compact",
+      "label": "112 combined compact after filtering",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokeviewroute": 2, "nri_ptsmokethicknessstrength": 0.25, "nri_ptsmokethicknesspivot": 0.50, "nri_ptsmokethicknesssteps": 3, "nri_ptsmokeflowhighlight": 0.20, "nri_ptsmokeflowspeedreference": 24, "nri_ptsmokecurlhighlight": 0.40, "nri_ptsmokecurlreference": 0.60, "nri_ptsmokecompressionsculpt": 0.20, "nri_ptsmokedivergencereference": 0.60, "nri_ptsmokebandstrength": 0.45, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.30, "nri_ptsmokecontourstrength": 0.25 }
+    }
+  ]
+}
