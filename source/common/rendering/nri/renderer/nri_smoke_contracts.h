@@ -369,6 +369,7 @@ struct NRISmokeConstants
 	float tanHalfFovY = 1.0f;
 
 	float cameraPosition[3] = {};
+	// Simulation dispatch: time scale. Volume dispatch: packed smoke visual word 0.
 	float timeScale = 1.0f;
 
 	float cameraForward[3] = {};
@@ -380,6 +381,7 @@ struct NRISmokeConstants
 	float cameraUp[3] = {};
 	float directionalDirectionZ = 0.0f;
 
+	// Simulation dispatch: world wind. Volume dispatch: packed visual words 1..3.
 	float wind[3] = {};
 	float directionalAngularSize = 0.03f;
 
@@ -402,15 +404,10 @@ struct NRISmokeConstants
 
 	float currentJitter[2] = {};
 
-	// Four packed words are the remaining safe D3D12 root-signature budget
-	// after the smoke layout's six descriptor tables. Words 0..2 contain
-	// half2 transfer values; word 3 contains two RGB555 grades over [0, 2].
-	uint32_t visuals[4] = {};
 };
 
-static_assert(sizeof(NRISmokeConstants) == 232, "NRISmokeConstants must match SmokeConstants.hlsli");
+static_assert(sizeof(NRISmokeConstants) == 216, "NRISmokeConstants must match SmokeConstants.hlsli");
 static_assert(offsetof(NRISmokeConstants, cameraPosition) == 96, "NRISmokeConstants camera offset must match HLSL");
 static_assert(offsetof(NRISmokeConstants, lightMode) == 176, "NRISmokeConstants lighting offset must match HLSL");
 static_assert(offsetof(NRISmokeConstants, runtimeLightTileCountX) == 192, "NRISmokeConstants runtime-light tile offset must match HLSL");
 static_assert(offsetof(NRISmokeConstants, currentJitter) == 208, "NRISmokeConstants jitter offset must match HLSL");
-static_assert(offsetof(NRISmokeConstants, visuals) == 216, "NRISmokeConstants visual offset must match HLSL");

@@ -33,15 +33,20 @@ float2 SmokeVisualUnpackHalf2(uint packed)
 	return float2(f16tof32(packed & 0xffffu), f16tof32(packed >> 16u));
 }
 
+uint SmokeVisualPacked0() { return asuint(gSmokeConstants.TimeScale); }
+uint SmokeVisualPacked1() { return asuint(gSmokeConstants.Wind.x); }
+uint SmokeVisualPacked2() { return asuint(gSmokeConstants.Wind.y); }
+uint SmokeVisualPacked3() { return asuint(gSmokeConstants.Wind.z); }
+
 float SmokeVisualShapeExtinction(float baseExtinction)
 {
 	const float base = max(isfinite(baseExtinction) ? baseExtinction : 0.0, 0.0);
 	if (base <= 0.0)
 		return 0.0;
 
-	const float2 toe = SmokeVisualUnpackHalf2(gSmokeConstants.Visual0);
-	const float2 middle = SmokeVisualUnpackHalf2(gSmokeConstants.Visual1);
-	const float2 shoulderControls = SmokeVisualUnpackHalf2(gSmokeConstants.Visual2);
+	const float2 toe = SmokeVisualUnpackHalf2(SmokeVisualPacked0());
+	const float2 middle = SmokeVisualUnpackHalf2(SmokeVisualPacked1());
+	const float2 shoulderControls = SmokeVisualUnpackHalf2(SmokeVisualPacked2());
 	const float threshold = max(toe.x, 0.0);
 	const float knee = max(toe.y, 0.0);
 	float shaped = base;
@@ -82,13 +87,14 @@ void SmokeVisualShapeMedium(float baseExtinction, float3 baseScattering,
 	float3 baseSource, out float extinction, out float3 scattering, out float3 source)
 {
 	extinction = SmokeVisualShapeExtinction(baseExtinction);
-	const float colorPivot = max(SmokeVisualUnpackHalf2(gSmokeConstants.Visual2).y, 0.0);
+	const float colorPivot = max(SmokeVisualUnpackHalf2(SmokeVisualPacked2()).y, 0.0);
 	const float colorWidth = colorPivot * 0.5;
 	const float colorLow = max(colorPivot - colorWidth, 0.0);
 	const float colorHigh = max(colorPivot + colorWidth, colorLow + 1e-6);
 	const float colorWeight = smoothstep(colorLow, colorHigh, extinction);
-	const float3 tint = lerp(SmokeVisualUnpackColor(gSmokeConstants.Visual3),
-		SmokeVisualUnpackColor(gSmokeConstants.Visual3 >> 15u), colorWeight);
+	const uint packedColors = SmokeVisualPacked3();
+	const float3 tint = lerp(SmokeVisualUnpackColor(packedColors),
+		SmokeVisualUnpackColor(packedColors >> 15u), colorWeight);
 	const float3 safeScattering = max(all(isfinite(baseScattering)) ? baseScattering : 0.0, 0.0);
 	const float3 safeTint = max(tint, 0.0);
 	scattering = float3(

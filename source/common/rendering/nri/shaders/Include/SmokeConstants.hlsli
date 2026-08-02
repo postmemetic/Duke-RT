@@ -52,6 +52,7 @@ struct SmokeConstants
     float TanHalfFovY;
 
     float3 CameraPosition;
+    // Simulation dispatch: time scale. Volume dispatch: packed visual word 0.
     float TimeScale;
 
     float3 CameraForward;
@@ -63,6 +64,7 @@ struct SmokeConstants
     float3 CameraUp;
     float DirectionalDirectionZ;
 
+    // Simulation dispatch: world wind. Volume dispatch: packed visual words 1..3.
     float3 Wind;
     float DirectionalAngularSize;
 
@@ -78,10 +80,6 @@ struct SmokeConstants
 
     float2 CurrentJitter;
 
-    uint Visual0;
-    uint Visual1;
-    uint Visual2;
-    uint Visual3;
 };
 
 uint SmokeDebugMode(uint packedDebugMode) { return packedDebugMode & 0xffu; }

@@ -67,16 +67,24 @@ namespace
 	{
 		return (uint32_t)FloatToHalf(low) | ((uint32_t)FloatToHalf(high) << 16u);
 	}
+
+	void StorePackedWord(float& destination, uint32_t word)
+	{
+		std::memcpy(&destination, &word, sizeof(word));
+	}
 }
 
 void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,
 	NRISmokeConstants& constants)
 {
-	constants.visuals[0] = PackHalf2(settings.extinctionThreshold, settings.extinctionKnee);
-	constants.visuals[1] = PackHalf2(settings.extinctionGamma, settings.extinctionReference);
-	constants.visuals[2] = PackHalf2(settings.extinctionShoulder, settings.colorPivot);
-	constants.visuals[3] = PackColor15(settings.thinColor) |
-		(PackColor15(settings.coreColor) << 15u);
+	StorePackedWord(constants.timeScale,
+		PackHalf2(settings.extinctionThreshold, settings.extinctionKnee));
+	StorePackedWord(constants.wind[0],
+		PackHalf2(settings.extinctionGamma, settings.extinctionReference));
+	StorePackedWord(constants.wind[1],
+		PackHalf2(settings.extinctionShoulder, settings.colorPivot));
+	StorePackedWord(constants.wind[2], PackColor15(settings.thinColor) |
+		(PackColor15(settings.coreColor) << 15u));
 }
 
 uint64_t NRIHashSmokeVisualSettings(const NRISmokeVisualSettings& settings)

@@ -45,10 +45,13 @@ foreach ($default in @(
 Assert-Match $settings 'nri_ptsmokedebug,\s*0,\s*21' 'Smoke debug must expose field modes 12 through 21.'
 Assert-Match $settings 'extinctionThreshold[\s\S]*extinctionKnee[\s\S]*extinctionGamma[\s\S]*extinctionReference[\s\S]*extinctionShoulder[\s\S]*thinColor[\s\S]*coreColor[\s\S]*colorPivot' 'Every visual control must enter the per-frame settings snapshot.'
 
-# Four appended words are the exact remaining D3D12 root-signature budget:
-# 58 constant DWORDs plus six descriptor tables equals 64 DWORDs.
-Assert-Match $contracts 'uint32_t\s+visuals\[4\][\s\S]*sizeof\(NRISmokeConstants\)\s*==\s*232[\s\S]*offsetof\(NRISmokeConstants,\s*visuals\)\s*==\s*216' 'CPU visual constants must append four words at byte 216 and end at 232 bytes.'
-Assert-Match $constants 'float2\s+CurrentJitter;\s*uint\s+Visual0;\s*uint\s+Visual1;\s*uint\s+Visual2;\s*uint\s+Visual3;' 'HLSL visual words must remain scalar so they append at bytes 216 through 228 without uint4 register alignment.'
+# D3D12 rejects even the nominally 64-DWORD expanded signature. Volume-only
+# visual words therefore reuse the simulation-only time/wind lanes and retain
+# the proven 216-byte root layout without changing simulation dispatch values.
+Assert-Match $contracts 'Simulation dispatch:\s*time scale\.\s*Volume dispatch:\s*packed smoke visual word 0[\s\S]*Simulation dispatch:\s*world wind\.\s*Volume dispatch:\s*packed visual words 1\.\.3[\s\S]*sizeof\(NRISmokeConstants\)\s*==\s*216' 'CPU visual packing must reuse the phase-exclusive time/wind lanes and preserve 216 bytes.'
+Assert-Match $constants 'Simulation dispatch:\s*time scale\.\s*Volume dispatch:\s*packed visual word 0[\s\S]*Simulation dispatch:\s*world wind\.\s*Volume dispatch:\s*packed visual words 1\.\.3' 'HLSL must document the matching phase-exclusive visual lanes.'
+Assert-Match (Read-Source 'source\common\rendering\nri\renderer\nri_smoke_visuals.cpp') 'StorePackedWord\(constants\.timeScale[\s\S]*StorePackedWord\(constants\.wind\[0\][\s\S]*StorePackedWord\(constants\.wind\[1\][\s\S]*StorePackedWord\(constants\.wind\[2\]' 'CPU visual packing must populate all four reused lanes.'
+Assert-Match $visuals 'SmokeVisualPacked0\(\).*TimeScale[\s\S]*SmokeVisualPacked1\(\).*Wind\.x[\s\S]*SmokeVisualPacked2\(\).*Wind\.y[\s\S]*SmokeVisualPacked3\(\).*Wind\.z' 'Shader visual decoding must read the same four reused lanes.'
 Assert-Match $renderer 'requiredRootConstantSize\s*=\s*std::max\(\{[^}]*sizeof\(NRISmokeConstants\)' 'Backend availability must include the enlarged smoke root block.'
 
 # Diagnostics are grid-only current-field views: shared dense/compact math,
