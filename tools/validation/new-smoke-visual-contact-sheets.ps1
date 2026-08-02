@@ -106,7 +106,12 @@ if ([string]::IsNullOrWhiteSpace($VariantFile)) {
         '01-history-off-baseline', '04-isotropic', '05-backward-phase', '06-forward-phase',
         '09-multiple-scatter-half', '10-multiple-scatter-full', '11-self-shadow-diagnostic') }) -Name 'contact-sheet-phase-lighting.png'
 } else {
-    if (@($items | Where-Object { $_.id -eq '90-rotation-reference' }).Count -gt 0) {
+    if (@($items | Where-Object { $_.id -eq '100-carrier-identity' }).Count -gt 0) {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^10[0-3]-' }) -Name 'contact-sheet-thickness.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^100-|^10[4-6]-' }) -Name 'contact-sheet-flow.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^100-|^10[7-9]-|^110-' }) -Name 'contact-sheet-illustrative.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^100-|^11[0-2]-' }) -Name 'contact-sheet-combined.png'
+    } elseif (@($items | Where-Object { $_.id -eq '90-rotation-reference' }).Count -gt 0) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^9[0-9]-' }) -Name 'contact-sheet-pinched-waver-crossbreeds.png'
     } elseif (@($items | Where-Object { $_.id -eq '80-first-pass-chunky-reference' }).Count -gt 0) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^8[0-5]-' }) -Name 'contact-sheet-pulse-vorticity-refinement.png'

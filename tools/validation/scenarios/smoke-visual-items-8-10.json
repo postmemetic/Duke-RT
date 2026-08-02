@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "description": "Twenty-second fixed-save gallery for smoke visual menu items 8-10 on the selected variant-97 billow standard",
+  "variants": [
+    {
+      "id": "100-carrier-identity",
+      "label": "Items 8-10 identity on selected billows",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0 }
+    },
+    {
+      "id": "101-thickness-subtle",
+      "label": "Subtle deep-body powder lift",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokethicknessstrength": 0.25, "nri_ptsmokethicknesspivot": 0.50, "nri_ptsmokethicknesssteps": 2 }
+    },
+    {
+      "id": "102-thickness-powder-core",
+      "label": "Strong four-cell powder body",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokethicknessstrength": 0.55, "nri_ptsmokethicknesspivot": 0.75, "nri_ptsmokethicknesssteps": 4 }
+    },
+    {
+      "id": "103-thickness-dark-core",
+      "label": "Directional deep-body darkening",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokethicknessstrength": -0.35, "nri_ptsmokethicknesspivot": 0.60, "nri_ptsmokethicknesssteps": 3 }
+    },
+    {
+      "id": "104-flow-ribbons",
+      "label": "Side-lit velocity ribbons",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokeflowhighlight": 0.45, "nri_ptsmokeflowspeedreference": 24 }
+    },
+    {
+      "id": "105-flow-rolling-wisps",
+      "label": "Vorticity-highlighted rolling wisps",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokeflowhighlight": 0.15, "nri_ptsmokeflowspeedreference": 24, "nri_ptsmokecurlhighlight": 0.65, "nri_ptsmokecurlreference": 0.50 }
+    },
+    {
+      "id": "106-flow-compression-pockets",
+      "label": "Rolling compression pockets",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokeflowhighlight": 0.15, "nri_ptsmokeflowspeedreference": 24, "nri_ptsmokecurlhighlight": 0.35, "nri_ptsmokecurlreference": 0.60, "nri_ptsmokecompressionsculpt": 0.50, "nri_ptsmokedivergencereference": 0.60 }
+    },
+    {
+      "id": "107-illustrative-soft-bands",
+      "label": "Soft four-step density bands",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandstrength": 0.65, "nri_ptsmokebandcount": 4, "nri_ptsmokebandsoftness": 0.35 }
+    },
+    {
+      "id": "108-illustrative-broad-bands",
+      "label": "Broad crisp density bands",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandstrength": 0.90, "nri_ptsmokebandcount": 2, "nri_ptsmokebandsoftness": 0.15 }
+    },
+    {
+      "id": "109-illustrative-ink-contours",
+      "label": "Absorptive ink contours",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.12, "nri_ptsmokecontourstrength": 0.55 }
+    },
+    {
+      "id": "110-illustrative-painterly",
+      "label": "Painterly bands and soft ink",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokebandstrength": 0.55, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.30, "nri_ptsmokecontourstrength": 0.30 }
+    },
+    {
+      "id": "111-carrier-combined",
+      "label": "Combined powder, rolling flow, and painterly grade",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokethicknessstrength": 0.25, "nri_ptsmokethicknesspivot": 0.50, "nri_ptsmokethicknesssteps": 3, "nri_ptsmokeflowhighlight": 0.20, "nri_ptsmokeflowspeedreference": 24, "nri_ptsmokecurlhighlight": 0.40, "nri_ptsmokecurlreference": 0.60, "nri_ptsmokecompressionsculpt": 0.20, "nri_ptsmokedivergencereference": 0.60, "nri_ptsmokebandstrength": 0.45, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.30, "nri_ptsmokecontourstrength": 0.25 }
+    },
+    {
+      "id": "112-carrier-combined-compact",
+      "label": "Combined carrier look, compact route",
+      "history": false,
+      "multiple": false,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokegridcurlevolution": 0.75, "nri_ptsmokegridvorticity": 1.0, "nri_ptsmokeviewroute": 2, "nri_ptsmokethicknessstrength": 0.25, "nri_ptsmokethicknesspivot": 0.50, "nri_ptsmokethicknesssteps": 3, "nri_ptsmokeflowhighlight": 0.20, "nri_ptsmokeflowspeedreference": 24, "nri_ptsmokecurlhighlight": 0.40, "nri_ptsmokecurlreference": 0.60, "nri_ptsmokecompressionsculpt": 0.20, "nri_ptsmokedivergencereference": 0.60, "nri_ptsmokebandstrength": 0.45, "nri_ptsmokebandcount": 3, "nri_ptsmokebandsoftness": 0.30, "nri_ptsmokecontourstrength": 0.25 }
+    }
+  ]
+}
