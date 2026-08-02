@@ -1,0 +1,178 @@
+{
+  "schema": 2,
+  "suite": "smoke-billow-pulse-vorticity",
+  "variants": [
+    {
+      "id": "70-feature-identity",
+      "label": "Identity control: pulse and rotational additions off",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "71-pulse-only",
+      "label": "Mean-preserving source pulse only",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.65,
+        "pulsePeriodCadences": 8,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmoketrace": 2
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "72-evolving-curl-only",
+      "label": "Temporally evolving curl only",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "73-vorticity-only",
+      "label": "Velocity-derived vorticity confinement only",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokegridvorticity": 1.0
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "74-rotation-pair",
+      "label": "Evolving curl plus vorticity, source unchanged",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "75-pulse-rotation-combined",
+      "label": "Controlled pulse plus rotational simulation additions",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.65,
+        "pulsePeriodCadences": 8,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "76-chunky-billow-candidate",
+      "label": "Chunky billows: narrower release, shorter persistence",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 14.0,
+        "densityHalfLife": 3.5,
+        "riseVelocity": 24.0,
+        "velocityRandom": 10.0,
+        "buoyancy": 4.0,
+        "drag": 0.08,
+        "turbulence": 72.0,
+        "turbulenceScale": 32.0,
+        "temperature": 4.0,
+        "coolingHalfLife": 4.0
+      },
+      "sourceOverrides": {
+        "radiusScale": 1.75,
+        "pulseAmount": 0.82,
+        "pulsePeriodCadences": 8,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "77-rolling-billow-candidate",
+      "label": "Rolling billows: slower curl phase and stronger confinement",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 16.0,
+        "densityHalfLife": 4.0,
+        "riseVelocity": 22.0,
+        "velocityRandom": 8.0,
+        "buoyancy": 3.5,
+        "drag": 0.06,
+        "turbulence": 96.0,
+        "turbulenceScale": 40.0,
+        "temperature": 4.0,
+        "coolingHalfLife": 4.0
+      },
+      "sourceOverrides": {
+        "radiusScale": 2.0,
+        "pulseAmount": 0.90,
+        "pulsePeriodCadences": 10,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.5,
+        "nri_ptsmokegridvorticity": 1.75,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    }
+  ]
+}

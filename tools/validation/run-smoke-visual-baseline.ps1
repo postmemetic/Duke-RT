@@ -139,6 +139,8 @@ $smokeDefaults = [ordered]@{
     nri_ptsmokedormantgrid = 'true'
     nri_ptsmokegridcellsize = '8'
     nri_ptsmokegridbuoyancy = '1'
+    nri_ptsmokegridcurlevolution = '0'
+    nri_ptsmokegridvorticity = '0'
     nri_ptsmokegridvelocitydamping = '0.15'
     nri_ptsmokegridwindcoupling = '0.5'
     nri_ptsmokegriddensityhalflifescale = '1'
@@ -220,6 +222,9 @@ $sourceDefaults = [ordered]@{
     velocityCone = 0.0
     velocityScale = 0.0
     intervalSeconds = 0.28
+    pulseAmount = 0.0
+    pulsePeriodCadences = 1
+    pulsePhase = 0.0
     startTime = 0.0
     startDistance = 0.0
     spacing = 0.0
@@ -254,6 +259,9 @@ $sourceOverrideDefinitions = [ordered]@{
     velocityCone = @{ type='number'; minimum=0.0; maximum=180.0 }
     velocityScale = @{ type='number'; minimum=0.0 }
     intervalSeconds = @{ type='number'; minimum=0.001 }
+    pulseAmount = @{ type='number'; minimum=0.0; maximum=1.0 }
+    pulsePeriodCadences = @{ type='integer'; minimum=1; maximum=256 }
+    pulsePhase = @{ type='phase' }
     startTime = @{ type='number'; minimum=0.0 }
     startDistance = @{ type='number'; minimum=0.0 }
     spacing = @{ type='number'; minimum=0.0 }
@@ -310,6 +318,14 @@ function Convert-TypedValue {
                 throw "$Context must be a JSON integer."
             }
             $normalized = [int]$Value
+        }
+        'phase' {
+            if (-not (Test-JsonNumber $Value)) { throw "$Context must be a JSON number." }
+            $phase = [double]$Value
+            if ([double]::IsNaN($phase) -or [double]::IsInfinity($phase)) {
+                throw "$Context must be finite."
+            }
+            return $phase - [math]::Floor($phase)
         }
         'vector3' {
             if ($Value -is [string] -or @($Value).Count -ne 3) { throw "$Context must be an array of three JSON numbers." }
@@ -581,6 +597,9 @@ LIGHTOVR
         velocitycone $(Format-OverlayFloat $source.velocityCone)
         velocityscale $(Format-OverlayFloat $source.velocityScale)
         intervalseconds $(Format-OverlayFloat $source.intervalSeconds)
+        pulseamount $(Format-OverlayFloat $source.pulseAmount)
+        pulseperiodcadences $($source.pulsePeriodCadences)
+        pulsephase $(Format-OverlayFloat $source.pulsePhase)
         starttime $(Format-OverlayFloat $source.startTime)
         startdistance $(Format-OverlayFloat $source.startDistance)
         spacing $(Format-OverlayFloat $source.spacing)
