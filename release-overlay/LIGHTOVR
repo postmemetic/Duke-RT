@@ -471,6 +471,9 @@ LIGHTOVR
         velocitycone 0.0
         velocityscale 0.0
         intervalseconds 0.28
+        pulseamount 0.90
+        pulseperiodcadences 12
+        pulsephase 0.7916667
         starttime 0.0
         startdistance 0.0
         spacing 0.0
