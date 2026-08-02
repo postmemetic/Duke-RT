@@ -1,0 +1,168 @@
+{
+  "schema": 2,
+  "suite": "smoke-billow-followup",
+  "variants": [
+    {
+      "id": "20-followup-control",
+      "label": "Current fire motion control",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {},
+      "sourceOverrides": {},
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "21-pulse084-radius225",
+      "label": "0.84 s pulse, source radius 15.75",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {},
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 2.25,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "22-pulse084-radius175",
+      "label": "0.84 s pulse, source radius 12.25",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {},
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 1.75,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "23-pulse084-radius150",
+      "label": "0.84 s pulse, source radius 10.5",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {},
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 1.5,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "24-radius175-half-life4",
+      "label": "Radius 12.25, density half-life 4 s",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "densityHalfLife": 4.0
+      },
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 1.75,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "25-radius175-tight-curl",
+      "label": "Radius 12.25, strong tight curl",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "turbulence": 84.0,
+        "turbulenceScale": 12.0
+      },
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 1.75,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "26-radius150-tight-curl",
+      "label": "Radius 10.5, strong tight curl",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "turbulence": 84.0,
+        "turbulenceScale": 12.0
+      },
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 1.5,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    },
+    {
+      "id": "27-chunky-meander",
+      "label": "Chunky meander candidate",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 14.0,
+        "densityHalfLife": 4.5,
+        "velocityRandom": 10.0,
+        "turbulence": 84.0,
+        "turbulenceScale": 12.0
+      },
+      "sourceOverrides": {
+        "count": 27,
+        "radiusScale": 1.5,
+        "intervalSeconds": 0.84
+      },
+      "settings": {},
+      "expectedNominalMassRate": 96.4286
+    }
+  ]
+}

@@ -8,6 +8,7 @@ function Require([bool]$Condition, [string]$Message) {
 }
 
 $scenario = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows.json' | ConvertFrom-Json
+$followup = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-followup.json' | ConvertFrom-Json
 $sheets = Read-RepoFile 'tools\validation\new-smoke-visual-contact-sheets.ps1'
 $variants = @($scenario.variants)
 
@@ -73,5 +74,21 @@ foreach ($name in @(
     Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
 }
 Require ($sheets -match "id\s+-eq\s+'00-motion-default'") 'Contact-sheet generator must explicitly recognize the billow suite.'
+
+$followupVariants = @($followup.variants)
+Require ([int]$followup.schema -eq 2) 'Billow follow-up scenario schema must be 2.'
+Require ([string]$followup.suite -eq 'smoke-billow-followup') 'Billow follow-up scenario must identify its suite.'
+Require ($followupVariants.Count -eq 8) 'Billow follow-up must contain eight controlled variants.'
+Require (@($followupVariants.id | Sort-Object -Unique).Count -eq $followupVariants.Count) 'Billow follow-up IDs must be unique.'
+foreach ($variant in $followupVariants) {
+    Require ([bool]$variant.history) "$($variant.id) must retain the current history-on beauty default."
+    Require (-not [bool]$variant.multiple) "$($variant.id) changed the multiple-scatter default."
+    Require (-not [bool]$variant.selfShadow) "$($variant.id) changed the self-shadow default."
+    Require ([math]::Abs([double]$variant.expectedNominalMassRate - 96.4286) -lt 1e-4) "$($variant.id) changed expected nominal mass rate."
+}
+Require ($sheets -match "id\s+-eq\s+'20-followup-control'") 'Contact-sheet generator must recognize the billow follow-up suite.'
+foreach ($name in @('contact-sheet-followup-radius.png', 'contact-sheet-followup-combined.png')) {
+    Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
+}
 
 Write-Host 'Smoke billow capture validation passed.'
