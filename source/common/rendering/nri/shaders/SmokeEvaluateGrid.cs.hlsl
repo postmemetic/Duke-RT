@@ -76,11 +76,12 @@ bool SmokeRenderDormantLookup(int3 coordinate, out uint archiveIndex)
 	return false;
 }
 
-void SmokeRenderGridLoadCell(int3 cell, out float4 scalar, out float4 optical,
-	out bool dormant)
+void SmokeRenderGridLoadCell(int3 cell, bool loadVelocity, out float4 scalar,
+	out float4 optical, out float4 velocity, out bool dormant)
 {
 	scalar = 0.0;
 	optical = 0.0;
+	velocity = 0.0;
 	dormant = false;
 	const int3 brickCoordinate = SmokeGridBrickCoordinate(cell);
 	uint brickIndex;
@@ -92,6 +93,9 @@ void SmokeRenderGridLoadCell(int3 cell, out float4 scalar, out float4 optical,
 		const bool fieldB = gSmokeRenderGridControl[0].FieldPing != 0u;
 		scalar = fieldB ? gSmokeRenderGridScalarB[cellIndex] : gSmokeRenderGridScalarA[cellIndex];
 		optical = fieldB ? gSmokeRenderGridOpticalB[cellIndex] : gSmokeRenderGridOpticalA[cellIndex];
+		if (loadVelocity)
+			velocity = fieldB ? gSmokeRenderGridVelocityB[cellIndex] :
+				gSmokeRenderGridVelocityA[cellIndex];
 		return;
 	}
 	uint archiveIndex;
@@ -99,24 +103,29 @@ void SmokeRenderGridLoadCell(int3 cell, out float4 scalar, out float4 optical,
 	const uint archiveCell = archiveIndex * NRI_SMOKE_DORMANT_GRID_CELLS_PER_BRICK + localIndex;
 	scalar = gSmokeDormantScalar[archiveCell];
 	optical = gSmokeDormantOptical[archiveCell];
+	if (loadVelocity) velocity = gSmokeDormantVelocity[archiveCell];
 	dormant = true;
 }
 
-void SmokeRenderGridSample(float3 worldPosition, float cellSize,
+void SmokeRenderGridSample(float3 worldPosition, float cellSize, bool loadVelocity,
 	out int3 lower, out float3 blend, out float4 scalarCorners[8], out float4 opticalCorners[8],
-	out float4 scalar, out float4 optical, out bool dormant)
+	out float4 velocityCorners[8], out float4 scalar, out float4 optical,
+	out float4 velocity, out bool dormant, out uint dormantMask)
 {
 	const float3 gridPosition = worldPosition / cellSize - 0.5;
 	lower = (int3)floor(gridPosition);
 	blend = frac(gridPosition);
 	dormant = false;
+	dormantMask = 0u;
 	[unroll]
 	for (uint i = 0u; i < 8u; ++i)
 	{
 		const int3 offset = int3(i & 1u, (i >> 1u) & 1u, (i >> 2u) & 1u);
 		bool cornerDormant;
-		SmokeRenderGridLoadCell(lower + offset, scalarCorners[i], opticalCorners[i], cornerDormant);
+		SmokeRenderGridLoadCell(lower + offset, loadVelocity, scalarCorners[i],
+			opticalCorners[i], velocityCorners[i], cornerDormant);
 		dormant = dormant || cornerDormant;
+		if (cornerDormant) dormantMask |= 1u << i;
 	}
 	const float4 s00 = lerp(scalarCorners[0], scalarCorners[1], blend.x);
 	const float4 s10 = lerp(scalarCorners[2], scalarCorners[3], blend.x);
@@ -126,8 +135,67 @@ void SmokeRenderGridSample(float3 worldPosition, float cellSize,
 	const float4 o10 = lerp(opticalCorners[2], opticalCorners[3], blend.x);
 	const float4 o01 = lerp(opticalCorners[4], opticalCorners[5], blend.x);
 	const float4 o11 = lerp(opticalCorners[6], opticalCorners[7], blend.x);
+	const float4 v00 = lerp(velocityCorners[0], velocityCorners[1], blend.x);
+	const float4 v10 = lerp(velocityCorners[2], velocityCorners[3], blend.x);
+	const float4 v01 = lerp(velocityCorners[4], velocityCorners[5], blend.x);
+	const float4 v11 = lerp(velocityCorners[6], velocityCorners[7], blend.x);
 	scalar = lerp(lerp(s00, s10, blend.y), lerp(s01, s11, blend.y), blend.z);
 	optical = lerp(lerp(o00, o10, blend.y), lerp(o01, o11, blend.y), blend.z);
+	velocity = lerp(lerp(v00, v10, blend.y), lerp(v01, v11, blend.y), blend.z);
+}
+
+float SmokeRenderGridThicknessGain(int3 lower, float3 blend, float3 lobes[6],
+	float confidence, float extinction, float cellSize)
+{
+	if (!SmokeVisualThicknessEnabled() || extinction <= 1e-6)
+		return 1.0;
+	float luminance[6];
+	float totalLuminance = 0.0;
+	[unroll]
+	for (uint lobe = 0u; lobe < 6u; ++lobe)
+	{
+		luminance[lobe] = max(SmokeVisualLuminance(lobes[lobe]), 0.0);
+		totalLuminance += luminance[lobe];
+	}
+	const float3 directional = float3(luminance[0] - luminance[1],
+		luminance[2] - luminance[3], luminance[4] - luminance[5]);
+	const float directionalLength = length(directional);
+	if (totalLuminance <= 1e-6 || directionalLength <= 1e-6)
+		return 1.0;
+	const float directionality = saturate(directionalLength / totalLuminance);
+	const float2 confidenceSettings = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked2());
+	const float2 directionSettings = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked3());
+	const float evidence = SmokeVisualEvidenceGate(confidence, confidenceSettings.y) *
+		SmokeVisualEvidenceGate(directionality, directionSettings.x);
+	if (evidence <= 0.0)
+		return 1.0;
+	const float3 absoluteDirection = abs(directional);
+	const uint axis = absoluteDirection.x >= absoluteDirection.y &&
+		absoluteDirection.x >= absoluteDirection.z ? 0u :
+		(absoluteDirection.y >= absoluteDirection.z ? 1u : 2u);
+	const uint face = axis * 2u + (directional[axis] < 0.0 ? 1u : 0u);
+	int3 cursor = lower + int3(blend.x >= 0.5, blend.y >= 0.5, blend.z >= 0.5);
+	float opticalDepth = extinction * cellSize;
+	const float2 strengthAndPivot = SmokeVisualUnpackHalf2(SmokeVisualThicknessPacked0());
+	const uint stepCount = (uint)clamp(round(
+		SmokeVisualUnpackHalf2(SmokeVisualThicknessPacked1()).x), 1.0, 4.0);
+	[loop]
+	for (uint stepIndex = 0u; stepIndex < stepCount; ++stepIndex)
+	{
+		if (!SmokeGridLightDirectedFaceOpen(cursor, face)) break;
+		cursor += NRI_SMOKE_GRID_LIGHT_LOBE_AXES[face];
+		uint cellIndex, generation;
+		if (!SmokeGridLightCellAddress(cursor, cellIndex, generation)) break;
+		const bool fieldB = gSmokeRenderGridControl[0].FieldPing != 0u;
+		const float4 scalar = fieldB ? gSmokeRenderGridScalarB[cellIndex] :
+			gSmokeRenderGridScalarA[cellIndex];
+		opticalDepth += max(scalar.z * gSmokeConstants.DensityScale, 0.0) * cellSize;
+	}
+	const float pivot = max(strengthAndPivot.y, 0.001);
+	const float body = smoothstep(pivot * 0.5, pivot * 1.5, opticalDepth);
+	const float stops = clamp(strengthAndPivot.x * body * evidence, -1.0, 1.0);
+	const float gain = exp2(stops);
+	return isfinite(gain) ? gain : 1.0;
 }
 
 bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
@@ -197,7 +265,7 @@ bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
 
 void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 scalar,
 	out float4 optical, out float3 source, out float fieldDebugExtinction,
-	out float edgeMask, out float edgeFacingMask, out bool dormant)
+	out float edgeMask, out float edgeFacingMask, out float flowSculpt, out bool dormant)
 {
 	const float sliceNearDepth = SmokeSliceNearDepth(froxel.z);
 	const float sliceFarDepth = SmokeSliceFarDepth(froxel.z);
@@ -223,10 +291,13 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	float integratedEdge = 0.0;
 	float integratedEdgeFacing = 0.0;
 	float integratedEdgeWeight = 0.0;
+	float integratedFlowSculpt = 0.0;
+	float integratedFlowWeight = 0.0;
 	dormant = false;
 	const uint worldDebugMode = (gSmokeConstants.Flags >> NRI_SMOKE_GRID_LIGHT_DEBUG_SHIFT) & 7u;
 	const uint smokeDebugMode = SmokeDebugMode(gSmokeConstants.DebugMode);
 	const uint fieldDebugMode = smokeDebugMode >= 12u ? smokeDebugMode - 11u : 0u;
+	const bool flowEnabled = fieldDebugMode == 0u && SmokeVisualFlowEnabled();
 	[loop]
 	for (uint footprintY = 0u; footprintY < footprintSampleCount.y; ++footprintY)
 	{
@@ -249,9 +320,13 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 				float3 gridBlend;
 				float4 scalarCorners[8];
 				float4 opticalCorners[8];
+				float4 velocityCorners[8];
+				float4 sampleVelocity;
 				bool sampleDormant;
-				SmokeRenderGridSample(samplePosition, cellSize, gridLower, gridBlend,
-					scalarCorners, opticalCorners, sampleScalar, sampleOptical, sampleDormant);
+				uint sampleDormantMask;
+				SmokeRenderGridSample(samplePosition, cellSize, flowEnabled, gridLower, gridBlend,
+					scalarCorners, opticalCorners, velocityCorners, sampleScalar, sampleOptical,
+					sampleVelocity, sampleDormant, sampleDormantMask);
 				dormant = dormant || sampleDormant;
 				integratedScalar += sampleScalar;
 				integratedOptical += sampleOptical;
@@ -270,6 +345,17 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 					integratedEdge += sampleEdge * sampleExtinction;
 					integratedEdgeFacing += sampleFacing * sampleExtinction;
 					integratedEdgeWeight += sampleExtinction;
+				}
+				float sampleFlowGain = 1.0;
+				float sampleFlowSculpt = 0.0;
+				if (flowEnabled && sampleExtinction > 0.0)
+				{
+					const float3 viewRay = normalize(samplePosition - gSmokeConstants.CameraPosition);
+					SmokeVisualFlowSample(scalarCorners, velocityCorners, sampleScalar,
+						sampleVelocity, gridBlend, cellSize, viewRay, sampleEdge,
+						sampleDormantMask, sampleFlowGain, sampleFlowSculpt);
+					integratedFlowSculpt += sampleFlowSculpt * sampleExtinction;
+					integratedFlowWeight += sampleExtinction;
 				}
 				const bool massSupport = fieldDebugMode == NRI_SMOKE_FIELD_DEBUG_MASS ||
 					fieldDebugMode == NRI_SMOKE_FIELD_DEBUG_THERMAL;
@@ -300,7 +386,9 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 						[unroll] for (uint lobe = 0u; lobe < 6u; ++lobe) lobeSum += lobes[lobe];
 						const float3 incidentContribution = SmokeGridClampControlledSource(
 							phaseApplied * gSmokeConstants.RadianceScale);
-						integratedSource += correlatedSource;
+						const float thicknessGain = SmokeRenderGridThicknessGain(gridLower,
+							gridBlend, lobes, confidence, sampleExtinction, cellSize);
+						integratedSource += correlatedSource * thicknessGain * sampleFlowGain;
 						if (fieldDebugMode >= NRI_SMOKE_FIELD_DEBUG_LOBE_SUM &&
 							fieldDebugMode <= NRI_SMOKE_FIELD_DEBUG_LOBE_CONFIDENCE)
 						{
@@ -349,6 +437,8 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	fieldDebugExtinction = integratedFieldDebugExtinction * sampleWeight;
 	edgeMask = integratedEdgeWeight > 1e-6 ? integratedEdge / integratedEdgeWeight : 0.0;
 	edgeFacingMask = integratedEdgeWeight > 1e-6 ? integratedEdgeFacing / integratedEdgeWeight : 0.0;
+	flowSculpt = integratedFlowWeight > 1e-6 ?
+		integratedFlowSculpt / integratedFlowWeight : 0.0;
 	if (fieldDebugMode != 0u)
 		source = integratedFieldDebug;
 	else if (SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) != 0u)
@@ -383,9 +473,10 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	float fieldDebugExtinction;
 	float edgeMask;
 	float edgeFacingMask;
+	float flowSculpt;
 	bool dormant;
 	SmokeRenderGridIntegrateFroxel(dispatchThreadId, cellSize, scalar, optical, source,
-		fieldDebugExtinction, edgeMask, edgeFacingMask, dormant);
+		fieldDebugExtinction, edgeMask, edgeFacingMask, flowSculpt, dormant);
 	// Deposition stores density-weighted sigma_t and sigma_s coefficients in
 	// inverse world units. Cell size controls sampling support only; dividing the
 	// coefficients by it again made the canonical eight-unit grid 8x too faint.
@@ -407,10 +498,13 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	{
 		float3 shapedSource;
 		const float sculptedBaseExtinction = SmokeVisualSculptExtinction(baseExtinction, edgeMask);
-		SmokeVisualShapeMedium(baseExtinction, sculptedBaseExtinction, baseScattering, source,
+		const float flowSculptedExtinction = sculptedBaseExtinction *
+			exp2(clamp(flowSculpt, -1.0, 1.0));
+		SmokeVisualShapeMedium(baseExtinction, flowSculptedExtinction, baseScattering, source,
 			extinction, scattering, shapedSource);
 		source = shapedSource;
 		SmokeVisualApplyGradientTint(edgeFacingMask, extinction, scattering, source);
+		SmokeVisualApplyIllustration(extinction, scattering, source);
 		nonThermalSourcePresent = any(source > 0.0);
 		const float thermal = scalar.x > 1e-6 ? max(scalar.y / scalar.x, 0.0) : 0.0;
 		SmokeVisualApplyThermal(thermal, extinction, scattering, source, thermalEmission);

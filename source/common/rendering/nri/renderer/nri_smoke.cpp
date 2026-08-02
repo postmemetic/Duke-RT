@@ -3291,6 +3291,14 @@ void NRISmokeSystem::PrintStatus(const NRIRenderer& renderer) const
 		mSettings.visuals.radianceEdgeChroma, mSettings.visuals.radianceCavityContrast,
 		mSettings.visuals.radianceDesaturation, mSettings.visuals.radianceConfidence,
 		mSettings.visuals.radianceDirectionality);
+	Printf("NRI PT smoke visual carrier: thickness=%.3f/%.3f/%u flow=%.3f/%.3f curl=%.3f/%.3f compression=%.3f/%.3f bands=%.3f/%u/%.3f contour=%.3f grid_only=yes current_field_only=yes\n",
+		mSettings.visuals.thicknessStrength, mSettings.visuals.thicknessPivot,
+		(uint32_t)mSettings.visuals.thicknessSteps,
+		mSettings.visuals.flowHighlight, mSettings.visuals.flowSpeedReference,
+		mSettings.visuals.curlHighlight, mSettings.visuals.curlReference,
+		mSettings.visuals.compressionSculpt, mSettings.visuals.divergenceReference,
+		mSettings.visuals.bandStrength, (uint32_t)mSettings.visuals.bandCount,
+		mSettings.visuals.bandSoftness, mSettings.visuals.contourStrength);
 	Printf("NRI PT smoke work profile: requested=%u effective=%u name=%s revision=%u change_serial=%u supported=%08x enforced=%08x unrestricted=%u froxel_pixels=%u froxel_depth=%u emissive_lights=%u emissive_backend=%u light_samples=%u light_candidates=%u emission_commands=%u first_use_sources=%u analytic_carriers=%u admission_brick_requests=%u deposition_cell_visits=%u projection_work_units=%u materialized_froxels=%u radiance_new_invalid=%u radiance_maintenance=%u world_link_rays=%u direct_receiver_samples=%u dormant_archives=%u dormant_promotions=%u dormant_evolution=%u simulation_substeps=%u emission=%u/%u/%u first_use=%u/%u/%u analytic=%u/%u/%u simulation=%u/%u/%u debt=%u debt_max=%u capped_consecutive=%u capped_total=%llu policy=static-no-timing-input\n",
 		work.requestedProfile, (uint32_t)work.effectiveProfile,
 		NRISmokeWorkScheduler::ProfileName(work.effectiveProfile), work.table.revision,

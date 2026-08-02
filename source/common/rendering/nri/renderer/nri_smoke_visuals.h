@@ -33,6 +33,19 @@ struct NRISmokeVisualSettings
 	float radianceDesaturation = 0.0f;
 	float radianceConfidence = 0.25f;
 	float radianceDirectionality = 0.15f;
+	float thicknessStrength = 0.0f;
+	float thicknessPivot = 0.12f;
+	float thicknessSteps = 2.0f;
+	float flowHighlight = 0.0f;
+	float flowSpeedReference = 32.0f;
+	float curlHighlight = 0.0f;
+	float curlReference = 1.0f;
+	float compressionSculpt = 0.0f;
+	float divergenceReference = 1.0f;
+	float bandStrength = 0.0f;
+	float bandCount = 4.0f;
+	float bandSoftness = 0.25f;
+	float contourStrength = 0.0f;
 };
 
 void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,

@@ -52,6 +52,13 @@ uint SmokeVisualRadiancePacked0() { return asuint(gSmokeConstants.DirectionalDir
 uint SmokeVisualRadiancePacked1() { return asuint(gSmokeConstants.DirectionalDirectionY); }
 uint SmokeVisualRadiancePacked2() { return asuint(gSmokeConstants.DirectionalDirectionZ); }
 uint SmokeVisualRadiancePacked3() { return asuint(gSmokeConstants.DirectionalAngularSize); }
+uint SmokeVisualThicknessPacked0() { return gSmokeConstants.RuntimeLightTileCountX; }
+uint SmokeVisualThicknessPacked1() { return gSmokeConstants.RuntimeLightTileCountY; }
+uint SmokeVisualFlowPacked0() { return gSmokeConstants.ParticleCapacity; }
+uint SmokeVisualFlowPacked1() { return gSmokeConstants.CommandCount; }
+uint SmokeVisualFlowPacked2() { return gSmokeConstants.StyleCount; }
+uint SmokeVisualIllustrationPacked0() { return gSmokeConstants.RuntimeLightCount; }
+uint SmokeVisualIllustrationPacked1() { return gSmokeConstants.LightSamples; }
 
 float SmokeVisualDensityColorWeight(float extinction)
 {
@@ -159,9 +166,35 @@ bool SmokeVisualRadianceEnabled()
 	return any(abs(rim) > 1e-6) || any(abs(shaping) > 1e-6) || desaturation > 1e-6;
 }
 
+bool SmokeVisualThicknessEnabled()
+{
+	return abs(SmokeVisualUnpackHalf2(SmokeVisualThicknessPacked0()).x) > 1e-6;
+}
+
+bool SmokeVisualFlowEnabled()
+{
+	const float2 flow = SmokeVisualUnpackHalf2(SmokeVisualFlowPacked0());
+	const float2 curl = SmokeVisualUnpackHalf2(SmokeVisualFlowPacked1());
+	const float compression = SmokeVisualUnpackHalf2(SmokeVisualFlowPacked2()).x;
+	return flow.x > 1e-6 || curl.x > 1e-6 || abs(compression) > 1e-6;
+}
+
+bool SmokeVisualFlowBoundaryRequired()
+{
+	return SmokeVisualUnpackHalf2(SmokeVisualFlowPacked1()).x > 1e-6;
+}
+
+bool SmokeVisualIllustrationEnabled()
+{
+	const float band = SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked0()).x;
+	const float contour = SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked1()).y;
+	return band > 1e-6 || contour > 1e-6;
+}
+
 bool SmokeVisualBoundaryRequired()
 {
-	return SmokeVisualGradientEnabled() || SmokeVisualRadianceEnabled();
+	return SmokeVisualGradientEnabled() || SmokeVisualRadianceEnabled() ||
+		SmokeVisualFlowBoundaryRequired();
 }
 
 float3 SmokeVisualExtinctionGradient(float4 scalarCorners[8], float3 blend,
@@ -303,6 +336,42 @@ void SmokeVisualApplyGradientTint(float facing, float extinction,
 		lerp(1.0, tintColor, saturate(facing * tintStrength)), scattering, source);
 }
 
+void SmokeVisualApplyIllustration(inout float extinction,
+	inout float3 scattering, inout float3 source)
+{
+	if (!SmokeVisualIllustrationEnabled() || extinction <= 1e-6)
+		return;
+	const float2 bandSettings = SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked0());
+	const float2 contourSettings = SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked1());
+	const float bandStrength = saturate(bandSettings.x);
+	const float bandCount = clamp(round(bandSettings.y), 2.0, 9.0);
+	const float softness = clamp(contourSettings.x, 0.02, 0.49);
+	const float contourStrength = saturate(contourSettings.y);
+	const float scaled = log2(max(extinction, 1e-6)) * bandCount;
+	const float level = floor(scaled);
+	const float fraction = frac(scaled);
+	const float softLevel = level + smoothstep(0.5 - softness, 0.5 + softness, fraction);
+	const float bandedExtinction = exp2(softLevel / bandCount);
+	const float baseExtinction = extinction;
+	extinction = max(lerp(baseExtinction, bandedExtinction, bandStrength), 0.0);
+	float3 remappedScattering;
+	remappedScattering.x = SmokeVisualShapeScatteringChannel(baseExtinction,
+		extinction, scattering.x, 1.0);
+	remappedScattering.y = SmokeVisualShapeScatteringChannel(baseExtinction,
+		extinction, scattering.y, 1.0);
+	remappedScattering.z = SmokeVisualShapeScatteringChannel(baseExtinction,
+		extinction, scattering.z, 1.0);
+	const float3 incident = float3(
+		SmokeVisualIncidentChannel(source.x, scattering.x),
+		SmokeVisualIncidentChannel(source.y, scattering.y),
+		SmokeVisualIncidentChannel(source.z, scattering.z));
+	scattering = remappedScattering;
+	source = max(all(isfinite(incident * scattering)) ? incident * scattering : 0.0, 0.0);
+	const float contour = 1.0 - smoothstep(0.0, softness, abs(fraction - 0.5));
+	SmokeVisualApplyScatteringTint(extinction,
+		(1.0 - contourStrength * contour).xxx, scattering, source);
+}
+
 void SmokeVisualApplyThermal(float thermal, float extinction,
 	inout float3 scattering, inout float3 source, out bool emitted)
 {
@@ -341,6 +410,58 @@ float3 SmokeVisualExtinctionGradient(float4 scalarCorners[8], float3 blend,
 	const float dz1 = lerp(values[6] - values[2], values[7] - values[3], blend.x);
 	return float3(lerp(dx0, dx1, blend.z), lerp(dy0, dy1, blend.z),
 		lerp(dz0, dz1, blend.y)) / max(cellSize, 1e-6);
+}
+
+void SmokeVisualFlowSample(float4 scalarCorners[8], float4 velocityCorners[8],
+	float4 scalar, float4 velocity, float3 blend, float cellSize, float3 viewRay,
+	float edge, uint dormantMask, out float sourceGain, out float compressionStops)
+{
+	sourceGain = 1.0;
+	compressionStops = 0.0;
+	if (!SmokeVisualFlowEnabled() || scalar.x <= 1e-6)
+		return;
+	const float2 flowSettings = SmokeVisualUnpackHalf2(SmokeVisualFlowPacked0());
+	const float2 curlSettings = SmokeVisualUnpackHalf2(SmokeVisualFlowPacked1());
+	const float2 compressionSettings = SmokeVisualUnpackHalf2(SmokeVisualFlowPacked2());
+	const float speed = length(velocity.xyz);
+	const float3 flowDirection = speed > 1e-6 ? velocity.xyz / speed : 0.0;
+	const float speedGate = saturate(speed / max(flowSettings.y, 1.0));
+	const float sideFacing = 1.0 - abs(dot(flowDirection, viewRay));
+	float highlight = saturate(flowSettings.x) * speedGate * sideFacing * sideFacing;
+
+	float3 values[8];
+	float supportCount = 0.0;
+	[unroll]
+	for (uint corner = 0u; corner < 8u; ++corner)
+	{
+		const bool supported = scalarCorners[corner].x > 1e-6;
+		values[corner] = supported ? velocityCorners[corner].xyz : velocity.xyz;
+		supportCount += supported ? 1.0 : 0.0;
+	}
+	const float3 dx0 = lerp(values[1] - values[0], values[3] - values[2], blend.y);
+	const float3 dx1 = lerp(values[5] - values[4], values[7] - values[6], blend.y);
+	const float3 dy0 = lerp(values[2] - values[0], values[3] - values[1], blend.x);
+	const float3 dy1 = lerp(values[6] - values[4], values[7] - values[5], blend.x);
+	const float3 dz0 = lerp(values[4] - values[0], values[5] - values[1], blend.x);
+	const float3 dz1 = lerp(values[6] - values[2], values[7] - values[3], blend.x);
+	const float3 dvDx = lerp(dx0, dx1, blend.z) / max(cellSize, 1e-6);
+	const float3 dvDy = lerp(dy0, dy1, blend.z) / max(cellSize, 1e-6);
+	const float3 dvDz = lerp(dz0, dz1, blend.y) / max(cellSize, 1e-6);
+	const bool mixedAuthority = dormantMask != 0u && dormantMask != 0xffu;
+	const float derivativeGate = mixedAuthority ? 0.0 : smoothstep(2.0, 6.0, supportCount);
+	const float3 curl = float3(dvDy.z - dvDz.y, dvDz.x - dvDx.z,
+		dvDx.y - dvDy.x) * derivativeGate;
+	const float divergence = (dvDx.x + dvDy.y + dvDz.z) * derivativeGate;
+	const float turbulenceScale = max(velocity.w / max(scalar.x, 1e-6), 0.0);
+	const float turbulenceEvidence = saturate(turbulenceScale / max(cellSize, 1e-6));
+	const float curlGate = saturate(length(curl) / max(curlSettings.y, 0.01));
+	highlight += saturate(curlSettings.x) * curlGate * lerp(0.5, 1.0,
+		turbulenceEvidence) * lerp(0.25, 1.0, saturate(edge));
+	sourceGain = exp2(clamp(isfinite(highlight) ? highlight : 0.0, 0.0, 1.0));
+	const float normalizedCompression = clamp(-divergence /
+		max(compressionSettings.y, 0.01), -1.0, 1.0);
+	compressionStops = clamp(isfinite(normalizedCompression) ?
+		normalizedCompression * compressionSettings.x : 0.0, -1.0, 1.0);
 }
 
 float3 SmokeVisualLocalDiagnostic(uint mode, float4 scalar, float4 optical,

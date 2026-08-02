@@ -90,7 +90,7 @@ namespace
 		return PackHalf2(settings.dualLobeWeight, settings.dualLobeG);
 	}
 
-	std::array<uint32_t, 9> PackMaterializationWords(const NRISmokeVisualSettings& settings)
+	std::array<uint32_t, 16> PackMaterializationWords(const NRISmokeVisualSettings& settings)
 	{
 		return {
 			PackHalf2(settings.thermalLow, settings.thermalHigh),
@@ -103,7 +103,14 @@ namespace
 			PackHalf2(settings.rimStrength, settings.rimGain),
 			PackHalf2(settings.radianceEdgeChroma, settings.radianceCavityContrast),
 			PackHalf2(settings.radianceDesaturation, settings.radianceConfidence),
-			PackHalf2(settings.radianceDirectionality, 0.0f)
+			PackHalf2(settings.radianceDirectionality, 0.0f),
+			PackHalf2(settings.thicknessStrength, settings.thicknessPivot),
+			PackHalf2(settings.thicknessSteps, 0.0f),
+			PackHalf2(settings.flowHighlight, settings.flowSpeedReference),
+			PackHalf2(settings.curlHighlight, settings.curlReference),
+			PackHalf2(settings.compressionSculpt, settings.divergenceReference),
+			PackHalf2(settings.bandStrength, settings.bandCount),
+			PackHalf2(settings.bandSoftness, settings.contourStrength)
 		};
 	}
 }
@@ -124,7 +131,7 @@ void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,
 void NRIPopulateSmokeVisualMaterializationConstants(const NRISmokeVisualSettings& settings,
 	NRISmokeConstants& constants)
 {
-	const std::array<uint32_t, 9> words = PackMaterializationWords(settings);
+	const std::array<uint32_t, 16> words = PackMaterializationWords(settings);
 	StorePackedWord(constants.currentJitter[0], words[0]);
 	StorePackedWord(constants.currentJitter[1], words[1]);
 	StorePackedWord(constants.indirectScale, words[2]);
@@ -134,6 +141,13 @@ void NRIPopulateSmokeVisualMaterializationConstants(const NRISmokeVisualSettings
 	StorePackedWord(constants.directionalDirectionY, words[6]);
 	StorePackedWord(constants.directionalDirectionZ, words[7]);
 	StorePackedWord(constants.directionalAngularSize, words[8]);
+	constants.runtimeLightTileCountX = words[9];
+	constants.runtimeLightTileCountY = words[10];
+	constants.particleCapacity = words[11];
+	constants.commandCount = words[12];
+	constants.styleCount = words[13];
+	constants.runtimeLightCount = words[14];
+	constants.lightSamples = words[15];
 }
 
 void NRIPopulateSmokeVisualPhaseConstants(const NRISmokeVisualSettings& settings,

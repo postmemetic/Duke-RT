@@ -71,7 +71,7 @@ if ($compact -match 'SmokePrimarySampleUv|SmokeDirectionalColor|gSmokeConstants\
 # Gradient evaluation reuses the eight loaded corners, is coefficient weighted,
 # precedes item-2 transfer, and never changes raw field diagnostics.
 Assert-Match $evaluate 'SmokeRenderGridSample[\s\S]*SmokeVisualBoundarySample\(scalarCorners,\s*gridBlend,\s*cellSize[\s\S]*integratedEdge\s*\+=\s*sampleEdge\s*\*\s*sampleExtinction[\s\S]*integratedEdgeWeight\s*\+=\s*sampleExtinction' 'Beauty gradient must reuse and coefficient-weight the current quadrature corners.'
-Assert-Match $evaluate 'SmokeVisualSculptExtinction\(baseExtinction,\s*edgeMask\)[\s\S]*SmokeVisualShapeMedium\(baseExtinction,\s*sculptedBaseExtinction' 'Gradient sculpting must precede the item-2 transfer while retaining base albedo authority.'
+Assert-Match $evaluate 'SmokeVisualSculptExtinction\(baseExtinction,\s*edgeMask\)[\s\S]*flowSculptedExtinction[\s\S]*SmokeVisualShapeMedium\(baseExtinction,\s*flowSculptedExtinction' 'Gradient sculpting must precede the item-2 transfer while retaining base albedo authority.'
 Assert-Match $evaluate 'if\s*\(fieldDebugMode\s*==\s*0u\s*&&\s*SmokeVisualBoundaryRequired' 'Raw field diagnostics must bypass beauty boundary evaluation.'
 Assert-Match $visuals 'factor\s*=\s*exp2\(clamp\(stops,\s*-2\.0,\s*2\.0\)\)' 'Gradient sculpt factor must remain in the bounded four-stop range.'
 
