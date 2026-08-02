@@ -96,6 +96,9 @@ foreach ($name in @(
 )) {
     Assert-Match $capture ("{0}\s*=" -f $name) "Capture defaults do not pin $name."
 }
+Assert-Match $capture 'value\.StartsWith\(''-'',\s*\[StringComparison\]::Ordinal\)' 'Capture runner must detect leading-minus CVar values before startup argument serialization.'
+Assert-Match $capture '\$DeferredCommands\.Add' 'Capture runner must defer negative CVar values to the in-game console.'
+Assert-Match $capture '\$\{deferredSettings\}nri_ptautoexposurefreeze' 'Deferred negative CVar values must apply before smoke reset and evolution.'
 
 # CPU mirrors: normalized thermal is mass weighted, response is monotone, glow
 # cannot create coverage, and signed gradient factors stay finite and bounded.

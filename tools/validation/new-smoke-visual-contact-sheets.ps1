@@ -106,8 +106,14 @@ if ([string]::IsNullOrWhiteSpace($VariantFile)) {
         '01-history-off-baseline', '04-isotropic', '05-backward-phase', '06-forward-phase',
         '09-multiple-scatter-half', '10-multiple-scatter-full', '11-self-shadow-diagnostic') }) -Name 'contact-sheet-phase-lighting.png'
 } else {
-    New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }) -Name 'contact-sheet-field-diagnostics.png'
-    New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^2[2-7]-(shape|color)' }) -Name 'contact-sheet-optical-shaping.png'
+    if (@($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }).Count -gt 0) {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }) -Name 'contact-sheet-field-diagnostics.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^2[2-7]-(shape|color)' }) -Name 'contact-sheet-optical-shaping.png'
+    } else {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^28-|^2[9]-thermal|^3[0-3]-thermal' }) -Name 'contact-sheet-thermal.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^28-|^3[4-8]-gradient' }) -Name 'contact-sheet-gradient.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^28-|^3[9]-combined|^40-combined' }) -Name 'contact-sheet-combined.png'
+    }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($RepeatControlPath)) {

@@ -69,6 +69,22 @@ $smokeDefaults = [ordered]@{
     nri_ptsmokecorecolorg = '1'
     nri_ptsmokecorecolorb = '1'
     nri_ptsmokecolorpivot = '0.05'
+    nri_ptsmokethermallow = '1'
+    nri_ptsmokethermalhigh = '4'
+    nri_ptsmokethermaltintr = '1'
+    nri_ptsmokethermaltintg = '1'
+    nri_ptsmokethermaltintb = '1'
+    nri_ptsmokethermalglowr = '0'
+    nri_ptsmokethermalglowg = '0'
+    nri_ptsmokethermalglowb = '0'
+    nri_ptsmokegradientpivot = '0.5'
+    nri_ptsmokegradientwidth = '0.25'
+    nri_ptsmokeedgesculpt = '0'
+    nri_ptsmokeedgepowder = '0'
+    nri_ptsmokeedgetintr = '1'
+    nri_ptsmokeedgetintg = '1'
+    nri_ptsmokeedgetintb = '1'
+    nri_ptsmokeedgetintstrength = '0'
     nri_ptsmokepointlights = 'true'
     nri_ptsmokedirectionallight = 'true'
     nri_ptsmokeemissivelights = 'true'
@@ -179,9 +195,20 @@ if ($null -ne $resolvedVariantFile) {
 }
 
 function Add-SettingArguments {
-    param([Collections.Generic.List[object]]$Arguments, [Collections.IDictionary]$Settings)
+    param(
+        [Collections.Generic.List[object]]$Arguments,
+        [Collections.Generic.List[string]]$DeferredCommands,
+        [Collections.IDictionary]$Settings
+    )
     foreach ($entry in $Settings.GetEnumerator()) {
-        $Arguments.Add('+set'); $Arguments.Add([string]$entry.Key); $Arguments.Add([string]$entry.Value)
+        $value = [string]$entry.Value
+        if ($value.StartsWith('-', [StringComparison]::Ordinal)) {
+            # Raze's startup parser treats a leading-minus CVar value as another
+            # process option. Apply it through the console before smoke reset.
+            $DeferredCommands.Add(('{0} {1}' -f $entry.Key, $value))
+            continue
+        }
+        $Arguments.Add('+set'); $Arguments.Add([string]$entry.Key); $Arguments.Add($value)
     }
 }
 
@@ -250,16 +277,22 @@ foreach ($variant in $variants) {
     $settings.screenshotname = $variant.id
 
     $extraArguments = [Collections.Generic.List[object]]::new()
+    $deferredSettingCommands = [Collections.Generic.List[string]]::new()
     $extraArguments.Add('-file')
     $extraArguments.Add($overrideDirectory.Replace('\', '/'))
-    Add-SettingArguments -Arguments $extraArguments -Settings $settings
+    Add-SettingArguments -Arguments $extraArguments -DeferredCommands $deferredSettingCommands -Settings $settings
+    $deferredSettings = if ($deferredSettingCommands.Count -gt 0) {
+        ($deferredSettingCommands -join '; ') + '; '
+    } else {
+        ''
+    }
 
     $scenario = [ordered]@{
         name = 'smoke-visual-baseline-' + $variant.id
         backend = 'd3d12'
         description = $variant.label
         config = $configSnapshot
-        commands = "+wait 45; load $SaveName; wait 35; closemenu; nri_ptautoexposurefreeze false; nri_ptautoexposurereset; nri_ptreset; wait $SmokeEvolutionTics; nri_ptsmokestatus; nri_ptautoexposurefreeze true; wait 8; screenshot; wait 60"
+        commands = "+wait 45; load $SaveName; wait 35; closemenu; ${deferredSettings}nri_ptautoexposurefreeze false; nri_ptautoexposurereset; nri_ptreset; wait $SmokeEvolutionTics; nri_ptsmokestatus; nri_ptautoexposurefreeze true; wait 8; screenshot; wait 60"
         save = [ordered]@{ dir = $resolvedSaveDirectory.Path.Replace('\', '/'); name = $SaveName }
         capture = [ordered]@{ loopTraceFrames = 0; timeoutSeconds = $TimeoutSeconds; runs = 1; stopWhenLoopTraceFramesCaptured = $false; stopWhenPrefix = 'screenshot saved'; stopWhenPrefixCount = 1 }
         launch = [ordered]@{ file = $resolvedFile.Path.Replace('\', '/'); gameGrp = $GameGrp; extraArgs = $extraArguments.ToArray() }
