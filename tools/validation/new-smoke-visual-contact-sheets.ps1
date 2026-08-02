@@ -106,7 +106,9 @@ if ([string]::IsNullOrWhiteSpace($VariantFile)) {
         '01-history-off-baseline', '04-isotropic', '05-backward-phase', '06-forward-phase',
         '09-multiple-scatter-half', '10-multiple-scatter-full', '11-self-shadow-diagnostic') }) -Name 'contact-sheet-phase-lighting.png'
 } else {
-    if (@($items | Where-Object { $_.id -eq '80-first-pass-chunky-reference' }).Count -gt 0) {
+    if (@($items | Where-Object { $_.id -eq '90-rotation-reference' }).Count -gt 0) {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^9[0-9]-' }) -Name 'contact-sheet-pinched-waver-crossbreeds.png'
+    } elseif (@($items | Where-Object { $_.id -eq '80-first-pass-chunky-reference' }).Count -gt 0) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^8[0-5]-' }) -Name 'contact-sheet-pulse-vorticity-refinement.png'
     } elseif (@($items | Where-Object { $_.id -eq '70-feature-identity' }).Count -gt 0) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^7[0-4]-' }) -Name 'contact-sheet-pulse-vorticity-isolation.png'

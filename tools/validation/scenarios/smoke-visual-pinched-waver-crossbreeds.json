@@ -1,0 +1,221 @@
+{
+  "schema": 2,
+  "suite": "smoke-pinched-waver-crossbreeds",
+  "variants": [
+    {
+      "id": "90-rotation-reference",
+      "label": "74 reference: steady rotating column",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "91-short-pulse-reference",
+      "label": "75 reference: subtle short breathing",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.65,
+        "pulsePeriodCadences": 8,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "92-strong-short-lateral",
+      "label": "Strong short-cycle lateral breathing",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.85,
+        "pulsePeriodCadences": 8,
+        "pulsePhase": 0.0625
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "93-near-cancelled-waver",
+      "label": "Near-constant column with strong lateral seesaw",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.85,
+        "pulsePeriodCadences": 9,
+        "pulsePhase": 0.6388889
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "94-constant-mass-left-sweep",
+      "label": "Constant paired mass: left-biased sweep",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.75,
+        "pulsePeriodCadences": 10,
+        "pulsePhase": 0.1
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "95-constant-mass-right-sweep",
+      "label": "Constant paired mass: strong reversed sweep",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.95,
+        "pulsePeriodCadences": 10,
+        "pulsePhase": 0.6
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "96-slow-near-cancelled-wave",
+      "label": "Slower near-constant horizontal wave",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.9,
+        "pulsePeriodCadences": 11,
+        "pulsePhase": 0.4772727
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "97-balanced-breathing-waver",
+      "label": "Balanced breathing with strong lateral wave",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.9,
+        "pulsePeriodCadences": 12,
+        "pulsePhase": 0.7916667
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "98-medium-slow-pinch",
+      "label": "Medium-slow breathing and column pinch",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.65,
+        "pulsePeriodCadences": 16,
+        "pulsePhase": 0.65625
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "99-gentle-long-pinch",
+      "label": "Gentle long-period alternative to 81",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 0.55,
+        "pulsePeriodCadences": 20,
+        "pulsePhase": 0.175
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    }
+  ]
+}

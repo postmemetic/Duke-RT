@@ -11,6 +11,8 @@ $runner = Read-RepoFile 'tools\validation\run-smoke-visual-baseline.ps1'
 $sheets = Read-RepoFile 'tools\validation\new-smoke-visual-contact-sheets.ps1'
 $scenario = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-pulse-vorticity.json' | ConvertFrom-Json
 $variants = @($scenario.variants)
+$crossbreedScenario = Read-RepoFile 'tools\validation\scenarios\smoke-visual-pinched-waver-crossbreeds.json' | ConvertFrom-Json
+$crossbreeds = @($crossbreedScenario.variants)
 
 Require ($runner -match "nri_ptsmokegridcurlevolution\s*=\s*'0'") 'Capture defaults must explicitly disable temporal curl evolution.'
 Require ($runner -match "nri_ptsmokegridvorticity\s*=\s*'0'") 'Capture defaults must explicitly disable vorticity confinement.'
@@ -74,9 +76,50 @@ Require ([double]$byId['76-chunky-billow-candidate'].sourceOverrides.radiusScale
 Require ([double]$byId['77-rolling-billow-candidate'].settings.nri_ptsmokegridvorticity -eq 1.75) 'Rolling candidate must retain the stronger confinement bracket.'
 Require ([bool]$byId['77-rolling-billow-candidate'].settings.nri_ptsmokereadback) 'Rolling candidate must enable grid readback.'
 
+Require ([int]$crossbreedScenario.schema -eq 2) 'Pinched-waver capture scenario schema must be 2.'
+Require ([string]$crossbreedScenario.suite -eq 'smoke-pinched-waver-crossbreeds') 'Pinched-waver suite name changed.'
+Require ($crossbreeds.Count -eq 10) 'Pinched-waver matrix must contain exactly ten rows.'
+Require (@($crossbreeds.id | Sort-Object -Unique).Count -eq 10) 'Pinched-waver capture IDs must be unique.'
+$crossbreedById = @{}
+foreach ($variant in $crossbreeds) {
+    $crossbreedById[$variant.id] = $variant
+    Require ([bool]$variant.history) "$($variant.id) changed the history-on visual standard."
+    Require (-not [bool]$variant.multiple) "$($variant.id) changed multiple scattering."
+    Require (-not [bool]$variant.selfShadow) "$($variant.id) changed self shadowing."
+    Require ([math]::Abs([double]$variant.expectedNominalMassRate - 96.4285714286) -lt 1e-8) "$($variant.id) changed mean source mass rate."
+}
+$expectedCrossbreeds = @(
+    @{ id='90-rotation-reference'; amount=0.0; period=1; phase=0.0; steady=$true },
+    @{ id='91-short-pulse-reference'; amount=0.65; period=8; phase=0.0 },
+    @{ id='92-strong-short-lateral'; amount=0.85; period=8; phase=0.0625 },
+    @{ id='93-near-cancelled-waver'; amount=0.85; period=9; phase=0.6388889 },
+    @{ id='94-constant-mass-left-sweep'; amount=0.75; period=10; phase=0.1 },
+    @{ id='95-constant-mass-right-sweep'; amount=0.95; period=10; phase=0.6 },
+    @{ id='96-slow-near-cancelled-wave'; amount=0.90; period=11; phase=0.4772727 },
+    @{ id='97-balanced-breathing-waver'; amount=0.90; period=12; phase=0.7916667 },
+    @{ id='98-medium-slow-pinch'; amount=0.65; period=16; phase=0.65625 },
+    @{ id='99-gentle-long-pinch'; amount=0.55; period=20; phase=0.175 }
+)
+foreach ($expected in $expectedCrossbreeds) {
+    $variant = $crossbreedById[$expected.id]
+    Require ($null -ne $variant) "Missing pinched-waver row $($expected.id)."
+    Require ($null -eq $variant.PSObject.Properties['styleOverrides']) "$($expected.id) must retain the shared default style."
+    Require ([double]$variant.settings.nri_ptsmokegridcurlevolution -eq 0.75 -and
+        [double]$variant.settings.nri_ptsmokegridvorticity -eq 1.0) "$($expected.id) changed the shared rotation pair."
+    Require ([bool]$variant.settings.nri_ptsmokereadback) "$($expected.id) must enable readback."
+    if ($expected.ContainsKey('steady')) {
+        Require ($null -eq $variant.PSObject.Properties['sourceOverrides']) '74 reference must retain steady emission.'
+    } else {
+        Require ([math]::Abs([double]$variant.sourceOverrides.pulseAmount - [double]$expected.amount) -lt 1e-8) "$($expected.id) pulse amount changed."
+        Require ([int]$variant.sourceOverrides.pulsePeriodCadences -eq [int]$expected.period) "$($expected.id) pulse period changed."
+        Require ([math]::Abs([double]$variant.sourceOverrides.pulsePhase - [double]$expected.phase) -lt 1e-7) "$($expected.id) pulse phase changed."
+    }
+}
+
 Require ($sheets -match "id\s+-eq\s+'70-feature-identity'") 'Contact-sheet generator must recognize the pulse/vorticity suite.'
 foreach ($name in @('contact-sheet-pulse-vorticity-isolation.png', 'contact-sheet-pulse-vorticity-candidates.png')) {
     Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
 }
+Require ($sheets.Contains('contact-sheet-pinched-waver-crossbreeds.png')) 'Contact-sheet generator is missing the pinched-waver sheet.'
 
 Write-Host 'Smoke pulse/vorticity capture validation passed.'
