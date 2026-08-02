@@ -96,6 +96,7 @@ struct SmokeGridControl
 	uint CflClamps;
 	uint BacktraceClamps;
 	uint NanRejects;
+	uint VorticityClamps;
 	uint FieldHashLo;
 	uint FieldHashHi;
 	uint DepositionCells;
@@ -210,7 +211,9 @@ struct SmokeGridConstants
 	float MassQuantization;
 
 	float MomentumQuantization;
-	float3 Padding;
+	float CurlTime;
+	float CurlEvolution;
+	float VorticityConfinement;
 };
 
 int SmokeGridFloorDiv8(int value)

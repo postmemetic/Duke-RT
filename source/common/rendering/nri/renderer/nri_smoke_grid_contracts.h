@@ -101,6 +101,7 @@ struct NRISmokeGridControlGpu
 	uint32_t cflClamps = 0;
 	uint32_t backtraceClamps = 0;
 	uint32_t nanRejects = 0;
+	uint32_t vorticityClamps = 0;
 	uint32_t fieldHashLo = 0;
 	uint32_t fieldHashHi = 0;
 	uint32_t depositionCells = 0;
@@ -222,12 +223,14 @@ struct NRISmokeGridConstants
 	float massQuantization = 4096.0f;
 
 	float momentumQuantization = 256.0f;
-	float padding[3] = {};
+	float curlTime = 0.0f;
+	float curlEvolution = 0.0f;
+	float vorticityConfinement = 0.0f;
 };
 
 static_assert(sizeof(NRISmokeGridHashEntryGpu) == 32);
 static_assert(sizeof(NRISmokeGridBrickGpu) == 32);
-static_assert(sizeof(NRISmokeGridControlGpu) == 304);
+static_assert(sizeof(NRISmokeGridControlGpu) == 308);
 static_assert(sizeof(NRISmokeGridSourceStatsGpu) == 64);
 static_assert(sizeof(NRISmokeGridDispatchGpu) == 12);
 static_assert(sizeof(NRISmokeGridConstants) == 128);

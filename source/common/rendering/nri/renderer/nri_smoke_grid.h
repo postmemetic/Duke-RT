@@ -119,7 +119,7 @@ struct NRISmokeGridStatusSnapshot
 class NRISmokeGrid
 {
 public:
-	static constexpr uint32_t StorageDescriptorCount = 22u;
+	static constexpr uint32_t StorageDescriptorCount = 23u;
 	static constexpr uint32_t EvaluationDescriptorCount = 11u;
 	static constexpr uint32_t DormantTransactionDescriptorCount = 18u;
 	static constexpr uint32_t SourceCapacity = 256u;
@@ -220,6 +220,7 @@ private:
 	NRIBufferResource mSourceStats;
 	NRIBufferResource mPromptOutcomes;
 	NRIBufferResource mPromptLedger;
+	NRIBufferResource mVorticity;
 	std::vector<NRISmokePromptOutcomeGpu> mPromptCommits;
 
 	uint32_t mResourceBrickCapacity = 0;
@@ -228,6 +229,7 @@ private:
 	uint32_t mResourceEpoch = 0;
 	uint32_t mActivePing = 0;
 	uint32_t mFieldPing = 0;
+	double mSimulationSeconds = 0.0;
 	float mResourceCellSize = 0.0f;
 	bool mInitialized = false;
 	bool mResourcesInitialized = false;

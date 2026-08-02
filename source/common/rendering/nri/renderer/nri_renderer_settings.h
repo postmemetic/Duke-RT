@@ -178,6 +178,8 @@ struct NRISmokeSettings
 	bool dormantGrid = true;
 	float gridCellSize = 8.0f;
 	float gridBuoyancy = 1.0f;
+	float gridCurlEvolution = 0.0f;
+	float gridVorticity = 0.0f;
 	float gridVelocityDamping = 0.15f;
 	float gridWindCoupling = 0.5f;
 	float gridDensityHalfLifeScale = 1.0f;

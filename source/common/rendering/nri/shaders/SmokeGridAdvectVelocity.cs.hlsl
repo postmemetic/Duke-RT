@@ -45,7 +45,8 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	advectedVelocity = lerp(advectedVelocity, gSmokeGridConstants.Wind, saturate(windBlend));
 	advectedVelocity += float3(0.0, 1.0, 0.0) *
 		(max(gSmokeGridConstants.Buoyancy, 0.0) * thermalBuoyancy * deltaTime);
-	advectedVelocity += SmokeSourceWorldCurl(worldPosition, styleTurbulenceScale) *
+	advectedVelocity += SmokeSourceWorldCurl(worldPosition, styleTurbulenceScale,
+		gSmokeGridConstants.CurlTime, gSmokeGridConstants.CurlEvolution) *
 		(styleTurbulence * deltaTime);
 
 	advectedVelocity = SmokeSourceLimitVelocity(advectedVelocity, gSmokeGridConstants.MaxVelocity);
@@ -59,4 +60,26 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	const float scaleMoment = mass > 1e-8 ?
 		max(SmokeSourceFinite(velocity.w, 0.0), 0.0) * exp(-densityRate * deltaTime) : 0.0;
 	SmokeGridStoreVelocity(outputPing, cellIndex, float4(advectedVelocity, scaleMoment));
+
+	float4 vorticity = 0.0;
+	if (gSmokeGridConstants.VorticityConfinement > 0.0)
+	{
+		const int3 cell = SmokeGridCellCoordinate(brick.Coordinate, groupThreadId);
+		const float3 velocityX0 = SmokeGridLoadCellVelocity(cell - int3(1, 0, 0), inputPing);
+		const float3 velocityX1 = SmokeGridLoadCellVelocity(cell + int3(1, 0, 0), inputPing);
+		const float3 velocityY0 = SmokeGridLoadCellVelocity(cell - int3(0, 1, 0), inputPing);
+		const float3 velocityY1 = SmokeGridLoadCellVelocity(cell + int3(0, 1, 0), inputPing);
+		const float3 velocityZ0 = SmokeGridLoadCellVelocity(cell - int3(0, 0, 1), inputPing);
+		const float3 velocityZ1 = SmokeGridLoadCellVelocity(cell + int3(0, 0, 1), inputPing);
+		const float inverseDiameter = 0.5 / max(gSmokeGridConstants.CellSize, 0.0001);
+		const float3 omega = float3(
+			velocityY1.z - velocityY0.z - velocityZ1.y + velocityZ0.y,
+			velocityZ1.x - velocityZ0.x - velocityX1.z + velocityX0.z,
+			velocityX1.y - velocityX0.y - velocityY1.x + velocityY0.x) * inverseDiameter;
+		if (all(isfinite(omega)))
+			vorticity = float4(omega, length(omega));
+		else
+			InterlockedAdd(gSmokeGridControl[0].NanRejects, 1u);
+	}
+	gSmokeGridVorticity[cellIndex] = vorticity;
 }

@@ -31,6 +31,7 @@ RWStructuredBuffer<int4> gSmokeGridDeposit3 : register(u18, space1);
 RWStructuredBuffer<SmokeGridSourceStats> gSmokeGridSourceStats : register(u19, space1);
 RWStructuredBuffer<SmokePromptOutcome> gSmokePromptOutcomes : register(u20, space1);
 RWStructuredBuffer<SmokePromptLedger> gSmokePromptLedger : register(u21, space1);
+RWStructuredBuffer<float4> gSmokeGridVorticity : register(u22, space1);
 
 NRI_ROOT_CONSTANTS(SmokeGridConstants, gSmokeGridConstants, 0, 2);
 
@@ -518,6 +519,30 @@ void SmokeGridStoreDynamics(uint ping, uint index, float4 value)
 {
 	if (ping == 0u) gSmokeGridDynamicsA[index] = value;
 	else gSmokeGridDynamicsB[index] = value;
+}
+
+float3 SmokeGridLoadCellVelocity(int3 cell, uint fieldPing)
+{
+	const int3 brickCoordinate = SmokeGridBrickCoordinate(cell);
+	uint brickIndex;
+	if (!SmokeGridLookupBrick(brickCoordinate, brickIndex))
+		return gSmokeGridConstants.Wind;
+	const uint cellIndex = SmokeGridCellIndex(brickIndex,
+		SmokeGridLocalCoordinate(cell, brickCoordinate));
+	return cellIndex < gSmokeGridConstants.CellCapacity ?
+		SmokeGridLoadVelocity(fieldPing, cellIndex).xyz : gSmokeGridConstants.Wind;
+}
+
+float SmokeGridLoadCellVorticityMagnitude(int3 cell)
+{
+	const int3 brickCoordinate = SmokeGridBrickCoordinate(cell);
+	uint brickIndex;
+	if (!SmokeGridLookupBrick(brickCoordinate, brickIndex))
+		return 0.0;
+	const uint cellIndex = SmokeGridCellIndex(brickIndex,
+		SmokeGridLocalCoordinate(cell, brickCoordinate));
+	return cellIndex < gSmokeGridConstants.CellCapacity ?
+		max(SmokeSourceFinite(gSmokeGridVorticity[cellIndex].w, 0.0), 0.0) : 0.0;
 }
 
 void SmokeGridSampleFields(float3 worldPosition, uint fieldPing,

@@ -22,6 +22,7 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	gSmokeGridDeposit1[cellIndex] = 0;
 	gSmokeGridDeposit2[cellIndex] = 0;
 	gSmokeGridDeposit3[cellIndex] = 0;
+	gSmokeGridVorticity[cellIndex] = 0.0;
 	DeviceMemoryBarrierWithGroupSync();
 	if (all(groupThreadId == 0u))
 	{

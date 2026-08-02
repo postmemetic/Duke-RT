@@ -19,7 +19,49 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	const float3 worldPosition = SmokeGridCellCenter(brick.Coordinate, groupThreadId,
 		max(gSmokeGridConstants.CellSize, 0.0001));
 	const float deltaTime = max(gSmokeGridConstants.DeltaTime * gSmokeGridConstants.TimeScale, 0.0);
-	const float3 traceVelocity = SmokeGridLoadVelocity(outputPing, cellIndex).xyz;
+	float4 velocity = SmokeGridLoadVelocity(outputPing, cellIndex);
+	float3 traceVelocity = velocity.xyz;
+	if (gSmokeGridConstants.VorticityConfinement > 0.0)
+	{
+		const float localMass = max(SmokeGridLoadScalar(inputPing, cellIndex).x, 0.0);
+		if (localMass > max(gSmokeGridConstants.ActiveThreshold, 1e-8))
+		{
+			const int3 cell = SmokeGridCellCoordinate(brick.Coordinate, groupThreadId);
+			const float magnitudeX0 = SmokeGridLoadCellVorticityMagnitude(cell - int3(1, 0, 0));
+			const float magnitudeX1 = SmokeGridLoadCellVorticityMagnitude(cell + int3(1, 0, 0));
+			const float magnitudeY0 = SmokeGridLoadCellVorticityMagnitude(cell - int3(0, 1, 0));
+			const float magnitudeY1 = SmokeGridLoadCellVorticityMagnitude(cell + int3(0, 1, 0));
+			const float magnitudeZ0 = SmokeGridLoadCellVorticityMagnitude(cell - int3(0, 0, 1));
+			const float magnitudeZ1 = SmokeGridLoadCellVorticityMagnitude(cell + int3(0, 0, 1));
+			const float inverseDiameter = 0.5 / max(gSmokeGridConstants.CellSize, 0.0001);
+			const float3 gradient = float3(magnitudeX1 - magnitudeX0,
+				magnitudeY1 - magnitudeY0, magnitudeZ1 - magnitudeZ0) * inverseDiameter;
+			const float gradientLengthSquared = dot(gradient, gradient);
+			if (gradientLengthSquared > 1e-12 && all(isfinite(gradient)))
+			{
+				const float3 normal = gradient * rsqrt(gradientLengthSquared);
+				const float3 omega = gSmokeGridVorticity[cellIndex].xyz;
+				traceVelocity += cross(normal, omega) *
+					(max(gSmokeGridConstants.CellSize, 0.0001) *
+					 max(gSmokeGridConstants.VorticityConfinement, 0.0) * deltaTime);
+			}
+
+			if (!all(isfinite(traceVelocity)))
+			{
+				traceVelocity = gSmokeGridConstants.Wind;
+				InterlockedAdd(gSmokeGridControl[0].NanRejects, 1u);
+			}
+			else
+			{
+				const float maximumVelocity = max(gSmokeGridConstants.MaxVelocity, 0.0);
+				if (dot(traceVelocity, traceVelocity) > maximumVelocity * maximumVelocity)
+					InterlockedAdd(gSmokeGridControl[0].VorticityClamps, 1u);
+				traceVelocity = SmokeSourceLimitVelocity(traceVelocity, maximumVelocity);
+			}
+			velocity.xyz = traceVelocity;
+			SmokeGridStoreVelocity(outputPing, cellIndex, velocity);
+		}
+	}
 	bool ignoredCflEvent, ignoredClampEvent;
 	const float3 backtrace = SmokeGridBacktrace(worldPosition, traceVelocity, deltaTime,
 		ignoredCflEvent, ignoredClampEvent);

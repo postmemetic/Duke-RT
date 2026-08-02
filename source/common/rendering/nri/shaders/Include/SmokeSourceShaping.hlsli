@@ -70,16 +70,20 @@ uint SmokeSourceCellSeed(uint commandSerial, int3 cell)
 
 // A bounded analytic divergence-free field: every component varies only along
 // the other two world axes, so its divergence is exactly zero. TurbulenceScale
-// is a world-space wavelength and no camera/frame state enters the result.
-float3 SmokeSourceWorldCurl(float3 worldPosition, float turbulenceScale)
+// is a world-space wavelength. Simulation time changes only the phase, so the
+// field remains camera independent, divergence free, and bounded.
+float3 SmokeSourceWorldCurl(float3 worldPosition, float turbulenceScale,
+	float simulationTime, float evolutionRate)
 {
 	worldPosition = SmokeSourceFinite3(worldPosition, 0.0);
 	const float scale = max(abs(SmokeSourceFinite(turbulenceScale, 1.0)), 0.0001);
 	const float3 q = worldPosition / scale;
+	const float phase = SmokeSourceFinite(simulationTime, 0.0) *
+		max(SmokeSourceFinite(evolutionRate, 0.0), 0.0);
 	const float3 curl = float3(
-		cos(q.y + 1.17) - sin(q.z + 2.03),
-		cos(q.z + 2.71) - sin(q.x + 0.43),
-		cos(q.x + 4.11) - sin(q.y + 5.37));
+		cos(q.y + 1.17 + phase * 0.73) - sin(q.z + 2.03 - phase * 1.11),
+		cos(q.z + 2.71 + phase * 0.91) - sin(q.x + 0.43 + phase * 0.67),
+		cos(q.x + 4.11 - phase * 0.79) - sin(q.y + 5.37 + phase * 1.03));
 	return curl * 0.28867513459;
 }
 

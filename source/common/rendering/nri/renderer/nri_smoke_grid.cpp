@@ -78,7 +78,7 @@ std::array<NRIBufferResource*, NRISmokeGrid::StorageDescriptorCount> NRISmokeGri
 	return { &mControl, &mHash, &mBricks, &mFreeList, &mActiveA, &mActiveB, &mDispatchArgs,
 		&mScalarA, &mScalarB, &mVelocityA, &mVelocityB, &mOpticalA, &mOpticalB,
 		&mDynamicsA, &mDynamicsB, &mDeposit0, &mDeposit1, &mDeposit2, &mDeposit3,
-		&mSourceStats, &mPromptOutcomes, &mPromptLedger };
+		&mSourceStats, &mPromptOutcomes, &mPromptLedger, &mVorticity };
 }
 
 std::array<const NRIBufferResource*, NRISmokeGrid::StorageDescriptorCount> NRISmokeGrid::StorageResources() const
@@ -86,7 +86,7 @@ std::array<const NRIBufferResource*, NRISmokeGrid::StorageDescriptorCount> NRISm
 	return { &mControl, &mHash, &mBricks, &mFreeList, &mActiveA, &mActiveB, &mDispatchArgs,
 		&mScalarA, &mScalarB, &mVelocityA, &mVelocityB, &mOpticalA, &mOpticalB,
 		&mDynamicsA, &mDynamicsB, &mDeposit0, &mDeposit1, &mDeposit2, &mDeposit3,
-		&mSourceStats, &mPromptOutcomes, &mPromptLedger };
+		&mSourceStats, &mPromptOutcomes, &mPromptLedger, &mVorticity };
 }
 
 void NRISmokeGrid::SetFailure(const char* reason)
@@ -301,7 +301,8 @@ bool NRISmokeGrid::EnsureResources(const NRISmokeGridServices& services, const N
 		CreateBuffer(services, mPromptOutcomes, NRI_SMOKE_PROMPT_FALLBACK_QUANTITY * sizeof(NRISmokePromptOutcomeGpu),
 			sizeof(NRISmokePromptOutcomeGpu), storage, nri::MemoryLocation::DEVICE, true) &&
 		CreateBuffer(services, mPromptLedger, NRI_SMOKE_PROMPT_LEDGER_CAPACITY * sizeof(NRISmokePromptLedgerGpu),
-			sizeof(NRISmokePromptLedgerGpu), storage, nri::MemoryLocation::DEVICE, true);
+			sizeof(NRISmokePromptLedgerGpu), storage, nri::MemoryLocation::DEVICE, true) &&
+		CreateBuffer(services, mVorticity, cells * 16u, 16u, storage, nri::MemoryLocation::DEVICE, true);
 
 	for (FrameSlot& slot : mFrameSlots)
 	{
@@ -452,6 +453,7 @@ void NRISmokeGrid::ConsumeReadback(const NRISmokeGridServices& services, uint32_
 				delta.haloAllocations = next.haloAllocations - previous.haloAllocations;
 				delta.cflClamps = next.cflClamps - previous.cflClamps;
 				delta.backtraceClamps = next.backtraceClamps - previous.backtraceClamps;
+				delta.vorticityClamps = next.vorticityClamps - previous.vorticityClamps;
 				delta.nanRejects = next.nanRejects - previous.nanRejects;
 				delta.depositionCells = next.depositionCells - previous.depositionCells;
 				delta.depositionRejected = next.depositionRejected - previous.depositionRejected;
@@ -766,12 +768,15 @@ bool NRISmokeGrid::RecordFrame(const NRISmokeGridServices& services, const NRISm
 	constants.reclaimGrace = settings.gridReclaimGrace;
 	constants.massQuantization = 4096.0f;
 	constants.momentumQuantization = 256.0f;
+	constants.curlEvolution = settings.gridCurlEvolution;
+	constants.vorticityConfinement = settings.gridVorticity;
 
 	if (mNeedsClear || mResourceEpoch != frame.simulationEpoch)
 	{
 		NRIScopedGpuTiming timing(services.gpuTimingDevice, NRIGpuTimingScope::SmokeGridInitialize);
 		mActivePing = 0;
 		mFieldPing = 0;
+		mSimulationSeconds = 0.0;
 		constants.activePing = 0;
 		constants.fieldPing = 0;
 		Dispatch(services, constants, NRISmokeGridPass::Clear,
@@ -811,6 +816,7 @@ bool NRISmokeGrid::RecordFrame(const NRISmokeGridServices& services, const NRISm
 
 	for (uint32_t step = 0; step < frame.simulationSubsteps; ++step)
 	{
+		constants.curlTime = (float)mSimulationSeconds;
 		{
 			NRIScopedGpuTiming timing(services.gpuTimingDevice, NRIGpuTimingScope::SmokeGridHalo);
 			// Allocation is deliberately one serial GPU control-plane dispatch. It
@@ -842,6 +848,7 @@ bool NRISmokeGrid::RecordFrame(const NRISmokeGridServices& services, const NRISm
 		mFieldPing ^= 1u;
 		constants.activePing = mActivePing;
 		constants.fieldPing = mFieldPing;
+		mSimulationSeconds += (double)constants.deltaTime * (double)constants.timeScale;
 	}
 
 	TransitionDispatchToStorage(services);
@@ -920,6 +927,7 @@ void NRISmokeGrid::Reset(uint32_t simulationEpoch, const char* reason)
 	mResourceEpoch = simulationEpoch;
 	mActivePing = 0;
 	mFieldPing = 0;
+	mSimulationSeconds = 0.0;
 	mNeedsClear = true;
 	mStatus.activePing = 0;
 	mStatus.fieldPing = 0;
@@ -1005,7 +1013,7 @@ void NRISmokeGrid::PrintStatus() const
 		"resident=%u resident_bytes=%llu active=%u/%u free=%u allocated=%u reclaimed=%u allocation_failures=%u "
 		"probe_failures=%u max_probe=%u commands=%u deposition_cells=%u deposition_rejected=%u requested_mass_q=%u deposited_mass_q=%u "
 		"rejected_mass_q=%u saturated=%u halo=%u occupied=%u empty=%u cfl_clamps=%u "
-		"backtrace_clamps=%u nan=%u field_hash=%08x%08x resident_mib=%.2f "
+		"backtrace_clamps=%u vorticity_clamps=%u nan=%u field_hash=%08x%08x resident_mib=%.2f "
 		"admission_sources=%u admission_requested=%u admission_existing=%u admission_admitted=%u "
 		"admission_rejected=%u admission_capacity_rejected=%u admission_probe_rejected=%u admission_invalid_rejected=%u "
 		"admission_footprint_culled=%u "
@@ -1029,7 +1037,7 @@ void NRISmokeGrid::PrintStatus() const
 		mStatus.gpu.requestedMassQ, mStatus.gpu.depositedMassQ,
 		mStatus.gpu.rejectedMassQ, mStatus.gpu.saturatedDeposits, mStatus.gpu.haloAllocations,
 		mStatus.gpu.occupiedBricks, mStatus.gpu.emptyBricks, mStatus.gpu.cflClamps,
-		mStatus.gpu.backtraceClamps, mStatus.gpu.nanRejects,
+		mStatus.gpu.backtraceClamps, mStatus.gpu.vorticityClamps, mStatus.gpu.nanRejects,
 		mStatus.gpu.fieldHashHi, mStatus.gpu.fieldHashLo,
 		(double)mStatus.residentBytes / (1024.0 * 1024.0),
 		mStatus.gpu.admissionSourceCount, mStatus.gpu.admissionRequested,
