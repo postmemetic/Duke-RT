@@ -5,6 +5,7 @@ param(
     [string]$File = 'M:/Raze/full-voxel-overlay',
     [string]$GameGrp = 'C:/Program Files (x86)/Steam/steamapps/common/Duke Nukem 3D Twentieth Anniversary World Tour/DUKE3D.GRP',
     [string]$ConfigTemplate = 'C:/Users/brian/Documents/My Games/duke-rt/duke-rt.ini',
+    [string]$VariantFile,
     [string]$OutputDirectory,
     [int]$SmokeEvolutionTics = 600,
     [int]$TimeoutSeconds = 300,
@@ -23,6 +24,11 @@ $resolvedRaze = Resolve-Path -LiteralPath $RazePath -ErrorAction Stop
 $resolvedSaveDirectory = Resolve-Path -LiteralPath $SaveDirectory -ErrorAction Stop
 $resolvedFile = Resolve-Path -LiteralPath $File -ErrorAction Stop
 $resolvedConfigTemplate = Resolve-Path -LiteralPath $ConfigTemplate -ErrorAction Stop
+$resolvedVariantFile = if ([string]::IsNullOrWhiteSpace($VariantFile)) {
+    $null
+} else {
+    Resolve-Path -LiteralPath $VariantFile -ErrorAction Stop
+}
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedSaveDirectory.Path "$SaveName.dsave"))) {
     throw "Save not found: $SaveName.dsave"
 }
@@ -51,6 +57,18 @@ $smokeDefaults = [ordered]@{
     nri_ptsmokewindz = '5'
     nri_ptsmokedensityscale = '5'
     nri_ptsmokeradiancescale = '1'
+    nri_ptsmokeextinctionthreshold = '0'
+    nri_ptsmokeextinctionknee = '0'
+    nri_ptsmokeextinctiongamma = '1'
+    nri_ptsmokeextinctionreference = '1'
+    nri_ptsmokeextinctionshoulder = '0'
+    nri_ptsmokethincolorr = '1'
+    nri_ptsmokethincolorg = '1'
+    nri_ptsmokethincolorb = '1'
+    nri_ptsmokecorecolorr = '1'
+    nri_ptsmokecorecolorg = '1'
+    nri_ptsmokecorecolorb = '1'
+    nri_ptsmokecolorpivot = '0.05'
     nri_ptsmokepointlights = 'true'
     nri_ptsmokedirectionallight = 'true'
     nri_ptsmokeemissivelights = 'true'
@@ -152,6 +170,13 @@ $variants = @(
     [pscustomobject]@{ id='10-multiple-scatter-full'; label='Multiple scatter: scale 1.0'; extinction=.008; albedo=@(.30,.29,.28); anisotropy=.12; history=$false; multiple=$true; multipleScale=1; selfShadow=$false },
     [pscustomobject]@{ id='11-self-shadow-diagnostic'; label='Rejected self-shadow diagnostic'; extinction=.008; albedo=@(.30,.29,.28); anisotropy=.12; history=$false; multiple=$false; multipleScale=1; selfShadow=$true }
 )
+if ($null -ne $resolvedVariantFile) {
+    $variantDocument = Get-Content -LiteralPath $resolvedVariantFile.Path -Raw | ConvertFrom-Json
+    if ($null -eq $variantDocument.variants -or @($variantDocument.variants).Count -eq 0) {
+        throw 'VariantFile must contain a non-empty variants array.'
+    }
+    $variants = @($variantDocument.variants)
+}
 
 function Add-SettingArguments {
     param([Collections.Generic.List[object]]$Arguments, [Collections.IDictionary]$Settings)
@@ -216,6 +241,11 @@ foreach ($variant in $variants) {
     $settings.nri_ptsmokemultiplescatter = if ($variant.multiple) { 'true' } else { 'false' }
     $settings.nri_ptsmokemultiplescatterscale = Format-OverlayFloat $variant.multipleScale
     $settings.nri_ptsmokeselfshadow = if ($variant.selfShadow) { 'true' } else { 'false' }
+    if ($variant.PSObject.Properties.Name -contains 'settings') {
+        foreach ($property in $variant.settings.PSObject.Properties) {
+            $settings[$property.Name] = [string]$property.Value
+        }
+    }
     $settings.screenshot_dir = $shotDirectory.Replace('\', '/')
     $settings.screenshotname = $variant.id
 
@@ -249,6 +279,7 @@ foreach ($variant in $variants) {
             multipleScatter = $variant.multiple
             multipleScatterScale = $variant.multipleScale
             selfShadow = $variant.selfShadow
+            settings = $(if ($variant.PSObject.Properties.Name -contains 'settings') { $variant.settings } else { $null })
         }
     }
     $scenarioPath = Join-Path $variantDirectory 'scenario.json'
@@ -264,6 +295,7 @@ $preflight = [ordered]@{
     schema = 1
     save = [ordered]@{ path = (Join-Path $resolvedSaveDirectory.Path "$SaveName.dsave"); expectedTitle = 'LookingAtDumpsterFireSmoke' }
     smokeEvolutionTics = $SmokeEvolutionTics
+    variantFile = $(if ($null -ne $resolvedVariantFile) { $resolvedVariantFile.Path } else { $null })
     smokeDefaultCount = $smokeDefaults.Count - 1
     sessionSafetySettings = @('nri_ptmapsmokeeditmode=false')
     variants = $artifacts

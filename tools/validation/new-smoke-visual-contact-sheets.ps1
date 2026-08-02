@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)] [string]$SourceDirectory,
     [Parameter(Mandatory = $true)] [string]$OutputDirectory,
+    [string]$VariantFile,
     [string]$RepeatControlPath
 )
 
@@ -26,6 +27,14 @@ $items = @(
     [pscustomobject]@{ id='10-multiple-scatter-full'; label='Multiple scatter - scale 1.0' },
     [pscustomobject]@{ id='11-self-shadow-diagnostic'; label='Rejected self-shadow diagnostic' }
 )
+if (-not [string]::IsNullOrWhiteSpace($VariantFile)) {
+    $resolvedVariantFile = (Resolve-Path -LiteralPath $VariantFile -ErrorAction Stop).Path
+    $variantDocument = Get-Content -LiteralPath $resolvedVariantFile -Raw | ConvertFrom-Json
+    $items = @($variantDocument.variants | ForEach-Object {
+        [pscustomobject]@{ id=$_.id; label=$_.label }
+    })
+    if ($items.Count -eq 0) { throw 'VariantFile must contain a non-empty variants array.' }
+}
 
 foreach ($item in $items) {
     $inputPath = Join-Path (Join-Path (Join-Path $source $item.id) 'screenshots') ($item.id + '_0000.png')
@@ -89,12 +98,17 @@ function New-ContactSheet {
 }
 
 New-ContactSheet -SheetItems $items -Name 'contact-sheet-all.png'
-New-ContactSheet -SheetItems @($items | Where-Object { $_.id -in @(
-    '00-current-default', '01-history-off-baseline', '02-low-albedo-soot',
-    '03-high-albedo-lit', '07-thin-luminous', '08-dense-soot') }) -Name 'contact-sheet-optics.png'
-New-ContactSheet -SheetItems @($items | Where-Object { $_.id -in @(
-    '01-history-off-baseline', '04-isotropic', '05-backward-phase', '06-forward-phase',
-    '09-multiple-scatter-half', '10-multiple-scatter-full', '11-self-shadow-diagnostic') }) -Name 'contact-sheet-phase-lighting.png'
+if ([string]::IsNullOrWhiteSpace($VariantFile)) {
+    New-ContactSheet -SheetItems @($items | Where-Object { $_.id -in @(
+        '00-current-default', '01-history-off-baseline', '02-low-albedo-soot',
+        '03-high-albedo-lit', '07-thin-luminous', '08-dense-soot') }) -Name 'contact-sheet-optics.png'
+    New-ContactSheet -SheetItems @($items | Where-Object { $_.id -in @(
+        '01-history-off-baseline', '04-isotropic', '05-backward-phase', '06-forward-phase',
+        '09-multiple-scatter-half', '10-multiple-scatter-full', '11-self-shadow-diagnostic') }) -Name 'contact-sheet-phase-lighting.png'
+} else {
+    New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }) -Name 'contact-sheet-field-diagnostics.png'
+    New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^2[2-7]-(shape|color)' }) -Name 'contact-sheet-optical-shaping.png'
+}
 
 if (-not [string]::IsNullOrWhiteSpace($RepeatControlPath)) {
     $controls = @(
