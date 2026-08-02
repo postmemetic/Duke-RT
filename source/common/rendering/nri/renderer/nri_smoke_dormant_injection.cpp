@@ -35,10 +35,17 @@ NRISmokeDormantInjectionBuildResult NRIBuildSmokeDormantInjections(
 		result.requests++;
 		if (!request.requiresEstablishedAuthority || request.epoch != input.epoch ||
 			request.sourceId == 0u || request.aggregateCadenceSteps == 0u ||
+			request.firstCadenceOrdinal == 0u ||
+			request.lastCadenceOrdinal < request.firstCadenceOrdinal ||
+			request.lastCadenceOrdinal - request.firstCadenceOrdinal + 1u !=
+				(uint64_t)request.aggregateCadenceSteps ||
 			request.particlesPerCadence == 0u || request.styleIndex >= input.styles->size() ||
 			!Finite3(request.position) || !Finite3(request.velocity) ||
 			!std::isfinite(request.spawnRadius) || !std::isfinite(request.densityScale) ||
-			!std::isfinite(request.radiusScale))
+			!std::isfinite(request.radiusScale) ||
+			!std::isfinite(request.pulseEnvelope.amount) ||
+			!std::isfinite(request.pulseEnvelope.phase) ||
+			request.pulseEnvelope.periodCadences == 0u)
 		{
 			result.invalidRequests++;
 			continue;
@@ -100,10 +107,10 @@ NRISmokeDormantInjectionBuildResult NRIBuildSmokeDormantInjections(
 			continue;
 		}
 
-		const uint64_t particles64 = (uint64_t)request.particlesPerCadence *
-			(uint64_t)request.aggregateCadenceSteps;
-		const float particles = (float)std::min<uint64_t>(particles64, 65536u);
-		const float totalMass = std::max(style.density * request.densityScale, 0.0f) * particles;
+		const double weightedCadences = NRISumSmokeSourceEnvelope(request.pulseEnvelope,
+			request.firstCadenceOrdinal, request.lastCadenceOrdinal);
+		const float totalMass = std::max(style.density * request.densityScale, 0.0f) *
+			(float)request.particlesPerCadence * (float)weightedCadences;
 		const float targetMass = totalMass / (float)targets.size();
 		const float extinction = targetMass * std::max(style.extinction, 0.0f);
 		const float scattering[3] = {

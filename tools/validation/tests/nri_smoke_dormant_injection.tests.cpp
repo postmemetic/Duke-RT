@@ -23,6 +23,8 @@ int main()
 	styles[0].riseVelocity = 4.0f;
 
 	NRISmokeContinuousSourceWorkRequest request = {};
+	request.firstCadenceOrdinal = 1u;
+	request.lastCadenceOrdinal = 3u;
 	request.epoch = 7u;
 	request.sourceId = 9u;
 	request.styleIndex = 0u;
@@ -67,6 +69,27 @@ int main()
 		"extinction moment must match conserved mass");
 	Check(std::abs(injection.momentum[1] - 48.0f) < 0.0001f,
 		"rise velocity must become a mass-weighted momentum moment");
+
+	requests[0].firstCadenceOrdinal = 4u;
+	requests[0].lastCadenceOrdinal = 7u;
+	requests[0].aggregateCadenceSteps = 4u;
+	requests[0].pulseEnvelope = { 0.5f, 4u, 0.0f };
+	result = NRIBuildSmokeDormantInjections(input);
+	Check(result.injections.size() == 1u &&
+		std::abs(result.injections[0].scalar[0] - 16.0f) < 0.0001f,
+		"a complete coalesced pulse cycle must preserve unmodulated mass");
+	requests[0].firstCadenceOrdinal = 1u;
+	requests[0].lastCadenceOrdinal = 2u;
+	requests[0].aggregateCadenceSteps = 2u;
+	result = NRIBuildSmokeDormantInjections(input);
+	Check(result.injections.size() == 1u &&
+		std::abs(result.injections[0].scalar[0] - 6.0f) < 0.0001f,
+		"a partial coalesced pulse cycle must sum its exact ordinal weights");
+	requests[0].aggregateCadenceSteps = 3u;
+	result = NRIBuildSmokeDormantInjections(input);
+	Check(result.injections.empty() && result.invalidRequests == 1u,
+		"mismatched cadence ranges must fail closed");
+	requests[0] = request;
 
 	promotions.insert(authority.coordinate);
 	result = NRIBuildSmokeDormantInjections(input);

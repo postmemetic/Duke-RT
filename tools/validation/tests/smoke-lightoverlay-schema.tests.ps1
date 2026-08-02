@@ -29,6 +29,9 @@ Assert-Contains $header 'float velocityScale = 1\.0f' 'Smoke emission velocity s
 Assert-Contains $header 'float offsetRandom\[3\] = \{ 0\.0f, 0\.0f, 0\.0f \}' 'Smoke event random offsets must default to no jitter.'
 Assert-Contains $header 'float startDistance = 0\.0f' 'Existing smoke actor rules must remain immediately distance-eligible by default.'
 Assert-Contains $header 'float startTime = 0\.0f' 'Existing smoke actor rules must remain immediately time-eligible by default.'
+Assert-Contains $header 'float pulseAmount = 0\.0f' 'Existing smoke actor rules must remain unmodulated by default.'
+Assert-Contains $header 'uint32_t pulsePeriodCadences = 1' 'The disabled smoke pulse period must remain an identity.'
+Assert-Contains $header 'float pulsePhase = 0\.0f' 'Smoke pulse phase must default to the canonical cycle origin.'
 Assert-Contains $header 'bool emitterForeground = false' 'Existing smoke actor rules must leave their emitter surfaces behind smoke by default.'
 Assert-Contains $header 'struct ParsedLightOverlayMapSmokeEmitterRule' 'Missing parsed map smoke-emitter contract.'
 Assert-Contains $header 'struct ResolvedLightOverlayMapSmokeEmitterRule' 'Missing resolved map smoke-emitter contract.'
@@ -53,7 +56,7 @@ foreach ($field in @(
 
 foreach ($field in @(
     'ownerclass', 'excludeownerclass', 'activation', 'representation', 'queuepolicy', 'maxlatencyseconds', 'emitterforeground', 'offset', 'densityscale', 'radiusscale',
-    'velocitycone', 'velocityscale', 'intervalseconds', 'starttime', 'startdistance', 'spacing', 'maxsegmentsperframe')) {
+    'velocitycone', 'velocityscale', 'intervalseconds', 'pulseamount', 'pulseperiodcadences', 'pulsephase', 'starttime', 'startdistance', 'spacing', 'maxsegmentsperframe')) {
     Assert-Contains $implementation ('sc\.Compare\("' + $field + '"\)') "Smoke actor parser is missing $field."
     Assert-Contains $implementation ('"' + $field + ' ') "Smoke actor serializer is missing $field."
 }
@@ -95,10 +98,14 @@ Assert-Contains $implementation 'duplicate %s.*using the last definition' 'Smoke
 Assert-Contains $implementation 'densityhalflife.*minimum = 0\.001f' 'Invalid zero density half-life values are not clamped.'
 Assert-Contains $implementation 'startdistance.*std::max\(0\.0f' 'Negative actor start distances must clamp to immediate eligibility.'
 Assert-Contains $implementation 'starttime.*std::max\(0\.0f' 'Negative actor start times must clamp to immediate eligibility.'
+Assert-Contains $implementation 'pulseAmount = std::clamp[\s\S]*?0\.0f, 1\.0f' 'Smoke pulse amount must clamp to a nonnegative mean-preserving range.'
+Assert-Contains $implementation 'pulsePeriodCadences = \(uint32_t\)std::clamp\(sc\.Number, 1, 256\)' 'Smoke pulse periods must remain bounded.'
+Assert-Contains $implementation 'pulsePhase = phase - std::floor\(phase\)' 'Smoke pulse phase must wrap to a canonical cycle.'
 Assert-Contains $implementation 'smoke_styles=%d smoke_actor_rules=%d smoke_event_rules=%d' 'Smoke family counts are absent from dumps.'
 Assert-Contains $implementation 'maxsegmentsperframe=%u' 'Actor interval/segment diagnostics are missing.'
 Assert-Contains $implementation 'startdistance=%.3f' 'Actor distance-gate diagnostics are missing.'
 Assert-Contains $implementation 'starttime=%.3f' 'Actor time-gate diagnostics are missing.'
+Assert-Contains $implementation 'pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f' 'Actor pulse diagnostics are missing.'
 Assert-Contains $implementation 'normaloffset=%.3f direction=%s' 'Event direction diagnostics are missing.'
 
 Assert-Contains $implementation 'sc\.Compare\("smokeemitter"\)[\s\S]*?ParseMapSmokeEmitterRule\(mapName\)' 'Map parser does not recognize smokeemitter blocks.'

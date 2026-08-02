@@ -57,7 +57,7 @@ Current parser fields by block:
 - `smokestyle`
   `density`, `extinction`, `albedo`, `anisotropy`, `radius`, `expansionvelocity`, `lifetime`, `densityhalflife`, `risevelocity`, `velocityrandom`, `velocityinherit`, `buoyancy`, `drag`, `turbulence`, `turbulencescale`, `temperature`, `momentumscale`, `coolinghalflife`
 - `smokeactorrule`
-  `actorclass`, `ownerclass`, `excludeownerclass`, `trigger`, `activation`, `emitterforeground`, `style`, `count`, `offset`, `spawnradius`, `densityscale`, `radiusscale`, `velocitycone`, `velocityscale`, `intervalseconds`, `starttime`, `startdistance`, `spacing`, `maxsegmentsperframe`
+  `actorclass`, `ownerclass`, `excludeownerclass`, `trigger`, `activation`, `emitterforeground`, `style`, `count`, `offset`, `spawnradius`, `densityscale`, `radiusscale`, `velocitycone`, `velocityscale`, `intervalseconds`, `pulseamount`, `pulseperiodcadences`, `pulsephase`, `starttime`, `startdistance`, `spacing`, `maxsegmentsperframe`
 - `smokeeventrule`
   `style`, `count`, `offset`, `offsetrandom`, `spawnradius`, `densityscale`, `radiusscale`, `velocitycone`, `velocityscale`, `normaloffset`, `direction`
 - `smokeemitter`
@@ -355,12 +355,17 @@ Opacity is approximately driven by `density × densityscale × count × extincti
 | `velocitycone <degrees>` | `0`; `[0,180]` | Half-angle of uniform solid-angle stochastic launch spread around the source velocity. `0` follows the axis; `180` permits a sphere. With a zero axis, launch directions are spherical. |
 | `velocityscale <scale>` | `1`, minimum `0` | Scales actor source velocity before style shaping. It supplies an impulse magnitude only when style `velocityinherit` is nonzero; it can still establish the cone axis when inheritance is zero. |
 | `intervalseconds <seconds>` | `0.1`, minimum `0.001` | Timed cadence for `trigger interval`, including the stationary fallback. Uses gameplay time, not smoke simulation timescale. |
+| `pulseamount <fraction>` | `0`; `[0,1]` | Mean-preserving modulation of emission mass. `0` is an exact identity; `1` ranges from a zero-mass trough to twice the authored `densityscale`. |
+| `pulseperiodcadences <integer>` | `1`; `[1,256]` | Number of logical emission crossings in one pulse cycle. Values of `1` are an identity. The duration in seconds is this value multiplied by `intervalseconds` for a stationary timed source. |
+| `pulsephase <cycles>` | `0`; wrapped to `[0,1)` | Authored cycle offset. Phase `0` starts the first cadence at the trough; `0.5` starts it at the peak. |
 | `starttime <seconds>` | `0`, minimum `0` | Delay from activation before first emission. The actor must remain alive through the delay. Uses gameplay time and is independent of `nri_ptsmoketimescale`. |
 | `startdistance <units>` | `0`, minimum `0` | Cumulative actor travel required after activation. Useful for beginning projectile trails away from the player. |
 | `spacing <units>` | `0`, minimum `0` | When positive and the actor moves, emits at distance crossings instead of timed cadence. This makes trail density less dependent on projectile speed. Stationary frames fall back to `intervalseconds`. |
 | `maxsegmentsperframe <integer>` | `1`; `[1,256]` | Bounds interval/spacing emissions generated in one frame. If more crossings occurred, the newest crossings are kept and older ones are discarded rather than backfilled later. |
 
 `starttime` and `startdistance` advance concurrently after activation. If both are nonzero, both must pass and the later threshold crossing controls the first emission. Suppressed movement and interval time are not replayed as a catch-up burst. Reloading LIGHTOVR clears activation/cadence state, so each surviving actor begins again under the reloaded rule.
+
+Pulse modulation is sampled from the actor's logical cadence ordinal, not the render frame. For a period `N >= 2`, cadence `k` receives `1 - pulseamount * cos(2*pi*((k-1)/N + pulsephase))` times the authored `densityscale`. A complete cycle therefore retains the same average mass as an unmodulated rule. Hitches, retry delay, dormant-source coalescing, and render-frame partitioning do not change the selected pulse phase or its accumulated mass. Changing `intervalseconds` changes the pulse duration while preserving its cadence shape.
 
 Initial grid velocity is approximately:
 

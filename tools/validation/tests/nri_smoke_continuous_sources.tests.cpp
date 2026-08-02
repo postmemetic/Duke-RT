@@ -24,6 +24,7 @@ NRISmokeContinuousSourceObservation Source(uint64_t key, uint32_t steps,
 	result.cadenceOrdinal = ordinal;
 	result.established = established;
 	result.densityScale = 3.0f;
+	result.pulseEnvelope = { 0.75f, 8u, 0.25f };
 	return result;
 }
 }
@@ -57,7 +58,10 @@ int main()
 	owner.Observe(Source(10u, 1u, 2u));
 	const auto& established = owner.EndFrame();
 	Require(established.work.size() == 1u && established.work[0].aggregateCadenceSteps == 1u &&
-		established.work[0].requiresEstablishedAuthority,
+		established.work[0].requiresEstablishedAuthority &&
+		established.work[0].pulseEnvelope.amount == 0.75f &&
+		established.work[0].pulseEnvelope.periodCadences == 8u &&
+		established.work[0].pulseEnvelope.phase == 0.25f,
 		"established cadence must become one authority-gated aggregate request");
 
 	owner.Reset();

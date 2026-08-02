@@ -349,6 +349,9 @@ struct ParsedLightOverlaySmokeActorRule
 	float velocityCone = 0.0f;
 	float velocityScale = 1.0f;
 	float intervalSeconds = 0.1f;
+	float pulseAmount = 0.0f;
+	uint32_t pulsePeriodCadences = 1;
+	float pulsePhase = 0.0f;
 	float startTime = 0.0f;
 	float startDistance = 0.0f;
 	float spacing = 0.0f;

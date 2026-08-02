@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nri_smoke_source_envelope.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cmath>
@@ -64,6 +66,7 @@ struct NRISmokeContinuousSourceObservation
 	float spawnRadius = 0.0f;
 	float densityScale = 0.0f;
 	float radiusScale = 0.0f;
+	NRISmokeSourceEnvelope pulseEnvelope;
 	bool established = false;
 };
 
@@ -85,6 +88,7 @@ struct NRISmokeContinuousSourceWorkRequest
 	float spawnRadius = 0.0f;
 	float densityScale = 0.0f;
 	float radiusScale = 0.0f;
+	NRISmokeSourceEnvelope pulseEnvelope;
 	// Archive integration must only apply this aggregate to an already-owned
 	// fine or coarse authority. It must not make deferred smoke appear later.
 	bool requiresEstablishedAuthority = true;
@@ -191,6 +195,7 @@ public:
 			request.spawnRadius = state.latest.spawnRadius;
 			request.densityScale = state.latest.densityScale;
 			request.radiusScale = state.latest.radiusScale;
+			request.pulseEnvelope = state.latest.pulseEnvelope;
 			mSnapshot.work.push_back(request);
 			mSnapshot.cadenceStepsCoalesced += state.cadenceDebt;
 			state.cadenceDebt = 0u;
