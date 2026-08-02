@@ -1,0 +1,208 @@
+{
+  "schema": 2,
+  "suite": "smoke-billow-pulse-vorticity-refinement",
+  "variants": [
+    {
+      "id": "80-first-pass-chunky-reference",
+      "label": "Reference: strongest first-pass silhouette",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 14.0,
+        "densityHalfLife": 3.5,
+        "riseVelocity": 24.0,
+        "velocityRandom": 10.0,
+        "buoyancy": 4.0,
+        "drag": 0.08,
+        "turbulence": 72.0,
+        "turbulenceScale": 32.0,
+        "temperature": 4.0,
+        "coolingHalfLife": 4.0
+      },
+      "sourceOverrides": {
+        "radiusScale": 1.75,
+        "pulseAmount": 0.82,
+        "pulsePeriodCadences": 8,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "81-long-pulse-default-shape",
+      "label": "Long synchronized pulse, default source shape",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "sourceOverrides": {
+        "pulseAmount": 1.0,
+        "pulsePeriodCadences": 20,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "82-long-pulse-short-persistence",
+      "label": "Long pulse with short-lived separated lobes",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 14.0,
+        "lifetime": 12.0,
+        "densityHalfLife": 2.5,
+        "riseVelocity": 22.0,
+        "velocityRandom": 10.0,
+        "buoyancy": 4.0,
+        "drag": 0.08,
+        "turbulence": 72.0,
+        "turbulenceScale": 32.0,
+        "temperature": 4.0,
+        "coolingHalfLife": 3.0
+      },
+      "sourceOverrides": {
+        "radiusScale": 1.75,
+        "pulseAmount": 1.0,
+        "pulsePeriodCadences": 20,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.75,
+        "nri_ptsmokegridvorticity": 1.0,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "83-long-pulse-strong-roll",
+      "label": "Long pulse with stronger persistent local roll",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 16.0,
+        "lifetime": 12.0,
+        "densityHalfLife": 2.5,
+        "riseVelocity": 20.0,
+        "velocityRandom": 10.0,
+        "buoyancy": 3.5,
+        "drag": 0.08,
+        "turbulence": 96.0,
+        "turbulenceScale": 32.0,
+        "temperature": 4.0,
+        "coolingHalfLife": 3.0
+      },
+      "sourceOverrides": {
+        "radiusScale": 1.75,
+        "pulseAmount": 1.0,
+        "pulsePeriodCadences": 20,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.8,
+        "nri_ptsmokegridvorticity": 2.5,
+        "nri_ptsmokegridwindcoupling": 0.3,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "84-slow-chunky-roll",
+      "label": "Slow chunky billows with pronounced gaps",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 18.0,
+        "lifetime": 10.0,
+        "densityHalfLife": 1.8,
+        "riseVelocity": 16.0,
+        "velocityRandom": 12.0,
+        "buoyancy": 2.5,
+        "drag": 0.10,
+        "turbulence": 112.0,
+        "turbulenceScale": 28.0,
+        "temperature": 3.5,
+        "coolingHalfLife": 2.5
+      },
+      "sourceOverrides": {
+        "radiusScale": 1.5,
+        "pulseAmount": 1.0,
+        "pulsePeriodCadences": 24,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 1.0,
+        "nri_ptsmokegridvorticity": 3.0,
+        "nri_ptsmokegridwindcoupling": 0.2,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    },
+    {
+      "id": "85-broad-rolling-lobes",
+      "label": "Broad rolling lobes with moderate persistence",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 16.0,
+        "lifetime": 15.0,
+        "densityHalfLife": 3.0,
+        "riseVelocity": 18.0,
+        "velocityRandom": 12.0,
+        "buoyancy": 3.0,
+        "drag": 0.08,
+        "turbulence": 128.0,
+        "turbulenceScale": 40.0,
+        "temperature": 4.0,
+        "coolingHalfLife": 3.0
+      },
+      "sourceOverrides": {
+        "radiusScale": 2.0,
+        "pulseAmount": 1.0,
+        "pulsePeriodCadences": 20,
+        "pulsePhase": 0.0
+      },
+      "settings": {
+        "nri_ptsmokegridcurlevolution": 0.5,
+        "nri_ptsmokegridvorticity": 3.0,
+        "nri_ptsmokegridwindcoupling": 0.3,
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 96.4285714286
+    }
+  ]
+}
