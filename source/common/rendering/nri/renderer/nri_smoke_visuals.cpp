@@ -53,8 +53,14 @@ namespace
 			return (uint16_t)(sign | ((denormal + 0x1000u) >> 13u));
 		}
 		if (exponent >= 31) return (uint16_t)(sign | 0x7c00u);
-		return (uint16_t)(sign | ((uint32_t)exponent << 10u) |
-			((mantissa + 0x1000u) >> 13u));
+		uint32_t halfExponent = (uint32_t)exponent;
+		uint32_t halfMantissa = (mantissa + 0x1000u) >> 13u;
+		if (halfMantissa == 0x400u)
+		{
+			halfMantissa = 0u;
+			if (++halfExponent >= 31u) return (uint16_t)(sign | 0x7c00u);
+		}
+		return (uint16_t)(sign | (halfExponent << 10u) | halfMantissa);
 	}
 
 	uint32_t PackHalf2(float low, float high)

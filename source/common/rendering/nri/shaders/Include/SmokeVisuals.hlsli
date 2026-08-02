@@ -39,9 +39,9 @@ float SmokeVisualShapeExtinction(float baseExtinction)
 	if (base <= 0.0)
 		return 0.0;
 
-	const float2 toe = SmokeVisualUnpackHalf2(gSmokeConstants.Visuals.x);
-	const float2 middle = SmokeVisualUnpackHalf2(gSmokeConstants.Visuals.y);
-	const float2 shoulderControls = SmokeVisualUnpackHalf2(gSmokeConstants.Visuals.z);
+	const float2 toe = SmokeVisualUnpackHalf2(gSmokeConstants.Visual0);
+	const float2 middle = SmokeVisualUnpackHalf2(gSmokeConstants.Visual1);
+	const float2 shoulderControls = SmokeVisualUnpackHalf2(gSmokeConstants.Visual2);
 	const float threshold = max(toe.x, 0.0);
 	const float knee = max(toe.y, 0.0);
 	float shaped = base;
@@ -61,26 +61,48 @@ float SmokeVisualShapeExtinction(float baseExtinction)
 	return max(isfinite(shaped) ? shaped : 0.0, 0.0);
 }
 
+float SmokeVisualShapeScatteringChannel(float baseExtinction, float extinction,
+	float baseScattering, float tint)
+{
+	if (baseExtinction <= 0.0 || extinction <= 0.0 || baseScattering <= 0.0 || tint <= 0.0)
+		return 0.0;
+	const float candidate = extinction * (baseScattering / baseExtinction) * tint;
+	return isfinite(candidate) ? clamp(candidate, 0.0, extinction) : extinction;
+}
+
+float SmokeVisualIncidentChannel(float source, float scattering)
+{
+	if (source <= 0.0 || scattering <= 0.0)
+		return 0.0;
+	const float incident = source / scattering;
+	return isfinite(incident) ? max(incident, 0.0) : 0.0;
+}
+
 void SmokeVisualShapeMedium(float baseExtinction, float3 baseScattering,
 	float3 baseSource, out float extinction, out float3 scattering, out float3 source)
 {
 	extinction = SmokeVisualShapeExtinction(baseExtinction);
-	const float extinctionRatio = baseExtinction > 1e-6 ? extinction / baseExtinction : 0.0;
-	const float colorPivot = max(SmokeVisualUnpackHalf2(gSmokeConstants.Visuals.z).y, 0.0);
+	const float colorPivot = max(SmokeVisualUnpackHalf2(gSmokeConstants.Visual2).y, 0.0);
 	const float colorWidth = colorPivot * 0.5;
 	const float colorLow = max(colorPivot - colorWidth, 0.0);
 	const float colorHigh = max(colorPivot + colorWidth, colorLow + 1e-6);
 	const float colorWeight = smoothstep(colorLow, colorHigh, extinction);
-	const float3 tint = lerp(SmokeVisualUnpackColor(gSmokeConstants.Visuals.w),
-		SmokeVisualUnpackColor(gSmokeConstants.Visuals.w >> 15u), colorWeight);
+	const float3 tint = lerp(SmokeVisualUnpackColor(gSmokeConstants.Visual3),
+		SmokeVisualUnpackColor(gSmokeConstants.Visual3 >> 15u), colorWeight);
 	const float3 safeScattering = max(all(isfinite(baseScattering)) ? baseScattering : 0.0, 0.0);
-	const float3 candidateScattering = safeScattering * extinctionRatio * max(tint, 0.0);
-	scattering = min(candidateScattering, extinction.xxx);
-	const float3 sourceRatio = float3(
-		safeScattering.x > 1e-6 ? scattering.x / safeScattering.x : 0.0,
-		safeScattering.y > 1e-6 ? scattering.y / safeScattering.y : 0.0,
-		safeScattering.z > 1e-6 ? scattering.z / safeScattering.z : 0.0);
-	source = max(all(isfinite(baseSource)) ? baseSource : 0.0, 0.0) * sourceRatio;
+	const float3 safeTint = max(tint, 0.0);
+	scattering = float3(
+		SmokeVisualShapeScatteringChannel(baseExtinction, extinction, safeScattering.x, safeTint.x),
+		SmokeVisualShapeScatteringChannel(baseExtinction, extinction, safeScattering.y, safeTint.y),
+		SmokeVisualShapeScatteringChannel(baseExtinction, extinction, safeScattering.z, safeTint.z));
+	const float3 safeSource = max(all(isfinite(baseSource)) ? baseSource : 0.0, 0.0);
+	const float3 incident = float3(
+		SmokeVisualIncidentChannel(safeSource.x, safeScattering.x),
+		SmokeVisualIncidentChannel(safeSource.y, safeScattering.y),
+		SmokeVisualIncidentChannel(safeSource.z, safeScattering.z));
+	// This is algebraically baseSource * (shapedScattering/baseScattering),
+	// but avoids forming a huge ratio for tiny positive carrier coefficients.
+	source = incident * scattering;
 	source = max(all(isfinite(source)) ? source : 0.0, 0.0);
 }
 

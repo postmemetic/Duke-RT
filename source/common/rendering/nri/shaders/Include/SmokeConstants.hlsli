@@ -78,7 +78,10 @@ struct SmokeConstants
 
     float2 CurrentJitter;
 
-    uint4 Visuals;
+    uint Visual0;
+    uint Visual1;
+    uint Visual2;
+    uint Visual3;
 };
 
 uint SmokeDebugMode(uint packedDebugMode) { return packedDebugMode & 0xffu; }

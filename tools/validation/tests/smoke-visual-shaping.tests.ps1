@@ -48,7 +48,7 @@ Assert-Match $settings 'extinctionThreshold[\s\S]*extinctionKnee[\s\S]*extinctio
 # Four appended words are the exact remaining D3D12 root-signature budget:
 # 58 constant DWORDs plus six descriptor tables equals 64 DWORDs.
 Assert-Match $contracts 'uint32_t\s+visuals\[4\][\s\S]*sizeof\(NRISmokeConstants\)\s*==\s*232[\s\S]*offsetof\(NRISmokeConstants,\s*visuals\)\s*==\s*216' 'CPU visual constants must append four words at byte 216 and end at 232 bytes.'
-Assert-Match $constants 'float2\s+CurrentJitter;[\s\S]*uint4\s+Visuals;' 'HLSL visual constants must mirror the appended CPU uint4.'
+Assert-Match $constants 'float2\s+CurrentJitter;\s*uint\s+Visual0;\s*uint\s+Visual1;\s*uint\s+Visual2;\s*uint\s+Visual3;' 'HLSL visual words must remain scalar so they append at bytes 216 through 228 without uint4 register alignment.'
 Assert-Match $renderer 'requiredRootConstantSize\s*=\s*std::max\(\{[^}]*sizeof\(NRISmokeConstants\)' 'Backend availability must include the enlarged smoke root block.'
 
 # Diagnostics are grid-only current-field views: shared dense/compact math,
@@ -57,9 +57,10 @@ Assert-Match $renderer 'requiredRootConstantSize\s*=\s*std::max\(\{[^}]*sizeof\(
 foreach ($mode in 1..10) {
     Assert-Match $visuals ("NRI_SMOKE_FIELD_DEBUG_[A-Z_]+\s+{0}u" -f $mode) "Missing field diagnostic mode $mode."
 }
-Assert-Match $evaluate 'SmokeVisualLocalDiagnostic[\s\S]*\*\s*sampleExtinction' 'Local diagnostics must form color times extinction per quadrature sample.'
+Assert-Match $evaluate 'SmokeVisualLocalDiagnostic[\s\S]*\*\s*sampleFieldDebugExtinction' 'Local diagnostics must form color times their support coefficient per quadrature sample.'
 Assert-Match $evaluate 'SmokeVisualLobeDiagnostic[\s\S]*\*\s*sampleExtinction' 'Lobe diagnostics must form color times extinction per quadrature sample.'
 Assert-Match $evaluate 'fieldDebugMode\s*!=\s*0u[\s\S]*source\s*=\s*integratedFieldDebug[\s\S]*source\s*\*=\s*sampleWeight' 'Field diagnostic source must retain the complete quadrature denominator.'
+Assert-Match $evaluate 'massSupport\s*=\s*fieldDebugMode\s*==\s*NRI_SMOKE_FIELD_DEBUG_MASS[\s\S]*NRI_SMOKE_FIELD_DEBUG_THERMAL[\s\S]*SmokeVisualTone\(max\(sampleScalar\.x,\s*0\.0\)\)\s*/\s*cellSize[\s\S]*fieldDebugExtinction' 'Mass and thermal diagnostics must remain visible when mass exists without optical extinction.'
 Assert-Match $compact '#define\s+NRI_SMOKE_EVALUATE_GRID_LIBRARY[\s\S]*#include\s+"SmokeEvaluateGrid.cs.hlsl"[\s\S]*SmokeEvaluateGridFroxel' 'Compact materialization must call the shared diagnostic and shaping implementation.'
 Assert-Match $composite 'SmokeDebugMode\(gSmokeConstants\.DebugMode\)\s*>=\s*12u[\s\S]*color\s*=\s*max\(volume\.rgb,\s*0\.0\)' 'Field diagnostics must present volume color without the beauty scene.'
 Assert-Match $smoke 'fieldDiagnostics\s*=\s*mSettings\.debugMode\s*>=\s*12u[\s\S]*volumeHistoryAllowed\s*=\s*mSettings\.volumeHistory\s*&&\s*!fieldDiagnostics' 'Field diagnostics must force final volume history off.'
@@ -68,9 +69,8 @@ Assert-Match $smoke 'if\s*\(!fieldDiagnostics\)[\s\S]*NRIGpuTimingScope::SmokeVi
 # Optical shaping happens once at the shared publication seam. Source receives
 # the final per-channel scattering ratio, including density tint and clamps.
 Assert-Match $evaluate 'SmokeVisualShapeMedium\(baseExtinction,\s*baseScattering,\s*source[\s\S]*gSmokeFroxelMedium\[froxelIndex\]' 'Grid shaping must occur after support integration and before froxel publication.'
-Assert-Match $visuals 'extinctionRatio\s*=\s*baseExtinction\s*>\s*1e-6\s*\?\s*extinction\s*/\s*baseExtinction' 'Scattering must start with the shaped/base extinction ratio.'
-Assert-Match $visuals 'scattering\s*=\s*min\(candidateScattering,\s*extinction\.xxx\)' 'Per-channel scattering must not exceed shaped extinction.'
-Assert-Match $visuals 'sourceRatio\s*=\s*float3[\s\S]*scattering\.x\s*/\s*safeScattering\.x[\s\S]*source\s*=.*baseSource.*\*\s*sourceRatio' 'Existing correlated source must receive the final per-channel scattering ratio.'
+Assert-Match $visuals 'SmokeVisualShapeScatteringChannel[\s\S]*baseExtinction\s*<=\s*0\.0[\s\S]*candidate\s*=\s*extinction\s*\*\s*\(baseScattering\s*/\s*baseExtinction\)\s*\*\s*tint[\s\S]*isfinite\(candidate\)[\s\S]*clamp\(candidate,\s*0\.0,\s*extinction\)' 'Scattering shaping must use a finite ratio-equivalent albedo form bounded by extinction.'
+Assert-Match $visuals 'SmokeVisualIncidentChannel[\s\S]*source\s*/\s*scattering[\s\S]*isfinite\(incident\)[\s\S]*source\s*=\s*incident\s*\*\s*scattering' 'Existing correlated source must receive the ratio-equivalent final scattering grade.'
 Assert-Match $smoke 'visualHistoryHash\s*=\s*NRIHashSmokeVisualSettings[\s\S]*mLastSmokeVisualHash\s*==\s*visualHistoryHash[\s\S]*volumeLightingHash\s*=\s*HashCombine64\(volumeLightingHash,\s*visualHistoryHash\)' 'Visual changes must invalidate light and final-volume histories.'
 
 function Get-ShapedExtinction(
@@ -127,14 +127,15 @@ foreach ($controls in $controlCases) {
 function Get-ShapedMedium(
     [double]$BaseExtinction, [double[]]$BaseScattering, [double[]]$BaseSource,
     [double]$ShapedExtinction, [double[]]$Tint) {
-    $ratio = $(if ($BaseExtinction -gt 1e-6) { $ShapedExtinction / $BaseExtinction } else { 0.0 })
     $scattering = [double[]]@(0,0,0)
     $source = [double[]]@(0,0,0)
     foreach ($channel in 0..2) {
         $safeScattering = [math]::Max($BaseScattering[$channel], 0.0)
-        $scattering[$channel] = [math]::Min($safeScattering * $ratio * [math]::Max($Tint[$channel], 0.0), $ShapedExtinction)
-        $sourceRatio = $(if ($safeScattering -gt 1e-6) { $scattering[$channel] / $safeScattering } else { 0.0 })
-        $source[$channel] = [math]::Max($BaseSource[$channel], 0.0) * $sourceRatio
+        $albedo = $(if ($BaseExtinction -gt 0.0) { $safeScattering / $BaseExtinction } else { 0.0 })
+        $candidate = $(if ($ShapedExtinction -gt 0.0) { $ShapedExtinction * $albedo * [math]::Max($Tint[$channel], 0.0) } else { 0.0 })
+        $scattering[$channel] = [math]::Min([math]::Max($candidate, 0.0), $ShapedExtinction)
+        $incident = $(if ($safeScattering -gt 0.0) { [math]::Max($BaseSource[$channel], 0.0) / $safeScattering } else { 0.0 })
+        $source[$channel] = $incident * $scattering[$channel]
     }
     return [pscustomobject]@{ extinction=$ShapedExtinction; scattering=$scattering; source=$source }
 }
@@ -143,12 +144,17 @@ $mediumCases = @(
     @(.12, @(.04,.03,.02), @(.8,.6,.4), .12, @(1,1,1)),
     @(.12, @(.04,.03,.02), @(.8,.6,.4), .06, @(1.2,.8,.4)),
     @(.12, @(.11,.08,.05), @(2,1,.5), .20, @(2,2,2)),
-    @(.12, @(.04,.03,.02), @(.8,.6,.4), .08, @(0,0,0))
+    @(.12, @(.04,.03,.02), @(.8,.6,.4), .08, @(0,0,0)),
+    @(1e-38, @(5e-39,2e-39,1e-40), @(1e-38,4e-39,2e-40), .1, @(1,1.5,.5))
 )
 foreach ($case in $mediumCases) {
     $medium = Get-ShapedMedium $case[0] $case[1] $case[2] $case[3] $case[4]
+    if ([double]::IsNaN($medium.extinction) -or [double]::IsInfinity($medium.extinction) -or $medium.extinction -lt 0) {
+        throw 'Shaped extinction became invalid.'
+    }
     foreach ($channel in 0..2) {
-        if ($medium.scattering[$channel] -lt 0 -or $medium.scattering[$channel] -gt $medium.extinction + 1e-12) {
+        if ([double]::IsNaN($medium.scattering[$channel]) -or [double]::IsInfinity($medium.scattering[$channel]) -or
+            $medium.scattering[$channel] -lt 0 -or $medium.scattering[$channel] -gt $medium.extinction + 1e-12) {
             throw "Shaped scattering escaped [0, extinction] in channel $channel."
         }
         if ([double]::IsNaN($medium.source[$channel]) -or [double]::IsInfinity($medium.source[$channel]) -or $medium.source[$channel] -lt 0) {
