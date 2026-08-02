@@ -48,6 +48,8 @@ Require-Match $visuals 'turbulenceScale\s*=\s*max\(velocity\.w\s*/\s*max\(scalar
 # Item 10 is coefficient-space, skips exact identity before log/floor, remaps
 # scattering/source safely, and precedes thermal emission.
 Require-Match $visuals '!SmokeVisualIllustrationEnabled\(\)[\s\S]*return;[\s\S]*log2\(max\(extinction[\s\S]*smoothstep\(0\.5\s*-\s*softness,\s*0\.5\s*\+\s*softness[\s\S]*SmokeVisualShapeScatteringChannel[\s\S]*SmokeVisualApplyScatteringTint' 'Soft coefficient bands and contours do not preserve the bounded medium contract.'
+Require-Match $visuals 'SmokeVisualContourMask[\s\S]*effectiveWidth\s*=\s*min\(max\(softness,\s*0\.5\s*\*\s*footprint\),\s*0\.5\)[\s\S]*areaScale\s*=\s*softness\s*/\s*effectiveWidth[\s\S]*SmokeVisualContourPhaseFootprint' 'Contour transfer is not area-preserving across an under-resolved sample footprint.'
+Require-Match $evaluate 'contourEnabled[\s\S]*halfSubFootprintUv[\s\S]*SmokeVisualContourPhaseFootprint[\s\S]*SmokeVisualExtinctionGradient[\s\S]*integratedContour[\s\S]*integratedContourWeight[\s\S]*SmokeVisualApplyIllustration\(contourCoverage' 'Contour mask is not filtered in existing world-grid quadrature before froxel publication.'
 Require-Match $evaluate 'SmokeVisualApplyGradientTint[\s\S]*SmokeVisualApplyIllustration[\s\S]*SmokeVisualApplyThermal' 'Illustration must run before additive thermal glow.'
 
 function Get-CurlAndDivergence([double[]]$Dx, [double[]]$Dy, [double[]]$Dz) {
@@ -84,6 +86,23 @@ foreach ($count in @(2,4,9)) {
         }
         $previous = $banded
     }
+}
+
+function Get-FilteredContour([double]$Phase, [double]$Softness, [double]$Footprint) {
+    $width = [math]::Min([math]::Max($Softness, 0.5*$Footprint), 0.5)
+    $distance = [math]::Abs(($Phase-[math]::Floor($Phase))-0.5)
+    $t = [math]::Max(0.0, [math]::Min(1.0, $distance/$width))
+    $smooth = $t*$t*(3-2*$t)
+    return [math]::Max(0.0, [math]::Min(1.0, (1-$smooth)*$Softness/$width))
+}
+foreach ($softness in @(0.12, 0.30)) {
+    # A resolved footprint retains the contour's integrated darkness instead
+    # of selecting one whole screen froxel at full strength.
+    Require-Near (Get-FilteredContour 0.5 $softness 1.0) (2.0*$softness) 1e-12 'Full-period contour filtering lost the broadened peak.'
+    $sum = 0.0
+    foreach ($step in 0..4095) { $sum += Get-FilteredContour (($step+0.5)/4096.0) $softness 0.6 }
+    Require-Near ($sum/4096.0) $softness 2e-4 'Filtered contour does not preserve average darkness.'
+    Require-Near (Get-FilteredContour 0.5 $softness 0.0) 1.0 1e-12 'Resolved contour changed the original peak.'
 }
 
 Write-Host 'Smoke carrier visual validation passed.'

@@ -265,7 +265,8 @@ bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
 
 void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 scalar,
 	out float4 optical, out float3 source, out float fieldDebugExtinction,
-	out float edgeMask, out float edgeFacingMask, out float flowSculpt, out bool dormant)
+	out float edgeMask, out float edgeFacingMask, out float flowSculpt,
+	out float contourCoverage, out bool dormant)
 {
 	const float sliceNearDepth = SmokeSliceNearDepth(froxel.z);
 	const float sliceFarDepth = SmokeSliceFarDepth(froxel.z);
@@ -293,11 +294,14 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	float integratedEdgeWeight = 0.0;
 	float integratedFlowSculpt = 0.0;
 	float integratedFlowWeight = 0.0;
+	float integratedContour = 0.0;
+	float integratedContourWeight = 0.0;
 	dormant = false;
 	const uint worldDebugMode = (gSmokeConstants.Flags >> NRI_SMOKE_GRID_LIGHT_DEBUG_SHIFT) & 7u;
 	const uint smokeDebugMode = SmokeDebugMode(gSmokeConstants.DebugMode);
 	const uint fieldDebugMode = smokeDebugMode >= 12u ? smokeDebugMode - 11u : 0u;
 	const bool flowEnabled = fieldDebugMode == 0u && SmokeVisualFlowEnabled();
+	const bool contourEnabled = fieldDebugMode == 0u && SmokeVisualContourEnabled();
 	[loop]
 	for (uint footprintY = 0u; footprintY < footprintSampleCount.y; ++footprintY)
 	{
@@ -356,6 +360,32 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 						sampleDormantMask, sampleFlowGain, sampleFlowSculpt);
 					integratedFlowSculpt += sampleFlowSculpt * sampleExtinction;
 					integratedFlowWeight += sampleExtinction;
+				}
+				if (contourEnabled && sampleExtinction > 0.0)
+				{
+					const float sculptedSampleExtinction = SmokeVisualSculptExtinction(
+						sampleExtinction, sampleEdge) * exp2(clamp(sampleFlowSculpt, -1.0, 1.0));
+					const float shapedSampleExtinction = SmokeVisualShapeExtinction(
+						sculptedSampleExtinction);
+					const float2 halfSubFootprintUv = 0.5 / (float2(
+						max(gSmokeConstants.FroxelWidth, 1u), max(gSmokeConstants.FroxelHeight, 1u)) *
+						(float2)footprintSampleCount);
+					const float2 uvMin = max(sampleUv - halfSubFootprintUv, 0.0);
+					const float2 uvMax = min(sampleUv + halfSubFootprintUv, 1.0);
+					const float3 footprintX = SmokeWorldPosition(
+						float2(uvMax.x, sampleUv.y), sampleViewDepth) - SmokeWorldPosition(
+						float2(uvMin.x, sampleUv.y), sampleViewDepth);
+					const float3 footprintY = SmokeWorldPosition(
+						float2(sampleUv.x, uvMax.y), sampleViewDepth) - SmokeWorldPosition(
+						float2(sampleUv.x, uvMin.y), sampleViewDepth);
+					const float phaseFootprint = SmokeVisualContourPhaseFootprint(
+						sampleExtinction, SmokeVisualExtinctionGradient(
+							scalarCorners, gridBlend, cellSize), footprintX, footprintY);
+					const float scatteringWeight = SmokeVisualLuminance(
+						max(sampleOptical.rgb * gSmokeConstants.DensityScale, 0.0));
+					integratedContour += SmokeVisualContourMask(
+						shapedSampleExtinction, phaseFootprint) * scatteringWeight;
+					integratedContourWeight += scatteringWeight;
 				}
 				const bool massSupport = fieldDebugMode == NRI_SMOKE_FIELD_DEBUG_MASS ||
 					fieldDebugMode == NRI_SMOKE_FIELD_DEBUG_THERMAL;
@@ -439,6 +469,8 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	edgeFacingMask = integratedEdgeWeight > 1e-6 ? integratedEdgeFacing / integratedEdgeWeight : 0.0;
 	flowSculpt = integratedFlowWeight > 1e-6 ?
 		integratedFlowSculpt / integratedFlowWeight : 0.0;
+	contourCoverage = integratedContourWeight > 1e-6 ?
+		integratedContour / integratedContourWeight : 0.0;
 	if (fieldDebugMode != 0u)
 		source = integratedFieldDebug;
 	else if (SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) != 0u)
@@ -474,9 +506,10 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	float edgeMask;
 	float edgeFacingMask;
 	float flowSculpt;
+	float contourCoverage;
 	bool dormant;
 	SmokeRenderGridIntegrateFroxel(dispatchThreadId, cellSize, scalar, optical, source,
-		fieldDebugExtinction, edgeMask, edgeFacingMask, flowSculpt, dormant);
+		fieldDebugExtinction, edgeMask, edgeFacingMask, flowSculpt, contourCoverage, dormant);
 	// Deposition stores density-weighted sigma_t and sigma_s coefficients in
 	// inverse world units. Cell size controls sampling support only; dividing the
 	// coefficients by it again made the canonical eight-unit grid 8x too faint.
@@ -504,7 +537,7 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 			extinction, scattering, shapedSource);
 		source = shapedSource;
 		SmokeVisualApplyGradientTint(edgeFacingMask, extinction, scattering, source);
-		SmokeVisualApplyIllustration(extinction, scattering, source);
+		SmokeVisualApplyIllustration(contourCoverage, extinction, scattering, source);
 		nonThermalSourcePresent = any(source > 0.0);
 		const float thermal = scalar.x > 1e-6 ? max(scalar.y / scalar.x, 0.0) : 0.0;
 		SmokeVisualApplyThermal(thermal, extinction, scattering, source, thermalEmission);

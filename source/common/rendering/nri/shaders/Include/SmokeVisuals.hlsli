@@ -191,6 +191,11 @@ bool SmokeVisualIllustrationEnabled()
 	return band > 1e-6 || contour > 1e-6;
 }
 
+bool SmokeVisualContourEnabled()
+{
+	return SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked1()).y > 1e-6;
+}
+
 bool SmokeVisualBoundaryRequired()
 {
 	return SmokeVisualGradientEnabled() || SmokeVisualRadianceEnabled() ||
@@ -336,7 +341,38 @@ void SmokeVisualApplyGradientTint(float facing, float extinction,
 		lerp(1.0, tintColor, saturate(facing * tintStrength)), scattering, source);
 }
 
-void SmokeVisualApplyIllustration(inout float extinction,
+float SmokeVisualContourMask(float extinction, float phaseFootprint)
+{
+	if (!SmokeVisualContourEnabled() || extinction <= 1e-6)
+		return 0.0;
+	const float2 bandSettings = SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked0());
+	const float2 contourSettings = SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked1());
+	const float bandCount = clamp(round(bandSettings.y), 2.0, 9.0);
+	const float softness = clamp(contourSettings.x, 0.02, 0.49);
+	const float scaled = log2(max(extinction, 1e-6)) * bandCount;
+	const float footprint = max(isfinite(phaseFootprint) ? phaseFootprint : 0.0, 0.0);
+	// Broaden an under-resolved pulse up to the full half-period and reduce its
+	// peak by the same ratio. Existing quadrature then averages the broad pulse;
+	// retaining its phase here avoids collapsing the ink grade to uniform gray.
+	const float effectiveWidth = min(max(softness, 0.5 * footprint), 0.5);
+	const float areaScale = softness / effectiveWidth;
+	const float pulse = 1.0 - smoothstep(0.0, effectiveWidth, abs(frac(scaled) - 0.5));
+	return saturate(pulse * areaScale);
+}
+
+float SmokeVisualContourPhaseFootprint(float extinction, float3 gradient,
+	float3 footprintX, float3 footprintY)
+{
+	if (extinction <= 1e-6)
+		return 0.0;
+	const float bandCount = clamp(round(
+		SmokeVisualUnpackHalf2(SmokeVisualIllustrationPacked0()).y), 2.0, 9.0);
+	const float phaseScale = bandCount / (0.69314718056 * extinction);
+	return max(phaseScale * (abs(dot(gradient, footprintX)) +
+		abs(dot(gradient, footprintY))), 0.0);
+}
+
+void SmokeVisualApplyIllustration(float contourCoverage, inout float extinction,
 	inout float3 scattering, inout float3 source)
 {
 	if (!SmokeVisualIllustrationEnabled() || extinction <= 1e-6)
@@ -367,9 +403,8 @@ void SmokeVisualApplyIllustration(inout float extinction,
 		SmokeVisualIncidentChannel(source.z, scattering.z));
 	scattering = remappedScattering;
 	source = max(all(isfinite(incident * scattering)) ? incident * scattering : 0.0, 0.0);
-	const float contour = 1.0 - smoothstep(0.0, softness, abs(fraction - 0.5));
 	SmokeVisualApplyScatteringTint(extinction,
-		(1.0 - contourStrength * contour).xxx, scattering, source);
+		(1.0 - contourStrength * saturate(contourCoverage)).xxx, scattering, source);
 }
 
 void SmokeVisualApplyThermal(float thermal, float extinction,
