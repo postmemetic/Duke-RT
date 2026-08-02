@@ -170,6 +170,8 @@ $captureDefaults = [ordered]@{
     nri_pttraceframes = '0'
     nri_ptscenestats = 'false'
     nri_voxelstats = 'false'
+    nri_ptloadingtrace = '0'
+    nri_ptloadingvoxellist = 'false'
     r_voxels = 'true'
     use_mouse = 'false'
     use_joystick = 'false'
@@ -719,7 +721,11 @@ $preflight = [ordered]@{
     smokeEvolutionTics = $SmokeEvolutionTics
     variantFile = $(if ($null -ne $resolvedVariantFile) { $resolvedVariantFile.Path } else { $null })
     smokeDefaultCount = $smokeDefaults.Count - 1
-    sessionSafetySettings = @('nri_ptmapsmokeeditmode=false')
+    sessionSafetySettings = @(
+        'nri_ptmapsmokeeditmode=false',
+        'nri_ptloadingtrace=0',
+        'nri_ptloadingvoxellist=false'
+    )
     styleDefaults = $styleDefaults
     sourceDefaults = $sourceDefaults
     smokeCVarDefaults = $smokeDefaults

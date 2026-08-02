@@ -16,6 +16,8 @@ $crossbreeds = @($crossbreedScenario.variants)
 
 Require ($runner -match "nri_ptsmokegridcurlevolution\s*=\s*'0'") 'Capture defaults must explicitly disable temporal curl evolution.'
 Require ($runner -match "nri_ptsmokegridvorticity\s*=\s*'0'") 'Capture defaults must explicitly disable vorticity confinement.'
+Require ($runner -match "nri_ptloadingtrace\s*=\s*'0'") 'Capture defaults must disable unrelated loading trace pollution.'
+Require ($runner -match "nri_ptloadingvoxellist\s*=\s*'false'") 'Capture defaults must disable nondeterministic bulk voxel-list preload.'
 foreach ($field in @('pulseAmount', 'pulsePeriodCadences', 'pulsePhase')) {
     Require ($runner -match ($field + '\s*=')) "Capture source defaults are missing $field."
 }
