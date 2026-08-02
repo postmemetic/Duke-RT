@@ -111,6 +111,10 @@ if ([string]::IsNullOrWhiteSpace($VariantFile)) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^100-|^10[4-6]-' }) -Name 'contact-sheet-flow.png'
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^100-|^10[7-9]-|^110-' }) -Name 'contact-sheet-illustrative.png'
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^100-|^11[0-2]-' }) -Name 'contact-sheet-combined.png'
+    } elseif (@($items | Where-Object { $_.id -eq '204-x57-base' }).Count -gt 0) {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^20[4-8]-' }) -Name 'contact-sheet-204-x57-axes.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^204-|^21[0-3]-' }) -Name 'contact-sheet-204-x57-gates.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^204-|^209-|^210-|^214-|^215-' }) -Name 'contact-sheet-204-x57-candidates.png'
     } elseif (@($items | Where-Object { $_.id -eq '200-guard-broad-bands' }).Count -gt 0) {
         New-ContactSheet -SheetItems $items -Name 'contact-sheet-contour-filter.png'
     } elseif (@($items | Where-Object { $_.id -eq '90-rotation-reference' }).Count -gt 0) {
