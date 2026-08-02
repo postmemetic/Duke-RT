@@ -53,26 +53,26 @@ Assert-Match $visualHeader 'thermalLow[\s\S]*thermalHigh[\s\S]*thermalTint\[3\][
 Assert-Match $contracts 'sizeof\(NRISmokeConstants\)\s*==\s*216' 'Items 3-4 must preserve the 216-byte root layout.'
 Assert-Match $constants 'uint\s+DirectionalColorPacked[\s\S]*uint\s+OutputWidth[\s\S]*uint\s+OutputHeight[\s\S]*float2\s+CurrentJitter' 'The reflected alias lanes changed order.'
 Assert-Match $visualOwner 'PackMaterializationWords[\s\S]*thermalLow[\s\S]*thermalHigh[\s\S]*thermalTint[\s\S]*thermalGlow[\s\S]*gradientPivot[\s\S]*gradientWidth[\s\S]*edgeSculpt[\s\S]*edgePowder[\s\S]*edgeTintStrength[\s\S]*edgeTint' 'CPU packing must include every item 3-4 value.'
-Assert-Match $visualOwner 'currentJitter\[0\][\s\S]*currentJitter\[1\][\s\S]*outputWidth\s*=\s*words\[2\][\s\S]*outputHeight\s*=\s*words\[3\][\s\S]*directionalColorPacked\s*=\s*words\[4\]' 'CPU materialization aliases have the wrong word order.'
-Assert-Match $visuals 'ThermalPacked0\(\).*CurrentJitter\.x[\s\S]*ThermalPacked1\(\).*CurrentJitter\.y[\s\S]*GradientPacked0\(\).*OutputWidth[\s\S]*GradientPacked1\(\).*OutputHeight[\s\S]*GradientPacked2\(\).*DirectionalColorPacked' 'HLSL aliases must match CPU word order.'
+Assert-Match $visualOwner 'currentJitter\[0\][\s\S]*currentJitter\[1\][\s\S]*indirectScale,\s*words\[2\][\s\S]*outputHeight\s*=\s*words\[3\][\s\S]*directionalColorPacked\s*=\s*words\[4\]' 'CPU materialization aliases have the wrong word order.'
+Assert-Match $visuals 'ThermalPacked0\(\).*CurrentJitter\.x[\s\S]*ThermalPacked1\(\).*CurrentJitter\.y[\s\S]*GradientPacked0\(\).*IndirectScale[\s\S]*GradientPacked1\(\).*OutputHeight[\s\S]*GradientPacked2\(\).*DirectionalColorPacked' 'HLSL aliases must match CPU word order.'
 Assert-Match $smoke 'NRISmokeConstants\s+passConstants\s*=\s*constants[\s\S]*EvaluateGrid[\s\S]*EvaluateGridCompact[\s\S]*NRIPopulateSmokeVisualMaterializationConstants[\s\S]*&passConstants' 'Grid dispatches must bind a temporary overlaid constants copy.'
 Assert-Match $compact '#include\s+"SmokeEvaluateGrid.cs.hlsl"[\s\S]*SmokeEvaluateGridFroxel' 'Compact evaluation must share item 3-4 implementation.'
 Assert-Match $evaluate 'SmokeFroxelRay\(froxel\.xy\)' 'Grid materialization must retain its unjittered froxel ray.'
 Assert-Match $evaluate 'sampleUv\s*=\s*\(float2\(froxel\.xy\)\s*\+\s*footprintUnit\)\s*/' 'Grid materialization must derive UVs from froxel dimensions.'
 Assert-Match $evaluate 'SmokeWorldPosition\(sampleUv,\s*sampleViewDepth\)' 'Grid materialization must retain explicit sample reconstruction.'
 Assert-Match $evaluate 'SmokeRenderGridIntegrateFroxel[\s\S]*SmokeEvaluateGridFroxel' 'The shared materializer implementation is missing.'
-if ($evaluate -match 'SmokePrimarySampleUv|SmokeDirectionalColor|gSmokeConstants\.(?:CurrentJitter|OutputWidth|OutputHeight|DirectionalColorPacked)') {
+if ($evaluate -match 'SmokePrimarySampleUv|SmokeDirectionalColor|gSmokeConstants\.(?:CurrentJitter|IndirectScale|OutputWidth|OutputHeight|DirectionalColorPacked|DirectionalDirection[XYZ]|DirectionalAngularSize)') {
     throw 'EvaluateGrid acquired a canonical use of a pass-local visual alias.'
 }
-if ($compact -match 'SmokePrimarySampleUv|SmokeDirectionalColor|gSmokeConstants\.(?:CurrentJitter|OutputWidth|OutputHeight|DirectionalColorPacked)') {
+if ($compact -match 'SmokePrimarySampleUv|SmokeDirectionalColor|gSmokeConstants\.(?:CurrentJitter|IndirectScale|OutputWidth|OutputHeight|DirectionalColorPacked|DirectionalDirection[XYZ]|DirectionalAngularSize)') {
     throw 'EvaluateGridCompact acquired a canonical use of a pass-local visual alias.'
 }
 
 # Gradient evaluation reuses the eight loaded corners, is coefficient weighted,
 # precedes item-2 transfer, and never changes raw field diagnostics.
-Assert-Match $evaluate 'SmokeRenderGridSample[\s\S]*SmokeVisualGradientSample\(scalarCorners,\s*gridBlend,\s*cellSize[\s\S]*integratedEdge\s*\+=\s*sampleEdge\s*\*\s*sampleExtinction[\s\S]*integratedEdgeWeight\s*\+=\s*sampleExtinction' 'Beauty gradient must reuse and coefficient-weight the current quadrature corners.'
+Assert-Match $evaluate 'SmokeRenderGridSample[\s\S]*SmokeVisualBoundarySample\(scalarCorners,\s*gridBlend,\s*cellSize[\s\S]*integratedEdge\s*\+=\s*sampleEdge\s*\*\s*sampleExtinction[\s\S]*integratedEdgeWeight\s*\+=\s*sampleExtinction' 'Beauty gradient must reuse and coefficient-weight the current quadrature corners.'
 Assert-Match $evaluate 'SmokeVisualSculptExtinction\(baseExtinction,\s*edgeMask\)[\s\S]*SmokeVisualShapeMedium\(baseExtinction,\s*sculptedBaseExtinction' 'Gradient sculpting must precede the item-2 transfer while retaining base albedo authority.'
-Assert-Match $evaluate 'if\s*\(fieldDebugMode\s*==\s*0u\s*&&\s*SmokeVisualGradientEnabled' 'Raw field diagnostics must bypass beauty gradient evaluation.'
+Assert-Match $evaluate 'if\s*\(fieldDebugMode\s*==\s*0u\s*&&\s*SmokeVisualBoundaryRequired' 'Raw field diagnostics must bypass beauty boundary evaluation.'
 Assert-Match $visuals 'factor\s*=\s*exp2\(clamp\(stops,\s*-2\.0,\s*2\.0\)\)' 'Gradient sculpt factor must remain in the bounded four-stop range.'
 
 # Thermal applies after shaped/gradient medium reconstruction. Glow is an

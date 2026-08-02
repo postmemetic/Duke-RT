@@ -1,4 +1,5 @@
 #include "Include/SmokeGridLightingResources.hlsli"
+#include "Include/SmokePhase.hlsli"
 
 float3 SmokeGridScatterLoadIterationBounce(uint probeIndex, uint iteration)
 {
@@ -70,9 +71,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		SmokeGridScatterStoreIterationBounce(probeIndex, iteration, 0.0);
 		return;
 	}
-	const float anisotropy = anisotropyDenominator > 1e-6 ?
+	const float bodyAnisotropy = anisotropyDenominator > 1e-6 ?
 		clamp(anisotropyNumerator / anisotropyDenominator, -0.95, 0.95) : 0.0;
-	const float3 reducedSigmaS = min(sigmaS * clamp(1.0 - anisotropy, 0.0, 2.0), sigmaT.xxx);
+	const float effectiveAnisotropy = SmokePhaseEffectiveAnisotropy(bodyAnisotropy);
+	const float3 reducedSigmaS = min(sigmaS * clamp(1.0 - effectiveAnisotropy, 0.0, 2.0), sigmaT.xxx);
 	const float3 reducedAlbedo = saturate(reducedSigmaS / max(sigmaT, 1e-6));
 	const float cellSize = max(asfloat(gSmokeRenderGridControl[0].CellSizeBits), 0.0001);
 	const float halfSegment = cellSize;

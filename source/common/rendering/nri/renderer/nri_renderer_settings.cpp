@@ -249,6 +249,15 @@ NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 	settings.visuals.edgeTint[1] = std::clamp((float)nri_ptsmokeedgetintg, 0.0f, 2.0f);
 	settings.visuals.edgeTint[2] = std::clamp((float)nri_ptsmokeedgetintb, 0.0f, 2.0f);
 	settings.visuals.edgeTintStrength = std::clamp((float)nri_ptsmokeedgetintstrength, 0.0f, 1.0f);
+	settings.visuals.dualLobeWeight = std::clamp((float)nri_ptsmokeduallobeweight, 0.0f, 1.0f);
+	settings.visuals.dualLobeG = std::clamp((float)nri_ptsmokeduallobeg, -0.9f, 0.9f);
+	settings.visuals.rimStrength = std::clamp((float)nri_ptsmokerimstrength, 0.0f, 1.0f);
+	settings.visuals.rimGain = std::clamp((float)nri_ptsmokerimgain, 0.0f, 1.0f);
+	settings.visuals.radianceEdgeChroma = std::clamp((float)nri_ptsmokeradianceedgechroma, 0.0f, 1.0f);
+	settings.visuals.radianceCavityContrast = std::clamp((float)nri_ptsmokeradiancecavitycontrast, 0.0f, 1.0f);
+	settings.visuals.radianceDesaturation = std::clamp((float)nri_ptsmokeradiancedesaturation, 0.0f, 1.0f);
+	settings.visuals.radianceConfidence = std::clamp((float)nri_ptsmokeradianceconfidence, 0.0f, 1.0f);
+	settings.visuals.radianceDirectionality = std::clamp((float)nri_ptsmokeradiancedirectionality, 0.0f, 1.0f);
 	settings.enabled = (bool)nri_ptsmoke;
 	settings.readback = (bool)nri_ptsmokereadback;
 	settings.workProfile = (uint32_t)std::max((int)nri_ptsmokeworkprofile, 0);

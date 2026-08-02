@@ -24,11 +24,22 @@ struct NRISmokeVisualSettings
 	float edgePowder = 0.0f;
 	float edgeTint[3] = { 1.0f, 1.0f, 1.0f };
 	float edgeTintStrength = 0.0f;
+	float dualLobeWeight = 0.0f;
+	float dualLobeG = 0.75f;
+	float rimStrength = 0.0f;
+	float rimGain = 0.0f;
+	float radianceEdgeChroma = 0.0f;
+	float radianceCavityContrast = 0.0f;
+	float radianceDesaturation = 0.0f;
+	float radianceConfidence = 0.25f;
+	float radianceDirectionality = 0.15f;
 };
 
 void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,
 	NRISmokeConstants& constants);
 void NRIPopulateSmokeVisualMaterializationConstants(const NRISmokeVisualSettings& settings,
+	NRISmokeConstants& constants);
+void NRIPopulateSmokeVisualPhaseConstants(const NRISmokeVisualSettings& settings,
 	NRISmokeConstants& constants);
 uint64_t NRIHashSmokeVisualSettings(const NRISmokeVisualSettings& settings);
 const char* NRIGetSmokeFieldDebugName(uint32_t mode);

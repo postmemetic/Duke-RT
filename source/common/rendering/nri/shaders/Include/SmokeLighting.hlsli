@@ -5,6 +5,7 @@
 #include "SceneShadowContracts.hlsli"
 #include "EmissiveLightContracts.hlsli"
 #include "DirectionalLightSampling.hlsli"
+#include "SmokePhase.hlsli"
 
 #define NRI_SMOKE_RUNTIME_LIGHT_TILE_SIZE 64u
 #define NRI_SMOKE_MAX_SELECTED_LIGHTS 32u
@@ -490,14 +491,6 @@ bool SmokeEmissiveVisibleFilteredWithBlocker(
 {
 	return SmokePointLightVisibleFilteredBiasedWithBlocker(
 		receiverPosition, lightDirection, lightDistance, 0.05, 0.05, diagnostics, blocker);
-}
-
-float SmokeHenyeyGreenstein(float cosineTheta, float anisotropy)
-{
-	const float g = clamp(anisotropy, -0.95, 0.95);
-	const float gSquared = g * g;
-	const float denominatorBase = max(1.0 + gSquared - 2.0 * g * clamp(cosineTheta, -1.0, 1.0), 1e-4);
-	return (1.0 - gSquared) / (12.56637061436 * denominatorBase * sqrt(denominatorBase));
 }
 
 float3 SmokeSampleReceiverFacingEmitter(RuntimePointLightData light, float3 centerDirection, inout uint randomState)

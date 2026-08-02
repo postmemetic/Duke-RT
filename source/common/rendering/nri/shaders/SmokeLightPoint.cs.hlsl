@@ -184,7 +184,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				}
 				else
 				{
-					const float phase = SmokeHenyeyGreenstein(dot(lightDirection, viewRay), anisotropy);
+					const float phase = SmokePhaseResponse(dot(lightDirection, viewRay), anisotropy);
 					const float3 unclampedLightRadiance = max(light.color, 0.0) * attenuation;
 					if (lightingDiagnostics && any(unclampedLightRadiance > 32.0))
 						InterlockedAdd(gSmokeControl[0].LightRadianceClamps, 1u);
@@ -199,7 +199,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			const float fractionalVisibility = visibleSamples / (float)sampleCount;
 			const float fractionalTransmittance = transmittanceSamples / (float)sampleCount;
 			const float fractionalCombined = combinedSamples / (float)sampleCount;
-			const float phase = SmokeHenyeyGreenstein(dot(centerDirection, viewRay), anisotropy);
+			const float phase = SmokePhaseResponse(dot(centerDirection, viewRay), anisotropy);
 			const float3 unclampedLightRadiance = max(light.color, 0.0) * attenuation;
 			if (lightingDiagnostics && any(unclampedLightRadiance > 32.0))
 				InterlockedAdd(gSmokeControl[0].LightRadianceClamps, 1u);

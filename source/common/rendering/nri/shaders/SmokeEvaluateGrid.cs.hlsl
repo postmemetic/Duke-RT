@@ -132,6 +132,7 @@ void SmokeRenderGridSample(float3 worldPosition, float cellSize,
 
 bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
 	float4 scalarCorners[8], float4 opticalCorners[8], float3 viewRay,
+	float edge, float3 outward, float interior, float densityWeight,
 	out float3 correlatedSource, out float3 lobes[6], out float confidence, out float3 phaseApplied)
 {
 	correlatedSource = 0.0;
@@ -160,12 +161,14 @@ bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
 		const float anisotropy = cornerOptical.w > 1e-6 ?
 			clamp(cornerScalar.w / cornerOptical.w, -0.95, 0.95) : 0.0;
 		float3 cornerPhaseApplied = 0.0;
+		float3 cornerLobes[6];
 		[unroll]
 		for (uint lobe = 0u; lobe < 6u; ++lobe)
 		{
 			const float3 mean = SmokeGridLightMean(record, lobe);
+			cornerLobes[lobe] = mean;
 			lobes[lobe] += mean * weight;
-			cornerPhaseApplied += mean * SmokeHenyeyGreenstein(
+			cornerPhaseApplied += mean * SmokePhaseResponse(
 				dot((float3)NRI_SMOKE_GRID_LIGHT_LOBE_AXES[lobe], viewRay), anisotropy);
 		}
 		phaseApplied += cornerPhaseApplied * weight;
@@ -173,7 +176,9 @@ bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
 		weightSum += weight;
 
 		const float3 cornerIncident = SmokeGridClampControlledSource(
-			cornerPhaseApplied * gSmokeConstants.RadianceScale);
+			SmokeVisualShapeWorldIncident(cornerLobes,
+				SmokeGridLightConfidence(record), viewRay, outward, edge, interior,
+				densityWeight, cornerPhaseApplied) * gSmokeConstants.RadianceScale);
 		// Form sigma_s * Li at the authoritative sparse-grid cell. Multiplying
 		// independently reconstructed fields attenuates co-located sparse energy
 		// and creates false energy between unrelated density/light corners.
@@ -251,13 +256,17 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 				integratedScalar += sampleScalar;
 				integratedOptical += sampleOptical;
 				const float sampleExtinction = max(sampleScalar.z * gSmokeConstants.DensityScale, 0.0);
-				if (fieldDebugMode == 0u && SmokeVisualGradientEnabled() && sampleExtinction > 0.0)
+				float sampleEdge = 0.0;
+				float sampleFacing = 0.0;
+				float3 sampleOutward = 0.0;
+				float sampleInterior = 0.0;
+				float sampleDensityWeight = 0.0;
+				if (fieldDebugMode == 0u && SmokeVisualBoundaryRequired() && sampleExtinction > 0.0)
 				{
-					float sampleEdge;
-					float sampleFacing;
 					const float3 viewRay = normalize(samplePosition - gSmokeConstants.CameraPosition);
-					SmokeVisualGradientSample(scalarCorners, gridBlend, cellSize,
-						sampleExtinction, viewRay, sampleEdge, sampleFacing);
+					SmokeVisualBoundarySample(scalarCorners, gridBlend, cellSize,
+						sampleExtinction, viewRay, sampleEdge, sampleFacing, sampleOutward,
+						sampleInterior, sampleDensityWeight);
 					integratedEdge += sampleEdge * sampleExtinction;
 					integratedEdgeFacing += sampleFacing * sampleExtinction;
 					integratedEdgeWeight += sampleExtinction;
@@ -283,7 +292,8 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 					float3 correlatedSource;
 					const float3 viewRay = normalize(samplePosition - gSmokeConstants.CameraPosition);
 					if (SmokeRenderGridCorrelatedWorldSource(gridLower, gridBlend,
-						scalarCorners, opticalCorners, viewRay,
+						scalarCorners, opticalCorners, viewRay, sampleEdge, sampleOutward,
+						sampleInterior, sampleDensityWeight,
 						correlatedSource, lobes, confidence, phaseApplied))
 					{
 						float3 lobeSum = 0.0;

@@ -188,6 +188,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const uint probeIndex = dispatchThreadId.x;
 	const float4 previousSeed = gSmokeGridScatterSeed[probeIndex];
 	const SmokeGridScatterMetadata previousMetadata = gSmokeGridScatterMetadata[probeIndex];
+	const uint phaseSignature = SmokePhaseSettingsSignature();
 	gSmokeGridScatterSeed[probeIndex] = 0.0;
 	gSmokeGridScatterBounceA[probeIndex] = 0.0;
 	gSmokeGridScatterBounceB[probeIndex] = 0.0;
@@ -242,7 +243,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		zeroMetadata.HistoryBlock = historyBlock;
 		zeroMetadata.HistoryCount = 0u;
 		zeroMetadata.TransmittanceQ = 0u;
-		zeroMetadata.Reserved = 0u;
+		zeroMetadata.Reserved = phaseSignature;
 		gSmokeGridScatterMetadata[probeIndex] = zeroMetadata;
 		InterlockedAdd(gSmokeGridLightControl[0].ExplicitZeroProbes, 1u);
 		if (!internalOpen)
@@ -310,6 +311,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		previousMetadata.BrickGeneration == brick.Generation &&
 		previousMetadata.SimulationEpoch == gSmokeConstants.SimulationEpoch &&
 		previousMetadata.FrameStamp + 1u == gSmokeConstants.FrameIndex &&
+		previousMetadata.Reserved == phaseSignature &&
 		previousMetadata.HistoryBlock == historyBlock && previousMetadata.HistoryCount > 0u &&
 		previousMetadata.HistoryCount < 8u &&
 		(previousMetadata.Flags & (NRI_SMOKE_GRID_SCATTER_VALID | NRI_SMOKE_GRID_SCATTER_FACE_MASK)) ==
@@ -332,7 +334,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	metadata.HistoryBlock = historyBlock;
 	metadata.HistoryCount = historyCount;
 	metadata.TransmittanceQ = 0u;
-	metadata.Reserved = 0u;
+	metadata.Reserved = phaseSignature;
 	gSmokeGridScatterMetadata[probeIndex] = metadata;
 	gSmokeGridScatterSeed[probeIndex] = float4(max(seed, 0.0), sigmaT);
 	uint activeCapacity;

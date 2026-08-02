@@ -85,7 +85,12 @@ namespace
 		std::memcpy(&destination, &word, sizeof(word));
 	}
 
-	std::array<uint32_t, 5> PackMaterializationWords(const NRISmokeVisualSettings& settings)
+	uint32_t PackPhaseWord(const NRISmokeVisualSettings& settings)
+	{
+		return PackHalf2(settings.dualLobeWeight, settings.dualLobeG);
+	}
+
+	std::array<uint32_t, 9> PackMaterializationWords(const NRISmokeVisualSettings& settings)
 	{
 		return {
 			PackHalf2(settings.thermalLow, settings.thermalHigh),
@@ -94,7 +99,11 @@ namespace
 			PackHalf2(settings.gradientPivot, settings.gradientWidth),
 			PackHalf2(settings.edgeSculpt, settings.edgePowder),
 			(uint32_t)FloatToHalf(settings.edgeTintStrength) |
-				(PackColor15(settings.edgeTint) << 16u)
+				(PackColor15(settings.edgeTint) << 16u),
+			PackHalf2(settings.rimStrength, settings.rimGain),
+			PackHalf2(settings.radianceEdgeChroma, settings.radianceCavityContrast),
+			PackHalf2(settings.radianceDesaturation, settings.radianceConfidence),
+			PackHalf2(settings.radianceDirectionality, 0.0f)
 		};
 	}
 }
@@ -115,12 +124,22 @@ void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,
 void NRIPopulateSmokeVisualMaterializationConstants(const NRISmokeVisualSettings& settings,
 	NRISmokeConstants& constants)
 {
-	const std::array<uint32_t, 5> words = PackMaterializationWords(settings);
+	const std::array<uint32_t, 9> words = PackMaterializationWords(settings);
 	StorePackedWord(constants.currentJitter[0], words[0]);
 	StorePackedWord(constants.currentJitter[1], words[1]);
-	constants.outputWidth = words[2];
+	StorePackedWord(constants.indirectScale, words[2]);
 	constants.outputHeight = words[3];
 	constants.directionalColorPacked = words[4];
+	StorePackedWord(constants.directionalDirectionX, words[5]);
+	StorePackedWord(constants.directionalDirectionY, words[6]);
+	StorePackedWord(constants.directionalDirectionZ, words[7]);
+	StorePackedWord(constants.directionalAngularSize, words[8]);
+}
+
+void NRIPopulateSmokeVisualPhaseConstants(const NRISmokeVisualSettings& settings,
+	NRISmokeConstants& constants)
+{
+	constants.outputWidth = PackPhaseWord(settings);
 }
 
 uint64_t NRIHashSmokeVisualSettings(const NRISmokeVisualSettings& settings)
@@ -134,6 +153,7 @@ uint64_t NRIHashSmokeVisualSettings(const NRISmokeVisualSettings& settings)
 	HashWord(hash, PackColor15(settings.thinColor));
 	HashWord(hash, PackColor15(settings.coreColor));
 	HashWord(hash, FloatBits(settings.colorPivot));
+	HashWord(hash, PackPhaseWord(settings));
 	for (uint32_t word : PackMaterializationWords(settings)) HashWord(hash, word);
 	return hash;
 }

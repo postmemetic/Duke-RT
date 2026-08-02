@@ -101,6 +101,24 @@ namespace
 		return hash;
 	}
 
+	bool SmokePassUsesVisualPhase(NRISmokePass pass)
+	{
+		switch (pass)
+		{
+		case NRISmokePass::EvaluateGrid:
+		case NRISmokePass::EvaluateGridCompact:
+		case NRISmokePass::LightPoint:
+		case NRISmokePass::LightDirectional:
+		case NRISmokePass::LightEmissiveInitial:
+		case NRISmokePass::LightEmissiveTemporal:
+		case NRISmokePass::LightEmissiveSpatial:
+		case NRISmokePass::AnalyticEmissiveResolve:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 }
 
 bool NRISmokeSystem::LoadGridShaderBlob(void* user, const char* fileName, std::vector<uint8_t>& outBlob)
@@ -2493,6 +2511,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	{
 		NRISmokeConstants passConstants = constants;
 		passConstants.pass = (uint32_t)pass;
+		if (SmokePassUsesVisualPhase(pass))
+			NRIPopulateSmokeVisualPhaseConstants(mSettings.visuals, passConstants);
 		if (pass == NRISmokePass::EvaluateGrid || pass == NRISmokePass::EvaluateGridCompact)
 			NRIPopulateSmokeVisualMaterializationConstants(mSettings.visuals, passConstants);
 		return passConstants;
@@ -3265,6 +3285,12 @@ void NRISmokeSystem::PrintStatus(const NRIRenderer& renderer) const
 		mSettings.visuals.edgeSculpt, mSettings.visuals.edgePowder,
 		mSettings.visuals.edgeTint[0], mSettings.visuals.edgeTint[1],
 		mSettings.visuals.edgeTint[2], mSettings.visuals.edgeTintStrength);
+	Printf("NRI PT smoke visual lighting: dual_lobe=%.3f/%.3f rim=%.3f/%.3f edge_chroma=%.3f cavity_contrast=%.3f dense_desaturation=%.3f radiance_gates=%.3f/%.3f phase_all_carriers=yes radiance_grid_world_only=yes\n",
+		mSettings.visuals.dualLobeWeight, mSettings.visuals.dualLobeG,
+		mSettings.visuals.rimStrength, mSettings.visuals.rimGain,
+		mSettings.visuals.radianceEdgeChroma, mSettings.visuals.radianceCavityContrast,
+		mSettings.visuals.radianceDesaturation, mSettings.visuals.radianceConfidence,
+		mSettings.visuals.radianceDirectionality);
 	Printf("NRI PT smoke work profile: requested=%u effective=%u name=%s revision=%u change_serial=%u supported=%08x enforced=%08x unrestricted=%u froxel_pixels=%u froxel_depth=%u emissive_lights=%u emissive_backend=%u light_samples=%u light_candidates=%u emission_commands=%u first_use_sources=%u analytic_carriers=%u admission_brick_requests=%u deposition_cell_visits=%u projection_work_units=%u materialized_froxels=%u radiance_new_invalid=%u radiance_maintenance=%u world_link_rays=%u direct_receiver_samples=%u dormant_archives=%u dormant_promotions=%u dormant_evolution=%u simulation_substeps=%u emission=%u/%u/%u first_use=%u/%u/%u analytic=%u/%u/%u simulation=%u/%u/%u debt=%u debt_max=%u capped_consecutive=%u capped_total=%llu policy=static-no-timing-input\n",
 		work.requestedProfile, (uint32_t)work.effectiveProfile,
 		NRISmokeWorkScheduler::ProfileName(work.effectiveProfile), work.table.revision,

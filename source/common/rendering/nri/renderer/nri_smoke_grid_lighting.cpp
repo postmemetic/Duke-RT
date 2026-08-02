@@ -419,6 +419,7 @@ bool NRISmokeGridLighting::Record(const NRISmokeGridServices& services, const NR
 		return false;
 	if (mLastRecordedFrame == constants.frameIndex)
 		return true;
+	NRIPopulateSmokeVisualPhaseConstants(settings.visuals, constants);
 	if (!mResourcesInitialized)
 	{
 		NRIBufferResource* resources[] = { &mCurrent, &mHistory, &mActive, &mControl, &mLinks, &mProposals, &mFiltered,

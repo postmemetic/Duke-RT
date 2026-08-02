@@ -93,7 +93,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// phase stay on the current occupied froxel so camera rotation cannot
 		// resize the apparent carrier envelope or import an old view direction.
 		float3 directionalSource = medium.rgb * SmokeDirectionalColor() *
-			SmokeHenyeyGreenstein(dot(centerDirection, viewRay), phaseRecord.x);
+			SmokePhaseResponse(dot(centerDirection, viewRay), phaseRecord.x);
 		if (diagnostics && any(directionalSource > 32.0))
 			InterlockedAdd(gSmokeControl[0].DirectionalRadianceClamps, 1u);
 		directionalSource = min(max(directionalSource, 0.0), 32.0);
@@ -141,7 +141,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	if (gSmokeConstants.LightMode >= 2u && castsShadow && !SmokeShadowTracingReady())
 		return;
 	const float3 unclamped = visibleDirectionalScattering * SmokeDirectionalColor() *
-		SmokeHenyeyGreenstein(dot(centerDirection, viewRay), anisotropy);
+		SmokePhaseResponse(dot(centerDirection, viewRay), anisotropy);
 	if (diagnostics && any(unclamped > 32.0))
 		InterlockedAdd(gSmokeControl[0].DirectionalRadianceClamps, 1u);
 	const float3 source = gSmokeFroxelSource[froxelIndex].rgb + min(unclamped, 32.0) * gSmokeConstants.RadianceScale;

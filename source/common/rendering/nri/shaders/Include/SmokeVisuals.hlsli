@@ -45,9 +45,13 @@ uint SmokeVisualPacked2() { return asuint(gSmokeConstants.Wind.y); }
 uint SmokeVisualPacked3() { return asuint(gSmokeConstants.Wind.z); }
 uint SmokeVisualThermalPacked0() { return asuint(gSmokeConstants.CurrentJitter.x); }
 uint SmokeVisualThermalPacked1() { return asuint(gSmokeConstants.CurrentJitter.y); }
-uint SmokeVisualGradientPacked0() { return gSmokeConstants.OutputWidth; }
+uint SmokeVisualGradientPacked0() { return asuint(gSmokeConstants.IndirectScale); }
 uint SmokeVisualGradientPacked1() { return gSmokeConstants.OutputHeight; }
 uint SmokeVisualGradientPacked2() { return gSmokeConstants.DirectionalColorPacked; }
+uint SmokeVisualRadiancePacked0() { return asuint(gSmokeConstants.DirectionalDirectionX); }
+uint SmokeVisualRadiancePacked1() { return asuint(gSmokeConstants.DirectionalDirectionY); }
+uint SmokeVisualRadiancePacked2() { return asuint(gSmokeConstants.DirectionalDirectionZ); }
+uint SmokeVisualRadiancePacked3() { return asuint(gSmokeConstants.DirectionalAngularSize); }
 
 float SmokeVisualDensityColorWeight(float extinction)
 {
@@ -147,14 +151,31 @@ bool SmokeVisualGradientEnabled()
 	return any(abs(sculpt) > 1e-6) || tintStrength > 1e-6;
 }
 
+bool SmokeVisualRadianceEnabled()
+{
+	const float2 rim = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked0());
+	const float2 shaping = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked1());
+	const float desaturation = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked2()).x;
+	return any(abs(rim) > 1e-6) || any(abs(shaping) > 1e-6) || desaturation > 1e-6;
+}
+
+bool SmokeVisualBoundaryRequired()
+{
+	return SmokeVisualGradientEnabled() || SmokeVisualRadianceEnabled();
+}
+
 float3 SmokeVisualExtinctionGradient(float4 scalarCorners[8], float3 blend,
 	float cellSize);
 
-void SmokeVisualGradientSample(float4 scalarCorners[8], float3 blend, float cellSize,
-	float extinction, float3 viewRay, out float edge, out float facing)
+void SmokeVisualBoundarySample(float4 scalarCorners[8], float3 blend, float cellSize,
+	float extinction, float3 viewRay, out float edge, out float facing,
+	out float3 outward, out float interior, out float densityWeight)
 {
 	edge = 0.0;
 	facing = 0.0;
+	outward = 0.0;
+	interior = 0.0;
+	densityWeight = 0.0;
 	if (extinction <= 1e-6)
 		return;
 	const float3 gradient = SmokeVisualExtinctionGradient(scalarCorners, blend, cellSize);
@@ -165,7 +186,96 @@ void SmokeVisualGradientSample(float4 scalarCorners[8], float3 blend, float cell
 	const float low = max(selection.x - selection.y, 0.0);
 	const float high = max(selection.x + selection.y, low + 1e-6);
 	edge = smoothstep(low, high, relativeGradient);
-	facing = delta > 1e-6 ? edge * saturate(dot(normalize(gradient), viewRay)) : 0.0;
+	if (delta > 1e-6)
+	{
+		const float3 gradientDirection = normalize(gradient);
+		facing = edge * saturate(dot(gradientDirection, viewRay));
+		outward = -gradientDirection;
+	}
+	float cornerAverage = 0.0;
+	[unroll]
+	for (uint corner = 0u; corner < 8u; ++corner)
+		cornerAverage += max(scalarCorners[corner].z * gSmokeConstants.DensityScale, 0.0);
+	cornerAverage *= 0.125;
+	const float relativeCavity = cornerAverage > 1e-6 ?
+		saturate((cornerAverage - extinction) / cornerAverage) : 0.0;
+	const float cavity = smoothstep(0.10, 0.50, relativeCavity);
+	densityWeight = SmokeVisualDensityColorWeight(extinction);
+	const float middleBand = 4.0 * densityWeight * (1.0 - densityWeight);
+	const float crack = max(cavity, edge * middleBand);
+	interior = saturate(densityWeight * (1.0 - crack));
+}
+
+float SmokeVisualLuminance(float3 color)
+{
+	return dot(color, float3(0.2126, 0.7152, 0.0722));
+}
+
+float SmokeVisualEvidenceGate(float value, float pivot)
+{
+	const float low = saturate(pivot);
+	const float high = min(low + 0.25, 1.0);
+	return high > low + 1e-6 ? smoothstep(low, high, saturate(value)) :
+		(value >= low ? 1.0 : 0.0);
+}
+
+float3 SmokeVisualShapeWorldIncident(float3 rawLobes[6], float confidence,
+	float3 viewRay, float3 outward, float edge, float interior, float densityWeight,
+	float3 baseIncident)
+{
+	const float3 safeBase = max(all(isfinite(baseIncident)) ? baseIncident : 0.0, 0.0);
+	if (!SmokeVisualRadianceEnabled() || !any(safeBase > 0.0))
+		return safeBase;
+
+	float3 lobeMeans[6];
+	float luminance[6];
+	float totalLuminance = 0.0;
+	[unroll]
+	for (uint lobe = 0u; lobe < 6u; ++lobe)
+	{
+		lobeMeans[lobe] = max(all(isfinite(rawLobes[lobe])) ? rawLobes[lobe] : 0.0, 0.0);
+		luminance[lobe] = max(SmokeVisualLuminance(lobeMeans[lobe]), 0.0);
+		totalLuminance += luminance[lobe];
+	}
+	const float3 directional = float3(luminance[0] - luminance[1],
+		luminance[2] - luminance[3], luminance[4] - luminance[5]);
+	const float directionalLength = length(directional);
+	const float directionality = totalLuminance > 1e-6 ?
+		saturate(directionalLength / totalLuminance) : 0.0;
+	const float3 dominantDirection = directionalLength > 1e-6 ?
+		directional / directionalLength : 0.0;
+
+	const float2 denseAndConfidence = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked2());
+	const float2 directionalitySettings = SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked3());
+	const float confidenceGate = SmokeVisualEvidenceGate(confidence, denseAndConfidence.y);
+	const float directionGate = SmokeVisualEvidenceGate(directionality, directionalitySettings.x);
+	const float evidenceGate = confidenceGate * directionGate;
+	const float lightFacing = saturate(dot(outward, dominantDirection));
+	const float backlit = saturate(dot(dominantDirection, viewRay));
+	const float rimMask = saturate(edge * evidenceGate * sqrt(lightFacing * backlit));
+
+	const float2 rim = saturate(SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked0()));
+	const float2 shaping = saturate(SmokeVisualUnpackHalf2(SmokeVisualRadiancePacked1()));
+	float3 incident = safeBase * saturate(1.0 - shaping.y * confidenceGate * interior);
+	const float incidentLuminance = max(SmokeVisualLuminance(incident), 0.0);
+	incident = lerp(incident, incidentLuminance.xxx,
+		saturate(denseAndConfidence.x) * confidenceGate * saturate(densityWeight));
+
+	float3 dominantColor = 0.0;
+	[unroll]
+	for (uint axis = 0u; axis < 6u; ++axis)
+		dominantColor += lobeMeans[axis] * max(dot(
+			(float3)NRI_SMOKE_GRID_LIGHT_LOBE_AXES[axis], dominantDirection), 0.0);
+	const float currentLuminance = max(SmokeVisualLuminance(incident), 0.0);
+	const float dominantLuminance = max(SmokeVisualLuminance(dominantColor), 0.0);
+	const float3 redistributed = dominantLuminance > 1e-6 ?
+		dominantColor * (currentLuminance / dominantLuminance) : incident;
+	const float rimBlend = saturate(rim.x * rimMask);
+	const float edgeBlend = saturate(shaping.x * edge * evidenceGate);
+	const float combinedBlend = 1.0 - (1.0 - rimBlend) * (1.0 - edgeBlend);
+	incident = lerp(incident, redistributed, saturate(combinedBlend));
+	incident *= 1.0 + rim.y * rimMask;
+	return max(all(isfinite(incident)) ? incident : 0.0, 0.0);
 }
 
 float SmokeVisualSculptExtinction(float baseExtinction, float edge)

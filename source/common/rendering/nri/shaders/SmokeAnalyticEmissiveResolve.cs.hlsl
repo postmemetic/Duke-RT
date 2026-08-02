@@ -79,7 +79,7 @@ float3 SmokeEvaluateAnalyticLightField(SmokeAnalyticCarrier carrier,
 		float3 anchorSource = 0.0;
 		[unroll]
 		for (uint lobe = 0u; lobe < 6u; ++lobe)
-			anchorSource += SmokeAnalyticLightLobe(record, lobe) * SmokeHenyeyGreenstein(
+			anchorSource += SmokeAnalyticLightLobe(record, lobe) * SmokePhaseResponse(
 				dot(NRI_SMOKE_ANALYTIC_LIGHT_LOBE_AXES[lobe], viewRay), anisotropy);
 		source += anchorSource * weight;
 		weightSum += weight;

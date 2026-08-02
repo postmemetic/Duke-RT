@@ -286,7 +286,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	reconstructedMean = clamp(reconstructedMean, neighborhoodMinimum, neighborhoodMaximum);
 	reconstructedSecond = max(reconstructedSecond, reconstructedMean * reconstructedMean);
 	const float3 incidentDirection = SmokeUnpackEmissiveDirection(SmokePackEmissiveDirection(directionSum));
-	const float phaseResponse = SmokeHenyeyGreenstein(dot(incidentDirection, viewRay), anisotropy);
+	const float phaseResponse = SmokePhaseResponse(dot(incidentDirection, viewRay), anisotropy);
 	float3 incidentContribution = reconstructedMean * (phaseResponse * gSmokeConstants.RadianceScale);
 	const float unclampedLuminance = SmokeEmissiveLuminance(incidentContribution);
 	if (unclampedLuminance > gSmokeConstants.DeltaTime)

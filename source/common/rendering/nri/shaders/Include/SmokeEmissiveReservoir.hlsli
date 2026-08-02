@@ -496,7 +496,7 @@ bool SmokeEvaluateEmissiveCandidate(
 		integrand = 0.0;
 		return false;
 	}
-	integrand = incidentRadiance * SmokeHenyeyGreenstein(dot(lightDirection, viewRay), anisotropy);
+	integrand = incidentRadiance * SmokePhaseResponse(dot(lightDirection, viewRay), anisotropy);
 	return all(isfinite(integrand)) && SmokeEmissiveLuminance(integrand) > 1e-8;
 }
 
