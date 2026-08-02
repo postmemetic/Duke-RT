@@ -10,6 +10,7 @@ function Require([bool]$Condition, [string]$Message) {
 $scenario = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows.json' | ConvertFrom-Json
 $followup = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-followup.json' | ConvertFrom-Json
 $decisive = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-decisive.json' | ConvertFrom-Json
+$lowMass = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-low-mass.json' | ConvertFrom-Json
 $sheets = Read-RepoFile 'tools\validation\new-smoke-visual-contact-sheets.ps1'
 $variants = @($scenario.variants)
 
@@ -106,6 +107,20 @@ Require (-not [bool]$decisiveVariants[2].history) 'Fine-grid separated-puff diag
 Require (-not [bool]$decisiveVariants[2].settings.nri_ptsmokedormantgrid) 'Fine-grid separated-puff diagnostic must disable dormant routing.'
 Require ($sheets -match "id\s+-eq\s+'30-history-off-diagnostic'") 'Contact-sheet generator must recognize the decisive billow suite.'
 foreach ($name in @('contact-sheet-decisive-diagnostics.png', 'contact-sheet-decisive-candidates.png')) {
+    Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
+}
+
+$lowMassVariants = @($lowMass.variants)
+Require ([int]$lowMass.schema -eq 2) 'Low-mass billow scenario schema must be 2.'
+Require ([string]$lowMass.suite -eq 'smoke-billow-low-mass') 'Low-mass billow scenario must identify its suite.'
+Require ($lowMassVariants.Count -eq 4) 'Low-mass billow scenario must contain four variants.'
+Require (@($lowMassVariants.id | Sort-Object -Unique).Count -eq $lowMassVariants.Count) 'Low-mass billow IDs must be unique.'
+Require ([string]$lowMassVariants[0].sourceOverrides.actorClass -eq 'DukeFire2') 'Separated-puff proof must isolate the DukeFire2 source.'
+Require ([string]$lowMassVariants[1].sourceOverrides.actorClass -eq 'DukeFire2') 'Isolated beauty candidate must retain one source.'
+Require ([string]$lowMassVariants[2].sourceOverrides.actorClass -eq 'DukeFire') 'Paired candidate must exercise inherited dumpster sources.'
+Require ([int]$lowMassVariants[3].settings.nri_ptsmokeworkprofile -eq 1) 'High-profile discriminator must select work profile 1.'
+Require ($sheets -match "id\s+-eq\s+'60-isolated-puff-proof'") 'Contact-sheet generator must recognize the low-mass suite.'
+foreach ($name in @('contact-sheet-low-mass-proof.png', 'contact-sheet-low-mass-candidates.png')) {
     Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
 }
 

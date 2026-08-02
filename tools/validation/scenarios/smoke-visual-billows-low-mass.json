@@ -1,0 +1,143 @@
+{
+  "schema": 2,
+  "suite": "smoke-billow-low-mass",
+  "variants": [
+    {
+      "id": "60-isolated-puff-proof",
+      "label": "Isolated low-mass separated-puff proof",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 0.0,
+        "densityHalfLife": 2.0,
+        "riseVelocity": 24.0,
+        "velocityRandom": 0.0,
+        "buoyancy": 2.0,
+        "drag": 0.12,
+        "turbulence": 0.0,
+        "turbulenceScale": 48.0,
+        "temperature": 2.0,
+        "coolingHalfLife": 2.5
+      },
+      "sourceOverrides": {
+        "actorClass": "DukeFire2",
+        "count": 9,
+        "densityScale": 1.0,
+        "radiusScale": 1.0,
+        "intervalSeconds": 1.8
+      },
+      "settings": {
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 5.0
+    },
+    {
+      "id": "61-isolated-chunky-meander",
+      "label": "Isolated chunky meander",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 5.0,
+        "densityHalfLife": 2.75,
+        "riseVelocity": 22.0,
+        "velocityRandom": 4.0,
+        "buoyancy": 2.5,
+        "drag": 0.10,
+        "turbulence": 64.0,
+        "turbulenceScale": 48.0,
+        "temperature": 2.5,
+        "coolingHalfLife": 3.0
+      },
+      "sourceOverrides": {
+        "actorClass": "DukeFire2",
+        "count": 12,
+        "densityScale": 1.25,
+        "radiusScale": 1.25,
+        "intervalSeconds": 1.25
+      },
+      "settings": {
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 12.0
+    },
+    {
+      "id": "62-paired-chunky-column",
+      "label": "Paired production-like chunky column",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 8.0,
+        "densityHalfLife": 3.25,
+        "riseVelocity": 20.0,
+        "velocityRandom": 6.0,
+        "buoyancy": 3.0,
+        "drag": 0.10,
+        "turbulence": 96.0,
+        "turbulenceScale": 64.0,
+        "temperature": 3.0,
+        "coolingHalfLife": 3.0
+      },
+      "sourceOverrides": {
+        "actorClass": "DukeFire",
+        "count": 14,
+        "densityScale": 0.8,
+        "radiusScale": 1.5,
+        "intervalSeconds": 1.1
+      },
+      "settings": {
+        "nri_ptsmokereadback": true
+      },
+      "expectedNominalMassRate": 10.1818181818
+    },
+    {
+      "id": "63-paired-chunky-high-profile",
+      "label": "Paired chunky column, high work profile",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": true,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "styleOverrides": {
+        "expansionVelocity": 8.0,
+        "densityHalfLife": 3.25,
+        "riseVelocity": 20.0,
+        "velocityRandom": 6.0,
+        "buoyancy": 3.0,
+        "drag": 0.10,
+        "turbulence": 96.0,
+        "turbulenceScale": 64.0,
+        "temperature": 3.0,
+        "coolingHalfLife": 3.0
+      },
+      "sourceOverrides": {
+        "actorClass": "DukeFire",
+        "count": 14,
+        "densityScale": 0.8,
+        "radiusScale": 1.5,
+        "intervalSeconds": 1.1
+      },
+      "settings": {
+        "nri_ptsmokereadback": true,
+        "nri_ptsmokeworkprofile": 1
+      },
+      "expectedNominalMassRate": 10.1818181818
+    }
+  ]
+}

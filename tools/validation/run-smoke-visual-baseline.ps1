@@ -245,6 +245,7 @@ $styleOverrideDefinitions = [ordered]@{
 
 $sourceOverrideDefinitions = [ordered]@{
     rule = @{ type='rule' }
+    actorClass = @{ type='actorClass' }
     count = @{ type='integer'; minimum=1; maximum=256 }
     offset = @{ type='vector3' }
     spawnRadius = @{ type='number'; minimum=0.0 }
@@ -321,6 +322,12 @@ function Convert-TypedValue {
         'rule' {
             if ($Value -isnot [string] -or $Value -cne 'duke_fire_sustained') {
                 throw "$Context must be the literal string 'duke_fire_sustained'."
+            }
+            return [string]$Value
+        }
+        'actorClass' {
+            if ($Value -isnot [string] -or $Value -cnotin @('DukeFire', 'DukeFire2')) {
+                throw "$Context must be either 'DukeFire' or 'DukeFire2'."
             }
             return [string]$Value
         }
