@@ -3,6 +3,7 @@
 #include "nri_smoke_contracts.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iterator>
@@ -22,6 +23,17 @@ namespace
 		return PackColorChannel(color[0]) |
 			(PackColorChannel(color[1]) << 5u) |
 			(PackColorChannel(color[2]) << 10u);
+	}
+
+	uint32_t PackLinearColor15(const float color[3], float maximum)
+	{
+		uint32_t packed = 0;
+		for (uint32_t channel = 0; channel < 3; ++channel)
+		{
+			const float unit = std::clamp(color[channel] / maximum, 0.0f, 1.0f);
+			packed |= (uint32_t)std::lround((double)unit * 31.0) << (channel * 5u);
+		}
+		return packed;
 	}
 
 	uint32_t FloatBits(float value)
@@ -72,6 +84,19 @@ namespace
 	{
 		std::memcpy(&destination, &word, sizeof(word));
 	}
+
+	std::array<uint32_t, 5> PackMaterializationWords(const NRISmokeVisualSettings& settings)
+	{
+		return {
+			PackHalf2(settings.thermalLow, settings.thermalHigh),
+			PackColor15(settings.thermalTint) |
+				(PackLinearColor15(settings.thermalGlow, 4.0f) << 15u),
+			PackHalf2(settings.gradientPivot, settings.gradientWidth),
+			PackHalf2(settings.edgeSculpt, settings.edgePowder),
+			(uint32_t)FloatToHalf(settings.edgeTintStrength) |
+				(PackColor15(settings.edgeTint) << 16u)
+		};
+	}
 }
 
 void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,
@@ -87,6 +112,17 @@ void NRIPopulateSmokeVisualConstants(const NRISmokeVisualSettings& settings,
 		(PackColor15(settings.coreColor) << 15u));
 }
 
+void NRIPopulateSmokeVisualMaterializationConstants(const NRISmokeVisualSettings& settings,
+	NRISmokeConstants& constants)
+{
+	const std::array<uint32_t, 5> words = PackMaterializationWords(settings);
+	StorePackedWord(constants.currentJitter[0], words[0]);
+	StorePackedWord(constants.currentJitter[1], words[1]);
+	constants.outputWidth = words[2];
+	constants.outputHeight = words[3];
+	constants.directionalColorPacked = words[4];
+}
+
 uint64_t NRIHashSmokeVisualSettings(const NRISmokeVisualSettings& settings)
 {
 	uint64_t hash = 1469598103934665603ull;
@@ -98,6 +134,7 @@ uint64_t NRIHashSmokeVisualSettings(const NRISmokeVisualSettings& settings)
 	HashWord(hash, PackColor15(settings.thinColor));
 	HashWord(hash, PackColor15(settings.coreColor));
 	HashWord(hash, FloatBits(settings.colorPivot));
+	for (uint32_t word : PackMaterializationWords(settings)) HashWord(hash, word);
 	return hash;
 }
 

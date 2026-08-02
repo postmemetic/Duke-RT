@@ -28,6 +28,12 @@ float3 SmokeVisualUnpackColor(uint packed)
 		code.z <= 16u ? (float)code.z / 16.0 : 1.0 + (float)(code.z - 16u) / 15.0);
 }
 
+float3 SmokeVisualUnpackLinearColor(uint packed, float maximum)
+{
+	return float3(packed & 31u, (packed >> 5u) & 31u,
+		(packed >> 10u) & 31u) * (maximum / 31.0);
+}
+
 float2 SmokeVisualUnpackHalf2(uint packed)
 {
 	return float2(f16tof32(packed & 0xffffu), f16tof32(packed >> 16u));
@@ -37,6 +43,20 @@ uint SmokeVisualPacked0() { return asuint(gSmokeConstants.TimeScale); }
 uint SmokeVisualPacked1() { return asuint(gSmokeConstants.Wind.x); }
 uint SmokeVisualPacked2() { return asuint(gSmokeConstants.Wind.y); }
 uint SmokeVisualPacked3() { return asuint(gSmokeConstants.Wind.z); }
+uint SmokeVisualThermalPacked0() { return asuint(gSmokeConstants.CurrentJitter.x); }
+uint SmokeVisualThermalPacked1() { return asuint(gSmokeConstants.CurrentJitter.y); }
+uint SmokeVisualGradientPacked0() { return gSmokeConstants.OutputWidth; }
+uint SmokeVisualGradientPacked1() { return gSmokeConstants.OutputHeight; }
+uint SmokeVisualGradientPacked2() { return gSmokeConstants.DirectionalColorPacked; }
+
+float SmokeVisualDensityColorWeight(float extinction)
+{
+	const float colorPivot = max(SmokeVisualUnpackHalf2(SmokeVisualPacked2()).y, 0.0);
+	const float colorWidth = colorPivot * 0.5;
+	const float colorLow = max(colorPivot - colorWidth, 0.0);
+	const float colorHigh = max(colorPivot + colorWidth, colorLow + 1e-6);
+	return smoothstep(colorLow, colorHigh, extinction);
+}
 
 float SmokeVisualShapeExtinction(float baseExtinction)
 {
@@ -83,15 +103,11 @@ float SmokeVisualIncidentChannel(float source, float scattering)
 	return isfinite(incident) ? max(incident, 0.0) : 0.0;
 }
 
-void SmokeVisualShapeMedium(float baseExtinction, float3 baseScattering,
+void SmokeVisualShapeMedium(float baseExtinction, float shapingExtinction, float3 baseScattering,
 	float3 baseSource, out float extinction, out float3 scattering, out float3 source)
 {
-	extinction = SmokeVisualShapeExtinction(baseExtinction);
-	const float colorPivot = max(SmokeVisualUnpackHalf2(SmokeVisualPacked2()).y, 0.0);
-	const float colorWidth = colorPivot * 0.5;
-	const float colorLow = max(colorPivot - colorWidth, 0.0);
-	const float colorHigh = max(colorPivot + colorWidth, colorLow + 1e-6);
-	const float colorWeight = smoothstep(colorLow, colorHigh, extinction);
+	extinction = SmokeVisualShapeExtinction(shapingExtinction);
+	const float colorWeight = SmokeVisualDensityColorWeight(extinction);
 	const uint packedColors = SmokeVisualPacked3();
 	const float3 tint = lerp(SmokeVisualUnpackColor(packedColors),
 		SmokeVisualUnpackColor(packedColors >> 15u), colorWeight);
@@ -110,6 +126,94 @@ void SmokeVisualShapeMedium(float baseExtinction, float3 baseScattering,
 	// but avoids forming a huge ratio for tiny positive carrier coefficients.
 	source = incident * scattering;
 	source = max(all(isfinite(source)) ? source : 0.0, 0.0);
+}
+
+void SmokeVisualApplyScatteringTint(float extinction, float3 tint,
+	inout float3 scattering, inout float3 source)
+{
+	const float3 incident = float3(
+		SmokeVisualIncidentChannel(source.x, scattering.x),
+		SmokeVisualIncidentChannel(source.y, scattering.y),
+		SmokeVisualIncidentChannel(source.z, scattering.z));
+	const float3 safeTint = max(all(isfinite(tint)) ? tint : 1.0, 0.0);
+	scattering = min(max(scattering * safeTint, 0.0), extinction.xxx);
+	source = max(all(isfinite(incident * scattering)) ? incident * scattering : 0.0, 0.0);
+}
+
+bool SmokeVisualGradientEnabled()
+{
+	const float2 sculpt = SmokeVisualUnpackHalf2(SmokeVisualGradientPacked1());
+	const float tintStrength = f16tof32(SmokeVisualGradientPacked2() & 0xffffu);
+	return any(abs(sculpt) > 1e-6) || tintStrength > 1e-6;
+}
+
+float3 SmokeVisualExtinctionGradient(float4 scalarCorners[8], float3 blend,
+	float cellSize);
+
+void SmokeVisualGradientSample(float4 scalarCorners[8], float3 blend, float cellSize,
+	float extinction, float3 viewRay, out float edge, out float facing)
+{
+	edge = 0.0;
+	facing = 0.0;
+	if (extinction <= 1e-6)
+		return;
+	const float3 gradient = SmokeVisualExtinctionGradient(scalarCorners, blend, cellSize);
+	const float delta = length(gradient) * cellSize;
+	const float denominator = max(max(extinction, delta * 0.25), 1e-6);
+	const float relativeGradient = delta / denominator;
+	const float2 selection = SmokeVisualUnpackHalf2(SmokeVisualGradientPacked0());
+	const float low = max(selection.x - selection.y, 0.0);
+	const float high = max(selection.x + selection.y, low + 1e-6);
+	edge = smoothstep(low, high, relativeGradient);
+	facing = delta > 1e-6 ? edge * saturate(dot(normalize(gradient), viewRay)) : 0.0;
+}
+
+float SmokeVisualSculptExtinction(float baseExtinction, float edge)
+{
+	if (!SmokeVisualGradientEnabled() || baseExtinction <= 0.0)
+		return baseExtinction;
+	const float2 sculpt = SmokeVisualUnpackHalf2(SmokeVisualGradientPacked1());
+	const float densityWeight = SmokeVisualDensityColorWeight(baseExtinction);
+	const float middleBand = 4.0 * densityWeight * (1.0 - densityWeight);
+	const float stops = edge * (sculpt.x + sculpt.y * middleBand);
+	const float factor = exp2(clamp(stops, -2.0, 2.0));
+	const float sculpted = baseExtinction * factor;
+	return isfinite(sculpted) ? max(sculpted, 0.0) : 0.0;
+}
+
+void SmokeVisualApplyGradientTint(float facing, float extinction,
+	inout float3 scattering, inout float3 source)
+{
+	if (!SmokeVisualGradientEnabled() || extinction <= 0.0)
+		return;
+	const uint packedTint = SmokeVisualGradientPacked2();
+	const float tintStrength = max(f16tof32(packedTint & 0xffffu), 0.0);
+	const float3 tintColor = SmokeVisualUnpackColor(packedTint >> 16u);
+	SmokeVisualApplyScatteringTint(extinction,
+		lerp(1.0, tintColor, saturate(facing * tintStrength)), scattering, source);
+}
+
+void SmokeVisualApplyThermal(float thermal, float extinction,
+	inout float3 scattering, inout float3 source, out bool emitted)
+{
+	emitted = false;
+	if (extinction <= 0.0)
+		return;
+	const uint packedColors = SmokeVisualThermalPacked1();
+	const float3 tintColor = SmokeVisualUnpackColor(packedColors);
+	const float3 glow = SmokeVisualUnpackLinearColor(packedColors >> 15u, 4.0);
+	if (all(abs(tintColor - 1.0) <= 1e-6) && !any(glow > 0.0))
+		return;
+	const float2 knots = SmokeVisualUnpackHalf2(SmokeVisualThermalPacked0());
+	const float low = max(knots.x, 0.0);
+	const float high = max(knots.y, low + 1e-4);
+	const float heat = smoothstep(low, high, max(isfinite(thermal) ? thermal : 0.0, 0.0));
+	if (heat <= 0.0)
+		return;
+	SmokeVisualApplyScatteringTint(extinction, lerp(1.0, tintColor, heat), scattering, source);
+	const float3 glowSource = extinction * heat * min(max(glow, 0.0), 4.0);
+	emitted = any(glowSource > 0.0);
+	source = max(all(isfinite(source + glowSource)) ? source + glowSource : 0.0, 0.0);
 }
 
 float3 SmokeVisualExtinctionGradient(float4 scalarCorners[8], float3 blend,

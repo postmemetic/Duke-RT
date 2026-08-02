@@ -191,7 +191,8 @@ bool SmokeRenderGridCorrelatedWorldSource(int3 lower, float3 blend,
 }
 
 void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 scalar,
-	out float4 optical, out float3 source, out float fieldDebugExtinction, out bool dormant)
+	out float4 optical, out float3 source, out float fieldDebugExtinction,
+	out float edgeMask, out float edgeFacingMask, out bool dormant)
 {
 	const float sliceNearDepth = SmokeSliceNearDepth(froxel.z);
 	const float sliceFarDepth = SmokeSliceFarDepth(froxel.z);
@@ -214,6 +215,9 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	float3 integratedScatterDebug = 0.0;
 	float3 integratedFieldDebug = 0.0;
 	float integratedFieldDebugExtinction = 0.0;
+	float integratedEdge = 0.0;
+	float integratedEdgeFacing = 0.0;
+	float integratedEdgeWeight = 0.0;
 	dormant = false;
 	const uint worldDebugMode = (gSmokeConstants.Flags >> NRI_SMOKE_GRID_LIGHT_DEBUG_SHIFT) & 7u;
 	const uint smokeDebugMode = SmokeDebugMode(gSmokeConstants.DebugMode);
@@ -247,6 +251,17 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 				integratedScalar += sampleScalar;
 				integratedOptical += sampleOptical;
 				const float sampleExtinction = max(sampleScalar.z * gSmokeConstants.DensityScale, 0.0);
+				if (fieldDebugMode == 0u && SmokeVisualGradientEnabled() && sampleExtinction > 0.0)
+				{
+					float sampleEdge;
+					float sampleFacing;
+					const float3 viewRay = normalize(samplePosition - gSmokeConstants.CameraPosition);
+					SmokeVisualGradientSample(scalarCorners, gridBlend, cellSize,
+						sampleExtinction, viewRay, sampleEdge, sampleFacing);
+					integratedEdge += sampleEdge * sampleExtinction;
+					integratedEdgeFacing += sampleFacing * sampleExtinction;
+					integratedEdgeWeight += sampleExtinction;
+				}
 				const bool massSupport = fieldDebugMode == NRI_SMOKE_FIELD_DEBUG_MASS ||
 					fieldDebugMode == NRI_SMOKE_FIELD_DEBUG_THERMAL;
 				const float sampleFieldDebugExtinction = massSupport ?
@@ -322,6 +337,8 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	scalar = integratedScalar * sampleWeight;
 	optical = integratedOptical * sampleWeight;
 	fieldDebugExtinction = integratedFieldDebugExtinction * sampleWeight;
+	edgeMask = integratedEdgeWeight > 1e-6 ? integratedEdge / integratedEdgeWeight : 0.0;
+	edgeFacingMask = integratedEdgeWeight > 1e-6 ? integratedEdgeFacing / integratedEdgeWeight : 0.0;
 	if (fieldDebugMode != 0u)
 		source = integratedFieldDebug;
 	else if (SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) != 0u)
@@ -354,9 +371,11 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	float4 optical;
 	float3 source;
 	float fieldDebugExtinction;
+	float edgeMask;
+	float edgeFacingMask;
 	bool dormant;
 	SmokeRenderGridIntegrateFroxel(dispatchThreadId, cellSize, scalar, optical, source,
-		fieldDebugExtinction, dormant);
+		fieldDebugExtinction, edgeMask, edgeFacingMask, dormant);
 	// Deposition stores density-weighted sigma_t and sigma_s coefficients in
 	// inverse world units. Cell size controls sampling support only; dividing the
 	// coefficients by it again made the canonical eight-unit grid 8x too faint.
@@ -366,17 +385,25 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	const bool fieldDebug = smokeDebugMode >= 12u;
 	float extinction;
 	float3 scattering;
+	bool nonThermalSourcePresent = false;
+	bool thermalEmission = false;
 	if (fieldDebug)
 	{
 		extinction = max(fieldDebugExtinction, 0.0);
 		scattering = 0.0;
+		nonThermalSourcePresent = any(source > 0.0);
 	}
 	else
 	{
 		float3 shapedSource;
-		SmokeVisualShapeMedium(baseExtinction, baseScattering, source,
+		const float sculptedBaseExtinction = SmokeVisualSculptExtinction(baseExtinction, edgeMask);
+		SmokeVisualShapeMedium(baseExtinction, sculptedBaseExtinction, baseScattering, source,
 			extinction, scattering, shapedSource);
 		source = shapedSource;
+		SmokeVisualApplyGradientTint(edgeFacingMask, extinction, scattering, source);
+		nonThermalSourcePresent = any(source > 0.0);
+		const float thermal = scalar.x > 1e-6 ? max(scalar.y / scalar.x, 0.0) : 0.0;
+		SmokeVisualApplyThermal(thermal, extinction, scattering, source, thermalEmission);
 	}
 	if (extinction <= 1e-6)
 		return;
@@ -384,12 +411,14 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	gSmokeFroxelMedium[froxelIndex] = float4(scattering, extinction);
 	// The fourth phase lane identifies grid materialization to the shared direct
 	// light passes. Particle evaluation retains the value 1.
-	gSmokeFroxelPhase[froxelIndex] = float4(anisotropy, optical.w, 1.0,
+	gSmokeFroxelPhase[froxelIndex] = float4(anisotropy,
+		dot(scattering, float3(0.2126, 0.7152, 0.0722)), 1.0,
 		dormant ? NRI_SMOKE_FROXEL_CARRIER_DORMANT : NRI_SMOKE_FROXEL_CARRIER_GRID);
 	uint carrierMetadata = SmokeFroxelCarrierMetadata(gSmokeConstants.SimulationEpoch);
 	if (any(source > 0.0))
 		carrierMetadata = SmokeFroxelResolveRadiance(carrierMetadata, gSmokeConstants.SimulationEpoch,
-			NRI_SMOKE_FALLBACK_WORLD, 0u);
+			nonThermalSourcePresent ? NRI_SMOKE_FALLBACK_WORLD :
+				(thermalEmission ? NRI_SMOKE_FALLBACK_EMISSIVE : NRI_SMOKE_FALLBACK_WORLD), 0u);
 	gSmokeFroxelSource[froxelIndex] = float4(source, SmokeFroxelMetadataValue(carrierMetadata));
 	uint occupiedCapacity;
 	gSmokeOccupiedFroxelIndices.GetDimensions(occupiedCapacity, ignoredStride);

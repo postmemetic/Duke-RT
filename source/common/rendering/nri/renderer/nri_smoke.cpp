@@ -2489,12 +2489,20 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		mStatus.volumeHistoryResetReason = "lighting-change";
 	else
 		mStatus.volumeHistoryResetReason = "incompatible";
+	auto buildPassConstants = [&](NRISmokePass pass)
+	{
+		NRISmokeConstants passConstants = constants;
+		passConstants.pass = (uint32_t)pass;
+		if (pass == NRISmokePass::EvaluateGrid || pass == NRISmokePass::EvaluateGridCompact)
+			NRIPopulateSmokeVisualMaterializationConstants(mSettings.visuals, passConstants);
+		return passConstants;
+	};
 	auto dispatch = [&](NRISmokePass pass, uint32_t x, uint32_t y, uint32_t z)
 	{
 		renderer.mFrameBuffer->mCore.CmdBeginAnnotation(*renderer.mFrameBuffer->mCommandBuffer,
 			kSmokePipelineNames[(uint32_t)pass], nri::BGRA_UNUSED);
-		constants.pass = (uint32_t)pass;
-		renderer.mFrameBuffer->mCore.CmdSetRootConstants(*renderer.mFrameBuffer->mCommandBuffer, { 0, &constants, sizeof(constants), 0, nri::BindPoint::COMPUTE });
+		const NRISmokeConstants passConstants = buildPassConstants(pass);
+		renderer.mFrameBuffer->mCore.CmdSetRootConstants(*renderer.mFrameBuffer->mCommandBuffer, { 0, &passConstants, sizeof(passConstants), 0, nri::BindPoint::COMPUTE });
 		renderer.mFrameBuffer->mCore.CmdSetPipeline(*renderer.mFrameBuffer->mCommandBuffer, *mPipelines[(uint32_t)pass]);
 		renderer.mFrameBuffer->mCore.CmdDispatch(*renderer.mFrameBuffer->mCommandBuffer, { x, y, z });
 		renderer.mFrameBuffer->mCore.CmdEndAnnotation(*renderer.mFrameBuffer->mCommandBuffer);
@@ -2503,9 +2511,9 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	{
 		renderer.mFrameBuffer->mCore.CmdBeginAnnotation(*renderer.mFrameBuffer->mCommandBuffer,
 			kSmokePipelineNames[(uint32_t)pass], nri::BGRA_UNUSED);
-		constants.pass = (uint32_t)pass;
+		const NRISmokeConstants passConstants = buildPassConstants(pass);
 		renderer.mFrameBuffer->mCore.CmdSetRootConstants(*renderer.mFrameBuffer->mCommandBuffer,
-			{ 0, &constants, sizeof(constants), 0, nri::BindPoint::COMPUTE });
+			{ 0, &passConstants, sizeof(passConstants), 0, nri::BindPoint::COMPUTE });
 		renderer.mFrameBuffer->mCore.CmdSetPipeline(*renderer.mFrameBuffer->mCommandBuffer,
 			*mPipelines[(uint32_t)pass]);
 		renderer.mFrameBuffer->mCore.CmdDispatchIndirect(*renderer.mFrameBuffer->mCommandBuffer,
@@ -3248,6 +3256,15 @@ void NRISmokeSystem::PrintStatus(const NRIRenderer& renderer) const
 		mSettings.visuals.thinColor[0], mSettings.visuals.thinColor[1],
 		mSettings.visuals.thinColor[2], mSettings.visuals.coreColor[0],
 		mSettings.visuals.coreColor[1], mSettings.visuals.coreColor[2]);
+	Printf("NRI PT smoke visual effects: thermal_knots=%.3f/%.3f thermal_tint=%.3f/%.3f/%.3f thermal_glow=%.3f/%.3f/%.3f gradient=%.3f/%.3f edge_sculpt=%.3f edge_powder=%.3f edge_tint=%.3f/%.3f/%.3f edge_tint_strength=%.3f grid_only=yes packed_materialization=yes\n",
+		mSettings.visuals.thermalLow, mSettings.visuals.thermalHigh,
+		mSettings.visuals.thermalTint[0], mSettings.visuals.thermalTint[1],
+		mSettings.visuals.thermalTint[2], mSettings.visuals.thermalGlow[0],
+		mSettings.visuals.thermalGlow[1], mSettings.visuals.thermalGlow[2],
+		mSettings.visuals.gradientPivot, mSettings.visuals.gradientWidth,
+		mSettings.visuals.edgeSculpt, mSettings.visuals.edgePowder,
+		mSettings.visuals.edgeTint[0], mSettings.visuals.edgeTint[1],
+		mSettings.visuals.edgeTint[2], mSettings.visuals.edgeTintStrength);
 	Printf("NRI PT smoke work profile: requested=%u effective=%u name=%s revision=%u change_serial=%u supported=%08x enforced=%08x unrestricted=%u froxel_pixels=%u froxel_depth=%u emissive_lights=%u emissive_backend=%u light_samples=%u light_candidates=%u emission_commands=%u first_use_sources=%u analytic_carriers=%u admission_brick_requests=%u deposition_cell_visits=%u projection_work_units=%u materialized_froxels=%u radiance_new_invalid=%u radiance_maintenance=%u world_link_rays=%u direct_receiver_samples=%u dormant_archives=%u dormant_promotions=%u dormant_evolution=%u simulation_substeps=%u emission=%u/%u/%u first_use=%u/%u/%u analytic=%u/%u/%u simulation=%u/%u/%u debt=%u debt_max=%u capped_consecutive=%u capped_total=%llu policy=static-no-timing-input\n",
 		work.requestedProfile, (uint32_t)work.effectiveProfile,
 		NRISmokeWorkScheduler::ProfileName(work.effectiveProfile), work.table.revision,

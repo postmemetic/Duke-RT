@@ -71,7 +71,7 @@ Assert-Match $smoke 'if\s*\(!fieldDiagnostics\)[\s\S]*NRIGpuTimingScope::SmokeVi
 
 # Optical shaping happens once at the shared publication seam. Source receives
 # the final per-channel scattering ratio, including density tint and clamps.
-Assert-Match $evaluate 'SmokeVisualShapeMedium\(baseExtinction,\s*baseScattering,\s*source[\s\S]*gSmokeFroxelMedium\[froxelIndex\]' 'Grid shaping must occur after support integration and before froxel publication.'
+Assert-Match $evaluate 'SmokeVisualSculptExtinction\(baseExtinction,\s*edgeMask\)[\s\S]*SmokeVisualShapeMedium\(baseExtinction,\s*sculptedBaseExtinction,\s*baseScattering,\s*source[\s\S]*gSmokeFroxelMedium\[froxelIndex\]' 'Grid shaping must occur after support integration and before froxel publication.'
 Assert-Match $visuals 'SmokeVisualShapeScatteringChannel[\s\S]*baseExtinction\s*<=\s*0\.0[\s\S]*candidate\s*=\s*extinction\s*\*\s*\(baseScattering\s*/\s*baseExtinction\)\s*\*\s*tint[\s\S]*isfinite\(candidate\)[\s\S]*clamp\(candidate,\s*0\.0,\s*extinction\)' 'Scattering shaping must use a finite ratio-equivalent albedo form bounded by extinction.'
 Assert-Match $visuals 'SmokeVisualIncidentChannel[\s\S]*source\s*/\s*scattering[\s\S]*isfinite\(incident\)[\s\S]*source\s*=\s*incident\s*\*\s*scattering' 'Existing correlated source must receive the ratio-equivalent final scattering grade.'
 Assert-Match $smoke 'visualHistoryHash\s*=\s*NRIHashSmokeVisualSettings[\s\S]*mLastSmokeVisualHash\s*==\s*visualHistoryHash[\s\S]*volumeLightingHash\s*=\s*HashCombine64\(volumeLightingHash,\s*visualHistoryHash\)' 'Visual changes must invalidate light and final-volume histories.'
