@@ -106,7 +106,11 @@ if ([string]::IsNullOrWhiteSpace($VariantFile)) {
         '01-history-off-baseline', '04-isotropic', '05-backward-phase', '06-forward-phase',
         '09-multiple-scatter-half', '10-multiple-scatter-full', '11-self-shadow-diagnostic') }) -Name 'contact-sheet-phase-lighting.png'
 } else {
-    if (@($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }).Count -gt 0) {
+    if (@($items | Where-Object { $_.id -eq '41-radiance-phase-identity' }).Count -gt 0) {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^4[1-7]-|^5[5-7]-radiance' }) -Name 'contact-sheet-radiance.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^41-|^4[89]-phase|^5[0-2]-phase' }) -Name 'contact-sheet-phase.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^41-|^5[3-4]-combined' }) -Name 'contact-sheet-combined.png'
+    } elseif (@($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }).Count -gt 0) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^1[2-9]-field|^2[01]-field' }) -Name 'contact-sheet-field-diagnostics.png'
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^2[2-7]-(shape|color)' }) -Name 'contact-sheet-optical-shaping.png'
     } else {

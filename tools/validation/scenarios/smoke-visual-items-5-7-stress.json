@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "description": "Focused stress captures for smoke visual menu items 5 and 7",
+  "variants": [
+    {
+      "id": "55-radiance-rim-ungated-stress",
+      "label": "Stress: ungated maximum rim and gain",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokerimstrength": 1.0,
+        "nri_ptsmokerimgain": 1.0,
+        "nri_ptsmokeradianceconfidence": 0.0,
+        "nri_ptsmokeradiancedirectionality": 0.0
+      }
+    },
+    {
+      "id": "56-radiance-cavity-max",
+      "label": "Stress: maximum dense-body cavity contrast",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeradiancecavitycontrast": 1.0,
+        "nri_ptsmokeradianceconfidence": 0.0
+      }
+    },
+    {
+      "id": "57-radiance-chroma-desat-stress",
+      "label": "Stress: maximum edge chroma and dense desaturation",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeradianceedgechroma": 1.0,
+        "nri_ptsmokeradiancedesaturation": 1.0,
+        "nri_ptsmokeradianceconfidence": 0.0,
+        "nri_ptsmokeradiancedirectionality": 0.0
+      }
+    }
+  ]
+}

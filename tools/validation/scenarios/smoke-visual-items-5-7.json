@@ -1,0 +1,258 @@
+{
+  "schema": 1,
+  "description": "Twenty-second fixed-save gallery for smoke visual menu items 5-7",
+  "variants": [
+    {
+      "id": "41-radiance-phase-identity",
+      "label": "Items 5-7 exact identity control",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {}
+    },
+    {
+      "id": "42-radiance-rim-subtle",
+      "label": "Subtle directional rim redistribution",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokerimstrength": 0.25 }
+    },
+    {
+      "id": "43-radiance-rim-strong",
+      "label": "Strong directional rim redistribution",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokerimstrength": 0.50 }
+    },
+    {
+      "id": "44-radiance-rim-gain",
+      "label": "Directional rim with bounded gain",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokerimstrength": 0.45,
+        "nri_ptsmokerimgain": 0.25
+      }
+    },
+    {
+      "id": "45-radiance-edge-chroma",
+      "label": "Directional color at smoke boundaries",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokeradianceedgechroma": 0.45 }
+    },
+    {
+      "id": "46-radiance-cavity",
+      "label": "Dense-body attenuation preserving cracks",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokeradiancecavitycontrast": 0.35 }
+    },
+    {
+      "id": "47-radiance-desaturation",
+      "label": "Dense-source desaturation",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": { "nri_ptsmokeradiancedesaturation": 0.50 }
+    },
+    {
+      "id": "48-phase-broad-forward",
+      "label": "Dual lobe: broad forward fill",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeduallobeweight": 0.20,
+        "nri_ptsmokeduallobeg": 0.45
+      }
+    },
+    {
+      "id": "49-phase-balanced-forward",
+      "label": "Dual lobe: balanced forward response",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeduallobeweight": 0.25,
+        "nri_ptsmokeduallobeg": 0.70
+      }
+    },
+    {
+      "id": "50-phase-tight-forward",
+      "label": "Dual lobe: tight forward stress",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeduallobeweight": 0.12,
+        "nri_ptsmokeduallobeg": 0.90
+      }
+    },
+    {
+      "id": "51-phase-powder-backscatter",
+      "label": "Dual lobe: powder backscatter",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeduallobeweight": 0.25,
+        "nri_ptsmokeduallobeg": -0.40
+      }
+    },
+    {
+      "id": "52-phase-strong-backscatter",
+      "label": "Dual lobe: strong backscatter stress",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeduallobeweight": 0.35,
+        "nri_ptsmokeduallobeg": -0.70
+      }
+    },
+    {
+      "id": "53-combined-radiance-phase",
+      "label": "Combined conservative rim, radiance, and phase",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeduallobeweight": 0.25,
+        "nri_ptsmokeduallobeg": 0.70,
+        "nri_ptsmokerimstrength": 0.30,
+        "nri_ptsmokerimgain": 0.10,
+        "nri_ptsmokeradianceedgechroma": 0.25,
+        "nri_ptsmokeradiancecavitycontrast": 0.25,
+        "nri_ptsmokeradiancedesaturation": 0.20
+      }
+    },
+    {
+      "id": "54-combined-radiance-phase-compact",
+      "label": "Combined conservative look, compact route",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeviewroute": 2,
+        "nri_ptsmokeduallobeweight": 0.25,
+        "nri_ptsmokeduallobeg": 0.70,
+        "nri_ptsmokerimstrength": 0.30,
+        "nri_ptsmokerimgain": 0.10,
+        "nri_ptsmokeradianceedgechroma": 0.25,
+        "nri_ptsmokeradiancecavitycontrast": 0.25,
+        "nri_ptsmokeradiancedesaturation": 0.20
+      }
+    },
+    {
+      "id": "55-radiance-rim-ungated-stress",
+      "label": "Stress: ungated maximum rim and gain",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokerimstrength": 1.0,
+        "nri_ptsmokerimgain": 1.0,
+        "nri_ptsmokeradianceconfidence": 0.0,
+        "nri_ptsmokeradiancedirectionality": 0.0
+      }
+    },
+    {
+      "id": "56-radiance-cavity-max",
+      "label": "Stress: maximum dense-body cavity contrast",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeradiancecavitycontrast": 1.0,
+        "nri_ptsmokeradianceconfidence": 0.0
+      }
+    },
+    {
+      "id": "57-radiance-chroma-desat-stress",
+      "label": "Stress: maximum edge chroma and dense desaturation",
+      "extinction": 0.008,
+      "albedo": [0.30, 0.29, 0.28],
+      "anisotropy": 0.12,
+      "history": false,
+      "multiple": false,
+      "multipleScale": 1.0,
+      "selfShadow": false,
+      "settings": {
+        "nri_ptsmokeradianceedgechroma": 1.0,
+        "nri_ptsmokeradiancedesaturation": 1.0,
+        "nri_ptsmokeradianceconfidence": 0.0,
+        "nri_ptsmokeradiancedirectionality": 0.0
+      }
+    }
+  ]
+}
