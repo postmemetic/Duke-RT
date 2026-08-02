@@ -2,6 +2,7 @@
 #include "Include/SmokeFroxel.hlsli"
 #include "Include/SmokeGridLightingResources.hlsli"
 #include "Include/SmokeLighting.hlsli"
+#include "Include/SmokeVisuals.hlsli"
 
 #define NRI_SMOKE_GRID_MAX_FOOTPRINT_SAMPLES 2u
 #define NRI_SMOKE_GRID_MAX_DEPTH_SAMPLES 8u
@@ -211,8 +212,11 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	float3 integratedSource = 0.0;
 	float3 integratedWorldDebug = 0.0;
 	float3 integratedScatterDebug = 0.0;
+	float3 integratedFieldDebug = 0.0;
 	dormant = false;
 	const uint worldDebugMode = (gSmokeConstants.Flags >> NRI_SMOKE_GRID_LIGHT_DEBUG_SHIFT) & 7u;
+	const uint smokeDebugMode = SmokeDebugMode(gSmokeConstants.DebugMode);
+	const uint fieldDebugMode = smokeDebugMode >= 12u ? smokeDebugMode - 11u : 0u;
 	[loop]
 	for (uint footprintY = 0u; footprintY < footprintSampleCount.y; ++footprintY)
 	{
@@ -241,6 +245,14 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 				dormant = dormant || sampleDormant;
 				integratedScalar += sampleScalar;
 				integratedOptical += sampleOptical;
+				const float sampleExtinction = max(sampleScalar.z * gSmokeConstants.DensityScale, 0.0);
+				if (fieldDebugMode >= NRI_SMOKE_FIELD_DEBUG_MASS &&
+					fieldDebugMode <= NRI_SMOKE_FIELD_DEBUG_GRADIENT_ORIENTATION &&
+					sampleExtinction > 0.0)
+				{
+					integratedFieldDebug += SmokeVisualLocalDiagnostic(fieldDebugMode,
+						sampleScalar, sampleOptical, scalarCorners, gridBlend, cellSize) * sampleExtinction;
+				}
 				if ((gSmokeConstants.Flags & NRI_SMOKE_GRID_LIGHT_WORLD_ENABLED) != 0u && any(sampleOptical.rgb > 0.0))
 				{
 					float3 lobes[6];
@@ -257,6 +269,12 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 						const float3 incidentContribution = SmokeGridClampControlledSource(
 							phaseApplied * gSmokeConstants.RadianceScale);
 						integratedSource += correlatedSource;
+						if (fieldDebugMode >= NRI_SMOKE_FIELD_DEBUG_LOBE_SUM &&
+							fieldDebugMode <= NRI_SMOKE_FIELD_DEBUG_LOBE_CONFIDENCE)
+						{
+							integratedFieldDebug += SmokeVisualLobeDiagnostic(fieldDebugMode,
+								lobes, confidence) * sampleExtinction;
+						}
 						if (worldDebugMode == 1u) integratedWorldDebug += min(lobeSum * 0.05, 4.0);
 						else if (worldDebugMode == 2u) integratedWorldDebug += confidence.xxx;
 						else if (worldDebugMode == 3u) integratedWorldDebug += min(abs(lobes[0] - lobes[1]) + abs(lobes[2] - lobes[3]) + abs(lobes[4] - lobes[5]), 4.0);
@@ -295,12 +313,18 @@ void SmokeRenderGridIntegrateFroxel(uint3 froxel, float cellSize, out float4 sca
 	const float sampleWeight = rcp((float)(footprintSampleCount.x * footprintSampleCount.y * depthSampleCount));
 	scalar = integratedScalar * sampleWeight;
 	optical = integratedOptical * sampleWeight;
-	source = (SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) != 0u ? integratedScatterDebug :
-		(worldDebugMode == 0u ? integratedSource : integratedWorldDebug)) * sampleWeight;
+	if (fieldDebugMode != 0u)
+		source = integratedFieldDebug;
+	else if (SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) != 0u)
+		source = integratedScatterDebug;
+	else
+		source = worldDebugMode == 0u ? integratedSource : integratedWorldDebug;
+	source *= sampleWeight;
 	// If a froxel straddles a fine/coarse authority boundary, route its complete
 	// medium through the shared receiver-light path. Retaining the partial fine
 	// source here would count that fraction a second time.
-	if (dormant && worldDebugMode == 0u && SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) == 0u)
+	if (dormant && fieldDebugMode == 0u && worldDebugMode == 0u &&
+		SmokeMultipleScatterDebug(gSmokeConstants.DebugMode) == 0u)
 		source = 0.0;
 }
 
@@ -325,9 +349,25 @@ void SmokeEvaluateGridFroxel(uint3 dispatchThreadId)
 	// Deposition stores density-weighted sigma_t and sigma_s coefficients in
 	// inverse world units. Cell size controls sampling support only; dividing the
 	// coefficients by it again made the canonical eight-unit grid 8x too faint.
-	const float extinction = max(scalar.z * gSmokeConstants.DensityScale, 0.0);
-	const float3 scattering = max(optical.rgb * gSmokeConstants.DensityScale, 0.0);
-	if (extinction <= 1e-6 || !any(scattering > 0.0))
+	const float baseExtinction = max(scalar.z * gSmokeConstants.DensityScale, 0.0);
+	const float3 baseScattering = max(optical.rgb * gSmokeConstants.DensityScale, 0.0);
+	const uint smokeDebugMode = SmokeDebugMode(gSmokeConstants.DebugMode);
+	const bool fieldDebug = smokeDebugMode >= 12u;
+	float extinction;
+	float3 scattering;
+	if (fieldDebug)
+	{
+		extinction = baseExtinction;
+		scattering = 0.0;
+	}
+	else
+	{
+		float3 shapedSource;
+		SmokeVisualShapeMedium(baseExtinction, baseScattering, source,
+			extinction, scattering, shapedSource);
+		source = shapedSource;
+	}
+	if (extinction <= 1e-6)
 		return;
 	const float anisotropy = optical.w > 1e-6 ? clamp(scalar.w / optical.w, -0.95, 0.95) : 0.0;
 	gSmokeFroxelMedium[froxelIndex] = float4(scattering, extinction);

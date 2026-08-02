@@ -454,6 +454,7 @@ private:
 	uint32_t mLastVolumeSimulationEpoch = 0;
 	bool mLastVolumeHistoryEnabled = false;
 	uint64_t mLastVolumeLightingHash = 0;
+	uint64_t mLastSmokeVisualHash = 0;
 	uint32_t mLastIndirectCacheMode = 0;
 	uint64_t mLastIndirectSectorHash = 0;
 	uint64_t mLastIndirectSkyKey = 0;

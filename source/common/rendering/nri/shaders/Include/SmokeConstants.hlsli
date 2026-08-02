@@ -77,6 +77,8 @@ struct SmokeConstants
     uint FilteredVisibilityEnabled;
 
     float2 CurrentJitter;
+
+    uint4 Visuals;
 };
 
 uint SmokeDebugMode(uint packedDebugMode) { return packedDebugMode & 0xffu; }

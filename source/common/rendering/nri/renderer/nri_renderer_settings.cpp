@@ -221,6 +221,18 @@ NRIRuntimeMutationSettings BuildNRIRuntimeMutationSettingsFromCVars()
 NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 {
 	NRISmokeSettings settings = {};
+	settings.visuals.extinctionThreshold = std::clamp((float)nri_ptsmokeextinctionthreshold, 0.0f, 16.0f);
+	settings.visuals.extinctionKnee = std::clamp((float)nri_ptsmokeextinctionknee, 0.0f, 16.0f);
+	settings.visuals.extinctionGamma = std::clamp((float)nri_ptsmokeextinctiongamma, 0.05f, 8.0f);
+	settings.visuals.extinctionReference = std::clamp((float)nri_ptsmokeextinctionreference, 0.000001f, 16.0f);
+	settings.visuals.extinctionShoulder = std::clamp((float)nri_ptsmokeextinctionshoulder, 0.0f, 16.0f);
+	settings.visuals.thinColor[0] = std::clamp((float)nri_ptsmokethincolorr, 0.0f, 2.0f);
+	settings.visuals.thinColor[1] = std::clamp((float)nri_ptsmokethincolorg, 0.0f, 2.0f);
+	settings.visuals.thinColor[2] = std::clamp((float)nri_ptsmokethincolorb, 0.0f, 2.0f);
+	settings.visuals.coreColor[0] = std::clamp((float)nri_ptsmokecorecolorr, 0.0f, 2.0f);
+	settings.visuals.coreColor[1] = std::clamp((float)nri_ptsmokecorecolorg, 0.0f, 2.0f);
+	settings.visuals.coreColor[2] = std::clamp((float)nri_ptsmokecorecolorb, 0.0f, 2.0f);
+	settings.visuals.colorPivot = std::clamp((float)nri_ptsmokecolorpivot, 0.0f, 16.0f);
 	settings.enabled = (bool)nri_ptsmoke;
 	settings.readback = (bool)nri_ptsmokereadback;
 	settings.workProfile = (uint32_t)std::max((int)nri_ptsmokeworkprofile, 0);
@@ -266,7 +278,7 @@ NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 	settings.lightSamples = (uint32_t)std::clamp((int)nri_ptsmokelightsamples, 1, 4);
 	settings.maxLightCandidates = (uint32_t)std::clamp((int)nri_ptsmokemaxlightcandidates, 1, 32);
 	settings.filteredVisibility = (bool)nri_ptsmokefilteredvisibility;
-	settings.debugMode = (uint32_t)std::clamp((int)nri_ptsmokedebug, 0, 11);
+	settings.debugMode = (uint32_t)std::clamp((int)nri_ptsmokedebug, 0, 21);
 	settings.traceMode = (uint32_t)std::clamp((int)nri_ptsmoketrace, 0, 2);
 	settings.viewCompare = (bool)nri_ptsmokeviewcompare;
 	settings.viewRoute = (uint32_t)std::clamp((int)nri_ptsmokeviewroute, 0, 2);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_nrd.h"
+#include "nri_smoke_visuals.h"
 
 #include <array>
 #include <cstdint>
@@ -117,6 +118,7 @@ struct NRIRuntimeMutationSettings
 
 struct NRISmokeSettings
 {
+	NRISmokeVisualSettings visuals = {};
 	bool enabled = true;
 	bool readback = false;
 	bool viewCompare = false;

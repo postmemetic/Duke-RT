@@ -3218,7 +3218,7 @@ const char* NRIRenderer::GetAvailabilityReason() const
 		return "required ray tracing capability is unavailable on this device/API";
 	}
 
-	const size_t requiredRootConstantSize = std::max({ sizeof(NRITraceSceneConstants), sizeof(NRITemporalConstants), sizeof(NRIPresentConstants), sizeof(NRIExposureConstants) });
+	const size_t requiredRootConstantSize = std::max({ sizeof(NRITraceSceneConstants), sizeof(NRITemporalConstants), sizeof(NRIPresentConstants), sizeof(NRIExposureConstants), sizeof(NRISmokeConstants) });
 	if (deviceDesc.pipelineLayout.rootConstantMaxSize < requiredRootConstantSize ||
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum < 1 ||
 		deviceDesc.pipelineLayout.descriptorSetMaxNum < 5)
@@ -3248,7 +3248,7 @@ bool NRIRenderer::CheckPathTracingSupport()
 	}
 
 	const nri::DeviceDesc& deviceDesc = mFrameBuffer->mCore.GetDeviceDesc(*mFrameBuffer->mDevice);
-	const size_t requiredRootConstantSize = std::max({ sizeof(NRITraceSceneConstants), sizeof(NRITemporalConstants), sizeof(NRIPresentConstants), sizeof(NRIExposureConstants) });
+	const size_t requiredRootConstantSize = std::max({ sizeof(NRITraceSceneConstants), sizeof(NRITemporalConstants), sizeof(NRIPresentConstants), sizeof(NRIExposureConstants), sizeof(NRISmokeConstants) });
 	if (deviceDesc.tiers.rayTracing == 0 ||
 		deviceDesc.pipelineLayout.rootConstantMaxSize < requiredRootConstantSize ||
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum < 1 ||

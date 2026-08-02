@@ -13,7 +13,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const float4 meta = gSmokeVolumeResolvedMetaInput.Load(int3(pixel, 0));
 	const float transmittance = exp(-clamp(volume.a, 0.0, 16.0));
 	float3 color = scene.rgb * transmittance + max(volume.rgb, 0.0);
-	if (SmokeDebugMode(gSmokeConstants.DebugMode) == 1u)
+	if (SmokeDebugMode(gSmokeConstants.DebugMode) >= 12u)
+		color = max(volume.rgb, 0.0);
+	else if (SmokeDebugMode(gSmokeConstants.DebugMode) == 1u)
 		color = meta.x.xxx;
 	else if (SmokeDebugMode(gSmokeConstants.DebugMode) == 2u)
 		color = transmittance.xxx;
