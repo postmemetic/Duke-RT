@@ -9,6 +9,7 @@ function Require([bool]$Condition, [string]$Message) {
 
 $scenario = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows.json' | ConvertFrom-Json
 $followup = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-followup.json' | ConvertFrom-Json
+$decisive = Read-RepoFile 'tools\validation\scenarios\smoke-visual-billows-decisive.json' | ConvertFrom-Json
 $sheets = Read-RepoFile 'tools\validation\new-smoke-visual-contact-sheets.ps1'
 $variants = @($scenario.variants)
 
@@ -88,6 +89,23 @@ foreach ($variant in $followupVariants) {
 }
 Require ($sheets -match "id\s+-eq\s+'20-followup-control'") 'Contact-sheet generator must recognize the billow follow-up suite.'
 foreach ($name in @('contact-sheet-followup-radius.png', 'contact-sheet-followup-combined.png')) {
+    Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
+}
+
+$decisiveVariants = @($decisive.variants)
+Require ([int]$decisive.schema -eq 2) 'Decisive billow scenario schema must be 2.'
+Require ([string]$decisive.suite -eq 'smoke-billow-decisive') 'Decisive billow scenario must identify its suite.'
+Require ($decisiveVariants.Count -eq 6) 'Decisive billow scenario must contain six variants.'
+Require (@($decisiveVariants.id | Sort-Object -Unique).Count -eq $decisiveVariants.Count) 'Decisive billow IDs must be unique.'
+foreach ($variant in $decisiveVariants) {
+    Require ([math]::Abs([double]$variant.expectedNominalMassRate - 96.4286) -lt 1e-4) "$($variant.id) changed expected nominal mass rate."
+}
+Require (-not [bool]$decisiveVariants[0].history) 'History diagnostic must disable volume history.'
+Require (-not [bool]$decisiveVariants[1].settings.nri_ptsmokedormantgrid) 'Dormant diagnostic must disable dormant routing.'
+Require (-not [bool]$decisiveVariants[2].history) 'Fine-grid separated-puff diagnostic must disable history.'
+Require (-not [bool]$decisiveVariants[2].settings.nri_ptsmokedormantgrid) 'Fine-grid separated-puff diagnostic must disable dormant routing.'
+Require ($sheets -match "id\s+-eq\s+'30-history-off-diagnostic'") 'Contact-sheet generator must recognize the decisive billow suite.'
+foreach ($name in @('contact-sheet-decisive-diagnostics.png', 'contact-sheet-decisive-candidates.png')) {
     Require ($sheets.Contains($name)) "Contact-sheet generator is missing $name."
 }
 

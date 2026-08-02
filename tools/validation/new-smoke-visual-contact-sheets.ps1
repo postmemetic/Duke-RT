@@ -110,6 +110,9 @@ if ([string]::IsNullOrWhiteSpace($VariantFile)) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^4[1-7]-|^5[5-7]-radiance' }) -Name 'contact-sheet-radiance.png'
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^41-|^4[89]-phase|^5[0-2]-phase' }) -Name 'contact-sheet-phase.png'
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^41-|^5[3-4]-combined' }) -Name 'contact-sheet-combined.png'
+    } elseif (@($items | Where-Object { $_.id -eq '30-history-off-diagnostic' }).Count -gt 0) {
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^3[0-3]-' }) -Name 'contact-sheet-decisive-diagnostics.png'
+        New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^3[3-5]-' }) -Name 'contact-sheet-decisive-candidates.png'
     } elseif (@($items | Where-Object { $_.id -eq '20-followup-control' }).Count -gt 0) {
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^2[0-3]-' }) -Name 'contact-sheet-followup-radius.png'
         New-ContactSheet -SheetItems @($items | Where-Object { $_.id -match '^20-|^2[4-7]-' }) -Name 'contact-sheet-followup-combined.png'
