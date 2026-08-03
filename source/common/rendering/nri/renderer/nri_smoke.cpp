@@ -2742,7 +2742,7 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		mViewWork.CompareDense(BuildGridServices(renderer), mFroxelMedium.storageView, mFroxelSource.storageView);
 		bindSmokePipeline();
 	}
-	else if (viewComparatorPrepared)
+	else if (viewComparatorPrepared && (mSettings.readback || PerfCompactCaptureTimingActive()))
 	{
 		mViewWork.Finish(BuildGridServices(renderer));
 	}
