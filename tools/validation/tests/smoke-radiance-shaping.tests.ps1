@@ -21,15 +21,15 @@ $compact = Read-Source 'source\common\rendering\nri\shaders\SmokeEvaluateGridCom
 $runtime = Read-Source 'source\common\rendering\nri\renderer\nri_smoke.cpp'
 $contracts = Read-Source 'source\common\rendering\nri\renderer\nri_smoke_contracts.h'
 
-# Every shaping strength is session-only and defaults to exact identity.
+# Shaping remains session-only; the production defaults select preset 213.
 foreach ($default in @(
     'CVAR(Float, nri_ptsmokerimstrength, 0.0f, 0)',
     'CVAR(Float, nri_ptsmokerimgain, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokeradianceedgechroma, 0.0f, 0)',
+    'CVAR(Float, nri_ptsmokeradianceedgechroma, 0.70f, 0)',
     'CVAR(Float, nri_ptsmokeradiancecavitycontrast, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokeradiancedesaturation, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokeradianceconfidence, 0.25f, 0)',
-    'CVAR(Float, nri_ptsmokeradiancedirectionality, 0.15f, 0)')) {
+    'CVAR(Float, nri_ptsmokeradiancedesaturation, 0.65f, 0)',
+    'CVAR(Float, nri_ptsmokeradianceconfidence, 0.10f, 0)',
+    'CVAR(Float, nri_ptsmokeradiancedirectionality, 0.05f, 0)')) {
     if (-not $cvars.Contains($default)) { throw "Missing radiance-shaping default: $default" }
 }
 Assert-Match $settings 'rimStrength\s*=\s*std::clamp\([^;]+0\.0f,\s*1\.0f\)[\s\S]*rimGain\s*=\s*std::clamp\([^;]+0\.0f,\s*1\.0f\)[\s\S]*radianceEdgeChroma\s*=\s*std::clamp[\s\S]*radianceCavityContrast\s*=\s*std::clamp[\s\S]*radianceDesaturation\s*=\s*std::clamp[\s\S]*radianceConfidence\s*=\s*std::clamp[\s\S]*radianceDirectionality\s*=\s*std::clamp' 'Radiance settings must be clamped into the frame snapshot.'

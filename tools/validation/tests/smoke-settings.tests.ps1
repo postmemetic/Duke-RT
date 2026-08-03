@@ -35,8 +35,8 @@ foreach ($default in @(
     'CVAR(Int, nri_ptsmokerepresentation, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)',
     'CVAR(Int, nri_ptsmokegridbricks, 512, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)',
     'CVAR(Float, nri_ptsmokegridcellsize, 8.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)',
-    'CVAR(Float, nri_ptsmokegridcurlevolution, 0.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)',
-    'CVAR(Float, nri_ptsmokegridvorticity, 0.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)'
+    'CVAR(Float, nri_ptsmokegridcurlevolution, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)',
+    'CVAR(Float, nri_ptsmokegridvorticity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)'
 )) {
     if (-not $cvars.Contains($default)) { throw "missing smoke default: $default" }
 }

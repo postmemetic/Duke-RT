@@ -17,7 +17,7 @@ $resources = Read-Repo 'source/common/rendering/nri/shaders/Include/SmokeResourc
 $finalize = Read-Repo 'source/common/rendering/nri/shaders/SmokeViewWorkFinalize.cs.hlsl'
 $owner = Read-Repo 'source/common/rendering/nri/renderer/nri_smoke_view_work.cpp'
 
-Assert-Match $cvars 'CVAR\(Int,\s*nri_ptsmokeviewroute,\s*0,\s*0\)' 'The view route must be default-dense, opt-in, and session-only.'
+Assert-Match $cvars 'CVAR\(Int,\s*nri_ptsmokeviewroute,\s*2,\s*0\)' 'The preset-213 view route must default compact and remain session-only.'
 Assert-Match $settings 'viewRoute\s*=\s*\(uint32_t\)std::clamp\(\(int\)nri_ptsmokeviewroute,\s*0,\s*2\)' 'Dense, masked-full, and exact compact static routes may resolve.'
 Assert-Match $runtime 'viewCompare\s*\|\|\s*mSettings\.viewRoute\s*!=\s*0u' 'Either diagnostic comparison or the static masked route must prepare the bounded mask.'
 Assert-Match $runtime 'GetOutputs\(viewOutputs\)[\s\S]*columnMasks[\s\S]*constants\.flags\s*\|=\s*kSmokeFlagViewMask' 'Masked execution may activate only after a valid prepared mask is bound.'

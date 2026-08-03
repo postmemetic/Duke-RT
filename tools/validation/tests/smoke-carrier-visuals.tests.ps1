@@ -20,13 +20,20 @@ $compact = Read-Source 'source/common/rendering/nri/shaders/SmokeEvaluateGridCom
 $runtime = Read-Source 'source/common/rendering/nri/renderer/nri_smoke.cpp'
 
 foreach ($default in @(
-    'CVAR(Float, nri_ptsmokethicknessstrength, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokeflowhighlight, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokecurlhighlight, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokecompressionsculpt, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokebandstrength, 0.0f, 0)',
-    'CVAR(Float, nri_ptsmokecontourstrength, 0.0f, 0)')) {
-    if (-not $cvars.Contains($default)) { throw "Missing session-only identity default: $default" }
+    'CVAR(Float, nri_ptsmokethicknessstrength, 0.25f, 0)',
+    'CVAR(Float, nri_ptsmokethicknesspivot, 0.50f, 0)',
+    'CVAR(Int, nri_ptsmokethicknesssteps, 3, 0)',
+    'CVAR(Float, nri_ptsmokeflowhighlight, 0.20f, 0)',
+    'CVAR(Float, nri_ptsmokeflowspeedreference, 24.0f, 0)',
+    'CVAR(Float, nri_ptsmokecurlhighlight, 0.40f, 0)',
+    'CVAR(Float, nri_ptsmokecurlreference, 0.60f, 0)',
+    'CVAR(Float, nri_ptsmokecompressionsculpt, 0.20f, 0)',
+    'CVAR(Float, nri_ptsmokedivergencereference, 0.60f, 0)',
+    'CVAR(Float, nri_ptsmokebandstrength, 0.45f, 0)',
+    'CVAR(Int, nri_ptsmokebandcount, 3, 0)',
+    'CVAR(Float, nri_ptsmokebandsoftness, 0.30f, 0)',
+    'CVAR(Float, nri_ptsmokecontourstrength, 0.25f, 0)')) {
+    if (-not $cvars.Contains($default)) { throw "Missing preset-213 production default: $default" }
 }
 Require-Match $settings 'thicknessStrength[\s\S]*-1\.0f,\s*1\.0f[\s\S]*thicknessSteps[\s\S]*1,\s*4[\s\S]*flowHighlight[\s\S]*curlHighlight[\s\S]*compressionSculpt[\s\S]*bandStrength[\s\S]*bandCount[\s\S]*2,\s*9[\s\S]*bandSoftness[\s\S]*0\.02f,\s*0\.49f[\s\S]*contourStrength' 'Carrier visual settings are not bounded in the frame snapshot.'
 Require-Match $owner 'PackHalf2\(settings\.thicknessStrength,\s*settings\.thicknessPivot\)[\s\S]*PackHalf2\(settings\.flowHighlight,\s*settings\.flowSpeedReference\)[\s\S]*PackHalf2\(settings\.curlHighlight,\s*settings\.curlReference\)[\s\S]*PackHalf2\(settings\.compressionSculpt,\s*settings\.divergenceReference\)[\s\S]*PackHalf2\(settings\.bandStrength,\s*settings\.bandCount\)[\s\S]*PackHalf2\(settings\.bandSoftness,\s*settings\.contourStrength\)' 'Carrier visual packing is incomplete or reordered.'
