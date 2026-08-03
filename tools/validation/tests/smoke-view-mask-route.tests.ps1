@@ -26,7 +26,7 @@ foreach ($diagnosticDefault in @(
     'CVAR\(Int,\s*nri_ptsmokeemissiveworlddebug,\s*0,\s*0\)',
     'CVAR\(Bool,\s*nri_ptsmokeemissivelegacygatherdisable,\s*false,\s*0\)',
     'CVAR\(Bool,\s*nri_ptsmokeemissivequarterkey,\s*false,\s*0\)',
-    'CVAR\(Int,\s*nri_ptsmokedirectreference,\s*0,\s*0\)',
+    'CVAR\(Int,\s*nri_ptsmokedirectreference,\s*1,\s*0\)',
     'CVAR\(Int,\s*nri_ptsmokemultiplescatterdebug,\s*0,\s*0\)',
     'CVAR\(Int,\s*nri_ptsmokeselfshadowdebug,\s*0,\s*0\)',
     'CVAR\(Int,\s*nri_ptsmokedebug,\s*0,\s*0\)',
