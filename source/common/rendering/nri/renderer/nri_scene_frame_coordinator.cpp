@@ -546,7 +546,8 @@ bool NRIRenderer::BeginRenderSceneFrame(HWDrawInfo& di, const NRIRendererFrameCo
 		InvalidateStaticMapSceneForMaterialLighting();
 		mPendingStaticMapLightingInvalidation = false;
 	}
-	UpdatePerFrameState(di);
+	UpdatePerFrameState(di, frameContext.drawMode == DM_MAINVIEW &&
+		!frameContext.portal && !preserveHistory);
 	if (preserveHistory)
 	{
 		mResetHistory = true;

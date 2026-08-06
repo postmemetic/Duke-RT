@@ -976,6 +976,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_resources.cpp
 	common/rendering/nri/renderer/nri_render_geometry_helpers.cpp
 	common/rendering/nri/renderer/nri_renderer.cpp
+	common/rendering/nri/renderer/nri_spatial_absence_gate.cpp
 	common/rendering/nri/renderer/nri_renderer_settings.cpp
 	common/rendering/nri/renderer/nri_smoke.cpp
 	common/rendering/nri/renderer/nri_smoke_visuals.cpp
@@ -1181,6 +1182,7 @@ set (PCH_SOURCES
 	core/rendering/scene/hw_drawlist.cpp
 	core/rendering/scene/hw_drawinfo.cpp
 	core/rendering/scene/hw_bunchdrawer.cpp
+	core/rendering/scene/hw_360_census.cpp
 	core/rendering/scene/hw_portal.cpp
 	core/rendering/scene/hw_skyportal.cpp
 	core/rendering/scene/hw_sky.cpp

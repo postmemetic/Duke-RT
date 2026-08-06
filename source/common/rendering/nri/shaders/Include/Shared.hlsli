@@ -25,6 +25,7 @@
 #define NRI_FLAG_PROBABILISTIC_INDIRECT 0x1000u
 #define NRI_FLAG_INDIRECT_RADIANCE_CACHE 0x2000u
 #define NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT 0x4000u
+#define NRI_FLAG_SPATIAL_ABSENCE_GATE 0x8000u
 #define NRI_TAA_JITTER_PHASE_COUNT 8u
 
 struct SectorLightHeaderData
@@ -57,6 +58,18 @@ struct ReprojectionData
 	float4 previousWorldToViewMatrix[4];
 	float2 currentJitter;
 	float2 previousJitter;
+};
+
+struct SpatialAbsenceRecord
+{
+	uint Flags;
+	uint Data0;
+	uint Data1;
+	uint Data2;
+	float4 Payload0;
+	float4 Payload1;
+	float4 Payload2;
+	float4 Payload3;
 };
 
 NRI_ROOT_CONSTANTS(NRITraceSceneConstants, gTraceConstants, 0, SET_ROOT);
@@ -151,6 +164,7 @@ StructuredBuffer<PrimitiveData> gPersistentVoxelPrimitives : register(t23, space
 StructuredBuffer<MaterialData> gPersistentVoxelMaterials : register(t24, space2);
 StructuredBuffer<EmissiveMaterialResponseData> gEmissiveMaterialResponses : register(t25, space2);
 #endif
+StructuredBuffer<SpatialAbsenceRecord> gSpatialAbsenceRecords : register(t26, space2);
 
 SamplerState gLinearWrap : register(s0, space0);
 SamplerState gLinearClamp : register(s1, space0);

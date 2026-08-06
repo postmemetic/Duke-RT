@@ -106,8 +106,16 @@ static const uint TRACE_STAT_POINT_SHADOW_CALLS = 60u;
 static const uint TRACE_STAT_SUN_SHADOW_CALLS = 61u;
 static const uint TRACE_STAT_RUNTIME_SOFT_SHADOW_SAMPLES = 62u;
 static const uint TRACE_STAT_RUNTIME_SOFT_TRANSPORT = 63u;
+static const uint TRACE_STAT_SPATIAL_REJECT_PRIMARY = 64u;
+static const uint TRACE_STAT_SPATIAL_REJECT_UNGATED = 65u;
+static const uint TRACE_STAT_SPATIAL_REJECT_SUN = 66u;
+static const uint TRACE_STAT_SPATIAL_REJECT_POINT = 67u;
+static const uint TRACE_STAT_SPATIAL_REJECT_EMISSIVE = 68u;
+static const uint TRACE_STAT_SPATIAL_REJECT_FAST_EMISSIVE = 69u;
+static const uint TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN = 70u;
+static const uint TRACE_STAT_SPATIAL_WITNESS_TESTS = 71u;
 static const uint TRACE_STAT_INSTANCE_BUCKET_COUNT = 1024u;
-static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE = 64u;
+static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE = 72u;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 
@@ -726,6 +734,120 @@ bool ShouldGatePrimaryVisibleChunks()
 	return (gTraceConstants.Flags & NRI_FLAG_GATE_PRIMARY_VISIBLE_CHUNKS) != 0u;
 }
 
+static const uint SPATIAL_ABSENCE_FLAG_VALID = 1u << 0u;
+static const uint SPATIAL_ABSENCE_FLAG_COMPLETE = 1u << 1u;
+static const uint SPATIAL_ABSENCE_FLAG_CERTIFIED = 1u << 2u;
+static const uint SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS =
+	SPATIAL_ABSENCE_FLAG_VALID | SPATIAL_ABSENCE_FLAG_COMPLETE;
+static const uint SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS =
+	SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS | SPATIAL_ABSENCE_FLAG_CERTIFIED;
+static const uint SPATIAL_ABSENCE_MAX_WITNESSES = 16u;
+
+bool PointInSpatialTriangle(float2 samplePoint, float2 first, float2 second, float2 third)
+{
+	const float area = (second.x - first.x) * (third.y - first.y) -
+		(second.y - first.y) * (third.x - first.x);
+	if (abs(area) <= 1e-6)
+	{
+		return false;
+	}
+	const float orientation = area >= 0.0 ? 1.0 : -1.0;
+	const float edge0 = orientation * ((second.x - first.x) * (samplePoint.y - first.y) - (second.y - first.y) * (samplePoint.x - first.x));
+	const float edge1 = orientation * ((third.x - second.x) * (samplePoint.y - second.y) - (third.y - second.y) * (samplePoint.x - second.x));
+	const float edge2 = orientation * ((first.x - third.x) * (samplePoint.y - third.y) - (first.y - third.y) * (samplePoint.x - third.x));
+	return edge0 >= -1e-4 && edge1 >= -1e-4 && edge2 >= -1e-4;
+}
+
+bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint statsKind)
+{
+	if ((gTraceConstants.Flags & NRI_FLAG_SPATIAL_ABSENCE_GATE) == 0u || chunkIndex == 0xffffffffu)
+	{
+		return false;
+	}
+
+	uint recordCount = 0u;
+	uint recordStride = 0u;
+	gSpatialAbsenceRecords.GetDimensions(recordCount, recordStride);
+	if (recordCount <= 1u)
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		return false;
+	}
+
+	const SpatialAbsenceRecord header = gSpatialAbsenceRecords[0];
+	if (!isfinite(header.Payload1.x))
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		return false;
+	}
+	const uint chunkCount = (uint)max(round(header.Payload1.x), 0.0);
+	const float guardRadius = header.Payload0.w;
+	if ((header.Flags & SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS) != SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS ||
+		header.Data0 != gTraceConstants.FrameIndex ||
+		chunkIndex >= chunkCount || chunkIndex + 1u >= recordCount ||
+		!all(isfinite(header.Payload0)) || guardRadius <= 0.0)
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		return false;
+	}
+
+	const float3 centerDelta = worldPosition - header.Payload0.xyz;
+	if (dot(centerDelta, centerDelta) > guardRadius * guardRadius)
+	{
+		return false;
+	}
+
+	const SpatialAbsenceRecord chunkRecord = gSpatialAbsenceRecords[chunkIndex + 1u];
+	if ((chunkRecord.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) != SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS ||
+		chunkRecord.Data1 == 0u || chunkRecord.Data1 > SPATIAL_ABSENCE_MAX_WITNESSES ||
+		chunkRecord.Data0 < chunkCount + 1u || chunkRecord.Data0 >= recordCount ||
+		chunkRecord.Data1 > recordCount - chunkRecord.Data0 ||
+		!all(isfinite(chunkRecord.Payload0.xyz)) || !all(isfinite(chunkRecord.Payload1.xyz)))
+	{
+		return false;
+	}
+	// This union bounds the selected exact triangle-overlap witnesses. It only
+	// avoids witness work; rejection still requires exact containment in both
+	// the census-positive and census-negative footprint triangles.
+	const float3 witnessBoundsMin = chunkRecord.Payload0.xyz;
+	const float3 witnessBoundsMax = chunkRecord.Payload1.xyz;
+	if (any(witnessBoundsMin > witnessBoundsMax))
+	{
+		return false;
+	}
+	// Match the CPU bounds tolerance so wall-edge hits accepted by the exact
+	// triangle predicate are not lost to float reconstruction at this shortcut.
+	const float3 witnessBoundsEpsilon = 1.0e-3;
+	if (any(worldPosition < witnessBoundsMin - witnessBoundsEpsilon) ||
+		any(worldPosition > witnessBoundsMax + witnessBoundsEpsilon))
+	{
+		return false;
+	}
+	[loop]
+	for (uint witnessOffset = 0u; witnessOffset < chunkRecord.Data1; ++witnessOffset)
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+		const SpatialAbsenceRecord witness = gSpatialAbsenceRecords[chunkRecord.Data0 + witnessOffset];
+		if ((witness.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) != SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS ||
+			witness.Data0 != chunkIndex ||
+			worldPosition.y < witness.Payload3.x || worldPosition.y > witness.Payload3.y)
+		{
+			continue;
+		}
+
+		const bool insidePositive = PointInSpatialTriangle(
+			worldPosition.xz, witness.Payload0.xy, witness.Payload0.zw, witness.Payload1.xy);
+		const bool insideNegative = PointInSpatialTriangle(
+			worldPosition.xz, witness.Payload1.zw, witness.Payload2.xy, witness.Payload2.zw);
+		if (insidePositive && insideNegative)
+		{
+			TraceShaderStatAdd(TRACE_STAT_SPATIAL_REJECT_PRIMARY + min(statsKind, TRACE_STATS_KIND_FAST_EMISSIVE), 1u);
+			return true;
+		}
+	}
+	return false;
+}
+
 bool IsVisibleChunk(uint chunkIndex)
 {
 	if (chunkIndex == 0xffffffffu)
@@ -944,7 +1066,7 @@ HitData TraceBootstrapGeometry(float3 origin, float3 direction)
 	return TraceBootstrapGeometry(origin, direction, false);
 }
 
-bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance, uint traceMask, bool gateVisibleChunks, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, out HitData hitData)
+bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance, uint traceMask, bool gateVisibleChunks, bool gateSpatialAbsence, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, out HitData hitData)
 {
 	hitData = MakeEmptyHitData();
 	float accumulatedDistance = 0.0;
@@ -1004,6 +1126,17 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_VISIBLE, 1u);
+			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
+			accumulatedDistance = committedDistance;
+			continue;
+		}
+
+		const float3 committedPosition = startOrigin + direction * committedDistance;
+		if (gateSpatialAbsence && instanceData.dataSource == SCENE_DATA_SOURCE_STATIC && ShouldRejectSpatialAbsence(
+			ResolveVisibilityChunk(instanceData, primitive), committedPosition, statsKind))
+		{
+			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
+			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			continue;
@@ -1076,7 +1209,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 	return false;
 }
 
-bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance, uint traceMask, uint mirrorBudget, uint portalBudget, bool gateVisibleChunks, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, out HitData hitData, out float3 exitDirection)
+bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance, uint traceMask, uint mirrorBudget, uint portalBudget, bool gateVisibleChunks, bool gateSpatialAbsence, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, out HitData hitData, out float3 exitDirection)
 {
 	hitData = MakeEmptyHitData();
 	exitDirection = startDirection;
@@ -1090,7 +1223,7 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 	[loop]
 	for (uint continuationStep = 0u; continuationStep < 32u; ++continuationStep)
 	{
-		if (!TraceClosestSurface(origin, direction, remainingDistance, traceMask, gateVisibleChunks, ignoreNoShadowCast, allowReflectionOnlySurfaces, statsKind, hitData))
+		if (!TraceClosestSurface(origin, direction, remainingDistance, traceMask, gateVisibleChunks, gateSpatialAbsence, ignoreNoShadowCast, allowReflectionOnlySurfaces, statsKind, hitData))
 		{
 			exitDirection = direction;
 			return false;
@@ -1113,6 +1246,7 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 			allowReflectionOnlySurfaces = true;
 			traceMask = NRI_TLAS_MASK_REFLECTION;
 			gateVisibleChunks = false;
+			gateSpatialAbsence = false;
 			mirrorBudget--;
 			continue;
 		}
@@ -1126,6 +1260,7 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 			origin = hitData.position + direction * 0.05 + portalData.delta;
 			exitDirection = direction;
 			gateVisibleChunks = false;
+			gateSpatialAbsence = false;
 			portalBudget--;
 			continue;
 		}
@@ -1143,14 +1278,14 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance, uint mirrorBudget, uint portalBudget, out HitData hitData, out float3 exitDirection)
 {
-	return TraceScenePath(startOrigin, startDirection, maxDistance, NRI_TLAS_MASK_MAIN, mirrorBudget, portalBudget, false, false, false, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
+	return TraceScenePath(startOrigin, startDirection, maxDistance, NRI_TLAS_MASK_MAIN, mirrorBudget, portalBudget, false, true, false, false, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
 }
 
 HitData TracePrimary(float3 origin, float3 direction, bool gateVisibleChunks, out float3 exitDirection)
 {
 	HitData hitData = MakeEmptyHitData();
 	const uint mirrorBudget = max(1u, (gTraceConstants.BounceCounts >> 4u) & 0xfu);
-	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_MAIN, mirrorBudget, GetPortalTraversalDepth(), gateVisibleChunks, false, false, TRACE_STATS_KIND_PRIMARY, hitData, exitDirection);
+	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_MAIN, mirrorBudget, GetPortalTraversalDepth(), gateVisibleChunks, true, false, false, TRACE_STATS_KIND_PRIMARY, hitData, exitDirection);
 	return hitData;
 }
 
@@ -1163,7 +1298,7 @@ HitData TracePrimaryUngated(float3 origin, float3 direction, out float3 exitDire
 {
 	HitData hitData = MakeEmptyHitData();
 	const uint mirrorBudget = max(1u, (gTraceConstants.BounceCounts >> 4u) & 0xfu);
-	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_REFLECTION, mirrorBudget, GetPortalTraversalDepth(), false, false, true, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
+	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_REFLECTION, mirrorBudget, GetPortalTraversalDepth(), false, true, false, true, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
 	return hitData;
 }
 
@@ -1171,7 +1306,7 @@ HitData TraceIndirectUngated(float3 origin, float3 direction, out float3 exitDir
 {
 	HitData hitData = MakeEmptyHitData();
 	const uint mirrorBudget = max(1u, (gTraceConstants.BounceCounts >> 4u) & 0xfu);
-	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_GI, mirrorBudget, GetPortalTraversalDepth(), false, false, false, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
+	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_GI, mirrorBudget, GetPortalTraversalDepth(), false, true, false, false, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
 	return hitData;
 }
 
@@ -1179,7 +1314,7 @@ HitData TraceReflectionUngated(float3 origin, float3 direction, out float3 exitD
 {
 	HitData hitData = MakeEmptyHitData();
 	const uint mirrorBudget = max(1u, (gTraceConstants.BounceCounts >> 4u) & 0xfu);
-	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_REFLECTION, mirrorBudget, GetPortalTraversalDepth(), false, false, true, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
+	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_REFLECTION, mirrorBudget, GetPortalTraversalDepth(), false, true, false, true, TRACE_STATS_KIND_UNGATED, hitData, exitDirection);
 	return hitData;
 }
 
@@ -1194,7 +1329,7 @@ float ComputeSunShadow(float3 position, float3 normal, float3 lightDirection, ou
 	TraceShaderStatAdd(TRACE_STAT_SUN_SHADOW_CALLS, 1u);
 	HitData shadowHit = MakeEmptyHitData();
 	float3 ignoredDirection = lightDirection;
-	const bool blocked = TraceScenePath(position + normal * 0.05, lightDirection, 100000.0, NRI_TLAS_MASK_SHADOW, 0u, GetPortalTraversalDepth(), false, true, false, TRACE_STATS_KIND_SUN, shadowHit, ignoredDirection);
+	const bool blocked = TraceScenePath(position + normal * 0.05, lightDirection, 100000.0, NRI_TLAS_MASK_SHADOW, 0u, GetPortalTraversalDepth(), false, true, true, false, TRACE_STATS_KIND_SUN, shadowHit, ignoredDirection);
 	shadowHitDistance = blocked ? shadowHit.distance : NRD_FP16_MAX;
 	return blocked ? 0.0 : 1.0;
 }
@@ -1216,7 +1351,7 @@ float ComputePointLightShadowTagged(float3 position, float3 normal, float3 light
 	HitData shadowHit = MakeEmptyHitData();
 	float3 ignoredDirection = lightDirection;
 	const float maxDistance = max(lightDistance - 0.05, 0.001);
-	const bool blocked = TraceScenePath(position + normal * 0.05, lightDirection, maxDistance, NRI_TLAS_MASK_SHADOW, 0u, GetPortalTraversalDepth(), false, true, false, statsKind, shadowHit, ignoredDirection);
+	const bool blocked = TraceScenePath(position + normal * 0.05, lightDirection, maxDistance, NRI_TLAS_MASK_SHADOW, 0u, GetPortalTraversalDepth(), false, true, true, false, statsKind, shadowHit, ignoredDirection);
 	return blocked ? 0.0 : 1.0;
 }
 
@@ -1227,7 +1362,7 @@ float ComputePointLightShadow(float3 position, float3 normal, float3 lightDirect
 
 bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance, out HitData hitData)
 {
-	return TraceClosestSurface(startOrigin, direction, maxDistance, NRI_TLAS_MASK_MAIN, false, false, false, TRACE_STATS_KIND_UNGATED, hitData);
+	return TraceClosestSurface(startOrigin, direction, maxDistance, NRI_TLAS_MASK_MAIN, false, true, false, false, TRACE_STATS_KIND_UNGATED, hitData);
 }
 
 float ComputeFastPointLightShadow(float3 position, float3 normal, float3 lightDirection, float lightDistance)
@@ -1240,7 +1375,7 @@ float ComputeFastPointLightShadow(float3 position, float3 normal, float3 lightDi
 	TraceShaderStatAdd(TRACE_STAT_FAST_EMISSIVE_SHADOW_CALLS, 1u);
 	HitData shadowHit = MakeEmptyHitData();
 	const float maxDistance = max(lightDistance - 0.05, 0.001);
-	const bool blocked = TraceClosestSurface(position + normal * 0.05, lightDirection, maxDistance, NRI_TLAS_MASK_SHADOW, false, true, false, TRACE_STATS_KIND_FAST_EMISSIVE, shadowHit);
+	const bool blocked = TraceClosestSurface(position + normal * 0.05, lightDirection, maxDistance, NRI_TLAS_MASK_SHADOW, false, true, true, false, TRACE_STATS_KIND_FAST_EMISSIVE, shadowHit);
 	return blocked ? 0.0 : 1.0;
 }
 

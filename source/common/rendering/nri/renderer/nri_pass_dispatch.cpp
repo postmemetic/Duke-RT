@@ -522,6 +522,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		(context.mActiveIndirectSamplingMode != 0u ? NRI_FLAG_PROBABILISTIC_INDIRECT : 0u) |
 		(indirectRadianceCacheActive ? NRI_FLAG_INDIRECT_RADIANCE_CACHE : 0u) |
 		(indirectRadianceCacheAccept ? NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT : 0u) |
+		(nri_pt360absencegate && context.mFrame.spatialAbsenceAuthority ? NRI_FLAG_SPATIAL_ABSENCE_GATE : 0u) |
 		(useTemporalJitter ? NRI_FLAG_USE_JITTER : 0u) |
 		NRIPackTemporalJitterPhaseCount(jitterPhaseCount) |
 		PackVoxelNormalBlend8(nri_ptvoxelnormalblend);

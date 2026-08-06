@@ -756,6 +756,15 @@ void HWDrawInfo::Set3DViewport(FRenderState &state)
 //
 //-----------------------------------------------------------------------------
 
+void HWDrawInfo::Capture360Census(uint64_t mapGeneration, angle_t canonicalSplitAngle, bool logicalMainView)
+{
+	const int* roots = Viewpoint.SectNums ? Viewpoint.SectNums : &Viewpoint.SectCount;
+	const unsigned rootCount = Viewpoint.SectNums ? unsigned(Viewpoint.SectCount) : 1u;
+	const int authoritativeRoot = Viewpoint.CameraActor != nullptr ? Viewpoint.CameraActor->sectno() : -1;
+	m360Census.Capture(Viewpoint.Pos, roots, rootCount, authoritativeRoot, mapGeneration,
+		logicalMainView, canonicalSplitAngle);
+}
+
 void HWDrawInfo::DrawScene(int drawmode, bool portal)
 {
 	static int recursion = 0;

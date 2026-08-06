@@ -7,6 +7,7 @@
 #include "v_video.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 
 namespace
@@ -1626,6 +1627,34 @@ CUSTOM_CVAR(Float, nri_ptsectoremissionmaterialmax, 1.0f, CVAR_ARCHIVE | CVAR_GL
 }
 
 CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
+// The all-ray negative lane remains opt-in until the saved intrusion fixtures
+// establish exact conflict witnesses and protected-region behavior.
+CVAR(Bool, nri_pt360absencegate, false, 0)
+
+CUSTOM_CVAR(Float, nri_pt360absenceradius, 512.0f, 0)
+{
+	if (!std::isfinite((float)self) || self < 1.0f)
+	{
+		self = 1.0f;
+	}
+	else if (self > 4096.0f)
+	{
+		self = 4096.0f;
+	}
+}
+
+CUSTOM_CVAR(Int, nri_pt360absencetrace, 0, 0)
+{
+	if (self < 0)
+	{
+		self = 0;
+	}
+	else if (self > 4096)
+	{
+		self = 4096;
+	}
+}
 
 CVAR(Bool, nri_ptshaderstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 

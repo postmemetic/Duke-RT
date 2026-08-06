@@ -1776,6 +1776,15 @@ CCMD(nri_ptcaps)
 	}
 }
 
+CCMD(nri_pt360absence_selftest)
+{
+	std::string failure;
+	const bool passed = RunNRISpatialAbsenceGateSelfTests(&failure);
+	Printf("NRI PT 360 absence selftest: result=%s reason=%s\n",
+		passed ? "pass" : "fail",
+		failure.empty() ? "none" : failure.c_str());
+}
+
 CCMD(nri_ptstatus)
 {
 	if (auto* frameBuffer = GetActiveNRIRenderDevice())
@@ -4584,6 +4593,11 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 				(unsigned long long)shader.frameNumber,
 				c[44], c[45], c[46], c[47], c[48], c[49], c[50], c[51], c[59], c[58]);
+			Printf(
+				"PERF pt shader 360 absence NRI: frame=%llu stats_frame=%llu primary=%u ungated=%u sun=%u point=%u emissive=%u fast_emissive=%u snapshot_fail_open=%u witness_tests=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[64], c[65], c[66], c[67], c[68], c[69], c[70], c[71]);
 			for (uint32_t hotIndex = 0; hotIndex < shader.hotInstanceCount; ++hotIndex)
 			{
 				const auto& hot = shader.hotInstances[hotIndex];

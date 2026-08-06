@@ -57,6 +57,7 @@
 
 void BunchDrawer::Init(HWDrawInfo *_di, Clipper* c, const DVector2& view, angle_t a1, angle_t a2)
 {
+	censusOnly = false;
 	ang1 = a1;
 	ang2 = a2;
 	angrange = ang2 - ang1;
@@ -65,6 +66,7 @@ void BunchDrawer::Init(HWDrawInfo *_di, Clipper* c, const DVector2& view, angle_
 	viewx = view.X;
 	viewy = view.Y;
 	viewz = (float)di->Viewpoint.Pos.Z;
+	viewangle = di->Viewpoint.RotAngle;
 
 	StartScene();
 
@@ -86,12 +88,57 @@ void BunchDrawer::Init(HWDrawInfo *_di, Clipper* c, const DVector2& view, angle_
 
 //==========================================================================
 //
+// Initializes an isolated, observation-only full-circle traversal. The
+// caller owns the clipper, and clip angles stay private to this drawer.
+//
+//==========================================================================
+
+void BunchDrawer::InitCensus(Clipper* c, const DVector3& view, angle_t canonicalSplitAngle)
+{
+	censusOnly = true;
+	ang1 = 0;
+	ang2 = 0;
+	angrange = 0;
+	di = nullptr;
+	clipper = c;
+	viewx = view.X;
+	viewy = view.Y;
+	viewz = (float)view.Z;
+	viewangle = canonicalSplitAngle;
+
+	StartScene();
+
+	auto oldClipAngles = censusClipAngles.Data();
+	censusClipAngles.Resize(wall.Size());
+	if (oldClipAngles != censusClipAngles.Data()) censusStats.scratchArrayGrowths++;
+	for (unsigned i = 0; i < wall.Size(); ++i)
+	{
+		DVector2 vv;
+		vv.X = wall[i].pos.X - view.X;
+		vv.Y = wall[i].pos.Y + view.Y; // view Y is in render coordinates.
+		censusClipAngles[i] = vv.Angle().BAMs();
+	}
+	memset(sectionstartang.Data(), -1, sectionstartang.Size() * sizeof(sectionstartang[0]));
+	memset(sectionendang.Data(), -1, sectionendang.Size() * sizeof(sectionendang[0]));
+}
+
+//==========================================================================
+//
 //
 //
 //==========================================================================
 
 void BunchDrawer::StartScene()
 {
+	auto oldBunches = Bunches.Data();
+	auto oldCompareData = CompareData.Data();
+	auto oldSectors = gotsector.Storage().Data();
+	auto oldSections = gotsection.Storage().Data();
+	auto oldTraversalSections = gotsection2.Storage().Data();
+	auto oldWalls = gotwall.Storage().Data();
+	auto oldSectionStarts = sectionstartang.Data();
+	auto oldSectionEnds = sectionendang.Data();
+
 	unsigned numsections = sections.Size();
 	LastBunch = 0;
 	StartTime = I_msTime();
@@ -99,12 +146,29 @@ void BunchDrawer::StartScene()
 	CompareData.Clear();
 	gotsector.Resize(sector.Size());
 	gotsector.Zero();
+	if (censusOnly)
+	{
+		gotsection.Resize(numsections);
+		gotsection.Zero();
+	}
 	gotsection2.Resize(numsections);
 	gotsection2.Zero();
 	gotwall.Resize(wall.Size());
 	gotwall.Zero();
 	sectionstartang.Resize(numsections);
 	sectionendang.Resize(numsections);
+	censusStats = {};
+	if (censusOnly)
+	{
+		censusStats.scratchArrayGrowths += oldBunches != Bunches.Data();
+		censusStats.scratchArrayGrowths += oldCompareData != CompareData.Data();
+		censusStats.scratchArrayGrowths += oldSectors != gotsector.Storage().Data();
+		censusStats.scratchArrayGrowths += oldSections != gotsection.Storage().Data();
+		censusStats.scratchArrayGrowths += oldTraversalSections != gotsection2.Storage().Data();
+		censusStats.scratchArrayGrowths += oldWalls != gotwall.Storage().Data();
+		censusStats.scratchArrayGrowths += oldSectionStarts != sectionstartang.Data();
+		censusStats.scratchArrayGrowths += oldSectionEnds != sectionendang.Data();
+	}
 	//blockwall.Zero();
 }
 
@@ -116,6 +180,7 @@ void BunchDrawer::StartScene()
 
 bool BunchDrawer::StartBunch(int sectnum, int linenum, angle_t startan, angle_t endan, bool portal)
 {
+	if (censusOnly) censusStats.bunchesStarted++;
 	FBunch* bunch = &Bunches[LastBunch = Bunches.Reserve(1)];
 
 	bunch->sectornum = sectnum;
@@ -227,9 +292,14 @@ bool BunchDrawer::CheckClip(walltype* wal, float* topclip, float* bottomclip)
 
 int BunchDrawer::ClipLine(int aline, bool portal)
 {
+	if (censusOnly) censusStats.wallTests++;
 	auto cline = &sectionLines[aline];
 	int section = cline->section;
 	int line = cline->wall;
+	if (censusOnly && (sector[sections[section].sector].exflags & SECTOREX_DRAGGED))
+	{
+		censusStats.encounteredDraggedSector = true;
+	}
 
 	auto startAngleBam = ClipAngle(cline->startpoint);
 	auto endAngleBam = ClipAngle(cline->endpoint);
@@ -329,11 +399,12 @@ int BunchDrawer::ClipLine(int aline, bool portal)
 
 void BunchDrawer::ProcessBunch(int bnch)
 {
+	if (censusOnly) censusStats.bunchesProcessed++;
 	FBunch* bunch = &Bunches[bnch];
 	int start = bunch->startline;
 	int end = bunch->endline;
 
-	ClipWall.Clock();
+	if (!censusOnly) ClipWall.Clock();
 	for (int i = start; i <= end; i++)
 	{
 		bunch = &Bunches[bnch];	// re-get the pointer in case of reallocation.
@@ -344,34 +415,41 @@ void BunchDrawer::ProcessBunch(int bnch)
 			int ww = sectionLines[i].wall;
 			if (ww != -1)
 			{
-				show2dwall.Set(ww);
-
-				if (!gotwall[i])
+				if (censusOnly)
 				{
-					//Printf("\nWall %d processed\n", i);
-					gotwall.Set(i);
-					ClipWall.Unclock();
-					Bsp.Unclock();
-					SetupWall.Clock();
+					gotwall.Set(ww);
+				}
+				else
+				{
+					show2dwall.Set(ww);
 
-					HWWall hwwall;
-					hwwall.Process(di, &wall[ww], &sector[bunch->sectornum], wall[ww].nextsector < 0 ? nullptr : &sector[wall[ww].nextsector]);
+					if (!gotwall[i])
+					{
+						//Printf("\nWall %d processed\n", i);
+						gotwall.Set(i);
+						ClipWall.Unclock();
+						Bsp.Unclock();
+						SetupWall.Clock();
 
-					SetupWall.Unclock();
-					Bsp.Clock();
-					ClipWall.Clock();
+						HWWall hwwall;
+						hwwall.Process(di, &wall[ww], &sector[bunch->sectornum], wall[ww].nextsector < 0 ? nullptr : &sector[wall[ww].nextsector]);
+
+						SetupWall.Unclock();
+						Bsp.Clock();
+						ClipWall.Clock();
+					}
 				}
 			}
 		}
 
 		if (clipped & CL_Pass)
 		{
-			ClipWall.Unclock();
+			if (!censusOnly) ClipWall.Unclock();
 			ProcessSection(sectionLines[i].partnersection, false);
-			ClipWall.Clock();
+			if (!censusOnly) ClipWall.Clock();
 		}
 	}
-	ClipWall.Unclock();
+	if (!censusOnly) ClipWall.Unclock();
 }
 
 //==========================================================================
@@ -666,6 +744,11 @@ void BunchDrawer::ProcessSection(int sectionnum, bool portal)
 {
 	if (gotsection2[sectionnum]) return;
 	gotsection2.Set(sectionnum);
+	if (censusOnly)
+	{
+		gotsection.Set(sectionnum);
+		censusStats.sectionVisits++;
+	}
 
 	bool inbunch;
 
@@ -673,9 +756,11 @@ void BunchDrawer::ProcessSection(int sectionnum, bool portal)
 	int sectnum = sections[sectionnum].sector;
 	if (!gotsector[sectnum])
 	{
+		gotsector.Set(sectnum);
+		if (!censusOnly)
+		{
 		Bsp.Unclock();
 		SetupSprite.Clock();
-		gotsector.Set(sectnum);
 		CoreSectIterator it(sectnum);
 		while (auto actor = it.Next())
 		{
@@ -701,17 +786,21 @@ void BunchDrawer::ProcessSection(int sectionnum, bool portal)
 		}
 		SetupSprite.Unclock();
 		Bsp.Clock();
+		}
 	}
 
-	if (automapping)
+	if (!censusOnly && automapping)
 		show2dsector.Set(sectnum);
 
-	Bsp.Unclock();
-	SetupFlat.Clock();
-	HWFlat flat;
-	flat.ProcessSector(di, &sector[sectnum], sectionnum);
-	SetupFlat.Unclock();
-	Bsp.Clock();
+	if (!censusOnly)
+	{
+		Bsp.Unclock();
+		SetupFlat.Clock();
+		HWFlat flat;
+		flat.ProcessSector(di, &sector[sectnum], sectionnum);
+		SetupFlat.Unclock();
+		Bsp.Clock();
+	}
 
 	//Todo: process subsectors
 	inbunch = false;
@@ -758,6 +847,8 @@ void BunchDrawer::ProcessSection(int sectionnum, bool portal)
 
 void BunchDrawer::RenderScene(const int* viewsectors, unsigned sectcount, bool portal)
 {
+	auto initialBunchStorage = Bunches.Data();
+	auto initialCompareStorage = CompareData.Data();
 	//Printf("----------------------------------------- \nstart at sector %d, z = %2.3f\n", viewsectors[0], viewz);
 	auto process = [&]()
 	{
@@ -786,7 +877,7 @@ void BunchDrawer::RenderScene(const int* viewsectors, unsigned sectcount, bool p
 		}
 	};
 
-	Bsp.Clock();
+	if (!censusOnly) Bsp.Clock();
 	if (ang1 != 0 || ang2 != 0)
 	{
 		process();
@@ -795,7 +886,7 @@ void BunchDrawer::RenderScene(const int* viewsectors, unsigned sectcount, bool p
 	{
 		// with a 360° field of view we need to split the scene into two halves. 
 		// The BunchInFront check can fail with angles that may wrap around.
-		auto rotang = di->Viewpoint.RotAngle;
+		auto rotang = viewangle;
 		ang1 = rotang - ANGLE_90;
 		ang2 = rotang + ANGLE_90 - 1;
 		angrange = ang2 - ang1;
@@ -806,5 +897,10 @@ void BunchDrawer::RenderScene(const int* viewsectors, unsigned sectcount, bool p
 		angrange = ang2 - ang1;
 		process();
 	}
-	Bsp.Unclock();
+	if (censusOnly)
+	{
+		censusStats.scratchArrayGrowths += initialBunchStorage != Bunches.Data();
+		censusStats.scratchArrayGrowths += initialCompareStorage != CompareData.Data();
+	}
+	if (!censusOnly) Bsp.Unclock();
 }

@@ -6,6 +6,7 @@
 #include "c_cvars.h"
 #include "perf_capture.h"
 #include "gamestruct.h"
+#include "mapinfo.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -222,7 +223,7 @@ namespace
 	}
 }
 
-void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di)
+void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 {
 	ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.updateStateMs);
 	Clocker clock(NriPTUpdateState);
@@ -333,6 +334,109 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di)
 	}
 	FillMatrix(mCurrentViewToClip, di.VPUniforms.mProjectionMatrix);
 	FillMatrix(mCurrentWorldToView, di.VPUniforms.mViewMatrix);
+	const bool spatialAbsenceRequested = (bool)nri_pt360absencegate || (int)nri_pt360absencetrace > 0;
+	if (spatialAbsenceRequested && logicalMainView && mMapWorld.valid && mMapWorld.buildSerial != 0)
+	{
+		di.Capture360Census(mMapWorld.buildSerial, 0, true);
+		const HW360CensusSnapshot& census = di.Get360CensusSnapshot();
+		NRISpatialAbsenceCensusInput input;
+		input.complete = census.HasNegativeAuthority();
+		input.rootStable = census.HasNegativeAuthority() && census.roots.Size() != 0;
+		input.generationMatches = census.mapGeneration == mMapWorld.buildSerial &&
+			mMapWorld.level == currentLevel;
+		input.captureSerial = census.captureSerial;
+		input.observationHash = census.observationHash;
+		input.worldGeneration = mMapWorld.buildSerial;
+		input.frameIndex = mFrameIndex;
+		std::memcpy(input.center, mCurrentCameraPos, sizeof(input.center));
+		input.guardRadius = (float)nri_pt360absenceradius;
+		input.reachedSectorIndices.reserve(census.reachedSectorCount);
+		for (unsigned sectorIndex = 0; sectorIndex < census.reachedSectors.Size(); ++sectorIndex)
+		{
+			if (census.ContainsSector(sectorIndex))
+			{
+				input.reachedSectorIndices.push_back(sectorIndex);
+			}
+		}
+		for (uint32_t chunkIndex = 0; chunkIndex < mMapWorld.chunks.size(); ++chunkIndex)
+		{
+			const RuntimeMapMutationCache::ChunkReplacement* replacement = mRuntimeMutation.FindReplacement(chunkIndex);
+			// Dirty/dragged discovery flags can pulse while the same chunk remains
+			// the active static TLAS authority. Fail open only when a separately
+			// published replacement/exclusion changes occurrence ownership;
+			// otherwise those bookkeeping flags would flicker the gate.
+			if (replacement != nullptr && (replacement->active || replacement->excludeStaticChunk))
+			{
+				input.uncertainChunkIndices.push_back(chunkIndex);
+			}
+		}
+		const NRISpatialAbsenceSnapshot& absence = mSpatialAbsenceGate.Build(mMapWorld, input);
+		if ((int)nri_pt360absencetrace > 0)
+		{
+			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u world=%llu gpu_hash=0x%016llx sectors=%u sections=%u walls=%u candidates=%u certified=%u fail_open=0x%x records=%u radius=%.2f\n",
+				mFrameIndex,
+				(unsigned long long)census.captureSerial,
+				census.complete ? 1u : 0u,
+				absence.HasNegativeAuthority() ? 1u : 0u,
+				census.failureFlags,
+				census.observationFlags,
+				(unsigned long long)census.observationHash,
+				census.elapsedMilliseconds,
+				census.traversal.scratchArrayGrowths,
+				(unsigned long long)absence.worldGeneration,
+				(unsigned long long)absence.payloadHash,
+				census.reachedSectorCount,
+				census.reachedSectionCount,
+				census.reachedWallCount,
+				absence.candidateCount,
+				absence.certifiedCount,
+				absence.failOpenFlags,
+				(uint32_t)absence.gpuRecords.size(),
+				absence.guardRadius);
+			uint32_t rows = 0;
+			auto printConflict = [&](const NRISpatialAbsenceConflictRecord& conflict)
+			{
+				Printf("NRI PT 360 absence conflict: frame=%u decision=%s positive_chunk=%u positive_sector=%d negative_chunk=%u negative_sector=%d witnesses=%u distance=%.3f overlap=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f))\n",
+					mFrameIndex,
+					GetNRISpatialAbsenceConflictDecisionName(conflict.decision),
+					conflict.positiveChunk,
+					conflict.positiveSector,
+					conflict.negativeChunk,
+					conflict.negativeSector,
+					conflict.exactWitnessCount,
+					conflict.distanceToGuardCenter,
+					conflict.overlapMin[0], conflict.overlapMin[1], conflict.overlapMin[2],
+					conflict.overlapMax[0], conflict.overlapMax[1], conflict.overlapMax[2]);
+				rows++;
+			};
+			for (const NRISpatialAbsenceConflictRecord& conflict : absence.conflicts)
+			{
+				if (rows >= 16u) break;
+				if (conflict.decision == NRISpatialAbsenceConflictDecision::Certified)
+				{
+					printConflict(conflict);
+				}
+			}
+			// When nothing certifies, report a bounded generic sample of the
+			// classifier's reasons. Diagnostics must not encode map-specific IDs.
+			if (rows == 0)
+			{
+				for (const NRISpatialAbsenceConflictRecord& conflict : absence.conflicts)
+				{
+					if (rows >= 16u) break;
+					printConflict(conflict);
+				}
+			}
+			nri_pt360absencetrace = std::max((int)nri_pt360absencetrace - 1, 0);
+		}
+	}
+	else
+	{
+		// Unsupported child/offscreen contexts publish no root-context negative
+		// authority, but do not interrupt stability between logical main frames.
+		// Disabling the feature or missing a main-view world starts a fresh audit.
+		mSpatialAbsenceGate.Reset(mFrameIndex, !spatialAbsenceRequested || logicalMainView);
+	}
 	const BitArray& visibleSectors = di.GetVisibleSectors();
 	const size_t visibleChunkWordCount = std::max<size_t>((mMapWorld.chunks.size() + 31u) / 32u, 1u);
 	const size_t visibleFlatPlaneWordCount = std::max<size_t>(((size_t)sector.Size() * 2u + 31u) / 32u, 1u);

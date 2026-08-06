@@ -51,6 +51,7 @@ public:
 	static bool UpdateReprojectionBuffer(NRIRenderer& renderer, bool* ioWaitedForWrites, bool allowSceneDataRing = true);
 	static bool UpdateVisibleChunkBuffer(NRIRenderer& renderer, bool* ioWaitedForWrites, bool allowSceneDataRing = true);
 	static bool UpdateVisibleFlatPlaneBuffer(NRIRenderer& renderer, bool* ioWaitedForWrites, bool allowSceneDataRing = true);
+	static bool UpdateSpatialAbsenceBuffer(NRIRenderer& renderer, bool* ioWaitedForWrites, bool allowSceneDataRing = true);
 	static bool UpdateSceneDataSet(
 		NRIRenderer& renderer,
 		const NRIBufferResource& staticVertexBuffer,

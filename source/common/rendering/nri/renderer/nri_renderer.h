@@ -26,7 +26,9 @@
 #include "nri_scene_material_frame_cache.h"
 #include "nri_scene_texture_frame_cache.h"
 #include "nri_scene_textures.h"
+#include "nri_shader_contracts.h"
 #include "nri_sky_environment.h"
+#include "nri_spatial_absence_gate.h"
 #include "nri_scene_lights.h"
 #include "nri_surface_probe.h"
 #include "nri_material_policy.h"
@@ -2526,7 +2528,7 @@ private:
 	bool ApplyStartupMapWorldCorrectionIfNeeded(const char* trigger);
 	void RebuildStartupMutationBaseline();
 	bool CheckPathTracingSupport();
-	void UpdatePerFrameState(HWDrawInfo& di);
+	void UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView);
 	void UpdateNightVisionState();
 	void ResetSceneBufferFrameStats();
 	void LogBridgeStats(const nri_scene::SceneDebugStats& stats);
@@ -2730,6 +2732,7 @@ private:
 	NRIBufferResource mReprojectionBuffer;
 	NRIBufferResource mVisibleChunkBuffer;
 	NRIBufferResource mVisibleFlatPlaneBuffer;
+	NRIBufferResource mSpatialAbsenceBuffer;
 	NRITraceShaderStats mTraceShaderStats;
 	NRIIndirectRadianceCache mIndirectRadianceCache;
 	NRIIndirectRadianceCacheTelemetrySnapshot mLastIndirectRadianceCacheTelemetry = {};
@@ -2792,6 +2795,7 @@ private:
 	SceneBufferDebugStats mReprojectionBufferStats = { "Reprojection" };
 	SceneBufferDebugStats mVisibleChunkBufferStats = { "VisibleChunk" };
 	SceneBufferDebugStats mVisibleFlatPlaneBufferStats = { "VisibleFlatPlane" };
+	SceneBufferDebugStats mSpatialAbsenceBufferStats = { "SpatialAbsence" };
 	PerfShellTraceStats mLastPerfShellTraceStats = {};
 	PerfResourceTraceStats mLastPerfResourceTraceStats = {};
 	PerfTraceShaderStats mLastPerfTraceShaderStats = {};
@@ -2809,6 +2813,7 @@ private:
 	NRIStaticSceneDiagnosticsCache mStaticSceneDiagnostics;
 	NRIMapMoverSystem mMapMovers;
 	NRIMapMoverShadow mMapMoverShadow;
+	NRISpatialAbsenceGate mSpatialAbsenceGate;
 	NRIMapMoverRigidRoute mMapMoverRigidRoute;
 	NRISE29FloorDeformerRoute mSE29FloorDeformerRoute;
 	NRIMapMaterialOnlyRoute mMapMaterialOnlyRoute;
@@ -2852,7 +2857,7 @@ private:
 	SceneLightSystem mSceneLights;
 	NRIDirectionalLightState mDirectionalLightState = {};
 	NRIPTNightVisionState mNightVisionState = {};
-	std::array<nri::Descriptor*, 26> mSceneDataDescriptors = {};
+	std::array<nri::Descriptor*, NRI_SCENE_DATA_DESCRIPTOR_NUM> mSceneDataDescriptors = {};
 	// Retain the descriptor identities used by the current queued-frame scene
 	// texture set so focused GPU workloads can bind the same resident textures
 	// without duplicating or re-uploading texture payloads.

@@ -2,9 +2,20 @@
 
 #include "tarray.h"
 #include "basics.h"
+#include "build.h"
 
 struct HWDrawInfo;
 class Clipper;
+
+struct BunchDrawerCensusStats
+{
+	uint32_t sectionVisits = 0;
+	uint32_t wallTests = 0;
+	uint32_t bunchesStarted = 0;
+	uint32_t bunchesProcessed = 0;
+	uint32_t scratchArrayGrowths = 0;
+	bool encounteredDraggedSector = false;
+};
 
 struct FBunch
 {
@@ -27,11 +38,16 @@ class BunchDrawer
 	double viewx, viewy;
 	float gcosang, gsinang;
 	BitArray gotsector;
+	BitArray gotsection;
 	BitArray gotsection2;
 	BitArray gotwall;
 	BitArray blockwall;
 	angle_t ang1, ang2, angrange;
+	angle_t viewangle;
 	float viewz;
+	bool censusOnly = false;
+	TArray<angle_t> censusClipAngles;
+	BunchDrawerCensusStats censusStats;
 
 	TArray<int> sectionstartang, sectionendang;
 
@@ -44,7 +60,7 @@ private:
 		CL_Pass = 2,
 	};
 
-	angle_t ClipAngle(int wal) { return wall[wal].clipangle - ang1; }
+	angle_t ClipAngle(int wal) { return (censusOnly ? censusClipAngles[wal] : wall[wal].clipangle) - ang1; }
 	void StartScene();
 	bool StartBunch(int sectnum, int linenum, angle_t startan, angle_t endan, bool portal);
 	bool AddLineToBunch(int line, angle_t newan);
@@ -60,6 +76,10 @@ private:
 
 public:
 	void Init(HWDrawInfo* _di, Clipper* c, const DVector2& view, angle_t a1, angle_t a2);
+	void InitCensus(Clipper* c, const DVector3& view, angle_t canonicalSplitAngle);
 	void RenderScene(const int* viewsectors, unsigned sectcount, bool portal);
 	const BitArray& GotSector() const { return gotsector; }
+	const BitArray& GotSection() const { return gotsection; }
+	const BitArray& GotWall() const { return gotwall; }
+	const BunchDrawerCensusStats& CensusStats() const { return censusStats; }
 };

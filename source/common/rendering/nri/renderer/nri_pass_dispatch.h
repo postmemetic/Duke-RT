@@ -292,6 +292,7 @@ public:
 		bool guiCaptureActive = false;
 		bool resetHistory = false;
 		bool mainViewEligible = false;
+		bool spatialAbsenceAuthority = false;
 	};
 
 	struct SceneStatsSnapshot

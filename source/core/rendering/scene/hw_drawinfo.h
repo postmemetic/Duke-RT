@@ -8,6 +8,7 @@
 #include "v_video.h"
 #include "hw_drawlist.h"
 #include "hw_bunchdrawer.h"
+#include "hw_360_census.h"
 #include "gamefuncs.h"
 
 EXTERN_CVAR(Int, hw_lightmode)
@@ -108,6 +109,7 @@ struct HWDrawInfo
 	HWPortal *mCurrentPortal;
 	//FRotator mAngles;
 	BunchDrawer mDrawer;
+	HW360Census m360Census;
 	Clipper *mClipper;
 	FRenderViewpoint Viewpoint;
 	HWViewpointUniforms VPUniforms;	// per-viewpoint uniform state
@@ -194,6 +196,9 @@ public:
 
 	void DrawPlayerSprites(bool hudModelStep, FRenderState &state);
 	const BitArray& GetVisibleSectors() const { return mDrawer.GotSector(); }
+	void Capture360Census(uint64_t mapGeneration = 0, angle_t canonicalSplitAngle = 0,
+		bool logicalMainView = true);
+	const HW360CensusSnapshot& Get360CensusSnapshot() const { return m360Census.Snapshot(); }
 
 	//void AddSubsectorToPortal(FSectorPortalGroup *portal, sectortype *sub);
 
