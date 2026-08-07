@@ -749,6 +749,7 @@ static const uint SPATIAL_ABSENCE_FLAG_GRID = 1u << 5u;
 static const uint SPATIAL_ABSENCE_FLAG_GRID_CELL = 1u << 6u;
 static const uint SPATIAL_ABSENCE_FLAG_GRID_REFERENCE = 1u << 7u;
 static const uint SPATIAL_ABSENCE_GRID_MAX_DIMENSION = 32u;
+static const uint SPATIAL_ABSENCE_RECORD_STRIDE = 80u;
 static const float SPATIAL_ABSENCE_MAX_FLOAT_EXACT_INTEGER = 16777216.0;
 static const uint SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS =
 	SPATIAL_ABSENCE_FLAG_VALID | SPATIAL_ABSENCE_FLAG_COMPLETE;
@@ -930,7 +931,7 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	uint recordCount = 0u;
 	uint recordStride = 0u;
 	gSpatialAbsenceRecords.GetDimensions(recordCount, recordStride);
-	if (recordCount <= 1u)
+	if (recordCount <= 1u || recordStride != SPATIAL_ABSENCE_RECORD_STRIDE)
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_INVALID, 1u);
@@ -938,13 +939,13 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	}
 
 	const SpatialAbsenceRecord header = gSpatialAbsenceRecords[0];
-	if (!isfinite(header.Payload1.x))
+	uint chunkCount = 0u;
+	if (!DecodeSpatialExactUint(header.Payload1.x, chunkCount))
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_INVALID, 1u);
 		return false;
 	}
-	const uint chunkCount = (uint)max(round(header.Payload1.x), 0.0);
 	const float guardRadius = header.Payload0.w;
 	if (header.Data0 != gTraceConstants.FrameIndex)
 	{
@@ -969,11 +970,11 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	}
 
 	const SpatialAbsenceRecord chunkRecord = gSpatialAbsenceRecords[chunkIndex + 1u];
-	const float pairCountValue = chunkRecord.Payload2.x;
-	const uint pairCount = (uint)max(round(pairCountValue), 0.0);
+	uint pairCount = 0u;
+	const bool pairCountValid = DecodeSpatialExactUint(chunkRecord.Payload2.x, pairCount);
 	if ((chunkRecord.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) != SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS ||
 		!ValidateSpatialFootprintLookup(chunkIndex, chunkRecord, recordCount) ||
-		!isfinite(pairCountValue) || pairCountValue != (float)pairCount || pairCount == 0u ||
+		!pairCountValid || pairCount == 0u ||
 		chunkRecord.Data2 < chunkCount + 1u || chunkRecord.Data2 >= recordCount ||
 		pairCount > recordCount - chunkRecord.Data2 ||
 		!all(isfinite(chunkRecord.Payload0.xyz)) || !all(isfinite(chunkRecord.Payload1.xyz)))
@@ -1037,9 +1038,10 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	for (uint pairOffset = 0u; pairOffset < pairCount; ++pairOffset)
 	{
 		const SpatialAbsenceRecord pair = gSpatialAbsenceRecords[chunkRecord.Data2 + pairOffset];
-		const float3 pairBoundsEpsilon = 1.0e-3;
-		if (any(worldPosition < pair.Payload0.xyz - pairBoundsEpsilon) ||
-			any(worldPosition > pair.Payload1.xyz + pairBoundsEpsilon))
+		const float2 pairBoundsEpsilon = 1.0e-3;
+		if (any(worldPosition.xz < pair.Payload0.xz - pairBoundsEpsilon) ||
+			any(worldPosition.xz > pair.Payload1.xz + pairBoundsEpsilon) ||
+			worldPosition.y < pair.Payload0.y || worldPosition.y > pair.Payload1.y)
 			continue;
 		bool positiveRecordsValid = false;
 		const bool insidePositive = PointInSpatialFootprint(

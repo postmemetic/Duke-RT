@@ -861,6 +861,21 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mPreviousContinuityCaptureSerial = 0;
 		return finalizeTelemetry();
 	}
+	// All serialized record indices must remain exactly representable by the
+	// float fields in the shared CPU/GPU contract. Reject pathological worlds
+	// before any chunk-sized allocation or O(n^2) conflict enumeration.
+	if (mapWorld.chunks.size() >= kMaxFloatExactInteger)
+	{
+		mSnapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW;
+		mStableWorldGeneration = 0;
+		mStableObservationHash = 0;
+		mStableCaptureCount = 0;
+		mConflictContinuity.clear();
+		mPreviousContinuityCaptureSerial = 0;
+		mContinuityWorldGeneration = 0;
+		mContinuityRootLocalSpaceIndex = -1;
+		return finalizeTelemetry();
+	}
 	if (!input.complete)
 	{
 		mSnapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_INCOMPLETE_CENSUS;
@@ -1045,7 +1060,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			footprints[chunkIndex] = CollectChunkFootprintTriangles(mapWorld, mapWorld.chunks[chunkIndex]);
 	}
 	std::vector<FootprintGrid> footprintGrids(mapWorld.chunks.size());
-	bool gridBuildFailed = mapWorld.chunks.size() >= kMaxFloatExactInteger;
+	bool gridBuildFailed = false;
 	size_t estimatedRecordCount = mapWorld.chunks.size() + 1u;
 	auto addEstimatedRecords = [&](size_t count)
 	{
