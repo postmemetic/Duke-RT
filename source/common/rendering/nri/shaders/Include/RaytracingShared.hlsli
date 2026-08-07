@@ -114,8 +114,14 @@ static const uint TRACE_STAT_SPATIAL_REJECT_EMISSIVE = 68u;
 static const uint TRACE_STAT_SPATIAL_REJECT_FAST_EMISSIVE = 69u;
 static const uint TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN = 70u;
 static const uint TRACE_STAT_SPATIAL_WITNESS_TESTS = 71u;
+static const uint TRACE_STAT_SPATIAL_SNAPSHOT_INVALID = 72u;
+static const uint TRACE_STAT_SPATIAL_FRAME_MISMATCH = 73u;
+static const uint TRACE_STAT_SPATIAL_OUTSIDE_GUARD = 74u;
+static const uint TRACE_STAT_SPATIAL_LOOKUP_MISS = 75u;
+static const uint TRACE_STAT_SPATIAL_OUTSIDE_UNION = 76u;
+static const uint TRACE_STAT_SPATIAL_EXACT_MISS = 77u;
 static const uint TRACE_STAT_INSTANCE_BUCKET_COUNT = 1024u;
-static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE = 72u;
+static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE = 78u;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 
@@ -771,6 +777,7 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	if (recordCount <= 1u)
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_INVALID, 1u);
 		return false;
 	}
 
@@ -778,22 +785,30 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	if (!isfinite(header.Payload1.x))
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_INVALID, 1u);
 		return false;
 	}
 	const uint chunkCount = (uint)max(round(header.Payload1.x), 0.0);
 	const float guardRadius = header.Payload0.w;
+	if (header.Data0 != gTraceConstants.FrameIndex)
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_FRAME_MISMATCH, 1u);
+		return false;
+	}
 	if ((header.Flags & SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS) != SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS ||
-		header.Data0 != gTraceConstants.FrameIndex ||
 		chunkIndex >= chunkCount || chunkIndex + 1u >= recordCount ||
 		!all(isfinite(header.Payload0)) || guardRadius <= 0.0)
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_FAIL_OPEN, 1u);
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_SNAPSHOT_INVALID, 1u);
 		return false;
 	}
 
 	const float3 centerDelta = worldPosition - header.Payload0.xyz;
 	if (dot(centerDelta, centerDelta) > guardRadius * guardRadius)
 	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_OUTSIDE_GUARD, 1u);
 		return false;
 	}
 
@@ -804,6 +819,7 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 		chunkRecord.Data1 > recordCount - chunkRecord.Data0 ||
 		!all(isfinite(chunkRecord.Payload0.xyz)) || !all(isfinite(chunkRecord.Payload1.xyz)))
 	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
 		return false;
 	}
 	// This union bounds the selected exact triangle-overlap witnesses. It only
@@ -813,6 +829,7 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	const float3 witnessBoundsMax = chunkRecord.Payload1.xyz;
 	if (any(witnessBoundsMin > witnessBoundsMax))
 	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
 		return false;
 	}
 	// Match the CPU bounds tolerance so wall-edge hits accepted by the exact
@@ -821,6 +838,7 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	if (any(worldPosition < witnessBoundsMin - witnessBoundsEpsilon) ||
 		any(worldPosition > witnessBoundsMax + witnessBoundsEpsilon))
 	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_OUTSIDE_UNION, 1u);
 		return false;
 	}
 	[loop]
@@ -845,6 +863,7 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 			return true;
 		}
 	}
+	TraceShaderStatAdd(TRACE_STAT_SPATIAL_EXACT_MISS, 1u);
 	return false;
 }
 

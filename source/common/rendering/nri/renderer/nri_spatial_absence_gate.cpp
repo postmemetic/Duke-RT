@@ -409,6 +409,84 @@ namespace
 		return hash;
 	}
 
+	template <typename T>
+	uint64_t HashValue(uint64_t hash, const T& value)
+	{
+		return HashBytes(hash, &value, sizeof(value));
+	}
+
+	uint64_t HashPositiveOwners(std::vector<uint32_t> owners)
+	{
+		std::sort(owners.begin(), owners.end());
+		owners.erase(std::unique(owners.begin(), owners.end()), owners.end());
+		return owners.empty() ? 0 : HashBytes(kHashOffset, owners.data(), owners.size() * sizeof(owners[0]));
+	}
+
+	uint64_t HashSelectedWitnesses(uint32_t negativeChunk, const std::vector<ExactOverlapWitness>& witnesses)
+	{
+		uint64_t hash = HashValue(kHashOffset, negativeChunk);
+		for (const ExactOverlapWitness& witness : witnesses)
+		{
+			hash = HashValue(hash, witness.positiveChunk);
+			hash = HashValue(hash, witness.negativeChunk);
+			hash = HashBytes(hash, &witness.first, sizeof(witness.first));
+			hash = HashBytes(hash, &witness.second, sizeof(witness.second));
+			hash = HashValue(hash, witness.minZ);
+			hash = HashValue(hash, witness.maxZ);
+			hash = HashValue(hash, witness.area);
+		}
+		return hash;
+	}
+
+	uint64_t HashSnapshotSelections(const NRISpatialAbsenceSnapshot& snapshot)
+	{
+		uint64_t hash = kHashOffset;
+		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
+		{
+			hash = HashValue(hash, selection.negativeChunk);
+			hash = HashValue(hash, selection.firstPositiveChunk);
+			hash = HashValue(hash, selection.selectedWitnessCount);
+			hash = HashValue(hash, selection.selectedPositiveOwnerCount);
+			hash = HashValue(hash, selection.selectedPositiveOwnerHash);
+			hash = HashValue(hash, selection.selectionHash);
+			hash = HashBytes(hash, selection.boundsMin, sizeof(selection.boundsMin));
+			hash = HashBytes(hash, selection.boundsMax, sizeof(selection.boundsMax));
+		}
+		return snapshot.selections.empty() ? 0 : hash;
+	}
+
+	uint64_t HashSnapshotSemantics(const NRISpatialAbsenceSnapshot& snapshot)
+	{
+		uint64_t hash = kHashOffset;
+		hash = HashValue(hash, snapshot.valid);
+		hash = HashValue(hash, snapshot.failOpenFlags);
+		hash = HashValue(hash, snapshot.worldGeneration);
+		hash = HashValue(hash, snapshot.candidateCount);
+		hash = HashValue(hash, snapshot.certifiedCount);
+		hash = HashValue(hash, snapshot.sourceWitnessCount);
+		hash = HashValue(hash, snapshot.selectedWitnessCount);
+		for (const NRISpatialAbsenceConflictRecord& conflict : snapshot.conflicts)
+		{
+			hash = HashValue(hash, conflict.decision);
+			hash = HashValue(hash, conflict.positiveChunk);
+			hash = HashValue(hash, conflict.negativeChunk);
+			hash = HashValue(hash, conflict.positiveSector);
+			hash = HashValue(hash, conflict.negativeSector);
+			hash = HashBytes(hash, conflict.overlapMin, sizeof(conflict.overlapMin));
+			hash = HashBytes(hash, conflict.overlapMax, sizeof(conflict.overlapMax));
+			hash = HashValue(hash, conflict.exactWitnessCount);
+		}
+		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
+		{
+			hash = HashValue(hash, selection.negativeChunk);
+			hash = HashValue(hash, selection.sourceWitnessCount);
+			hash = HashValue(hash, selection.selectedWitnessCount);
+			hash = HashValue(hash, selection.sourcePositiveOwnerCount);
+			hash = HashValue(hash, selection.sourcePositiveOwnerHash);
+		}
+		return hash;
+	}
+
 	NRISpatialAbsenceConflictRecord MakeDebugRecord(
 		const nri_scene::PTMapChunk& positive,
 		const nri_scene::PTMapChunk& negative,
@@ -437,6 +515,10 @@ void NRISpatialAbsenceGate::Reset(uint32_t frameIndex, bool resetStability)
 		mStableWorldGeneration = 0;
 		mStableObservationHash = 0;
 		mStableCaptureCount = 0;
+		mHasPreviousCensusObservationHash = false;
+		mPreviousCensusObservationHash = 0;
+		mHasPreviousAuthority = false;
+		mPreviousAuthority = false;
 	}
 }
 
@@ -445,8 +527,26 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	const NRISpatialAbsenceCensusInput& input)
 {
 	Reset(input.frameIndex, false);
+	auto finalizeTelemetry = [&]() -> const NRISpatialAbsenceSnapshot&
+	{
+		mSnapshot.stableCaptureCount = mStableCaptureCount;
+		mSnapshot.previousAuthority = mHasPreviousAuthority && mPreviousAuthority;
+		const bool authority = mSnapshot.HasNegativeAuthority();
+		mSnapshot.authorityTransition = mHasPreviousAuthority && authority != mPreviousAuthority;
+		mSnapshot.selectionHash = HashSnapshotSelections(mSnapshot);
+		mSnapshot.semanticHash = HashSnapshotSemantics(mSnapshot);
+		mHasPreviousCensusObservationHash = true;
+		mPreviousCensusObservationHash = mSnapshot.censusObservationHash;
+		mHasPreviousAuthority = true;
+		mPreviousAuthority = authority;
+		return mSnapshot;
+	};
 	mSnapshot.captureSerial = input.captureSerial;
 	mSnapshot.worldGeneration = input.worldGeneration;
+	mSnapshot.censusObservationHash = input.observationHash;
+	mSnapshot.previousCensusObservationHash = mHasPreviousCensusObservationHash
+		? mPreviousCensusObservationHash
+		: 0;
 	mSnapshot.guardRadius = input.guardRadius;
 	std::memcpy(mSnapshot.center, input.center, sizeof(mSnapshot.center));
 	if (input.worldGeneration == mStableWorldGeneration && input.observationHash != 0 &&
@@ -467,7 +567,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mStableWorldGeneration = 0;
 		mStableObservationHash = 0;
 		mStableCaptureCount = 0;
-		return mSnapshot;
+		return finalizeTelemetry();
 	}
 	if (!input.complete)
 	{
@@ -495,7 +595,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			mStableObservationHash = 0;
 			mStableCaptureCount = 0;
 		}
-		return mSnapshot;
+		return finalizeTelemetry();
 	}
 
 	std::vector<uint32_t> reached = input.reachedSectorIndices;
@@ -625,6 +725,21 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		{
 			continue;
 		}
+		NRISpatialAbsenceSelectionRecord selection;
+		selection.negativeChunk = negativeChunk;
+		selection.sourceWitnessCount = (uint32_t)certified.witnesses.size();
+		std::vector<uint32_t> sourcePositiveOwners;
+		sourcePositiveOwners.reserve(certified.witnesses.size());
+		for (const ExactOverlapWitness& witness : certified.witnesses)
+		{
+			sourcePositiveOwners.push_back(witness.positiveChunk);
+		}
+		std::sort(sourcePositiveOwners.begin(), sourcePositiveOwners.end());
+		sourcePositiveOwners.erase(std::unique(sourcePositiveOwners.begin(), sourcePositiveOwners.end()), sourcePositiveOwners.end());
+		selection.sourcePositiveOwnerCount = (uint32_t)sourcePositiveOwners.size();
+		selection.sourcePositiveOwnerHash = HashPositiveOwners(sourcePositiveOwners);
+		mSnapshot.sourceWitnessCount += selection.sourceWitnessCount;
+
 		std::vector<ExactOverlapWitness> pairPriority = certified.witnesses;
 		std::stable_sort(pairPriority.begin(), pairPriority.end(), [](const auto& first, const auto& second)
 		{
@@ -668,6 +783,20 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			if (certified.witnesses.size() >= kMaxExactWitnessesPerChunk) break;
 			appendUnique(witness);
 		}
+		selection.selectedWitnessCount = (uint32_t)certified.witnesses.size();
+		selection.selectionHash = HashSelectedWitnesses(negativeChunk, certified.witnesses);
+		std::vector<uint32_t> selectedPositiveOwners;
+		selectedPositiveOwners.reserve(certified.witnesses.size());
+		for (const ExactOverlapWitness& witness : certified.witnesses)
+		{
+			selectedPositiveOwners.push_back(witness.positiveChunk);
+		}
+		std::sort(selectedPositiveOwners.begin(), selectedPositiveOwners.end());
+		selectedPositiveOwners.erase(std::unique(selectedPositiveOwners.begin(), selectedPositiveOwners.end()), selectedPositiveOwners.end());
+		selection.firstPositiveChunk = selectedPositiveOwners.empty() ? UINT32_MAX : selectedPositiveOwners.front();
+		selection.selectedPositiveOwnerCount = (uint32_t)selectedPositiveOwners.size();
+		selection.selectedPositiveOwnerHash = HashPositiveOwners(selectedPositiveOwners);
+		mSnapshot.selectedWitnessCount += selection.selectedWitnessCount;
 
 		const size_t recordIndex = (size_t)negativeChunk + 1u;
 		const uint32_t witnessStart = (uint32_t)mSnapshot.gpuRecords.size();
@@ -735,6 +864,9 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		record.payload[4] = witnessBoundsMax[0];
 		record.payload[5] = witnessBoundsMax[1];
 		record.payload[6] = witnessBoundsMax[2];
+		std::memcpy(selection.boundsMin, witnessBoundsMin, sizeof(selection.boundsMin));
+		std::memcpy(selection.boundsMax, witnessBoundsMax, sizeof(selection.boundsMax));
+		mSnapshot.selections.push_back(selection);
 		MarkChunk(mSnapshot.negativeChunkWords, negativeChunk);
 		mSnapshot.certifiedCount++;
 	}
@@ -752,7 +884,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	mSnapshot.valid = true;
 	mSnapshot.payloadHash = HashBytes(kHashOffset, mSnapshot.gpuRecords.data(),
 		mSnapshot.gpuRecords.size() * sizeof(NRISpatialAbsenceGpuRecord));
-	return mSnapshot;
+	return finalizeTelemetry();
 }
 
 bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
@@ -812,6 +944,116 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	if (gate.GetSnapshot().HasNegativeAuthority() || gate.GetSnapshot().gpuRecords.empty())
 	{
 		return fail("invalid input did not produce a nonempty fail-open payload");
+	}
+
+	NRISpatialAbsenceSnapshot semanticProbe;
+	semanticProbe.valid = true;
+	semanticProbe.worldGeneration = 11;
+	semanticProbe.candidateCount = 1;
+	semanticProbe.certifiedCount = 1;
+	semanticProbe.sourceWitnessCount = 24;
+	semanticProbe.selectedWitnessCount = 16;
+	NRISpatialAbsenceConflictRecord semanticConflict;
+	semanticConflict.decision = NRISpatialAbsenceConflictDecision::Certified;
+	semanticConflict.positiveChunk = 3;
+	semanticConflict.negativeChunk = 7;
+	semanticConflict.positiveSector = 3;
+	semanticConflict.negativeSector = 7;
+	semanticConflict.overlapMin[0] = -2.0f;
+	semanticConflict.overlapMax[0] = 2.0f;
+	semanticConflict.exactWitnessCount = 24;
+	semanticProbe.conflicts.push_back(semanticConflict);
+	NRISpatialAbsenceSelectionRecord semanticSelection;
+	semanticSelection.negativeChunk = 7;
+	semanticSelection.firstPositiveChunk = 3;
+	semanticSelection.sourceWitnessCount = 24;
+	semanticSelection.selectedWitnessCount = 16;
+	semanticSelection.sourcePositiveOwnerCount = 1;
+	semanticSelection.selectedPositiveOwnerCount = 1;
+	semanticSelection.sourcePositiveOwnerHash = 17;
+	semanticSelection.selectedPositiveOwnerHash = 17;
+	semanticSelection.selectionHash = 23;
+	semanticSelection.boundsMin[0] = -1.0f;
+	semanticSelection.boundsMax[0] = 1.0f;
+	semanticProbe.selections.push_back(semanticSelection);
+	const uint64_t semanticHash = HashSnapshotSemantics(semanticProbe);
+	const uint64_t selectionHash = HashSnapshotSelections(semanticProbe);
+	semanticProbe.frameIndex = 99;
+	semanticProbe.captureSerial = 123;
+	semanticProbe.payloadHash = 456;
+	semanticProbe.center[0] = 1024.0f;
+	semanticProbe.center[1] = -32.0f;
+	semanticProbe.center[2] = 2048.0f;
+	semanticProbe.guardRadius = 64.0f;
+	if (HashSnapshotSemantics(semanticProbe) != semanticHash ||
+		HashSnapshotSelections(semanticProbe) != selectionHash)
+	{
+		return fail("semantic telemetry hash included camera or frame-only state");
+	}
+	semanticProbe.selections.front().selectionHash++;
+	if (HashSnapshotSelections(semanticProbe) == selectionHash)
+	{
+		return fail("selection telemetry hash ignored retained witness identity");
+	}
+	semanticProbe.conflicts.front().decision = NRISpatialAbsenceConflictDecision::SameVisibility;
+	if (HashSnapshotSemantics(semanticProbe) == semanticHash)
+	{
+		return fail("semantic telemetry hash ignored classifier decision");
+	}
+
+	NRISpatialAbsenceGate stableGate;
+	nri_scene::PTMapWorld stableWorld;
+	stableWorld.valid = true;
+	stableWorld.buildSerial = 5;
+	nri_scene::PTMapChunk stableChunk;
+	stableChunk.chunkIndex = 0;
+	stableChunk.sectorIndex = 0;
+	stableChunk.localSpaceIndex = 0;
+	stableChunk.bounds.valid = true;
+	stableChunk.bounds.min[0] = stableChunk.bounds.min[1] = stableChunk.bounds.min[2] = -1.0f;
+	stableChunk.bounds.max[0] = stableChunk.bounds.max[1] = stableChunk.bounds.max[2] = 1.0f;
+	stableWorld.chunks.push_back(stableChunk);
+	NRISpatialAbsenceCensusInput stableInput;
+	stableInput.complete = true;
+	stableInput.rootStable = true;
+	stableInput.generationMatches = true;
+	stableInput.observationHash = 0x1234;
+	stableInput.worldGeneration = stableWorld.buildSerial;
+	stableInput.frameIndex = 1;
+	stableInput.guardRadius = 8.0f;
+	stableInput.reachedSectorIndices.push_back(0);
+	const NRISpatialAbsenceSnapshot& firstStable = stableGate.Build(stableWorld, stableInput);
+	if (firstStable.stableCaptureCount != 1u ||
+		firstStable.censusObservationHash != 0x1234 ||
+		firstStable.previousCensusObservationHash != 0 ||
+		(firstStable.failOpenFlags & NRI_SPATIAL_ABSENCE_FAIL_UNSTABLE_ROOT) == 0)
+	{
+		return fail("first stable capture did not remain fail-open");
+	}
+	stableInput.frameIndex++;
+	const NRISpatialAbsenceSnapshot& secondStable = stableGate.Build(stableWorld, stableInput);
+	if (secondStable.stableCaptureCount != 2u || !secondStable.valid ||
+		secondStable.censusObservationHash != 0x1234 ||
+		secondStable.previousCensusObservationHash != 0x1234 ||
+		(secondStable.failOpenFlags & NRI_SPATIAL_ABSENCE_FAIL_UNSTABLE_ROOT) != 0)
+	{
+		return fail("second equivalent capture did not publish stable telemetry");
+	}
+	const uint64_t stableSemanticHash = secondStable.semanticHash;
+	stableInput.frameIndex++;
+	stableInput.center[0] = 2.0f;
+	const NRISpatialAbsenceSnapshot& translatedStable = stableGate.Build(stableWorld, stableInput);
+	if (translatedStable.stableCaptureCount != 3u || translatedStable.semanticHash != stableSemanticHash)
+	{
+		return fail("camera-only translation changed stable semantic telemetry");
+	}
+	stableInput.frameIndex++;
+	stableInput.observationHash = 0x5678;
+	const NRISpatialAbsenceSnapshot& changedObservation = stableGate.Build(stableWorld, stableInput);
+	if (changedObservation.censusObservationHash != 0x5678 ||
+		changedObservation.previousCensusObservationHash != 0x1234)
+	{
+		return fail("census observation telemetry did not publish the current and previous hashes");
 	}
 
 	if (failureReason != nullptr)

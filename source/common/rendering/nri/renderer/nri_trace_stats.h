@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-static constexpr uint32_t NRI_TRACE_SHADER_SCALAR_STAT_COUNT = 72;
+static constexpr uint32_t NRI_TRACE_SHADER_SCALAR_STAT_COUNT = 78;
 static constexpr uint32_t NRI_TRACE_SHADER_INSTANCE_BUCKET_COUNT = 1024;
 static constexpr uint32_t NRI_TRACE_SHADER_RAY_KIND_COUNT = 6;
 static constexpr uint32_t NRI_TRACE_SHADER_INSTANCE_COMMITTED_BASE = NRI_TRACE_SHADER_SCALAR_STAT_COUNT;

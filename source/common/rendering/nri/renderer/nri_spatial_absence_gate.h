@@ -87,6 +87,25 @@ struct NRISpatialAbsenceConflictRecord
 	uint32_t exactWitnessCount = 0;
 };
 
+// Camera-independent summary of the exact witnesses retained for one
+// census-negative chunk. Source counts describe classifier coverage before
+// the bounded GPU selection; selected counts and hashes describe what the
+// shader can actually test this frame.
+struct NRISpatialAbsenceSelectionRecord
+{
+	uint32_t negativeChunk = UINT32_MAX;
+	uint32_t firstPositiveChunk = UINT32_MAX;
+	uint32_t sourceWitnessCount = 0;
+	uint32_t selectedWitnessCount = 0;
+	uint32_t sourcePositiveOwnerCount = 0;
+	uint32_t selectedPositiveOwnerCount = 0;
+	uint64_t sourcePositiveOwnerHash = 0;
+	uint64_t selectedPositiveOwnerHash = 0;
+	uint64_t selectionHash = 0;
+	float boundsMin[3] = {};
+	float boundsMax[3] = {};
+};
+
 struct NRISpatialAbsenceSnapshot
 {
 	bool valid = false;
@@ -94,14 +113,27 @@ struct NRISpatialAbsenceSnapshot
 	uint64_t captureSerial = 0;
 	uint64_t worldGeneration = 0;
 	uint64_t payloadHash = 0;
+	// These hashes deliberately exclude frame index, guard center, and raw
+	// distance-to-center values. They only change when classifier semantics or
+	// the retained GPU witness selection changes.
+	uint64_t semanticHash = 0;
+	uint64_t selectionHash = 0;
+	uint64_t censusObservationHash = 0;
+	uint64_t previousCensusObservationHash = 0;
 	uint32_t frameIndex = 0;
 	uint32_t candidateCount = 0;
 	uint32_t certifiedCount = 0;
+	uint32_t sourceWitnessCount = 0;
+	uint32_t selectedWitnessCount = 0;
+	uint32_t stableCaptureCount = 0;
+	bool previousAuthority = false;
+	bool authorityTransition = false;
 	float center[3] = {};
 	float guardRadius = 0.0f;
 	std::vector<uint32_t> negativeChunkWords;
 	std::vector<NRISpatialAbsenceGpuRecord> gpuRecords;
 	std::vector<NRISpatialAbsenceConflictRecord> conflicts;
+	std::vector<NRISpatialAbsenceSelectionRecord> selections;
 
 	bool HasNegativeAuthority() const
 	{
@@ -130,6 +162,10 @@ private:
 	uint64_t mStableWorldGeneration = 0;
 	uint64_t mStableObservationHash = 0;
 	uint32_t mStableCaptureCount = 0;
+	bool mHasPreviousCensusObservationHash = false;
+	uint64_t mPreviousCensusObservationHash = 0;
+	bool mHasPreviousAuthority = false;
+	bool mPreviousAuthority = false;
 };
 
 // Synthetic, device-independent checks for the conservative classifier and

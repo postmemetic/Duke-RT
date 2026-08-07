@@ -46,7 +46,7 @@ EXTERN_CVAR(Float, png_gamma)
 // screencapture
 //
 
-static FileWriter *opennextfile(const char *fn)
+static FileWriter *opennextfile(const char *fn, FString* outName)
 {
 	static int count = 0;
 	FString name;
@@ -54,6 +54,7 @@ static FileWriter *opennextfile(const char *fn)
     {
 		name.Format(fn, count++);
     } while (FileExists(name));
+	if (outName != nullptr) *outName = name;
     return FileWriter::Open(name.GetChars());
 }
 
@@ -107,14 +108,15 @@ static int SaveScreenshot()
 	if (**screenshotname) autoname << screenshotname;
 	else autoname << currentGame;
 	autoname << "_%04d.png";
-    FileWriter *fil = opennextfile(autoname.GetChars());
+	FString resolvedName;
+	FileWriter *fil = opennextfile(autoname.GetChars(), &resolvedName);
 
 	if (fil == nullptr)
     {
         return -1;
     }
 
-	if (screen->QueueScreenshot(fil))
+	if (screen->QueueScreenshot(fil, resolvedName.GetChars()))
 	{
 		return 0;
 	}

@@ -139,7 +139,7 @@ public:
 	IDataBuffer* CreateDataBuffer(int bindingpoint, bool ssbo, bool needsresize) override;
 	FTexture* WipeStartScreen() override;
 	FTexture* WipeEndScreen() override;
-	bool QueueScreenshot(FileWriter* file) override;
+	bool QueueScreenshot(FileWriter* file, const char* filename = nullptr) override;
 	TArray<uint8_t> GetScreenshotBuffer(int& pitch, ESSType& color_type, float& gamma) override;
 	bool FlipSavePic() const override { return false; }
 	void PrintPathTracingCaps() const;
@@ -232,7 +232,11 @@ private:
 	struct PendingScreenshotCapture
 	{
 		std::unique_ptr<FileWriter> file;
+		FString fileName;
 		nri::Buffer* readbackBuffer = nullptr;
+		uint64_t serial = 0;
+		uint64_t shellFrameIndex = 0;
+		uint32_t rendererFrameIndex = ~0u;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		uint32_t rowPitch = 0;
@@ -480,6 +484,7 @@ private:
 	uint32_t mFrameSequenceWriteIndex = 0;
 	Texture2DDebugStats mTexture2DDebugStats;
 	std::vector<PendingScreenshotCapture> mPendingScreenshotCaptures;
+	uint64_t mNextScreenshotCaptureSerial = 1;
 	uint64_t mAdapterLocalBudgetBytes = 0;
 	uint64_t mAdapterNonLocalBudgetBytes = 0;
 	bool mTraceThisFrame = false;

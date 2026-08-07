@@ -4594,10 +4594,11 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				(unsigned long long)shader.frameNumber,
 				c[44], c[45], c[46], c[47], c[48], c[49], c[50], c[51], c[59], c[58]);
 			Printf(
-				"PERF pt shader 360 absence NRI: frame=%llu stats_frame=%llu primary=%u ungated=%u sun=%u point=%u emissive=%u fast_emissive=%u snapshot_fail_open=%u witness_tests=%u\n",
+				"PERF pt shader 360 absence NRI: frame=%llu stats_frame=%llu primary=%u ungated=%u sun=%u point=%u emissive=%u fast_emissive=%u snapshot_fail_open=%u witness_tests=%u snapshot_invalid=%u frame_mismatch=%u outside_guard=%u lookup_miss=%u outside_union=%u exact_miss=%u\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 				(unsigned long long)shader.frameNumber,
-				c[64], c[65], c[66], c[67], c[68], c[69], c[70], c[71]);
+				c[64], c[65], c[66], c[67], c[68], c[69], c[70], c[71],
+				c[72], c[73], c[74], c[75], c[76], c[77]);
 			for (uint32_t hotIndex = 0; hotIndex < shader.hotInstanceCount; ++hotIndex)
 			{
 				const auto& hot = shader.hotInstances[hotIndex];
@@ -6952,7 +6953,7 @@ FTexture* NRIRenderDevice::WipeEndScreen()
 	return tex;
 }
 
-bool NRIRenderDevice::QueueScreenshot(FileWriter* file)
+bool NRIRenderDevice::QueueScreenshot(FileWriter* file, const char* filename)
 {
 	if (file == nullptr)
 	{
@@ -6966,8 +6967,13 @@ bool NRIRenderDevice::QueueScreenshot(FileWriter* file)
 
 	PendingScreenshotCapture capture;
 	capture.file.reset(file);
+	capture.fileName = filename != nullptr ? filename : "";
+	capture.serial = mNextScreenshotCaptureSerial++;
 	capture.width = (uint32_t)GetWidth();
 	capture.height = (uint32_t)GetHeight();
+	Printf("NRI screenshot queued: serial=%llu path=\"%s\"\n",
+		(unsigned long long)capture.serial,
+		capture.fileName.GetChars());
 	mPendingScreenshotCaptures.push_back(std::move(capture));
 	return true;
 }
@@ -10089,6 +10095,13 @@ void NRIRenderDevice::RecordPendingScreenshotReadbacks()
 
 		mCore.CmdReadbackTextureToBuffer(*mCommandBuffer, *capture.readbackBuffer, layout, *source.texture, region);
 		capture.readbackRecorded = true;
+		capture.shellFrameIndex = mFrameIndex;
+		capture.rendererFrameIndex = mRenderer != nullptr ? mRenderer->GetLastCompletedFrameIndex() : ~0u;
+		Printf("NRI screenshot frame: serial=%llu renderer_frame=%u shell_frame=%llu path=\"%s\"\n",
+			(unsigned long long)capture.serial,
+			capture.rendererFrameIndex,
+			(unsigned long long)capture.shellFrameIndex,
+			capture.fileName.GetChars());
 	}
 }
 
@@ -10186,6 +10199,11 @@ void NRIRenderDevice::FinishPendingScreenshotReadbacks(bool submitted, uint64_t 
 		}
 		else
 		{
+			Printf("NRI screenshot completed: serial=%llu renderer_frame=%u shell_frame=%llu path=\"%s\"\n",
+				(unsigned long long)capture.serial,
+				capture.rendererFrameIndex,
+				(unsigned long long)capture.shellFrameIndex,
+				capture.fileName.GetChars());
 			Printf("screenshot saved\n");
 		}
 	}

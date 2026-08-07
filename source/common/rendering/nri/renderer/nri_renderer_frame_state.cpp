@@ -373,25 +373,43 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 		const NRISpatialAbsenceSnapshot& absence = mSpatialAbsenceGate.Build(mMapWorld, input);
 		if ((int)nri_pt360absencetrace > 0)
 		{
-			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u world=%llu gpu_hash=0x%016llx sectors=%u sections=%u walls=%u candidates=%u certified=%u fail_open=0x%x records=%u radius=%.2f\n",
+			float centerDelta[3] = {};
+			if (mHasPreviousCameraState)
+			{
+				for (uint32_t axis = 0; axis < 3u; ++axis)
+				{
+					centerDelta[axis] = absence.center[axis] - mPreviousCameraPos[axis];
+				}
+			}
+			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx sectors=%u sections=%u walls=%u candidates=%u certified=%u source_witnesses=%u selected_witnesses=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
 				mFrameIndex,
 				(unsigned long long)census.captureSerial,
 				census.complete ? 1u : 0u,
 				absence.HasNegativeAuthority() ? 1u : 0u,
+				absence.previousAuthority ? 1u : 0u,
+				absence.authorityTransition ? 1u : 0u,
+				absence.stableCaptureCount,
 				census.failureFlags,
 				census.observationFlags,
-				(unsigned long long)census.observationHash,
+				(unsigned long long)absence.censusObservationHash,
+				(unsigned long long)absence.previousCensusObservationHash,
 				census.elapsedMilliseconds,
 				census.traversal.scratchArrayGrowths,
 				(unsigned long long)absence.worldGeneration,
 				(unsigned long long)absence.payloadHash,
+				(unsigned long long)absence.semanticHash,
+				(unsigned long long)absence.selectionHash,
 				census.reachedSectorCount,
 				census.reachedSectionCount,
 				census.reachedWallCount,
 				absence.candidateCount,
 				absence.certifiedCount,
+				absence.sourceWitnessCount,
+				absence.selectedWitnessCount,
 				absence.failOpenFlags,
 				(uint32_t)absence.gpuRecords.size(),
+				absence.center[0], absence.center[1], absence.center[2],
+				centerDelta[0], centerDelta[1], centerDelta[2],
 				absence.guardRadius);
 			uint32_t rows = 0;
 			auto printConflict = [&](const NRISpatialAbsenceConflictRecord& conflict)
@@ -426,6 +444,33 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					if (rows >= 16u) break;
 					printConflict(conflict);
 				}
+			}
+			uint32_t selectionRows = 0;
+			for (const NRISpatialAbsenceSelectionRecord& selection : absence.selections)
+			{
+				if (selectionRows >= 8u) break;
+				const RuntimeMapMutationCache::ChunkReplacement* negativeReplacement =
+					mRuntimeMutation.FindReplacement(selection.negativeChunk);
+				const RuntimeMapMutationCache::ChunkReplacement* positiveReplacement =
+					mRuntimeMutation.FindReplacement(selection.firstPositiveChunk);
+				Printf("NRI PT 360 absence selection: frame=%u negative_chunk=%u first_positive_chunk=%u source_owners=%u selected_owners=%u source_owner_hash=0x%016llx selected_owner_hash=0x%016llx source_witnesses=%u selected_witnesses=%u selected_hash=0x%016llx bounds=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f)) runtime_active=%u exclude_static=%u first_positive_runtime_active=%u first_positive_exclude_static=%u\n",
+					mFrameIndex,
+					selection.negativeChunk,
+					selection.firstPositiveChunk,
+					selection.sourcePositiveOwnerCount,
+					selection.selectedPositiveOwnerCount,
+					(unsigned long long)selection.sourcePositiveOwnerHash,
+					(unsigned long long)selection.selectedPositiveOwnerHash,
+					selection.sourceWitnessCount,
+					selection.selectedWitnessCount,
+					(unsigned long long)selection.selectionHash,
+					selection.boundsMin[0], selection.boundsMin[1], selection.boundsMin[2],
+					selection.boundsMax[0], selection.boundsMax[1], selection.boundsMax[2],
+					negativeReplacement != nullptr && negativeReplacement->active ? 1u : 0u,
+					negativeReplacement != nullptr && negativeReplacement->excludeStaticChunk ? 1u : 0u,
+					positiveReplacement != nullptr && positiveReplacement->active ? 1u : 0u,
+					positiveReplacement != nullptr && positiveReplacement->excludeStaticChunk ? 1u : 0u);
+				selectionRows++;
 			}
 			nri_pt360absencetrace = std::max((int)nri_pt360absencetrace - 1, 0);
 		}

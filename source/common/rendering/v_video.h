@@ -448,7 +448,7 @@ public:
 	// Retrieves a buffer containing image data for a screenshot.
 	// Hint: Pitch can be negative for upside-down images, in which case buffer
 	// points to the last row in the buffer, which will be the first row output.
-	virtual bool QueueScreenshot(FileWriter* file) { return false; }
+	virtual bool QueueScreenshot(FileWriter* file, const char* filename = nullptr) { return false; }
 	virtual TArray<uint8_t> GetScreenshotBuffer(int &pitch, ESSType &color_type, float &gamma) { return TArray<uint8_t>(); }
 
 	static float GetZNear() { return 5.f; }

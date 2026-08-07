@@ -2032,6 +2032,7 @@ public:
 	NRIMapChunkCompareSnapshot BuildMapChunkCompareSnapshot(int32_t chunkIndex) const;
 	void TraceActorSpriteEvent(const PathTracingActorSpriteTraceEvent& event);
 	bool IsPathTracingSupported() const { return mPathTracingSupported; }
+	uint32_t GetLastCompletedFrameIndex() const;
 	bool RefreshPathTracingAvailability();
 	const char* GetAvailabilityReason() const;
 	const PerfShellTraceStats& GetLastPerfShellTraceStats() const { return mLastPerfShellTraceStats; }
@@ -2869,6 +2870,7 @@ private:
 	std::vector<uint32_t> mCurrentVisibleFlatPlaneWords;
 	uint32_t mLastResolvedLightOverlayGeneration = 0;
 	uint32_t mFrameIndex = 0;
+	uint32_t mLastCompletedFrameIndex = ~0u;
 	uint64_t mFrameGenerationFrameId = 0;
 	uint32_t mRenderWidth = 0;
 	uint32_t mRenderHeight = 0;

@@ -438,6 +438,11 @@ RenderSceneHistorySnapshot NRIRenderer::CaptureRenderSceneHistorySnapshot(bool p
 	return snapshot;
 }
 
+uint32_t NRIRenderer::GetLastCompletedFrameIndex() const
+{
+	return mLastCompletedFrameIndex;
+}
+
 void NRIRenderer::RestoreRenderSceneHistorySnapshot(const RenderSceneHistorySnapshot& snapshot)
 {
 	mFrameIndex = snapshot.frameIndex;
@@ -576,6 +581,7 @@ bool NRIRenderer::RenderSimpleBootstrapView(bool preserveHistory, const RenderSc
 	if (!preserveHistory)
 	{
 		NoteSuccessfulRealFrame();
+		mLastCompletedFrameIndex = mFrameIndex;
 		++mFrameIndex;
 		mHasPreviousCameraState = true;
 		mResetHistory = false;
@@ -644,6 +650,7 @@ void NRIRenderer::CommitRenderSceneResult(const RenderSceneCompletionInputs& inp
 		if (!inputs.preserveHistory)
 		{
 			NoteSuccessfulRealFrame();
+			mLastCompletedFrameIndex = mFrameIndex;
 			mFrameIndex++;
 			mHasPreviousCameraState = true;
 			mResetHistory = false;
