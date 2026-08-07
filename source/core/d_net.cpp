@@ -86,6 +86,11 @@ void D_ReadUserInfoStrings(int, TArrayView<uint8_t>& stream, bool) {}
 void D_WriteUserInfoStrings(int, TArrayView<uint8_t>& stream, bool) {}
 FString GetPlayerName(int num);
 
+// Session-only validation control. Fixed-presentation motion captures resume
+// exactly one simulation tic between images; clamp local command production to
+// that same cadence so renderer cost cannot change the queued movement path.
+CVAR(Bool, perf_deterministicticcmds, false, 0)
+
 //#define SIMULATEERRORS		(RAND_MAX/3)
 #define SIMULATEERRORS			0
 
@@ -964,6 +969,10 @@ void NetUpdate (void)
 	nowtime = I_GetTime ();
 	newtics = nowtime - gametime;
 	gametime = nowtime;
+	if (perf_deterministicticcmds && !netgame && !demoplayback && newtics > 1)
+	{
+		newtics = 1;
+	}
 
 	if (newtics <= 0)	// nothing new to update
 	{
