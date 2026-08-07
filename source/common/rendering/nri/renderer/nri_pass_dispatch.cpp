@@ -40,7 +40,7 @@ namespace
 
 	static bool ShouldCollectTraceShaderStats()
 	{
-		return !!nri_ptshaderstats && ShouldTracePtPerf();
+		return (bool)nri_pt360absenceprobe || (!!nri_ptshaderstats && ShouldTracePtPerf());
 	}
 
 	static NRITraceShaderStatsFenceServices BuildTraceShaderStatsFenceServices(NRIRenderDevice* device)

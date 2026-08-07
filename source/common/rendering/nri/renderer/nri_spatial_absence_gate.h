@@ -16,6 +16,7 @@ enum NRISpatialAbsenceGpuFlags : uint32_t
 	NRI_SPATIAL_ABSENCE_GPU_GRID = 1u << 5,
 	NRI_SPATIAL_ABSENCE_GPU_GRID_CELL = 1u << 6,
 	NRI_SPATIAL_ABSENCE_GPU_GRID_REFERENCE = 1u << 7,
+	NRI_SPATIAL_ABSENCE_GPU_PROBE = 1u << 8,
 };
 
 // Record zero is the snapshot header. The next chunkCount records form the
@@ -76,6 +77,12 @@ struct NRISpatialAbsenceCensusInput
 	int32_t authoritativeRootSector = -1;
 	float center[3] = {};
 	float guardRadius = 0.0f;
+	bool probeEnabled = false;
+	float probeOrigin[3] = {};
+	float probeRadius = 0.0f;
+	uint32_t probeExpectedChunk = UINT32_MAX;
+	uint32_t probeTargetPixel = 0;
+	uint32_t probeReferencePixel = 0;
 	std::vector<uint32_t> rootSectorIndices;
 	std::vector<uint32_t> reachedSectorIndices;
 	std::vector<uint32_t> uncertainSectorIndices;

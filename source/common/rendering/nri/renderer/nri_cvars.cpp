@@ -1632,6 +1632,58 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // establish exact conflict witnesses and protected-region behavior.
 CVAR(Bool, nri_pt360absencegate, false, 0)
 
+CVAR(Bool, nri_pt360absenceprobe, false, 0)
+
+CUSTOM_CVAR(Int, nri_pt360absenceprobechunk, -1, 0)
+{
+	if (self < -1)
+	{
+		self = -1;
+	}
+	else if (self >= (1 << 24))
+	{
+		self = (1 << 24) - 1;
+	}
+}
+
+#define NRI_PT_360_ABSENCE_PROBE_ORIGIN_CVAR(name) \
+	CUSTOM_CVAR(Float, name, 0.0f, 0) \
+	{ \
+		if (!std::isfinite((float)self)) self = 0.0f; \
+	}
+
+NRI_PT_360_ABSENCE_PROBE_ORIGIN_CVAR(nri_pt360absenceprobeoriginx)
+NRI_PT_360_ABSENCE_PROBE_ORIGIN_CVAR(nri_pt360absenceprobeoriginy)
+NRI_PT_360_ABSENCE_PROBE_ORIGIN_CVAR(nri_pt360absenceprobeoriginz)
+
+#undef NRI_PT_360_ABSENCE_PROBE_ORIGIN_CVAR
+
+CUSTOM_CVAR(Float, nri_pt360absenceproberadius, 8.0f, 0)
+{
+	if (!std::isfinite((float)self) || self < 0.001f)
+	{
+		self = 0.001f;
+	}
+	else if (self > 4096.0f)
+	{
+		self = 4096.0f;
+	}
+}
+
+#define NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR(name, defaultValue) \
+	CUSTOM_CVAR(Int, name, defaultValue, 0) \
+	{ \
+		if (self < 0) self = 0; \
+		else if (self > 65535) self = 65535; \
+	}
+
+NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR(nri_pt360absenceprobetargetx, 532)
+NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR(nri_pt360absenceprobetargety, 360)
+NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR(nri_pt360absenceprobereferencex, 512)
+NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR(nri_pt360absenceprobereferencey, 360)
+
+#undef NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR
+
 CUSTOM_CVAR(Float, nri_pt360absenceradius, 512.0f, 0)
 {
 	if (!std::isfinite((float)self) || self < 1.0f)

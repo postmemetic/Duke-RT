@@ -1263,7 +1263,18 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	header.payload[6] = (float)mSnapshot.authorizedPairCount;
 	header.payload[7] = (float)mSnapshot.footprintTriangleCount;
 	header.payload[8] = (float)mSnapshot.footprintGridCellCount;
-	header.payload[9] = (float)mSnapshot.footprintGridReferenceCount;
+	if (input.probeEnabled)
+	{
+		header.flags |= NRI_SPATIAL_ABSENCE_GPU_PROBE;
+		header.payload[9] = input.probeOrigin[0];
+		header.payload[10] = input.probeOrigin[1];
+		header.payload[11] = input.probeOrigin[2];
+		header.payload[12] = input.probeRadius;
+		header.payload[13] = (float)input.probeExpectedChunk;
+		static_assert(sizeof(float) == sizeof(uint32_t));
+		std::memcpy(&header.payload[14], &input.probeTargetPixel, sizeof(input.probeTargetPixel));
+		std::memcpy(&header.payload[15], &input.probeReferencePixel, sizeof(input.probeReferencePixel));
+	}
 	mSnapshot.valid = true;
 	mSnapshot.payloadHash = HashBytes(kHashOffset, mSnapshot.gpuRecords.data(),
 		mSnapshot.gpuRecords.size() * sizeof(NRISpatialAbsenceGpuRecord));

@@ -1093,6 +1093,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		hit = TracePrimary(rayOrigin, visibleRayDirection, tracedVisibleDirection);
 		visibleRayDirection = tracedVisibleDirection;
 	}
+	RecordSpatialAbsenceProbePrimaryPixel(pixelPos, hit);
 
 	float3 plainMirrorThroughput = 1.0;
 	float3 plainMirrorPlanePosition = 0.0;

@@ -44,8 +44,11 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -88,6 +91,153 @@ namespace
 		case 2: return "persistent_voxel";
 		default: return "unknown";
 		}
+	}
+
+	static float DecodeSpatialAbsenceProbeFloat(uint32_t bits)
+	{
+		float value = 0.0f;
+		static_assert(sizeof(value) == sizeof(bits));
+		std::memcpy(&value, &bits, sizeof(value));
+		return value;
+	}
+
+	static void EmitSpatialAbsenceProbeTrace(
+		uint64_t frameNumber,
+		const NRIRenderer::PerfTraceShaderStats& shader)
+	{
+		if (!nri_pt360absenceprobe || !shader.valid)
+		{
+			return;
+		}
+
+		const auto& counters = shader.counters;
+		const auto rayBase = [](uint32_t rayKind)
+		{
+			return NRI_TRACE_SHADER_PROBE_RAY_BASE + rayKind * NRI_TRACE_SHADER_PROBE_RAY_STRIDE;
+		};
+		const auto sumRayField = [&](uint32_t field)
+		{
+			uint64_t total = 0;
+			for (uint32_t rayKind = 0; rayKind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++rayKind)
+			{
+				total += counters[rayBase(rayKind) + field];
+			}
+			return total;
+		};
+		const auto sumOutcome = [&](uint32_t outcome)
+		{
+			return sumRayField(NRI_TRACE_SHADER_PROBE_RAY_OUTCOME_BASE + outcome);
+		};
+		const uint32_t targetBase = NRI_TRACE_SHADER_PROBE_TARGET_PIXEL_BASE;
+		const uint32_t referenceBase = NRI_TRACE_SHADER_PROBE_REFERENCE_PIXEL_BASE;
+		const uint32_t targetValid = counters[targetBase];
+		const uint32_t referenceValid = counters[referenceBase];
+		const uint32_t invalidId = UINT32_MAX;
+		const auto pixelId = [&](uint32_t base, uint32_t offset, uint32_t valid)
+		{
+			return valid != 0 ? counters[base + offset] : invalidId;
+		};
+		const auto pixelPosition = [&](uint32_t base, uint32_t offset, uint32_t valid)
+		{
+			return valid != 0 ? DecodeSpatialAbsenceProbeFloat(counters[base + offset]) : 0.0f;
+		};
+
+		std::ostringstream line;
+		line << std::fixed << std::setprecision(6);
+		line << "PERF pt shader 360 absence probe NRI:"
+			<< " frame=" << frameNumber
+			<< " stats_frame=" << shader.frameNumber
+			<< " enabled=1"
+			<< " expected_chunk=" << ((int)nri_pt360absenceprobechunk >= 0 ? (uint32_t)(int)nri_pt360absenceprobechunk : invalidId)
+			<< " calls=" << sumRayField(NRI_TRACE_SHADER_PROBE_RAY_CALLS)
+			<< " disabled=" << sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_DISABLED)
+			<< " snapshot_invalid=" << sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_SNAPSHOT_INVALID)
+			<< " frame_mismatch=" << sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_FRAME_MISMATCH)
+			<< " outside_guard=" << sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_OUTSIDE_GUARD)
+			<< " lookup_miss=" << sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_LOOKUP_INVALID)
+			<< " outside_union=" << sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_OUTSIDE_UNION)
+			<< " exact_miss=" <<
+				(sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_NEGATIVE_FOOTPRINT_MISS) +
+					sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_PAIR_BOUNDS_MISS) +
+					sumOutcome(NRI_SPATIAL_ABSENCE_PROBE_POSITIVE_FOOTPRINT_MISS));
+		static constexpr const char* rayNames[NRI_TRACE_SHADER_RAY_KIND_COUNT] = {
+			"primary", "ungated", "sun", "point", "emissive", "fast_emissive"
+		};
+		for (uint32_t rayKind = 0; rayKind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++rayKind)
+		{
+			line << " reject_" << rayNames[rayKind] << "=" <<
+				counters[rayBase(rayKind) + NRI_TRACE_SHADER_PROBE_RAY_OUTCOME_BASE + NRI_SPATIAL_ABSENCE_PROBE_REJECT];
+		}
+		line << " target_valid=" << targetValid
+			<< " target_source=" << pixelId(targetBase, 1u, targetValid)
+			<< " target_instance=" << pixelId(targetBase, 2u, targetValid)
+			<< " target_primitive=" << pixelId(targetBase, 3u, targetValid)
+			<< " target_chunk=" << pixelId(targetBase, 4u, targetValid)
+			<< " target_x=" << pixelPosition(targetBase, 5u, targetValid)
+			<< " target_y=" << pixelPosition(targetBase, 6u, targetValid)
+			<< " target_z=" << pixelPosition(targetBase, 7u, targetValid)
+			<< " reference_valid=" << referenceValid
+			<< " reference_source=" << pixelId(referenceBase, 1u, referenceValid)
+			<< " reference_instance=" << pixelId(referenceBase, 2u, referenceValid)
+			<< " reference_primitive=" << pixelId(referenceBase, 3u, referenceValid)
+			<< " reference_chunk=" << pixelId(referenceBase, 4u, referenceValid)
+			<< " reference_x=" << pixelPosition(referenceBase, 5u, referenceValid)
+			<< " reference_y=" << pixelPosition(referenceBase, 6u, referenceValid)
+			<< " reference_z=" << pixelPosition(referenceBase, 7u, referenceValid);
+
+		for (uint32_t rayKind = 0; rayKind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++rayKind)
+		{
+			const uint32_t base = rayBase(rayKind);
+			const char* name = rayNames[rayKind];
+			const uint32_t candidateValid = counters[base + NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_CLAIM];
+			const uint32_t finalValid = counters[base + NRI_TRACE_SHADER_PROBE_RAY_FINAL_VALID];
+			const auto candidateId = [&](uint32_t offset)
+			{
+				return candidateValid != 0 ? counters[base + offset] : invalidId;
+			};
+			const auto candidatePosition = [&](uint32_t offset)
+			{
+				return candidateValid != 0 ? DecodeSpatialAbsenceProbeFloat(counters[base + offset]) : 0.0f;
+			};
+			const auto finalId = [&](uint32_t offset)
+			{
+				return finalValid != 0 ? counters[base + offset] : invalidId;
+			};
+			const auto finalPosition = [&](uint32_t offset)
+			{
+				return finalValid != 0 ? DecodeSpatialAbsenceProbeFloat(counters[base + offset]) : 0.0f;
+			};
+			line << " " << name << "_calls=" << counters[base + NRI_TRACE_SHADER_PROBE_RAY_CALLS]
+				<< " " << name << "_candidates=" << counters[base + NRI_TRACE_SHADER_PROBE_RAY_CANDIDATES];
+			static constexpr const char* outcomeNames[NRI_SPATIAL_ABSENCE_PROBE_OUTCOME_COUNT] = {
+				"disabled", "snapshot_invalid", "frame_mismatch", "outside_guard", "lookup_invalid",
+				"outside_union", "negative_footprint_miss", "pair_bounds_miss", "positive_footprint_miss", "reject"
+			};
+			for (uint32_t outcome = 0; outcome < NRI_SPATIAL_ABSENCE_PROBE_OUTCOME_COUNT; ++outcome)
+			{
+				line << " " << name << "_" << outcomeNames[outcome] << "=" <<
+					counters[base + NRI_TRACE_SHADER_PROBE_RAY_OUTCOME_BASE + outcome];
+			}
+			line << " " << name << "_candidate_valid=" << candidateValid
+				<< " " << name << "_candidate_outcome=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_OUTCOME)
+				<< " " << name << "_candidate_source=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_SOURCE)
+				<< " " << name << "_candidate_instance=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_INSTANCE)
+				<< " " << name << "_candidate_primitive=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_PRIMITIVE)
+				<< " " << name << "_candidate_chunk=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_CHUNK)
+				<< " " << name << "_candidate_x=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_POSITION_X)
+				<< " " << name << "_candidate_y=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_POSITION_Y)
+				<< " " << name << "_candidate_z=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_POSITION_Z)
+				<< " " << name << "_matched_positive_chunk=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_MATCHED_POSITIVE_CHUNK)
+				<< " " << name << "_final_valid=" << finalValid
+				<< " " << name << "_final_source=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_SOURCE)
+				<< " " << name << "_final_instance=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_INSTANCE)
+				<< " " << name << "_final_primitive=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_PRIMITIVE)
+				<< " " << name << "_final_chunk=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_CHUNK)
+				<< " " << name << "_final_x=" << finalPosition(NRI_TRACE_SHADER_PROBE_RAY_FINAL_POSITION_X)
+				<< " " << name << "_final_y=" << finalPosition(NRI_TRACE_SHADER_PROBE_RAY_FINAL_POSITION_Y)
+				<< " " << name << "_final_z=" << finalPosition(NRI_TRACE_SHADER_PROBE_RAY_FINAL_POSITION_Z);
+		}
+		Printf("%s\n", line.str().c_str());
 	}
 
 	static bool ShouldEmitProgressiveSlowdownTrace(uint64_t presentationGeneration)
@@ -4148,7 +4298,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			mRenderer->GetLastPerfResourceTraceStats(),
 			mRenderer->GetLastPerfTraceShaderStats());
 	}
-	if (rendered && PerfLoopTraceActive())
+	if (rendered && (PerfLoopTraceActive() || (bool)nri_pt360absenceprobe))
 	{
 		const auto& shell = mRenderer->GetLastPerfShellTraceStats();
 		const auto& resource = mRenderer->GetLastPerfResourceTraceStats();
@@ -4599,6 +4749,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				(unsigned long long)shader.frameNumber,
 				c[64], c[65], c[66], c[67], c[68], c[69], c[70], c[71],
 				c[72], c[73], c[74], c[75], c[76], c[77]);
+			EmitSpatialAbsenceProbeTrace(mLastFrameBoundaryStats.frameNumber, shader);
 			for (uint32_t hotIndex = 0; hotIndex < shader.hotInstanceCount; ++hotIndex)
 			{
 				const auto& hot = shader.hotInstances[hotIndex];

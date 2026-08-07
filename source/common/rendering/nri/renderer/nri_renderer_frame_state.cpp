@@ -334,7 +334,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 	}
 	FillMatrix(mCurrentViewToClip, di.VPUniforms.mProjectionMatrix);
 	FillMatrix(mCurrentWorldToView, di.VPUniforms.mViewMatrix);
-	const bool spatialAbsenceRequested = (bool)nri_pt360absencegate || (int)nri_pt360absencetrace > 0;
+	const bool spatialAbsenceRequested = (bool)nri_pt360absencegate || (bool)nri_pt360absenceprobe || (int)nri_pt360absencetrace > 0;
 	if (spatialAbsenceRequested && logicalMainView && mMapWorld.valid && mMapWorld.buildSerial != 0)
 	{
 		di.Capture360Census(mMapWorld.buildSerial, 0, true);
@@ -356,6 +356,16 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 		}
 		std::memcpy(input.center, mCurrentCameraPos, sizeof(input.center));
 		input.guardRadius = (float)nri_pt360absenceradius;
+		input.probeEnabled = (bool)nri_pt360absenceprobe && (int)nri_pt360absenceprobechunk >= 0;
+		input.probeOrigin[0] = (float)nri_pt360absenceprobeoriginx;
+		input.probeOrigin[1] = (float)nri_pt360absenceprobeoriginy;
+		input.probeOrigin[2] = (float)nri_pt360absenceprobeoriginz;
+		input.probeRadius = (float)nri_pt360absenceproberadius;
+		input.probeExpectedChunk = input.probeEnabled ? (uint32_t)(int)nri_pt360absenceprobechunk : UINT32_MAX;
+		input.probeTargetPixel = (uint32_t)(int)nri_pt360absenceprobetargetx |
+			((uint32_t)(int)nri_pt360absenceprobetargety << 16u);
+		input.probeReferencePixel = (uint32_t)(int)nri_pt360absenceprobereferencex |
+			((uint32_t)(int)nri_pt360absenceprobereferencey << 16u);
 		input.reachedSectorIndices.reserve(census.reachedSectorCount);
 		for (unsigned sectorIndex = 0; sectorIndex < census.reachedSectors.Size(); ++sectorIndex)
 		{
