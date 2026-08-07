@@ -514,6 +514,7 @@ void EvaluateSampledEmissiveLighting(
 	float metalness,
 	inout uint rngState,
 	bool traceVisibility,
+	bool forceSpatialProbeRay,
 	out float3 outDiffuse,
 	out float3 outSpecular,
 	out uint outPrimitiveIndex,
@@ -593,8 +594,8 @@ void EvaluateSampledEmissiveLighting(
 			TraceShaderStatAdd(TRACE_STAT_TRACED_EMISSIVE_SHADOW_CALLS, 1u);
 		}
 		const float visibility = UseFastEmissiveShadow() ?
-			ComputeFastPointLightShadow(position, receiverLightNormal, lightDir, lightDistance) :
-			ComputePointLightShadowTagged(position, receiverLightNormal, lightDir, lightDistance, TRACE_STATS_KIND_EMISSIVE);
+			ComputeFastPointLightShadow(position, receiverLightNormal, lightDir, lightDistance, forceSpatialProbeRay) :
+			ComputePointLightShadowTagged(position, receiverLightNormal, lightDir, lightDistance, TRACE_STATS_KIND_EMISSIVE, forceSpatialProbeRay);
 		if (visibility <= 0.0)
 		{
 			TraceShaderStatAdd(TRACE_STAT_EMISSIVE_VISIBILITY_OCCLUDED, 1u);
@@ -743,6 +744,7 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 			bounceMetalness,
 			rngState,
 			bounceReceivesShadow,
+			false,
 			bounceEmissiveDiffuse,
 			bounceEmissiveSpecular,
 			bounceEmissivePrimitiveIndex,
@@ -888,6 +890,7 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 			bounceMetalness,
 			rngState,
 			bounceReceivesShadow,
+			false,
 			bounceEmissiveDiffuse,
 			bounceEmissiveSpecular,
 			bounceEmissivePrimitiveIndex,
@@ -1046,6 +1049,7 @@ float3 EvaluatePlainMirrorSurfaceGlint(HitData mirrorHit, float3 mirrorPlaneNorm
 		mirrorMetalness,
 		emissiveSampleRng,
 		receivesShadow,
+		false,
 		emissiveSampleDiffuse,
 		emissiveSampleSpecular,
 		emissiveSamplePrimitiveIndex,
@@ -1073,6 +1077,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 
 	const uint2 pixelPos = dispatchThreadId.xy;
+	const bool spatialProbeTargetPixel = IsSpatialAbsenceProbeTargetPixel(pixelPos);
 	float3 visibleRayDirection = GeneratePrimaryRay(pixelPos);
 	const float3 primaryRayDirection = visibleRayDirection;
 	float3 rayOrigin = gTraceConstants.CameraPos;
@@ -1283,7 +1288,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				{
 					TraceShaderStatAdd(TRACE_STAT_DIRECTIONAL_SHADOW_TESTS, 1u);
 				}
-				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, directionalShadingNormal, lightDir, shadowHitDistance)) : 0.0;
+				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, directionalShadingNormal, lightDir, shadowHitDistance, spatialProbeTargetPixel)) : 0.0;
 				shadowVisibility = shadow;
 				if (useDirectionalLight && useDirectionalShadow && !directSceneTrace)
 				{
@@ -1361,7 +1366,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					{
 						TraceShaderStatAdd(TRACE_STAT_RUNTIME_SHADOW_RAYS, 1u);
 					}
-					const float runtimeShadow = (directSceneTrace || !receivesShadow || !runtimeLightCastsShadow) ? 1.0 : ComputePointLightShadow(hit.position, runtimeShadingNormal, runtimeLightDir, lightDistance);
+					const float runtimeShadow = (directSceneTrace || !receivesShadow || !runtimeLightCastsShadow) ? 1.0 : ComputePointLightShadow(hit.position, runtimeShadingNormal, runtimeLightDir, lightDistance, spatialProbeTargetPixel);
 					if (runtimeShadow <= 0.0)
 					{
 						TraceShaderStatAdd(TRACE_STAT_RUNTIME_SHADOW_OCCLUDED, 1u);
@@ -1419,6 +1424,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 						metalness,
 						emissiveSampleRng,
 						!directSceneTrace && receivesShadow,
+						spatialProbeTargetPixel,
 						sampleDiffuse,
 						sampleSpecular,
 						samplePrimitiveIndex,
