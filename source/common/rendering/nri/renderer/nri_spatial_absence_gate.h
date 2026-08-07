@@ -151,6 +151,7 @@ struct NRISpatialAbsenceSnapshot
 	int32_t authoritativeRootSector = -1;
 	int32_t rootLocalSpaceIndex = -1;
 	std::vector<uint32_t> rootSectorIndices;
+	std::vector<uint32_t> reachedSectorIndices;
 	bool previousAuthority = false;
 	bool authorityTransition = false;
 	float center[3] = {};

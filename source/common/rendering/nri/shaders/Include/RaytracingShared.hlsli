@@ -1685,7 +1685,12 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 
 		const float3 committedPosition = startOrigin + direction * committedDistance;
 		const uint visibilityChunk = ResolveVisibilityChunk(instanceData, primitive);
-		const bool probeCandidate = spatialProbeRay && visibilityChunk == probeExpectedChunk;
+		// Target-pixel actor characterization must see the separately instanced
+		// persistent voxel before a future locality filter rejects it.  Static
+		// candidates retain the exact expected-chunk selector.
+		const bool probeCandidate = spatialProbeRay &&
+			(visibilityChunk == probeExpectedChunk ||
+			 instanceData.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL);
 		uint spatialOutcome = SPATIAL_PROBE_OUTCOME_DISABLED;
 		uint matchedPositiveChunk = 0xffffffffu;
 		uint spatialCandidateMaterialFlags = 0xffffffffu;
@@ -1882,17 +1887,22 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 	return TraceScenePath(startOrigin, startDirection, maxDistance, NRI_TLAS_MASK_MAIN, mirrorBudget, portalBudget, false, true, false, false, TRACE_STATS_KIND_UNGATED, false, hitData, exitDirection);
 }
 
-HitData TracePrimary(float3 origin, float3 direction, bool gateVisibleChunks, out float3 exitDirection)
+HitData TracePrimary(float3 origin, float3 direction, bool gateVisibleChunks, bool forceSpatialProbeRay, out float3 exitDirection)
 {
 	HitData hitData = MakeEmptyHitData();
 	const uint mirrorBudget = max(1u, (gTraceConstants.BounceCounts >> 4u) & 0xfu);
-	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_MAIN, mirrorBudget, GetPortalTraversalDepth(), gateVisibleChunks, true, false, false, TRACE_STATS_KIND_PRIMARY, false, hitData, exitDirection);
+	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_MAIN, mirrorBudget, GetPortalTraversalDepth(), gateVisibleChunks, true, false, false, TRACE_STATS_KIND_PRIMARY, forceSpatialProbeRay, hitData, exitDirection);
 	return hitData;
+}
+
+HitData TracePrimary(float3 origin, float3 direction, bool gateVisibleChunks, out float3 exitDirection)
+{
+	return TracePrimary(origin, direction, gateVisibleChunks, false, exitDirection);
 }
 
 HitData TracePrimary(float3 origin, float3 direction, out float3 exitDirection)
 {
-	return TracePrimary(origin, direction, ShouldGatePrimaryVisibleChunks(), exitDirection);
+	return TracePrimary(origin, direction, ShouldGatePrimaryVisibleChunks(), false, exitDirection);
 }
 
 HitData TracePrimaryUngated(float3 origin, float3 direction, out float3 exitDirection)

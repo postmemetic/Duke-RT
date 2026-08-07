@@ -342,6 +342,32 @@ struct PersistentVoxelActorCacheStats
 	uint64_t frame = 0;
 };
 
+// Immutable live-state authority for one retained voxel occurrence.  The
+// actor's GetIndex() value is spawn-unique in the engine and therefore serves
+// as the lifecycle generation; identityKey additionally binds that generation
+// to the owning actor pointer used by the retained cache.
+struct PersistentVoxelActorAuthorityView
+{
+	uint64_t identityKey = 0;
+	uint64_t lifecycleGeneration = 0;
+	int32_t actorIndex = -1;
+	int32_t physicalSectorIndex = -1;
+	uint64_t lastSeenFrame = 0;
+	uint64_t retainedFrameAge = 0;
+	bool identityCurrent = false;
+	bool live = false;
+	bool pendingRemoval = false;
+	bool capturedThisFrame = false;
+	bool actorPositionSynchronized = false;
+	float actorScenePosition[3] = {};
+	float cachedActorScenePosition[3] = {};
+	float authoritativeInstanceTransform[12] = {
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f
+	};
+};
+
 struct PrecachedVoxelVariantView
 {
 	uint64_t meshKeyHash = 0;
@@ -447,6 +473,10 @@ ActorSpriteSceneCaptureResult CaptureActorVoxelSprite(
 bool CaptureScene(HWDrawInfo& di, SceneView& outView);
 bool BuildPersistentVoxelCacheSceneView(SceneView& outView);
 bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>& outEntries);
+bool GetPersistentVoxelActorAuthority(
+	uint64_t identityKey,
+	int32_t actorIndex,
+	PersistentVoxelActorAuthorityView& outAuthority);
 PersistentVoxelActorCacheStats GetPersistentVoxelActorCacheStats();
 bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& outEntries);
 bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestView>& outEntries, PrecachedVoxelRawManifestStats* outStats = nullptr);

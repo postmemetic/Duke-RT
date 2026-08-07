@@ -15,6 +15,7 @@
 #include "nri_scene_instance_visibility.h"
 #include "nri_voxel_compute_meshing.h"
 #include "nri_voxel_representation_policy.h"
+#include "nri_actor_occurrence_diagnostics.h"
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_material_bridge.h"
@@ -907,6 +908,7 @@ struct NRIPersistentVoxelTlasServices
 	void* user = nullptr;
 	GetAccelerationStructureHandleFn getAccelerationStructureHandle = nullptr;
 	EvaluateRepresentationFn evaluateRepresentation = nullptr;
+	NRIActorOccurrenceTraceConfig occurrenceTrace;
 
 	uint64_t GetAccelerationStructureHandle(const NRIAccelerationStructureResource& resource) const;
 	NRIVoxelRepresentationDecision EvaluateRepresentation(const NRIVoxelRepresentationFacts& facts) const;
@@ -921,6 +923,7 @@ struct NRIPersistentVoxelTlasBuildStats
 	uint32_t shadowProxyInstanceCount = 0;
 	uint64_t shadowProxyPrimitiveCount = 0;
 	uint64_t exactShadowPrimitiveCountRemoved = 0;
+	NRIActorOccurrenceFrame occurrenceFrame;
 };
 
 struct NRIPersistentVoxelPreloadStatus

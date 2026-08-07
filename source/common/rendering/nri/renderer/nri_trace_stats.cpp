@@ -287,6 +287,7 @@ void NRITraceShaderStats::CopyForReadback(
 				instance.dataSource,
 				instance.metadata0,
 				instance.metadata1,
+				instance.metadata2,
 				DecodeNRIVoxelShadowProxyPrimitiveCount(instance.visibilityChunk)
 			});
 		}
@@ -410,6 +411,42 @@ void NRITraceShaderStats::Readback(
 	std::memcpy(outStats.counters.data(), mapped, (size_t)byteSize);
 	outStats.hotInstanceCount = 0;
 	outStats.hotInstances = {};
+	outStats.targetPixelAttribution = {};
+	outStats.referencePixelAttribution = {};
+	outStats.candidateAttribution = {};
+	outStats.finalAttribution = {};
+	const auto resolveAttribution = [&](uint32_t instanceId, bool valid) -> NRITraceShaderProbeAttribution
+	{
+		NRITraceShaderProbeAttribution result;
+		if (!valid || instanceId >= slot.attribution.size())
+		{
+			return result;
+		}
+		const NRITraceShaderInstanceAttribution& row = slot.attribution[instanceId];
+		result.valid = true;
+		result.instanceId = instanceId;
+		result.dataSource = row.dataSource;
+		result.metadata0 = row.metadata0;
+		result.metadata1 = row.metadata1;
+		result.metadata2 = row.metadata2;
+		return result;
+	};
+	const uint32_t targetBase = NRI_TRACE_SHADER_PROBE_TARGET_PIXEL_BASE;
+	const uint32_t referenceBase = NRI_TRACE_SHADER_PROBE_REFERENCE_PIXEL_BASE;
+	outStats.targetPixelAttribution = resolveAttribution(
+		outStats.counters[targetBase + 2u], outStats.counters[targetBase] != 0u);
+	outStats.referencePixelAttribution = resolveAttribution(
+		outStats.counters[referenceBase + 2u], outStats.counters[referenceBase] != 0u);
+	for (uint32_t rayKind = 0; rayKind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++rayKind)
+	{
+		const uint32_t rayBase = NRI_TRACE_SHADER_PROBE_RAY_BASE + rayKind * NRI_TRACE_SHADER_PROBE_RAY_STRIDE;
+		outStats.candidateAttribution[rayKind] = resolveAttribution(
+			outStats.counters[rayBase + NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_INSTANCE],
+			outStats.counters[rayBase + NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_CLAIM] != 0u);
+		outStats.finalAttribution[rayKind] = resolveAttribution(
+			outStats.counters[rayBase + NRI_TRACE_SHADER_PROBE_RAY_FINAL_INSTANCE],
+			outStats.counters[rayBase + NRI_TRACE_SHADER_PROBE_RAY_FINAL_VALID] != 0u);
+	}
 
 	struct TraceShaderHotCandidate
 	{
@@ -456,6 +493,7 @@ void NRITraceShaderStats::Readback(
 		hot.primitiveCount = instance.primitiveCount;
 		hot.metadata0 = instance.metadata0;
 		hot.metadata1 = instance.metadata1;
+		hot.metadata2 = instance.metadata2;
 		hot.shadowProxy = instance.explicitPrimitiveCount != 0u;
 		hot.committed = candidate.committed;
 		hot.accepted = candidate.accepted;

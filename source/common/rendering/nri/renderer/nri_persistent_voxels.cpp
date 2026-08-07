@@ -1970,6 +1970,26 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 {
 	constexpr uint32_t PersistentVoxelSceneDataSource = 2u;
 	outStats = {};
+	NRIActorOccurrenceCensus occurrenceCensus(services.occurrenceTrace, frameIndex);
+	auto recordOccurrenceCandidate = [&](const PersistentVoxelBatch::ActorEntry& actor, bool admitted, const char* reason)
+	{
+		if (!occurrenceCensus.Targets(actor.actorIndex))
+		{
+			return;
+		}
+		NRIActorOccurrenceCandidate candidate;
+		candidate.identityKey = actor.identityKey;
+		candidate.lifecycleGeneration = actor.actorIndex >= 0 ? (uint64_t)(uint32_t)actor.actorIndex : 0;
+		candidate.meshResourceKey = actor.meshResourceKey;
+		candidate.meshKeyHash = actor.meshKeyHash;
+		candidate.materialKeyHash = actor.materialKeyHash;
+		candidate.actorIndex = actor.actorIndex;
+		candidate.active = actor.active;
+		candidate.capturedThisFrame = actor.capturedThisFrame;
+		candidate.admitted = admitted;
+		candidate.reason = reason != nullptr ? reason : "none";
+		occurrenceCensus.RecordCandidate(candidate);
+	};
 
 	std::unordered_set<uint64_t> persistentVoxelTlasMeshResources;
 	persistentVoxelTlasMeshResources.reserve(batch.actors.size());
@@ -2565,6 +2585,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		uint64_t meshResourceKey = 0;
 		uint32_t exactPrimitiveCount = 0;
 		uint32_t proxyPrimitiveCount = 0;
+		NRIActorOccurrence diagnosticOccurrence;
 	};
 	std::vector<PendingShadowProxyInstance> pendingShadowProxyInstances;
 	pendingShadowProxyInstances.reserve(persistentVoxelTlasActors.size());
@@ -2600,6 +2621,8 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			persistentVoxelTlasSkippedCount++;
 			persistentVoxelTlasExcludedSkipCount++;
 			persistentVoxelTlasExcludedSkipPrimitiveCount += actor.primitiveCount;
+			recordOccurrenceCandidate(actor, false,
+				omittedByDiagnostic ? "diagnostic-omit-all" : (excludedByIndex ? "excluded-index" : "excluded-prims"));
 			continue;
 		}
 		const uint64_t actorRetainedFrameAge = computePersistentVoxelRetainedAge(actor);
@@ -2657,6 +2680,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			persistentVoxelTlasSkippedCount++;
 			persistentVoxelTlasMissingSkipCount++;
 			persistentVoxelTlasMissingSkipPrimitiveCount += actor.primitiveCount;
+			recordOccurrenceCandidate(actor, false, tlasSkipReason);
 			continue;
 		}
 		const bool primitiveArenaRangeValid =
@@ -2718,6 +2742,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			persistentVoxelTlasSkippedCount++;
 			persistentVoxelTlasMissingSkipCount++;
 			persistentVoxelTlasMissingSkipPrimitiveCount += actor.primitiveCount;
+			recordOccurrenceCandidate(actor, false, invalidTlasReason);
 			continue;
 		}
 		if (!meshResourceIt->second.tlasPublished &&
@@ -2742,6 +2767,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			persistentVoxelTlasSkippedCount++;
 			persistentVoxelTlasReadyFrameSkipCount++;
 			persistentVoxelTlasReadyFrameSkipPrimitiveCount += actor.primitiveCount;
+			recordOccurrenceCandidate(actor, false, "ready-frame");
 			continue;
 		}
 		const bool meshResourceFirstPublish = !meshResourceIt->second.tlasPublished;
@@ -2800,6 +2826,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			persistentVoxelTlasSkippedCount++;
 			persistentVoxelTlasMissingSkipCount++;
 			persistentVoxelTlasMissingSkipPrimitiveCount += actor.primitiveCount;
+			recordOccurrenceCandidate(actor, false, "missing-as-handle");
 			continue;
 		}
 
@@ -2902,6 +2929,32 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		}
 		persistentVoxelInstance.instanceId = raySceneBuilder.AddLegacyInstance(persistentVoxelInstance, sceneInstance);
 		actor.worldTlasInstanceIndex = persistentVoxelInstance.instanceId;
+		if (occurrenceCensus.Targets(actor.actorIndex))
+		{
+			recordOccurrenceCandidate(actor, true, "publish-exact");
+			NRIActorOccurrence occurrence;
+			occurrence.role = NRIActorOccurrenceRole::Exact;
+			occurrence.identityKey = actor.identityKey;
+			occurrence.lifecycleGeneration = (uint64_t)(uint32_t)actor.actorIndex;
+			occurrence.meshResourceKey = actor.meshResourceKey;
+			occurrence.meshKeyHash = actor.meshKeyHash;
+			occurrence.blasHandle = persistentVoxelInstance.accelerationStructureHandle;
+			occurrence.actorIndex = actor.actorIndex;
+			occurrence.tlasInstanceIndex = persistentVoxelInstance.instanceId;
+			occurrence.occurrenceGeneration = actor.worldTlasOccurrenceGeneration;
+			occurrence.expectedOccurrenceGeneration = sceneInstance.metadata2;
+			occurrence.workloadMask = persistentVoxelInstance.mask;
+			occurrence.capturedThisFrame = actor.capturedThisFrame;
+			occurrence.transform = actor.instanceTransform;
+			occurrence.boundsValid = meshResourceIt->second.boundsValid &&
+				ComputeNRIActorOccurrenceWorldBounds(
+					occurrence.transform,
+					meshResourceIt->second.boundsMin,
+					meshResourceIt->second.boundsMax,
+					occurrence.boundsMin,
+					occurrence.boundsMax);
+			occurrenceCensus.RecordOccurrence(occurrence);
+		}
 		if (proxyWorkloadMask != 0u)
 		{
 			PendingShadowProxyInstance pending = {};
@@ -2914,6 +2967,28 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			pending.meshResourceKey = actor.meshResourceKey;
 			pending.exactPrimitiveCount = actor.primitiveCount;
 			pending.proxyPrimitiveCount = shadowProxy.proxyPrimitiveCount;
+			if (occurrenceCensus.Targets(actor.actorIndex))
+			{
+				pending.diagnosticOccurrence.role = NRIActorOccurrenceRole::ShadowProxy;
+				pending.diagnosticOccurrence.identityKey = actor.identityKey;
+				pending.diagnosticOccurrence.lifecycleGeneration = (uint64_t)(uint32_t)actor.actorIndex;
+				pending.diagnosticOccurrence.meshResourceKey = actor.meshResourceKey;
+				pending.diagnosticOccurrence.meshKeyHash = actor.meshKeyHash;
+				pending.diagnosticOccurrence.blasHandle = shadowProxyHandle;
+				pending.diagnosticOccurrence.actorIndex = actor.actorIndex;
+				pending.diagnosticOccurrence.occurrenceGeneration = actor.worldTlasOccurrenceGeneration;
+				pending.diagnosticOccurrence.expectedOccurrenceGeneration = sceneInstance.metadata2;
+				pending.diagnosticOccurrence.workloadMask = proxyWorkloadMask;
+				pending.diagnosticOccurrence.capturedThisFrame = actor.capturedThisFrame;
+				pending.diagnosticOccurrence.transform = actor.instanceTransform;
+				pending.diagnosticOccurrence.boundsValid = meshResourceIt->second.boundsValid &&
+					ComputeNRIActorOccurrenceWorldBounds(
+						pending.diagnosticOccurrence.transform,
+						meshResourceIt->second.boundsMin,
+						meshResourceIt->second.boundsMax,
+						pending.diagnosticOccurrence.boundsMin,
+						pending.diagnosticOccurrence.boundsMax);
+			}
 			pendingShadowProxyInstances.push_back(pending);
 		}
 		if (actor.indirectOnly && ((int)perf_looptraceframes > 0 || (int)nri_pttraceframes > 0 || voxelStatsEnabled))
@@ -3095,6 +3170,11 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 	for (PendingShadowProxyInstance& pending : pendingShadowProxyInstances)
 	{
 		pending.instance.instanceId = raySceneBuilder.AddLegacyInstance(pending.instance, pending.scene);
+		if (pending.diagnosticOccurrence.actorIndex >= 0)
+		{
+			pending.diagnosticOccurrence.tlasInstanceIndex = pending.instance.instanceId;
+			occurrenceCensus.RecordOccurrence(pending.diagnosticOccurrence);
+		}
 		outStats.instanceCount++;
 		outStats.instancePrimitiveCount += pending.proxyPrimitiveCount;
 		outStats.shadowProxyInstanceCount++;
@@ -3123,6 +3203,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			(uint32_t)pendingShadowProxyInstances.size());
 	}
 	outStats.sharedMeshResourceCount = (uint32_t)persistentVoxelTlasMeshResources.size();
+	outStats.occurrenceFrame = occurrenceCensus.FinishPersistent();
 	sharedBlasCache.EndFrame();
 	if (tracePersistentVoxelTlasSummary)
 	{

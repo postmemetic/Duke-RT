@@ -64,10 +64,11 @@ struct NRITraceShaderInstanceAttribution
 	uint32_t dataSource = 0;
 	uint32_t metadata0 = 0;
 	uint32_t metadata1 = 0;
+	uint32_t metadata2 = 0;
 	uint32_t explicitPrimitiveCount = 0;
 };
 
-static_assert(sizeof(NRITraceShaderInstanceAttribution) == 6u * sizeof(uint32_t),
+static_assert(sizeof(NRITraceShaderInstanceAttribution) == 7u * sizeof(uint32_t),
 	"Trace shader attribution rows must stay compact.");
 
 inline void ResolveNRITraceShaderAttributionPrimitiveCounts(

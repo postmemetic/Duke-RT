@@ -538,6 +538,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	std::vector<SceneBufferUploadDomainSpan> sceneUploadDomainSpans;
 	uint32_t activeStaticProbePrimitiveCount = 0;
 	EmissiveSamplingBuildContext emissiveSamplingContext = {};
+	NRIActorOccurrenceFrame actorOccurrenceFrame = {};
+	bool actorOccurrenceFrameAvailable = false;
+	uint32_t actorDynamicTlasInstanceIndex = UINT32_MAX;
+	uint32_t actorDynamicTlasMask = 0u;
 	bool sceneLightUsesStaticMapScene = false;
 	bool hasSurfaceLightOverlayForFrame = false;
 	nri_scene::SceneDebugStats& activeStats = frame.activeStats;
@@ -1409,6 +1413,14 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						ScopedPtPerfTimer persistentVoxelTlasTimer(mLastPerfShellTraceStats.persistentVoxelTlasInstanceMs);
 						NRIPersistentVoxelTlasServices persistentVoxelTlasServices = {};
 						persistentVoxelTlasServices.user = this;
+						persistentVoxelTlasServices.occurrenceTrace.enabled =
+							(bool)nri_ptvoxeloccurrencetrace && (int)nri_ptvoxeloccurrenceactor >= 0 &&
+							((int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0);
+						persistentVoxelTlasServices.occurrenceTrace.targetActorIndex =
+							(int)nri_ptvoxeloccurrenceactor;
+						persistentVoxelTlasServices.occurrenceTrace.mapWorld = &mMapWorld;
+						persistentVoxelTlasServices.occurrenceTrace.spatialSnapshot =
+							&mSpatialAbsenceGate.GetSnapshot();
 						persistentVoxelTlasServices.getAccelerationStructureHandle = [](void* user, const NRIAccelerationStructureResource& resource) -> uint64_t
 						{
 							NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
@@ -1440,6 +1452,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						mLastPerfShellTraceStats.persistentVoxelTlasInstances += persistentVoxelTlasStats.instanceCount;
 						mLastPerfShellTraceStats.persistentVoxelInstancePrimitiveCount = persistentVoxelTlasStats.instancePrimitiveCount;
 						mLastPerfShellTraceStats.persistentVoxelBakedFallbackInstances += persistentVoxelTlasStats.bakedFallbackInstanceCount;
+						actorOccurrenceFrame = std::move(persistentVoxelTlasStats.occurrenceFrame);
+						actorOccurrenceFrameAvailable = actorOccurrenceFrame.enabled;
 					}
 
 					if (useDynamicOverlayBlasRoute)
@@ -1461,7 +1475,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						sceneRecord.materialBase = dynamicOverlayBlasRoute.span.materialOffset;
 						sceneRecord.materialCount = dynamicOverlayBlasRoute.span.materialCount;
 						sceneRecord.visibilityChunk = UINT32_MAX;
-						builder.AddInstance(dynamicInstance, sceneRecord);
+						actorDynamicTlasInstanceIndex = builder.AddInstance(dynamicInstance, sceneRecord);
+						actorDynamicTlasMask = dynamicInstance.mask;
 					}
 					else if (liveOverlayPrimitiveCount > 0 && dynamicBottomLevelAS.accelerationStructure != nullptr)
 					{
@@ -1481,7 +1496,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						sceneRecord.materialBase = 0u;
 						sceneRecord.materialCount = activeGpuMaterials != nullptr ? (uint32_t)activeGpuMaterials->size() : UINT32_MAX;
 						sceneRecord.visibilityChunk = UINT32_MAX;
-						builder.AddLegacyInstance(dynamicInstance, sceneRecord);
+						actorDynamicTlasInstanceIndex = builder.AddLegacyInstance(dynamicInstance, sceneRecord);
+						actorDynamicTlasMask = dynamicInstance.mask;
 					}
 
 					selectedStaticSceneInstanceCount = 0;
@@ -1551,6 +1567,19 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 								"static_only_effective_scene");
 					}
 				}
+			}
+
+			if (actorOccurrenceFrameAvailable)
+			{
+				AppendNRIActorDynamicOccurrences(
+					actorOccurrenceFrame,
+					hasActiveDynamicOverlay ? activeDynamicGeometry : nullptr,
+					actorDynamicTlasInstanceIndex,
+					actorDynamicTlasMask);
+				FinalizeNRIActorOccurrenceFrame(
+					actorOccurrenceFrame,
+					paletteReady && texturesReady && buffersReady && accelerationReady);
+				TraceNRIActorOccurrenceFrame(actorOccurrenceFrame);
 			}
 
 			if (overlayGeometry.primitives.empty() || texturesReady)

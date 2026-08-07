@@ -81,6 +81,7 @@ struct NRITraceShaderHotInstance
 	uint32_t primitiveCount = 0;
 	uint32_t metadata0 = 0;
 	uint32_t metadata1 = 0;
+	uint32_t metadata2 = 0;
 	bool shadowProxy = false;
 	uint32_t committed = 0;
 	uint32_t accepted = 0;
@@ -90,6 +91,16 @@ struct NRITraceShaderHotInstance
 	uint32_t pointCommitted = 0;
 	uint32_t emissiveCommitted = 0;
 	uint32_t fastEmissiveCommitted = 0;
+};
+
+struct NRITraceShaderProbeAttribution
+{
+	bool valid = false;
+	uint32_t instanceId = UINT32_MAX;
+	uint32_t dataSource = UINT32_MAX;
+	uint32_t metadata0 = 0;
+	uint32_t metadata1 = 0;
+	uint32_t metadata2 = 0;
 };
 
 struct NRITraceShaderStatsSnapshot
@@ -114,6 +125,10 @@ struct NRITraceShaderStatsSnapshot
 	std::array<uint32_t, NRI_TRACE_SHADER_STAT_COUNT> counters = {};
 	uint32_t hotInstanceCount = 0;
 	std::array<NRITraceShaderHotInstance, NRI_TRACE_SHADER_HOT_INSTANCE_COUNT> hotInstances = {};
+	NRITraceShaderProbeAttribution targetPixelAttribution;
+	NRITraceShaderProbeAttribution referencePixelAttribution;
+	std::array<NRITraceShaderProbeAttribution, NRI_TRACE_SHADER_RAY_KIND_COUNT> candidateAttribution = {};
+	std::array<NRITraceShaderProbeAttribution, NRI_TRACE_SHADER_RAY_KIND_COUNT> finalAttribution = {};
 	ObserverStats observer = {};
 };
 

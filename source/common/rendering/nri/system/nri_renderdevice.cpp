@@ -176,6 +176,9 @@ namespace
 			<< " target_x=" << pixelPosition(targetBase, 5u, targetValid)
 			<< " target_y=" << pixelPosition(targetBase, 6u, targetValid)
 			<< " target_z=" << pixelPosition(targetBase, 7u, targetValid)
+			<< " target_identity_lo=" << shader.targetPixelAttribution.metadata0
+			<< " target_identity_hi=" << shader.targetPixelAttribution.metadata1
+			<< " target_generation=" << shader.targetPixelAttribution.metadata2
 			<< " reference_valid=" << referenceValid
 			<< " reference_source=" << pixelId(referenceBase, 1u, referenceValid)
 			<< " reference_instance=" << pixelId(referenceBase, 2u, referenceValid)
@@ -184,6 +187,9 @@ namespace
 			<< " reference_x=" << pixelPosition(referenceBase, 5u, referenceValid)
 			<< " reference_y=" << pixelPosition(referenceBase, 6u, referenceValid)
 			<< " reference_z=" << pixelPosition(referenceBase, 7u, referenceValid);
+		line << " reference_identity_lo=" << shader.referencePixelAttribution.metadata0
+			<< " reference_identity_hi=" << shader.referencePixelAttribution.metadata1
+			<< " reference_generation=" << shader.referencePixelAttribution.metadata2;
 
 		for (uint32_t rayKind = 0; rayKind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++rayKind)
 		{
@@ -233,6 +239,9 @@ namespace
 				<< " " << name << "_footprint_best_margin=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_FOOTPRINT_BEST_MARGIN)
 				<< " " << name << "_footprint_best_triangle=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_FOOTPRINT_BEST_TRIANGLE)
 				<< " " << name << "_candidate_material_flags=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_MATERIAL_FLAGS)
+				<< " " << name << "_candidate_identity_lo=" << shader.candidateAttribution[rayKind].metadata0
+				<< " " << name << "_candidate_identity_hi=" << shader.candidateAttribution[rayKind].metadata1
+				<< " " << name << "_candidate_generation=" << shader.candidateAttribution[rayKind].metadata2
 				<< " " << name << "_final_valid=" << finalValid
 				<< " " << name << "_final_source=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_SOURCE)
 				<< " " << name << "_final_instance=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_INSTANCE)
@@ -241,6 +250,9 @@ namespace
 				<< " " << name << "_final_x=" << finalPosition(NRI_TRACE_SHADER_PROBE_RAY_FINAL_POSITION_X)
 				<< " " << name << "_final_y=" << finalPosition(NRI_TRACE_SHADER_PROBE_RAY_FINAL_POSITION_Y)
 				<< " " << name << "_final_z=" << finalPosition(NRI_TRACE_SHADER_PROBE_RAY_FINAL_POSITION_Z);
+			line << " " << name << "_final_identity_lo=" << shader.finalAttribution[rayKind].metadata0
+				<< " " << name << "_final_identity_hi=" << shader.finalAttribution[rayKind].metadata1
+				<< " " << name << "_final_generation=" << shader.finalAttribution[rayKind].metadata2;
 		}
 		Printf("%s\n", line.str().c_str());
 	}
@@ -1936,6 +1948,15 @@ CCMD(nri_pt360absence_selftest)
 	std::string failure;
 	const bool passed = RunNRISpatialAbsenceGateSelfTests(&failure);
 	Printf("NRI PT 360 absence selftest: result=%s reason=%s\n",
+		passed ? "pass" : "fail",
+		failure.empty() ? "none" : failure.c_str());
+}
+
+CCMD(nri_ptvoxeloccurrence_selftest)
+{
+	std::string failure;
+	const bool passed = RunNRIActorOccurrenceSelfTests(&failure);
+	Printf("NRI PT actor occurrence selftest: result=%s reason=%s\n",
 		passed ? "pass" : "fail",
 		failure.empty() ? "none" : failure.c_str());
 }
@@ -4759,7 +4780,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			{
 				const auto& hot = shader.hotInstances[hotIndex];
 				Printf(
-					"PERF pt shader hot instance NRI: frame=%llu stats_frame=%llu rank=%u instance=%u source=%s primitive_offset=%u primitive_count=%u metadata0=%u metadata1=%u committed=%u accepted=%u primary=%u ungated=%u sun=%u point=%u emissive=%u fast_emissive=%u\n",
+					"PERF pt shader hot instance NRI: frame=%llu stats_frame=%llu rank=%u instance=%u source=%s primitive_offset=%u primitive_count=%u metadata0=%u metadata1=%u metadata2=%u committed=%u accepted=%u primary=%u ungated=%u sun=%u point=%u emissive=%u fast_emissive=%u\n",
 					(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 					(unsigned long long)shader.frameNumber,
 					hotIndex + 1u,
@@ -4769,6 +4790,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 					hot.primitiveCount,
 					hot.metadata0,
 					hot.metadata1,
+					hot.metadata2,
 					hot.committed,
 					hot.accepted,
 					hot.primaryCommitted,

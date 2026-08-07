@@ -6983,6 +6983,84 @@ bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>
 	return true;
 }
 
+bool GetPersistentVoxelActorAuthority(
+	uint64_t identityKey,
+	int32_t actorIndex,
+	PersistentVoxelActorAuthorityView& outAuthority)
+{
+	outAuthority = {};
+	outAuthority.identityKey = identityKey;
+	outAuthority.actorIndex = actorIndex;
+	if (identityKey == 0 || actorIndex < 0)
+	{
+		return false;
+	}
+
+	const auto entryIt = gVoxelActorCache.find(identityKey);
+	if (entryIt == gVoxelActorCache.end())
+	{
+		return false;
+	}
+
+	const VoxelActorCacheEntry& entry = entryIt->second;
+	outAuthority.lastSeenFrame = entry.lastSeenFrame;
+	outAuthority.retainedFrameAge = entry.lastSeenFrame != 0 && gVoxelActorCacheFrame >= entry.lastSeenFrame ?
+		gVoxelActorCacheFrame - entry.lastSeenFrame : 0;
+	outAuthority.pendingRemoval = entry.pendingRemoval;
+	outAuthority.capturedThisFrame = entry.lastSeenFrame == gVoxelActorCacheFrame;
+	DCoreActor* actor = reinterpret_cast<DCoreActor*>(entry.actorPtr);
+	const bool identityCurrent = actor != nullptr &&
+		entry.actorIndex == actorIndex &&
+		actor->GetIndex() == actorIndex &&
+		BuildVoxelInstanceKeyHash(BuildVoxelInstanceKey(actorIndex, actor)) == identityKey;
+	outAuthority.identityCurrent = identityCurrent;
+	outAuthority.lifecycleGeneration = identityCurrent ? (uint64_t)(uint32_t)actor->GetIndex() : 0;
+	outAuthority.live = identityCurrent && IsLiveActorVoxelCacheOwner(actor);
+	if (!outAuthority.live)
+	{
+		return true;
+	}
+
+	// The retained-cache delta basis above is legacy engine XYZ. Diagnostics
+	// compare spatial evidence and GPU hits in PT world space (X, -Z, -Y), the
+	// same convention used by WorldToPathTracingPosition and sprite transforms.
+	outAuthority.actorScenePosition[0] = (float)actor->spr.pos.X;
+	outAuthority.actorScenePosition[1] = (float)-actor->spr.pos.Z;
+	outAuthority.actorScenePosition[2] = (float)-actor->spr.pos.Y;
+	outAuthority.physicalSectorIndex = actor->spr.sectp != nullptr ?
+		sector.IndexOf(actor->spr.sectp) : -1;
+	if (entry.hasLastActorScenePosition)
+	{
+		std::copy(
+			std::begin(entry.lastActorScenePosition),
+			std::end(entry.lastActorScenePosition),
+			std::begin(outAuthority.cachedActorScenePosition));
+		constexpr float PositionEpsilon = 0.001f;
+		float liveCacheBasisPosition[3] = {};
+		CopyLiveActorScenePosition(*actor, liveCacheBasisPosition);
+		outAuthority.actorPositionSynchronized =
+			std::abs(liveCacheBasisPosition[0] - outAuthority.cachedActorScenePosition[0]) <= PositionEpsilon &&
+			std::abs(liveCacheBasisPosition[1] - outAuthority.cachedActorScenePosition[1]) <= PositionEpsilon &&
+			std::abs(liveCacheBasisPosition[2] - outAuthority.cachedActorScenePosition[2]) <= PositionEpsilon;
+	}
+
+	if (entry.meshBakeSpace == VoxelMeshBakeSpace::LocalSpace)
+	{
+		std::copy(
+			std::begin(entry.currentTransform),
+			std::end(entry.currentTransform),
+			std::begin(outAuthority.authoritativeInstanceTransform));
+	}
+	else
+	{
+		FillVoxelTranslationInstanceTransform(
+			entry.currentTranslation,
+			entry.bakedTranslation,
+			outAuthority.authoritativeInstanceTransform);
+	}
+	return true;
+}
+
 PersistentVoxelActorCacheStats GetPersistentVoxelActorCacheStats()
 {
 	PersistentVoxelActorCacheStats stats = {};

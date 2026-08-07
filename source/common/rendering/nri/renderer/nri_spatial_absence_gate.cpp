@@ -911,6 +911,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	std::vector<uint32_t> uncertainChunks = input.uncertainChunkIndices;
 	std::sort(reached.begin(), reached.end());
 	reached.erase(std::unique(reached.begin(), reached.end()), reached.end());
+	mSnapshot.reachedSectorIndices = reached;
 	std::sort(uncertain.begin(), uncertain.end());
 	uncertain.erase(std::unique(uncertain.begin(), uncertain.end()), uncertain.end());
 	std::sort(uncertainChunks.begin(), uncertainChunks.end());

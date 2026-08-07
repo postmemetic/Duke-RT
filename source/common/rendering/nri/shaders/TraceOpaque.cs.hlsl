@@ -1095,7 +1095,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	else
 	{
 		float3 tracedVisibleDirection = visibleRayDirection;
-		hit = TracePrimary(rayOrigin, visibleRayDirection, tracedVisibleDirection);
+		hit = TracePrimary(
+			rayOrigin,
+			visibleRayDirection,
+			ShouldGatePrimaryVisibleChunks(),
+			spatialProbeTargetPixel,
+			tracedVisibleDirection);
 		visibleRayDirection = tracedVisibleDirection;
 	}
 	RecordSpatialAbsenceProbePrimaryPixel(pixelPos, hit);
