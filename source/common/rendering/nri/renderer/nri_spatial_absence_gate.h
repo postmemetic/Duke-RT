@@ -11,12 +11,19 @@ enum NRISpatialAbsenceGpuFlags : uint32_t
 	NRI_SPATIAL_ABSENCE_GPU_VALID = 1u << 0,
 	NRI_SPATIAL_ABSENCE_GPU_COMPLETE = 1u << 1,
 	NRI_SPATIAL_ABSENCE_GPU_CERTIFIED = 1u << 2,
+	NRI_SPATIAL_ABSENCE_GPU_FOOTPRINT = 1u << 3,
+	NRI_SPATIAL_ABSENCE_GPU_PAIR = 1u << 4,
+	NRI_SPATIAL_ABSENCE_GPU_GRID = 1u << 5,
+	NRI_SPATIAL_ABSENCE_GPU_GRID_CELL = 1u << 6,
+	NRI_SPATIAL_ABSENCE_GPU_GRID_REFERENCE = 1u << 7,
 };
 
 // Record zero is the snapshot header. The next chunkCount records form the
-// chunk lookup table; exact XY triangle-overlap witnesses follow it. This
-// keeps the shader lookup independent of transient TLAS instance indices and
-// avoids treating a broad-phase chunk AABB intersection as negative authority.
+// chunk lookup table; authorized pair descriptors, complete chunk-footprint
+// triangles, and conservative uniform-grid/CSR records follow it. Grid cells
+// select complete candidate sets without replacing exact triangle containment.
+// This keeps lookup independent of transient TLAS instance indices and avoids
+// treating a broad-phase chunk AABB intersection as negative authority.
 struct NRISpatialAbsenceGpuRecord
 {
 	uint32_t flags = 0;
@@ -38,6 +45,7 @@ enum NRISpatialAbsenceFailOpenFlags : uint32_t
 	NRI_SPATIAL_ABSENCE_FAIL_GENERATION_MISMATCH = 1u << 3,
 	NRI_SPATIAL_ABSENCE_FAIL_INVALID_GUARD = 1u << 4,
 	NRI_SPATIAL_ABSENCE_FAIL_AMBIGUOUS_CONFLICT = 1u << 5,
+	NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW = 1u << 6,
 };
 
 enum class NRISpatialAbsenceConflictDecision : uint32_t
@@ -65,8 +73,10 @@ struct NRISpatialAbsenceCensusInput
 	uint64_t observationHash = 0;
 	uint64_t worldGeneration = 0;
 	uint32_t frameIndex = 0;
+	int32_t authoritativeRootSector = -1;
 	float center[3] = {};
 	float guardRadius = 0.0f;
+	std::vector<uint32_t> rootSectorIndices;
 	std::vector<uint32_t> reachedSectorIndices;
 	std::vector<uint32_t> uncertainSectorIndices;
 	// Runtime-dragged/replaced chunks must remain fail-open until their current
@@ -87,10 +97,9 @@ struct NRISpatialAbsenceConflictRecord
 	uint32_t exactWitnessCount = 0;
 };
 
-// Camera-independent summary of the exact witnesses retained for one
-// census-negative chunk. Source counts describe classifier coverage before
-// the bounded GPU selection; selected counts and hashes describe what the
-// shader can actually test this frame.
+// Camera-independent summary of the exact coverage for one census-negative
+// chunk. The factorized GPU representation publishes every source footprint
+// triangle and positive owner; selected counts therefore equal source counts.
 struct NRISpatialAbsenceSelectionRecord
 {
 	uint32_t negativeChunk = UINT32_MAX;
@@ -99,6 +108,7 @@ struct NRISpatialAbsenceSelectionRecord
 	uint32_t selectedWitnessCount = 0;
 	uint32_t sourcePositiveOwnerCount = 0;
 	uint32_t selectedPositiveOwnerCount = 0;
+	uint32_t footprintTriangleCount = 0;
 	uint64_t sourcePositiveOwnerHash = 0;
 	uint64_t selectedPositiveOwnerHash = 0;
 	uint64_t selectionHash = 0;
@@ -125,7 +135,15 @@ struct NRISpatialAbsenceSnapshot
 	uint32_t certifiedCount = 0;
 	uint32_t sourceWitnessCount = 0;
 	uint32_t selectedWitnessCount = 0;
+	uint32_t authorizedPairCount = 0;
+	uint32_t pendingPairCount = 0;
+	uint32_t footprintTriangleCount = 0;
+	uint32_t footprintGridCellCount = 0;
+	uint32_t footprintGridReferenceCount = 0;
 	uint32_t stableCaptureCount = 0;
+	int32_t authoritativeRootSector = -1;
+	int32_t rootLocalSpaceIndex = -1;
+	std::vector<uint32_t> rootSectorIndices;
 	bool previousAuthority = false;
 	bool authorityTransition = false;
 	float center[3] = {};
@@ -143,8 +161,27 @@ struct NRISpatialAbsenceSnapshot
 				NRI_SPATIAL_ABSENCE_FAIL_UNSTABLE_ROOT |
 				NRI_SPATIAL_ABSENCE_FAIL_GENERATION_MISMATCH |
 				NRI_SPATIAL_ABSENCE_FAIL_INVALID_GUARD |
-				NRI_SPATIAL_ABSENCE_FAIL_AMBIGUOUS_CONFLICT)) == 0;
+				NRI_SPATIAL_ABSENCE_FAIL_AMBIGUOUS_CONFLICT |
+				NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW)) == 0;
 	}
+};
+
+struct NRISpatialAbsenceContinuityKey
+{
+	uint64_t worldGeneration = 0;
+	uint32_t positiveChunk = UINT32_MAX;
+	uint32_t negativeChunk = UINT32_MAX;
+	uint32_t localSpaceIndex = UINT32_MAX;
+
+	bool operator<(const NRISpatialAbsenceContinuityKey& other) const;
+	bool operator==(const NRISpatialAbsenceContinuityKey& other) const;
+};
+
+struct NRISpatialAbsenceContinuityRecord
+{
+	NRISpatialAbsenceContinuityKey key;
+	uint32_t consecutiveCaptureCount = 0;
+	bool authorized = false;
 };
 
 class NRISpatialAbsenceGate
@@ -166,6 +203,10 @@ private:
 	uint64_t mPreviousCensusObservationHash = 0;
 	bool mHasPreviousAuthority = false;
 	bool mPreviousAuthority = false;
+	uint64_t mPreviousContinuityCaptureSerial = 0;
+	uint64_t mContinuityWorldGeneration = 0;
+	int32_t mContinuityRootLocalSpaceIndex = -1;
+	std::vector<NRISpatialAbsenceContinuityRecord> mConflictContinuity;
 };
 
 // Synthetic, device-independent checks for the conservative classifier and

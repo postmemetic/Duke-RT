@@ -743,11 +743,29 @@ bool ShouldGatePrimaryVisibleChunks()
 static const uint SPATIAL_ABSENCE_FLAG_VALID = 1u << 0u;
 static const uint SPATIAL_ABSENCE_FLAG_COMPLETE = 1u << 1u;
 static const uint SPATIAL_ABSENCE_FLAG_CERTIFIED = 1u << 2u;
+static const uint SPATIAL_ABSENCE_FLAG_FOOTPRINT = 1u << 3u;
+static const uint SPATIAL_ABSENCE_FLAG_PAIR = 1u << 4u;
+static const uint SPATIAL_ABSENCE_FLAG_GRID = 1u << 5u;
+static const uint SPATIAL_ABSENCE_FLAG_GRID_CELL = 1u << 6u;
+static const uint SPATIAL_ABSENCE_FLAG_GRID_REFERENCE = 1u << 7u;
+static const uint SPATIAL_ABSENCE_GRID_MAX_DIMENSION = 32u;
+static const float SPATIAL_ABSENCE_MAX_FLOAT_EXACT_INTEGER = 16777216.0;
 static const uint SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS =
 	SPATIAL_ABSENCE_FLAG_VALID | SPATIAL_ABSENCE_FLAG_COMPLETE;
 static const uint SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS =
-	SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS | SPATIAL_ABSENCE_FLAG_CERTIFIED;
-static const uint SPATIAL_ABSENCE_MAX_WITNESSES = 16u;
+	SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS | SPATIAL_ABSENCE_FLAG_CERTIFIED |
+	SPATIAL_ABSENCE_FLAG_FOOTPRINT | SPATIAL_ABSENCE_FLAG_GRID;
+static const uint SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS =
+	SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS | SPATIAL_ABSENCE_FLAG_FOOTPRINT;
+static const uint SPATIAL_ABSENCE_REQUIRED_PAIR_FLAGS =
+	SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS | SPATIAL_ABSENCE_FLAG_CERTIFIED |
+	SPATIAL_ABSENCE_FLAG_PAIR;
+static const uint SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS =
+	SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS | SPATIAL_ABSENCE_FLAG_GRID;
+static const uint SPATIAL_ABSENCE_REQUIRED_GRID_CELL_FLAGS =
+	SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS | SPATIAL_ABSENCE_FLAG_GRID_CELL;
+static const uint SPATIAL_ABSENCE_REQUIRED_GRID_REFERENCE_FLAGS =
+	SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS | SPATIAL_ABSENCE_FLAG_GRID_REFERENCE;
 
 bool PointInSpatialTriangle(float2 samplePoint, float2 first, float2 second, float2 third)
 {
@@ -762,6 +780,144 @@ bool PointInSpatialTriangle(float2 samplePoint, float2 first, float2 second, flo
 	const float edge1 = orientation * ((third.x - second.x) * (samplePoint.y - second.y) - (third.y - second.y) * (samplePoint.x - second.x));
 	const float edge2 = orientation * ((first.x - third.x) * (samplePoint.y - third.y) - (first.y - third.y) * (samplePoint.x - third.x));
 	return edge0 >= -1e-4 && edge1 >= -1e-4 && edge2 >= -1e-4;
+}
+
+bool DecodeSpatialExactUint(float value, out uint decoded)
+{
+	decoded = 0u;
+	if (!isfinite(value) || value < 0.0 || value > SPATIAL_ABSENCE_MAX_FLOAT_EXACT_INTEGER)
+		return false;
+	decoded = (uint)round(value);
+	return value == (float)decoded;
+}
+
+bool ValidateSpatialFootprintLookup(uint ownerChunk, SpatialAbsenceRecord lookup, uint recordCount)
+{
+	uint gridHeaderIndex = 0u;
+	if ((lookup.Flags & (SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS | SPATIAL_ABSENCE_FLAG_GRID)) !=
+			(SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS | SPATIAL_ABSENCE_FLAG_GRID) ||
+		lookup.Data1 == 0u || lookup.Data0 >= recordCount || lookup.Data1 > recordCount - lookup.Data0 ||
+		!DecodeSpatialExactUint(lookup.Payload2.y, gridHeaderIndex) || gridHeaderIndex >= recordCount)
+		return false;
+	const SpatialAbsenceRecord grid = gSpatialAbsenceRecords[gridHeaderIndex];
+	uint width = 0u;
+	uint height = 0u;
+	uint cellCount = 0u;
+	uint referenceCount = 0u;
+	uint referenceRecordCount = 0u;
+	if ((grid.Flags & SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS) != SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS ||
+		grid.Data0 != ownerChunk || !all(isfinite(grid.Payload0)) ||
+		any(grid.Payload0.xy >= grid.Payload0.zw) ||
+		!DecodeSpatialExactUint(grid.Payload1.x, width) ||
+		!DecodeSpatialExactUint(grid.Payload1.y, height) ||
+		!DecodeSpatialExactUint(grid.Payload1.z, cellCount) ||
+		!DecodeSpatialExactUint(grid.Payload1.w, referenceCount) ||
+		!DecodeSpatialExactUint(grid.Payload2.x, referenceRecordCount) ||
+		width == 0u || height == 0u || width > SPATIAL_ABSENCE_GRID_MAX_DIMENSION ||
+		height > SPATIAL_ABSENCE_GRID_MAX_DIMENSION || cellCount != width * height ||
+		grid.Data1 != gridHeaderIndex + 1u || grid.Data1 > recordCount ||
+		cellCount > recordCount - grid.Data1 || grid.Data2 != grid.Data1 + cellCount ||
+		grid.Data2 > recordCount || referenceCount == 0u || referenceRecordCount == 0u ||
+		referenceRecordCount > recordCount - grid.Data2)
+		return false;
+	return true;
+}
+
+bool PointInSpatialFootprint(
+	uint ownerChunk,
+	SpatialAbsenceRecord lookup,
+	float2 samplePoint,
+	uint recordCount,
+	out bool recordsValid)
+{
+	recordsValid = ValidateSpatialFootprintLookup(ownerChunk, lookup, recordCount);
+	if (!recordsValid)
+		return false;
+	if (!all(isfinite(samplePoint)))
+		return false;
+	uint gridHeaderIndex = 0u;
+	DecodeSpatialExactUint(lookup.Payload2.y, gridHeaderIndex);
+	const SpatialAbsenceRecord grid = gSpatialAbsenceRecords[gridHeaderIndex];
+	uint width = 0u;
+	uint height = 0u;
+	uint cellCount = 0u;
+	uint referenceCount = 0u;
+	uint referenceRecordCount = 0u;
+	DecodeSpatialExactUint(grid.Payload1.x, width);
+	DecodeSpatialExactUint(grid.Payload1.y, height);
+	DecodeSpatialExactUint(grid.Payload1.z, cellCount);
+	DecodeSpatialExactUint(grid.Payload1.w, referenceCount);
+	DecodeSpatialExactUint(grid.Payload2.x, referenceRecordCount);
+	const float2 boundsMin = grid.Payload0.xy;
+	const float2 boundsMax = grid.Payload0.zw;
+	const float gridEpsilon = 1.0e-4;
+	if (any(samplePoint < boundsMin - gridEpsilon) || any(samplePoint > boundsMax + gridEpsilon))
+		return false;
+	const float2 gridCoordinate = saturate((samplePoint - boundsMin) / (boundsMax - boundsMin));
+	const uint cellX = min((uint)floor(gridCoordinate.x * (float)width), width - 1u);
+	const uint cellY = min((uint)floor(gridCoordinate.y * (float)height), height - 1u);
+	const uint cellOffset = cellY * width + cellX;
+	const SpatialAbsenceRecord cell = gSpatialAbsenceRecords[grid.Data1 + cellOffset];
+	uint storedCellOffset = 0u;
+	uint cellReferenceRecordCount = 0u;
+	const bool cellReferenceCountValid = cell.Data2 <= referenceCount;
+	const uint expectedCellReferenceRecordCount = cellReferenceCountValid
+		? (cell.Data2 + 2u) / 3u : 0xffffffffu;
+	const bool cellValid =
+		(cell.Flags & SPATIAL_ABSENCE_REQUIRED_GRID_CELL_FLAGS) == SPATIAL_ABSENCE_REQUIRED_GRID_CELL_FLAGS &&
+		cell.Data0 == ownerChunk && DecodeSpatialExactUint(cell.Payload0.x, storedCellOffset) &&
+		DecodeSpatialExactUint(cell.Payload0.y, cellReferenceRecordCount) && storedCellOffset == cellOffset &&
+		cellReferenceCountValid && cellReferenceRecordCount == expectedCellReferenceRecordCount && cell.Data1 >= grid.Data2 &&
+		cell.Data1 <= grid.Data2 + referenceRecordCount &&
+		cellReferenceRecordCount <= grid.Data2 + referenceRecordCount - cell.Data1;
+	recordsValid = recordsValid && cellValid;
+	if (!cellValid)
+		return false;
+	bool inside = false;
+	[loop]
+	for (uint referenceOffset = 0u; referenceOffset < cell.Data2; ++referenceOffset)
+	{
+		const uint referenceRecordOffset = referenceOffset / 3u;
+		const SpatialAbsenceRecord referenceRecord = gSpatialAbsenceRecords[cell.Data1 + referenceRecordOffset];
+		uint referenceOwner = 0u;
+		uint storedReferenceRecordOffset = 0u;
+		bool tailValid = true;
+		if (referenceRecordOffset + 1u == cellReferenceRecordCount)
+		{
+			const uint tailCount = cell.Data2 - referenceRecordOffset * 3u;
+			tailValid = tailCount == 3u ||
+				(tailCount == 2u && referenceRecord.Data2 == 0xffffffffu) ||
+				(tailCount == 1u && referenceRecord.Data1 == 0xffffffffu && referenceRecord.Data2 == 0xffffffffu);
+		}
+		const bool referenceValid =
+			(referenceRecord.Flags & SPATIAL_ABSENCE_REQUIRED_GRID_REFERENCE_FLAGS) == SPATIAL_ABSENCE_REQUIRED_GRID_REFERENCE_FLAGS &&
+			DecodeSpatialExactUint(referenceRecord.Payload0.x, referenceOwner) && referenceOwner == ownerChunk &&
+			DecodeSpatialExactUint(referenceRecord.Payload0.y, storedReferenceRecordOffset) &&
+			storedReferenceRecordOffset == referenceRecordOffset && tailValid;
+		recordsValid = recordsValid && referenceValid;
+		if (!referenceValid)
+			continue;
+		uint triangleOffset = referenceRecord.Data0;
+		if (referenceOffset % 3u == 1u) triangleOffset = referenceRecord.Data1;
+		else if (referenceOffset % 3u == 2u) triangleOffset = referenceRecord.Data2;
+		const bool triangleReferenceValid = triangleOffset < lookup.Data1 &&
+			lookup.Data0 + triangleOffset < recordCount;
+		recordsValid = recordsValid && triangleReferenceValid;
+		if (!triangleReferenceValid)
+			continue;
+		const SpatialAbsenceRecord triangleRecord = gSpatialAbsenceRecords[lookup.Data0 + triangleOffset];
+		const bool triangleValid =
+			(triangleRecord.Flags & SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS) == SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS &&
+			triangleRecord.Data0 == ownerChunk && all(isfinite(triangleRecord.Payload0)) && all(isfinite(triangleRecord.Payload1.xy));
+		recordsValid = recordsValid && triangleValid;
+		if (triangleValid)
+		{
+			TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+			inside = inside || PointInSpatialTriangle(
+				samplePoint, triangleRecord.Payload0.xy, triangleRecord.Payload0.zw, triangleRecord.Payload1.xy);
+		}
+	}
+	return recordsValid && inside;
 }
 
 bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint statsKind)
@@ -813,18 +969,21 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 	}
 
 	const SpatialAbsenceRecord chunkRecord = gSpatialAbsenceRecords[chunkIndex + 1u];
+	const float pairCountValue = chunkRecord.Payload2.x;
+	const uint pairCount = (uint)max(round(pairCountValue), 0.0);
 	if ((chunkRecord.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) != SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS ||
-		chunkRecord.Data1 == 0u || chunkRecord.Data1 > SPATIAL_ABSENCE_MAX_WITNESSES ||
-		chunkRecord.Data0 < chunkCount + 1u || chunkRecord.Data0 >= recordCount ||
-		chunkRecord.Data1 > recordCount - chunkRecord.Data0 ||
+		!ValidateSpatialFootprintLookup(chunkIndex, chunkRecord, recordCount) ||
+		!isfinite(pairCountValue) || pairCountValue != (float)pairCount || pairCount == 0u ||
+		chunkRecord.Data2 < chunkCount + 1u || chunkRecord.Data2 >= recordCount ||
+		pairCount > recordCount - chunkRecord.Data2 ||
 		!all(isfinite(chunkRecord.Payload0.xyz)) || !all(isfinite(chunkRecord.Payload1.xyz)))
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
 		return false;
 	}
-	// This union bounds the selected exact triangle-overlap witnesses. It only
-	// avoids witness work; rejection still requires exact containment in both
-	// the census-positive and census-negative footprint triangles.
+	// This union bounds every authorized pair for this negative chunk. It only
+	// avoids footprint work; rejection still requires exact containment in the
+	// complete census-positive and census-negative footprint triangulations.
 	const float3 witnessBoundsMin = chunkRecord.Payload0.xyz;
 	const float3 witnessBoundsMax = chunkRecord.Payload1.xyz;
 	if (any(witnessBoundsMin > witnessBoundsMax))
@@ -841,23 +1000,57 @@ bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint stat
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_OUTSIDE_UNION, 1u);
 		return false;
 	}
+	// Validate every pair descriptor and referenced positive footprint before
+	// allowing any rejection. A malformed factorized payload fails open as a
+	// unit instead of using a partial subset.
 	[loop]
-	for (uint witnessOffset = 0u; witnessOffset < chunkRecord.Data1; ++witnessOffset)
+	for (uint pairOffset = 0u; pairOffset < pairCount; ++pairOffset)
 	{
-		TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
-		const SpatialAbsenceRecord witness = gSpatialAbsenceRecords[chunkRecord.Data0 + witnessOffset];
-		if ((witness.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) != SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS ||
-			witness.Data0 != chunkIndex ||
-			worldPosition.y < witness.Payload3.x || worldPosition.y > witness.Payload3.y)
+		const SpatialAbsenceRecord pair = gSpatialAbsenceRecords[chunkRecord.Data2 + pairOffset];
+		if ((pair.Flags & SPATIAL_ABSENCE_REQUIRED_PAIR_FLAGS) != SPATIAL_ABSENCE_REQUIRED_PAIR_FLAGS ||
+			pair.Data0 != chunkIndex || pair.Data1 >= chunkCount || pair.Data1 + 1u >= recordCount ||
+			!all(isfinite(pair.Payload0.xyz)) || !all(isfinite(pair.Payload1.xyz)) ||
+			any(pair.Payload0.xyz > pair.Payload1.xyz) ||
+			!ValidateSpatialFootprintLookup(
+				pair.Data1, gSpatialAbsenceRecords[pair.Data1 + 1u], recordCount))
 		{
-			continue;
+			TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
+			return false;
 		}
+	}
 
-		const bool insidePositive = PointInSpatialTriangle(
-			worldPosition.xz, witness.Payload0.xy, witness.Payload0.zw, witness.Payload1.xy);
-		const bool insideNegative = PointInSpatialTriangle(
-			worldPosition.xz, witness.Payload1.zw, witness.Payload2.xy, witness.Payload2.zw);
-		if (insidePositive && insideNegative)
+	bool negativeRecordsValid = false;
+	const bool insideNegative = PointInSpatialFootprint(
+		chunkIndex, chunkRecord, worldPosition.xz, recordCount, negativeRecordsValid);
+	if (!negativeRecordsValid)
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
+		return false;
+	}
+	if (!insideNegative)
+	{
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_EXACT_MISS, 1u);
+		return false;
+	}
+
+	[loop]
+	for (uint pairOffset = 0u; pairOffset < pairCount; ++pairOffset)
+	{
+		const SpatialAbsenceRecord pair = gSpatialAbsenceRecords[chunkRecord.Data2 + pairOffset];
+		const float3 pairBoundsEpsilon = 1.0e-3;
+		if (any(worldPosition < pair.Payload0.xyz - pairBoundsEpsilon) ||
+			any(worldPosition > pair.Payload1.xyz + pairBoundsEpsilon))
+			continue;
+		bool positiveRecordsValid = false;
+		const bool insidePositive = PointInSpatialFootprint(
+			pair.Data1, gSpatialAbsenceRecords[pair.Data1 + 1u], worldPosition.xz,
+			recordCount, positiveRecordsValid);
+		if (!positiveRecordsValid)
+		{
+			TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
+			return false;
+		}
+		if (insidePositive)
 		{
 			TraceShaderStatAdd(TRACE_STAT_SPATIAL_REJECT_PRIMARY + min(statsKind, TRACE_STATS_KIND_FAST_EMISSIVE), 1u);
 			return true;

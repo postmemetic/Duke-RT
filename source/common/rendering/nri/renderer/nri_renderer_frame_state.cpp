@@ -348,6 +348,12 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 		input.observationHash = census.observationHash;
 		input.worldGeneration = mMapWorld.buildSerial;
 		input.frameIndex = mFrameIndex;
+		input.authoritativeRootSector = census.authoritativeRoot;
+		input.rootSectorIndices.reserve(census.roots.Size());
+		for (int rootSector : census.roots)
+		{
+			if (rootSector >= 0) input.rootSectorIndices.push_back((uint32_t)rootSector);
+		}
 		std::memcpy(input.center, mCurrentCameraPos, sizeof(input.center));
 		input.guardRadius = (float)nri_pt360absenceradius;
 		input.reachedSectorIndices.reserve(census.reachedSectorCount);
@@ -381,7 +387,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					centerDelta[axis] = absence.center[axis] - mPreviousCameraPos[axis];
 				}
 			}
-			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx sectors=%u sections=%u walls=%u candidates=%u certified=%u source_witnesses=%u selected_witnesses=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
+			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
 				mFrameIndex,
 				(unsigned long long)census.captureSerial,
 				census.complete ? 1u : 0u,
@@ -399,13 +405,21 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 				(unsigned long long)absence.payloadHash,
 				(unsigned long long)absence.semanticHash,
 				(unsigned long long)absence.selectionHash,
+				(uint32_t)absence.rootSectorIndices.size(),
+				absence.authoritativeRootSector,
+				absence.rootLocalSpaceIndex,
 				census.reachedSectorCount,
 				census.reachedSectionCount,
 				census.reachedWallCount,
 				absence.candidateCount,
 				absence.certifiedCount,
+				absence.authorizedPairCount,
+				absence.pendingPairCount,
 				absence.sourceWitnessCount,
 				absence.selectedWitnessCount,
+				absence.footprintTriangleCount,
+				absence.footprintGridCellCount,
+				absence.footprintGridReferenceCount,
 				absence.failOpenFlags,
 				(uint32_t)absence.gpuRecords.size(),
 				absence.center[0], absence.center[1], absence.center[2],
@@ -453,7 +467,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					mRuntimeMutation.FindReplacement(selection.negativeChunk);
 				const RuntimeMapMutationCache::ChunkReplacement* positiveReplacement =
 					mRuntimeMutation.FindReplacement(selection.firstPositiveChunk);
-				Printf("NRI PT 360 absence selection: frame=%u negative_chunk=%u first_positive_chunk=%u source_owners=%u selected_owners=%u source_owner_hash=0x%016llx selected_owner_hash=0x%016llx source_witnesses=%u selected_witnesses=%u selected_hash=0x%016llx bounds=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f)) runtime_active=%u exclude_static=%u first_positive_runtime_active=%u first_positive_exclude_static=%u\n",
+				Printf("NRI PT 360 absence selection: frame=%u negative_chunk=%u first_positive_chunk=%u source_owners=%u selected_owners=%u source_owner_hash=0x%016llx selected_owner_hash=0x%016llx source_witnesses=%u selected_witnesses=%u footprint_triangles=%u selected_hash=0x%016llx bounds=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f)) runtime_active=%u exclude_static=%u first_positive_runtime_active=%u first_positive_exclude_static=%u\n",
 					mFrameIndex,
 					selection.negativeChunk,
 					selection.firstPositiveChunk,
@@ -463,6 +477,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					(unsigned long long)selection.selectedPositiveOwnerHash,
 					selection.sourceWitnessCount,
 					selection.selectedWitnessCount,
+					selection.footprintTriangleCount,
 					(unsigned long long)selection.selectionHash,
 					selection.boundsMin[0], selection.boundsMin[1], selection.boundsMin[2],
 					selection.boundsMax[0], selection.boundsMax[1], selection.boundsMax[2],
