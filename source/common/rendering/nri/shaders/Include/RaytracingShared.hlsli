@@ -144,15 +144,20 @@ static const uint TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_POSITION_X = 18u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_POSITION_Y = 19u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_POSITION_Z = 20u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_MATCHED_POSITIVE_CHUNK = 21u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_VALID = 22u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_SOURCE = 23u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_INSTANCE = 24u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_PRIMITIVE = 25u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_CHUNK = 26u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_X = 27u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_Y = 28u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_Z = 29u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_STRIDE = 30u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_STAGE = 22u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_CELL_REFERENCES = 23u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_BEST_MARGIN = 24u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_BEST_TRIANGLE = 25u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_MATERIAL_FLAGS = 26u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_VALID = 27u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_SOURCE = 28u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_INSTANCE = 29u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_PRIMITIVE = 30u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_CHUNK = 31u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_X = 32u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_Y = 33u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_Z = 34u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_STRIDE = 35u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_BASE = 78u;
 static const uint TRACE_STAT_SPATIAL_PROBE_PIXEL_STRIDE = 8u;
 static const uint TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE =
@@ -809,9 +814,37 @@ static const uint SPATIAL_ABSENCE_REQUIRED_GRID_CELL_FLAGS =
 	SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS | SPATIAL_ABSENCE_FLAG_GRID_CELL;
 static const uint SPATIAL_ABSENCE_REQUIRED_GRID_REFERENCE_FLAGS =
 	SPATIAL_ABSENCE_REQUIRED_GRID_FLAGS | SPATIAL_ABSENCE_FLAG_GRID_REFERENCE;
+static const float SPATIAL_ABSENCE_FOOTPRINT_PREDICATE_EPSILON = 1.0e-4;
+static const uint SPATIAL_FOOTPRINT_PROBE_NONE = 0u;
+static const uint SPATIAL_FOOTPRINT_PROBE_GRID_BOUNDS = 1u;
+static const uint SPATIAL_FOOTPRINT_PROBE_EMPTY_CELL = 2u;
+static const uint SPATIAL_FOOTPRINT_PROBE_TRIANGLE_MISS = 3u;
+static const uint SPATIAL_FOOTPRINT_PROBE_SURFACE_MEMBERSHIP = 4u;
 
-bool PointInSpatialTriangle(float2 samplePoint, float2 first, float2 second, float2 third)
+struct SpatialFootprintProbeDetails
 {
+	uint stage;
+	uint cellReferenceCount;
+	float bestMargin;
+	uint bestTriangle;
+};
+
+SpatialFootprintProbeDetails EmptySpatialFootprintProbeDetails()
+{
+	SpatialFootprintProbeDetails details = (SpatialFootprintProbeDetails)0;
+	details.bestMargin = -3.402823466e+38;
+	details.bestTriangle = 0xffffffffu;
+	return details;
+}
+
+bool PointInSpatialTriangle(
+	float2 samplePoint,
+	float2 first,
+	float2 second,
+	float2 third,
+	out float minimumEdgeMargin)
+{
+	minimumEdgeMargin = -3.402823466e+38;
 	const float area = (second.x - first.x) * (third.y - first.y) -
 		(second.y - first.y) * (third.x - first.x);
 	if (abs(area) <= 1e-6)
@@ -819,10 +852,16 @@ bool PointInSpatialTriangle(float2 samplePoint, float2 first, float2 second, flo
 		return false;
 	}
 	const float orientation = area >= 0.0 ? 1.0 : -1.0;
-	const float edge0 = orientation * ((second.x - first.x) * (samplePoint.y - first.y) - (second.y - first.y) * (samplePoint.x - first.x));
-	const float edge1 = orientation * ((third.x - second.x) * (samplePoint.y - second.y) - (third.y - second.y) * (samplePoint.x - second.x));
-	const float edge2 = orientation * ((first.x - third.x) * (samplePoint.y - third.y) - (first.y - third.y) * (samplePoint.x - third.x));
-	return edge0 >= -1e-4 && edge1 >= -1e-4 && edge2 >= -1e-4;
+	const float2 vector0 = second - first;
+	const float2 vector1 = third - second;
+	const float2 vector2 = first - third;
+	const float edge0 = orientation * (vector0.x * (samplePoint.y - first.y) - vector0.y * (samplePoint.x - first.x));
+	const float edge1 = orientation * (vector1.x * (samplePoint.y - second.y) - vector1.y * (samplePoint.x - second.x));
+	const float edge2 = orientation * (vector2.x * (samplePoint.y - third.y) - vector2.y * (samplePoint.x - third.x));
+	minimumEdgeMargin = min(edge0 / length(vector0), min(edge1 / length(vector1), edge2 / length(vector2)));
+	return edge0 >= -SPATIAL_ABSENCE_FOOTPRINT_PREDICATE_EPSILON &&
+		edge1 >= -SPATIAL_ABSENCE_FOOTPRINT_PREDICATE_EPSILON &&
+		edge2 >= -SPATIAL_ABSENCE_FOOTPRINT_PREDICATE_EPSILON;
 }
 
 bool DecodeSpatialExactUint(float value, out uint decoded)
@@ -871,8 +910,10 @@ bool PointInSpatialFootprint(
 	SpatialAbsenceRecord lookup,
 	float2 samplePoint,
 	uint recordCount,
-	out bool recordsValid)
+	out bool recordsValid,
+	out SpatialFootprintProbeDetails probeDetails)
 {
+	probeDetails = EmptySpatialFootprintProbeDetails();
 	recordsValid = ValidateSpatialFootprintLookup(ownerChunk, lookup, recordCount);
 	if (!recordsValid)
 		return false;
@@ -893,9 +934,12 @@ bool PointInSpatialFootprint(
 	DecodeSpatialExactUint(grid.Payload2.x, referenceRecordCount);
 	const float2 boundsMin = grid.Payload0.xy;
 	const float2 boundsMax = grid.Payload0.zw;
-	const float gridEpsilon = 1.0e-4;
+	const float gridEpsilon = SPATIAL_ABSENCE_FOOTPRINT_PREDICATE_EPSILON;
 	if (any(samplePoint < boundsMin - gridEpsilon) || any(samplePoint > boundsMax + gridEpsilon))
+	{
+		probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_GRID_BOUNDS;
 		return false;
+	}
 	const float2 gridCoordinate = saturate((samplePoint - boundsMin) / (boundsMax - boundsMin));
 	const uint cellX = min((uint)floor(gridCoordinate.x * (float)width), width - 1u);
 	const uint cellY = min((uint)floor(gridCoordinate.y * (float)height), height - 1u);
@@ -916,6 +960,12 @@ bool PointInSpatialFootprint(
 	recordsValid = recordsValid && cellValid;
 	if (!cellValid)
 		return false;
+	probeDetails.cellReferenceCount = cell.Data2;
+	if (cell.Data2 == 0u)
+	{
+		probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_EMPTY_CELL;
+		return false;
+	}
 	bool inside = false;
 	[loop]
 	for (uint referenceOffset = 0u; referenceOffset < cell.Data2; ++referenceOffset)
@@ -956,10 +1006,20 @@ bool PointInSpatialFootprint(
 		if (triangleValid)
 		{
 			TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
-			inside = inside || PointInSpatialTriangle(
-				samplePoint, triangleRecord.Payload0.xy, triangleRecord.Payload0.zw, triangleRecord.Payload1.xy);
+			float edgeMargin = -3.402823466e+38;
+			const bool triangleInside = PointInSpatialTriangle(
+				samplePoint, triangleRecord.Payload0.xy, triangleRecord.Payload0.zw,
+				triangleRecord.Payload1.xy, edgeMargin);
+			if (edgeMargin > probeDetails.bestMargin)
+			{
+				probeDetails.bestMargin = edgeMargin;
+				probeDetails.bestTriangle = triangleOffset;
+			}
+			inside = inside || triangleInside;
 		}
 	}
+	if (recordsValid && !inside)
+		probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_TRIANGLE_MISS;
 	return recordsValid && inside;
 }
 
@@ -1025,9 +1085,12 @@ uint EvaluateSpatialAbsence(
 	float3 worldPosition,
 	uint statsKind,
 	bool evaluationEnabled,
-	out uint matchedPositiveChunk)
+	bool exactNegativeSurfaceMembership,
+	out uint matchedPositiveChunk,
+	out SpatialFootprintProbeDetails footprintProbeDetails)
 {
 	matchedPositiveChunk = 0xffffffffu;
+	footprintProbeDetails = EmptySpatialFootprintProbeDetails();
 	if (!evaluationEnabled || chunkIndex == 0xffffffffu)
 	{
 		return SPATIAL_PROBE_OUTCOME_DISABLED;
@@ -1088,8 +1151,9 @@ uint EvaluateSpatialAbsence(
 		return SPATIAL_PROBE_OUTCOME_LOOKUP_INVALID;
 	}
 	// This union bounds every authorized pair for this negative chunk. It only
-	// avoids footprint work; rejection still requires exact containment in the
-	// complete census-positive and census-negative footprint triangulations.
+	// avoids exact-membership work; rejection still requires the committed
+	// surface or negative footprint to belong to this chunk and exact
+	// containment in a census-positive footprint.
 	const float3 witnessBoundsMin = chunkRecord.Payload0.xyz;
 	const float3 witnessBoundsMax = chunkRecord.Payload1.xyz;
 	if (any(witnessBoundsMin > witnessBoundsMax))
@@ -1125,9 +1189,21 @@ uint EvaluateSpatialAbsence(
 		}
 	}
 
-	bool negativeRecordsValid = false;
-	const bool insideNegative = PointInSpatialFootprint(
-		chunkIndex, chunkRecord, worldPosition.xz, recordCount, negativeRecordsValid);
+	bool negativeRecordsValid = true;
+	bool insideNegative = exactNegativeSurfaceMembership;
+	if (exactNegativeSurfaceMembership)
+	{
+		// The committed static wall primitive already carries the exact negative
+		// chunk identity.  A floor-only footprint is not a valid membership test
+		// for dragged wall bands at sector boundaries.
+		footprintProbeDetails.stage = SPATIAL_FOOTPRINT_PROBE_SURFACE_MEMBERSHIP;
+	}
+	else
+	{
+		insideNegative = PointInSpatialFootprint(
+			chunkIndex, chunkRecord, worldPosition.xz, recordCount,
+			negativeRecordsValid, footprintProbeDetails);
+	}
 	if (!negativeRecordsValid)
 	{
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
@@ -1152,11 +1228,13 @@ uint EvaluateSpatialAbsence(
 		pairBoundsMatched = true;
 		matchedPositiveChunk = pair.Data1;
 		bool positiveRecordsValid = false;
+		SpatialFootprintProbeDetails positiveProbeDetails = EmptySpatialFootprintProbeDetails();
 		const bool insidePositive = PointInSpatialFootprint(
 			pair.Data1, gSpatialAbsenceRecords[pair.Data1 + 1u], worldPosition.xz,
-			recordCount, positiveRecordsValid);
+			recordCount, positiveRecordsValid, positiveProbeDetails);
 		if (!positiveRecordsValid)
 		{
+			footprintProbeDetails = positiveProbeDetails;
 			TraceShaderStatAdd(TRACE_STAT_SPATIAL_LOOKUP_MISS, 1u);
 			return SPATIAL_PROBE_OUTCOME_LOOKUP_INVALID;
 		}
@@ -1165,6 +1243,7 @@ uint EvaluateSpatialAbsence(
 			TraceShaderStatAdd(TRACE_STAT_SPATIAL_REJECT_PRIMARY + min(statsKind, TRACE_STATS_KIND_FAST_EMISSIVE), 1u);
 			return SPATIAL_PROBE_OUTCOME_REJECT;
 		}
+		footprintProbeDetails = positiveProbeDetails;
 	}
 	TraceShaderStatAdd(TRACE_STAT_SPATIAL_EXACT_MISS, 1u);
 	return pairBoundsMatched ?
@@ -1175,7 +1254,10 @@ uint EvaluateSpatialAbsence(
 bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint statsKind)
 {
 	uint matchedPositiveChunk = 0xffffffffu;
-	return EvaluateSpatialAbsence(chunkIndex, worldPosition, statsKind, true, matchedPositiveChunk) ==
+	SpatialFootprintProbeDetails footprintProbeDetails = EmptySpatialFootprintProbeDetails();
+	return EvaluateSpatialAbsence(
+		chunkIndex, worldPosition, statsKind, true, false,
+		matchedPositiveChunk, footprintProbeDetails) ==
 		SPATIAL_PROBE_OUTCOME_REJECT;
 }
 
@@ -1319,6 +1401,8 @@ bool RecordSpatialAbsenceProbeCandidate(
 	uint chunkIndex,
 	float3 worldPosition,
 	uint matchedPositiveChunk,
+	SpatialFootprintProbeDetails footprintProbeDetails,
+	uint materialFlags,
 	out uint recordBase)
 {
 	recordBase = SpatialAbsenceProbeRayRecordBase(statsKind);
@@ -1351,6 +1435,11 @@ bool RecordSpatialAbsenceProbeCandidate(
 	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_POSITION_Y] = asuint(worldPosition.y);
 	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_POSITION_Z] = asuint(worldPosition.z);
 	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_MATCHED_POSITIVE_CHUNK] = matchedPositiveChunk;
+	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_STAGE] = footprintProbeDetails.stage;
+	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_CELL_REFERENCES] = footprintProbeDetails.cellReferenceCount;
+	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_BEST_MARGIN] = asuint(footprintProbeDetails.bestMargin);
+	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_FOOTPRINT_BEST_TRIANGLE] = footprintProbeDetails.bestTriangle;
+	gTraceShaderStats[recordBase + TRACE_STAT_SPATIAL_PROBE_RAY_CANDIDATE_MATERIAL_FLAGS] = materialFlags;
 	return true;
 }
 
@@ -1599,14 +1688,21 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 		const bool probeCandidate = spatialProbeRay && visibilityChunk == probeExpectedChunk;
 		uint spatialOutcome = SPATIAL_PROBE_OUTCOME_DISABLED;
 		uint matchedPositiveChunk = 0xffffffffu;
+		uint spatialCandidateMaterialFlags = 0xffffffffu;
+		SpatialFootprintProbeDetails footprintProbeDetails = EmptySpatialFootprintProbeDetails();
 		if (instanceData.dataSource == SCENE_DATA_SOURCE_STATIC && (gateSpatialAbsence || probeCandidate))
 		{
+			spatialCandidateMaterialFlags = GetMaterialData(materialIndex, instanceData.dataSource).flags;
+			const bool exactNegativeSurfaceMembership =
+				(spatialCandidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
 			spatialOutcome = EvaluateSpatialAbsence(
 				visibilityChunk,
 				committedPosition,
 				statsKind,
 				true,
-				matchedPositiveChunk);
+				exactNegativeSurfaceMembership,
+				matchedPositiveChunk,
+				footprintProbeDetails);
 		}
 		if (probeCandidate)
 		{
@@ -1620,6 +1716,8 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				visibilityChunk,
 				committedPosition,
 				matchedPositiveChunk,
+				footprintProbeDetails,
+				spatialCandidateMaterialFlags,
 				candidateRecordBase))
 			{
 				spatialProbeOwnsRecord = true;

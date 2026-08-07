@@ -228,6 +228,11 @@ namespace
 				<< " " << name << "_candidate_y=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_POSITION_Y)
 				<< " " << name << "_candidate_z=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_POSITION_Z)
 				<< " " << name << "_matched_positive_chunk=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_MATCHED_POSITIVE_CHUNK)
+				<< " " << name << "_footprint_stage=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_FOOTPRINT_STAGE)
+				<< " " << name << "_footprint_cell_references=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_FOOTPRINT_CELL_REFERENCES)
+				<< " " << name << "_footprint_best_margin=" << candidatePosition(NRI_TRACE_SHADER_PROBE_RAY_FOOTPRINT_BEST_MARGIN)
+				<< " " << name << "_footprint_best_triangle=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_FOOTPRINT_BEST_TRIANGLE)
+				<< " " << name << "_candidate_material_flags=" << candidateId(NRI_TRACE_SHADER_PROBE_RAY_CANDIDATE_MATERIAL_FLAGS)
 				<< " " << name << "_final_valid=" << finalValid
 				<< " " << name << "_final_source=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_SOURCE)
 				<< " " << name << "_final_instance=" << finalId(NRI_TRACE_SHADER_PROBE_RAY_FINAL_INSTANCE)
