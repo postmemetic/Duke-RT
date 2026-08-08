@@ -4288,12 +4288,6 @@ namespace
 		return alpha;
 	}
 
-	bool IsActorPresentationVoxelCacheOwnerWithVoxel(const ActorPresentationState& state)
-	{
-		FSetTextureID texture(state.textureId);
-		return IsActorPresentationVoxelCacheOwner(state) && tilehasvoxel(texture) != 0;
-	}
-
 	void BuildActorPresentationIdentityMap(
 		std::unordered_map<uint64_t, const ActorPresentationState*>& outActors)
 	{
@@ -4306,7 +4300,10 @@ namespace
 
 		for (const ActorPresentationState& actor : snapshot.actors)
 		{
-			if (!IsActorPresentationVoxelCacheOwnerWithVoxel(actor))
+			// The captured HWSprite/cache entry is the representation evidence.
+			// Duke action actors may keep a non-voxel base texture in the
+			// snapshot while their temporary render sprite selects voxel frames.
+			if (!IsActorPresentationVoxelCacheOwner(actor))
 			{
 				continue;
 			}
@@ -4371,7 +4368,7 @@ namespace
 		const bool basisCurrent = basisStateHash == entry.presentationBasisStateHash;
 		const bool authorityCurrent = actor.authorityCurrent;
 		const bool publicationEligible =
-			IsActorPresentationVoxelCacheOwnerWithVoxel(actor) && basisCurrent;
+			IsActorPresentationVoxelCacheOwner(actor) && basisCurrent;
 		changed = changed ||
 			entry.placementGeneration != actor.placementGeneration ||
 			entry.placementStateHash != actor.placementStateHash ||
@@ -4849,7 +4846,7 @@ namespace
 			const bool live = actor != nullptr &&
 				actor->actorIndex == entry.actorIndex &&
 				BuildVoxelActorIdentityKey(actor->owner) == it->first &&
-				IsActorPresentationVoxelCacheOwnerWithVoxel(*actor);
+				IsActorPresentationVoxelCacheOwner(*actor);
 			if (!live)
 			{
 				if (MarkVoxelActorAuthorityMissing(entry))
@@ -7163,7 +7160,7 @@ bool GetPersistentVoxelActorAuthority(
 	outAuthority.lifecycleGeneration = identityCurrent ? entry.ownerLifetimeGeneration : 0;
 	outAuthority.authorityCurrent = identityCurrent && actor->authorityCurrent;
 	outAuthority.publicationEligible = identityCurrent &&
-		IsActorPresentationVoxelCacheOwnerWithVoxel(*actor) &&
+		IsActorPresentationVoxelCacheOwner(*actor) &&
 		BuildActorPresentationBasisStateHash(*actor) == entry.presentationBasisStateHash;
 	outAuthority.live = outAuthority.authorityCurrent && outAuthority.publicationEligible;
 	if (!outAuthority.live)
