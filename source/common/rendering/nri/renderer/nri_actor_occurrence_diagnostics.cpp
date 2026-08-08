@@ -1,4 +1,5 @@
 #include "nri_actor_occurrence_diagnostics.h"
+#include "nri_actor_occurrence_ledger.h"
 
 #include "../scene/nri_scene_bridge.h"
 
@@ -89,10 +90,25 @@ namespace
 		return (left & right) != 0u;
 	}
 
+	bool OwnerStampValid(uint64_t worldEpoch, uint64_t lifetimeGeneration)
+	{
+		(void)lifetimeGeneration;
+		return worldEpoch != 0;
+	}
+
+	bool IsRetirementReason(NRIActorOccurrenceLedgerReason reason)
+	{
+		return reason == NRIActorOccurrenceLedgerReason::StaleAuthority ||
+			reason == NRIActorOccurrenceLedgerReason::PendingRemoval ||
+			reason == NRIActorOccurrenceLedgerReason::PublicationIneligible;
+	}
+
 	NRIActorOccurrenceClassification ClassifyFrame(NRIActorOccurrenceFrame& frame)
 	{
 		uint32_t invariantFlags = frame.invariantFlags;
-		if (!frame.authorityFound || frame.identityKey == 0 || frame.lifecycleGeneration == 0)
+		if (!frame.authorityFound || frame.identityKey == 0 ||
+			(!OwnerStampValid(frame.ownerWorldEpoch, frame.ownerLifetimeGeneration) &&
+			 frame.lifecycleGeneration == 0))
 		{
 			invariantFlags |= NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_AUTHORITY;
 		}
@@ -118,9 +134,37 @@ namespace
 		bool missingBounds = false;
 		for (const NRIActorOccurrence& occurrence : frame.occurrences)
 		{
-			if (occurrence.identityKey == 0 || occurrence.lifecycleGeneration == 0)
+			if (occurrence.identityKey == 0 ||
+				(!OwnerStampValid(occurrence.ownerWorldEpoch, occurrence.ownerLifetimeGeneration) &&
+				 occurrence.lifecycleGeneration == 0))
 			{
 				invariantFlags |= NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_IDENTITY;
+			}
+			if (OwnerStampValid(frame.ownerWorldEpoch, frame.ownerLifetimeGeneration) &&
+				OwnerStampValid(occurrence.ownerWorldEpoch, occurrence.ownerLifetimeGeneration) &&
+				(frame.ownerWorldEpoch != occurrence.ownerWorldEpoch ||
+				 frame.ownerLifetimeGeneration != occurrence.ownerLifetimeGeneration))
+			{
+				invariantFlags |= NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_OWNER;
+			}
+			if (frame.placementGeneration != 0 && occurrence.placementGeneration != 0 &&
+				(frame.placementGeneration != occurrence.placementGeneration ||
+				 (frame.placementStateHash != 0 && occurrence.placementStateHash != 0 &&
+				  frame.placementStateHash != occurrence.placementStateHash)))
+			{
+				invariantFlags |= NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_PLACEMENT;
+			}
+			if ((frame.bindingGeneration != 0 && occurrence.bindingGeneration != 0 &&
+				 frame.bindingGeneration != occurrence.bindingGeneration) ||
+				(frame.publicationHash != 0 && occurrence.publicationHash != 0 &&
+				 frame.publicationHash != occurrence.publicationHash))
+			{
+				staleBinding = true;
+			}
+			if (!occurrence.authorityCurrent || !occurrence.publicationEligible ||
+				occurrence.pendingRemoval || occurrence.ledgerReason != NRIActorOccurrenceLedgerReason::Current)
+			{
+				invariantFlags |= NRI_ACTOR_OCCURRENCE_INVARIANT_LEDGER_REJECTED;
 			}
 			if (occurrence.role == NRIActorOccurrenceRole::Exact)
 			{
@@ -179,6 +223,24 @@ namespace
 		}
 		frame.invariantFlags = invariantFlags;
 
+		const bool candidatesRetired = std::all_of(
+			frame.candidates.begin(), frame.candidates.end(),
+			[](const NRIActorOccurrenceCandidate& candidate)
+			{
+				return !candidate.admitted &&
+					(IsRetirementReason(candidate.ledgerReason) ||
+					 !candidate.authorityCurrent || !candidate.publicationEligible || candidate.pendingRemoval);
+			});
+		const bool retirementProof = frame.worldTlasCommitted && frame.authorityFound &&
+			OwnerStampValid(frame.ownerWorldEpoch, frame.ownerLifetimeGeneration) &&
+			frame.occurrences.empty() && candidatesRetired &&
+			(IsRetirementReason(frame.ledgerReason) || !frame.authorityCurrent ||
+			 !frame.publicationEligible || frame.pendingRemoval);
+		if (retirementProof)
+		{
+			return NRIActorOccurrenceClassification::RetiredIneligible;
+		}
+
 		const uint32_t incompleteFlags =
 			NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_IDENTITY |
 			NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_AUTHORITY |
@@ -199,14 +261,18 @@ namespace
 			return NRIActorOccurrenceClassification::EvidenceIncomplete;
 		}
 
-		const bool staleLifecycle = (invariantFlags & NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_LIFECYCLE) != 0u;
+		const bool staleLifecycle = (invariantFlags &
+			(NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_LIFECYCLE |
+			 NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_OWNER |
+			 NRI_ACTOR_OCCURRENCE_INVARIANT_LEDGER_REJECTED)) != 0u;
 		const bool duplicate = (invariantFlags &
 			(NRI_ACTOR_OCCURRENCE_INVARIANT_DUPLICATE |
 			 NRI_ACTOR_OCCURRENCE_INVARIANT_MASK_OVERLAP |
 			 NRI_ACTOR_OCCURRENCE_INVARIANT_DYNAMIC_DUPLICATE)) != 0u;
 		const bool stalePublication = (invariantFlags &
 			(NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_TRANSFORM |
-			 NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_BINDING)) != 0u;
+			 NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_BINDING |
+			 NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_PLACEMENT)) != 0u;
 		const bool wrongLocality = frame.spatialEvidenceComplete && frame.ownerChunkNegative &&
 			!frame.ownerSectorReachedBy360 && frame.boundsOverlapConflict &&
 			std::any_of(exact.begin(), exact.end(), [](const NRIActorOccurrence* occurrence)
@@ -324,6 +390,22 @@ void NRIActorOccurrenceCensus::RecordCandidate(const NRIActorOccurrenceCandidate
 		return;
 	}
 	mFrame.candidates.push_back(candidate);
+	if (OwnerStampValid(candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration) &&
+		(!OwnerStampValid(mFrame.ownerWorldEpoch, mFrame.ownerLifetimeGeneration) ||
+		 candidate.identityKey == mFrame.identityKey))
+	{
+		mFrame.ownerWorldEpoch = candidate.ownerWorldEpoch;
+		mFrame.ownerLifetimeGeneration = candidate.ownerLifetimeGeneration;
+		mFrame.placementGeneration = candidate.placementGeneration;
+		mFrame.placementStateHash = candidate.placementStateHash;
+		mFrame.bindingGeneration = candidate.bindingGeneration;
+		mFrame.publicationHash = candidate.publicationHash;
+		mFrame.physicalSectorIndex = candidate.physicalSectorIndex;
+		mFrame.authorityCurrent = candidate.authorityCurrent;
+		mFrame.publicationEligible = candidate.publicationEligible;
+		mFrame.pendingRemoval = candidate.pendingRemoval;
+		mFrame.ledgerReason = candidate.ledgerReason;
+	}
 	if (!mFrame.authorityFound || !mFrame.identityCurrent || candidate.identityKey == mFrame.identityKey)
 	{
 		ResolveAuthority(candidate.identityKey, candidate.actorIndex);
@@ -367,6 +449,22 @@ void NRIActorOccurrenceCensus::RecordOccurrence(const NRIActorOccurrence& occurr
 		return;
 	}
 	mFrame.occurrences.push_back(occurrence);
+	if (OwnerStampValid(occurrence.ownerWorldEpoch, occurrence.ownerLifetimeGeneration) &&
+		(!OwnerStampValid(mFrame.ownerWorldEpoch, mFrame.ownerLifetimeGeneration) ||
+		 occurrence.identityKey == mFrame.identityKey))
+	{
+		mFrame.ownerWorldEpoch = occurrence.ownerWorldEpoch;
+		mFrame.ownerLifetimeGeneration = occurrence.ownerLifetimeGeneration;
+		mFrame.placementGeneration = occurrence.placementGeneration;
+		mFrame.placementStateHash = occurrence.placementStateHash;
+		mFrame.bindingGeneration = occurrence.bindingGeneration;
+		mFrame.publicationHash = occurrence.publicationHash;
+		mFrame.physicalSectorIndex = occurrence.physicalSectorIndex;
+		mFrame.authorityCurrent = occurrence.authorityCurrent;
+		mFrame.publicationEligible = occurrence.publicationEligible;
+		mFrame.pendingRemoval = occurrence.pendingRemoval;
+		mFrame.ledgerReason = occurrence.ledgerReason;
+	}
 	if (occurrence.role == NRIActorOccurrenceRole::Exact && mConfig.spatialSnapshot != nullptr)
 	{
 		for (const NRISpatialAbsenceConflictRecord& conflict : mConfig.spatialSnapshot->conflicts)
@@ -442,9 +540,20 @@ void AppendNRIActorDynamicOccurrences(
 	occurrence.role = NRIActorOccurrenceRole::DynamicAggregate;
 	occurrence.identityKey = frame.identityKey;
 	occurrence.lifecycleGeneration = frame.lifecycleGeneration;
+	occurrence.ownerWorldEpoch = frame.ownerWorldEpoch;
+	occurrence.ownerLifetimeGeneration = frame.ownerLifetimeGeneration;
+	occurrence.placementGeneration = frame.placementGeneration;
+	occurrence.placementStateHash = frame.placementStateHash;
+	occurrence.bindingGeneration = frame.bindingGeneration;
+	occurrence.publicationHash = frame.publicationHash;
 	occurrence.actorIndex = frame.targetActorIndex;
+	occurrence.physicalSectorIndex = frame.physicalSectorIndex;
 	occurrence.tlasInstanceIndex = tlasInstanceIndex;
 	occurrence.workloadMask = workloadMask;
+	occurrence.authorityCurrent = frame.authorityCurrent;
+	occurrence.publicationEligible = frame.publicationEligible;
+	occurrence.pendingRemoval = frame.pendingRemoval;
+	occurrence.ledgerReason = frame.ledgerReason;
 	occurrence.boundsValid = tlasInstanceIndex != UINT32_MAX;
 	std::memcpy(occurrence.boundsMin, boundsMin, sizeof(boundsMin));
 	std::memcpy(occurrence.boundsMax, boundsMax, sizeof(boundsMax));
@@ -531,6 +640,7 @@ const char* GetNRIActorOccurrenceClassificationName(NRIActorOccurrenceClassifica
 	case NRIActorOccurrenceClassification::WrongLocalitySuppressed: return "wrong-locality-suppressed";
 	case NRIActorOccurrenceClassification::CurrentLegitimate: return "current-legitimate";
 	case NRIActorOccurrenceClassification::MixedInvariantFailure: return "mixed-invariant-failure";
+	case NRIActorOccurrenceClassification::RetiredIneligible: return "retired-ineligible";
 	default: return "unknown";
 	}
 }
@@ -541,7 +651,7 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 	{
 		return;
 	}
-	Printf("NRI PT actor occurrence census: frame=%u target_actor=%d actor_key=0x%llx lifecycle=%llu authority=%u live=%u pending_removal=%u position_sync=%u physical_sector=%d physical_chunk=%u physical_local_space=%d root_sector=%d root_local_space=%d owner_reached=%u owner_negative=%u conflict_positive=%u conflict_negative=%u bounds_inside=%u bounds_overlap=%u actor_inside=%u candidates=%u occurrences=%u committed=%u invariant=0x%x classification=%s\n",
+	Printf("NRI PT actor occurrence census: frame=%u target_actor=%d actor_key=0x%llx lifecycle=%llu authority=%u live=%u pending_removal=%u position_sync=%u physical_sector=%d physical_chunk=%u physical_local_space=%d root_sector=%d root_local_space=%d owner_reached=%u owner_negative=%u conflict_positive=%u conflict_negative=%u bounds_inside=%u bounds_overlap=%u actor_inside=%u candidates=%u occurrences=%u committed=%u invariant=0x%x classification=%s owner_world_epoch=%llu owner_lifetime=%llu placement_generation=%llu placement_state_hash=0x%llx binding_generation=%llu publication_hash=0x%llx authority_current=%u publication_eligible=%u ledger_reason=%s\n",
 		frame.frameIndex, frame.targetActorIndex,
 		(unsigned long long)frame.identityKey, (unsigned long long)frame.lifecycleGeneration,
 		frame.authorityFound ? 1u : 0u, frame.live ? 1u : 0u,
@@ -555,10 +665,19 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 		frame.actorPositionInsideConflict ? 1u : 0u,
 		(uint32_t)frame.candidates.size(), (uint32_t)frame.occurrences.size(),
 		frame.worldTlasCommitted ? 1u : 0u, frame.invariantFlags,
-		GetNRIActorOccurrenceClassificationName(frame.classification));
+		GetNRIActorOccurrenceClassificationName(frame.classification),
+		(unsigned long long)frame.ownerWorldEpoch,
+		(unsigned long long)frame.ownerLifetimeGeneration,
+		(unsigned long long)frame.placementGeneration,
+		(unsigned long long)frame.placementStateHash,
+		(unsigned long long)frame.bindingGeneration,
+		(unsigned long long)frame.publicationHash,
+		frame.authorityCurrent ? 1u : 0u,
+		frame.publicationEligible ? 1u : 0u,
+		GetNRIActorOccurrenceLedgerReasonName(frame.ledgerReason));
 	for (const NRIActorOccurrenceCandidate& candidate : frame.candidates)
 	{
-		Printf("NRI PT actor occurrence candidate: frame=%u actor=%d actor_key=0x%llx lifecycle=%llu mesh_resource=0x%llx mesh_key=0x%llx material_key=0x%llx captured=%u active=%u admitted=%u publish_ready=%u suppression_authorized=%u suppressed_mask=0x%x reason=%s\n",
+		Printf("NRI PT actor occurrence candidate: frame=%u actor=%d actor_key=0x%llx lifecycle=%llu mesh_resource=0x%llx mesh_key=0x%llx material_key=0x%llx captured=%u active=%u admitted=%u publish_ready=%u suppression_authorized=%u suppressed_mask=0x%x reason=%s owner_world_epoch=%llu owner_lifetime=%llu placement_generation=%llu placement_state_hash=0x%llx binding_generation=%llu publication_hash=0x%llx physical_sector=%d authority_current=%u publication_eligible=%u pending_removal=%u ledger_reason=%s\n",
 			frame.frameIndex, candidate.actorIndex,
 			(unsigned long long)candidate.identityKey,
 			(unsigned long long)candidate.lifecycleGeneration,
@@ -568,11 +687,22 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 			candidate.capturedThisFrame ? 1u : 0u, candidate.active ? 1u : 0u,
 			candidate.admitted ? 1u : 0u, candidate.publishReady ? 1u : 0u,
 			candidate.suppressionAuthorized ? 1u : 0u,
-			candidate.suppressedWorkloadMask, candidate.reason.c_str());
+			candidate.suppressedWorkloadMask, candidate.reason.c_str(),
+			(unsigned long long)candidate.ownerWorldEpoch,
+			(unsigned long long)candidate.ownerLifetimeGeneration,
+			(unsigned long long)candidate.placementGeneration,
+			(unsigned long long)candidate.placementStateHash,
+			(unsigned long long)candidate.bindingGeneration,
+			(unsigned long long)candidate.publicationHash,
+			candidate.physicalSectorIndex,
+			candidate.authorityCurrent ? 1u : 0u,
+			candidate.publicationEligible ? 1u : 0u,
+			candidate.pendingRemoval ? 1u : 0u,
+			GetNRIActorOccurrenceLedgerReasonName(candidate.ledgerReason));
 	}
 	for (const NRIActorOccurrence& occurrence : frame.occurrences)
 	{
-		Printf("NRI PT actor occurrence: frame=%u actor=%d actor_key=0x%llx lifecycle=%llu role=%s mesh_resource=0x%llx mesh_key=0x%llx blas=0x%llx instance=%u generation=0x%x expected_generation=0x%x mask=0x%x captured=%u bounds_valid=%u transform=(%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f) bounds_min=(%.6f,%.6f,%.6f) bounds_max=(%.6f,%.6f,%.6f)\n",
+		Printf("NRI PT actor occurrence: frame=%u actor=%d actor_key=0x%llx lifecycle=%llu role=%s mesh_resource=0x%llx mesh_key=0x%llx blas=0x%llx instance=%u generation=0x%x expected_generation=0x%x mask=0x%x captured=%u bounds_valid=%u transform=(%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f) bounds_min=(%.6f,%.6f,%.6f) bounds_max=(%.6f,%.6f,%.6f) owner_world_epoch=%llu owner_lifetime=%llu placement_generation=%llu placement_state_hash=0x%llx binding_generation=%llu publication_hash=0x%llx physical_sector=%d authority_current=%u publication_eligible=%u pending_removal=%u ledger_reason=%s\n",
 			frame.frameIndex, occurrence.actorIndex,
 			(unsigned long long)occurrence.identityKey,
 			(unsigned long long)occurrence.lifecycleGeneration,
@@ -587,7 +717,18 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 			occurrence.transform[4], occurrence.transform[5], occurrence.transform[6], occurrence.transform[7],
 			occurrence.transform[8], occurrence.transform[9], occurrence.transform[10], occurrence.transform[11],
 			occurrence.boundsMin[0], occurrence.boundsMin[1], occurrence.boundsMin[2],
-			occurrence.boundsMax[0], occurrence.boundsMax[1], occurrence.boundsMax[2]);
+			occurrence.boundsMax[0], occurrence.boundsMax[1], occurrence.boundsMax[2],
+			(unsigned long long)occurrence.ownerWorldEpoch,
+			(unsigned long long)occurrence.ownerLifetimeGeneration,
+			(unsigned long long)occurrence.placementGeneration,
+			(unsigned long long)occurrence.placementStateHash,
+			(unsigned long long)occurrence.bindingGeneration,
+			(unsigned long long)occurrence.publicationHash,
+			occurrence.physicalSectorIndex,
+			occurrence.authorityCurrent ? 1u : 0u,
+			occurrence.publicationEligible ? 1u : 0u,
+			occurrence.pendingRemoval ? 1u : 0u,
+			GetNRIActorOccurrenceLedgerReasonName(occurrence.ledgerReason));
 	}
 }
 
@@ -608,6 +749,12 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 		frame.actorPositionSynchronized = true;
 		frame.identityKey = 11;
 		frame.lifecycleGeneration = 7;
+		frame.ownerWorldEpoch = 3;
+		frame.ownerLifetimeGeneration = 7;
+		frame.placementGeneration = 12;
+		frame.placementStateHash = 0x1234;
+		frame.bindingGeneration = 0x5678;
+		frame.publicationHash = 0x9abc;
 		frame.targetActorIndex = 7;
 		frame.physicalSectorIndex = 2;
 		frame.physicalChunkIndex = 2;
@@ -616,7 +763,14 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 		NRIActorOccurrence occurrence;
 		occurrence.identityKey = 11;
 		occurrence.lifecycleGeneration = 7;
+		occurrence.ownerWorldEpoch = frame.ownerWorldEpoch;
+		occurrence.ownerLifetimeGeneration = frame.ownerLifetimeGeneration;
+		occurrence.placementGeneration = frame.placementGeneration;
+		occurrence.placementStateHash = frame.placementStateHash;
+		occurrence.bindingGeneration = frame.bindingGeneration;
+		occurrence.publicationHash = frame.publicationHash;
 		occurrence.actorIndex = 7;
+		occurrence.physicalSectorIndex = frame.physicalSectorIndex;
 		occurrence.tlasInstanceIndex = 3;
 		occurrence.occurrenceGeneration = 5;
 		occurrence.expectedOccurrenceGeneration = 5;
@@ -631,6 +785,15 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 	if (current.classification != NRIActorOccurrenceClassification::CurrentLegitimate)
 		return fail("current occurrence did not classify legitimate");
 
+	NRIActorOccurrenceFrame zeroLifetime = baseFrame();
+	zeroLifetime.lifecycleGeneration = 0;
+	zeroLifetime.ownerLifetimeGeneration = 0;
+	zeroLifetime.occurrences.front().lifecycleGeneration = 0;
+	zeroLifetime.occurrences.front().ownerLifetimeGeneration = 0;
+	zeroLifetime.classification = ClassifyFrame(zeroLifetime);
+	if (zeroLifetime.classification != NRIActorOccurrenceClassification::CurrentLegitimate)
+		return fail("valid lifetime generation zero was rejected");
+
 	NRIActorOccurrenceFrame duplicate = baseFrame();
 	duplicate.occurrences.push_back(duplicate.occurrences.front());
 	duplicate.classification = ClassifyFrame(duplicate);
@@ -642,6 +805,18 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 	stale.classification = ClassifyFrame(stale);
 	if (stale.classification != NRIActorOccurrenceClassification::StaleTransform)
 		return fail("stale binding generation was not detected");
+
+	NRIActorOccurrenceFrame ownerAba = baseFrame();
+	ownerAba.occurrences.front().ownerWorldEpoch--;
+	ownerAba.classification = ClassifyFrame(ownerAba);
+	if (ownerAba.classification != NRIActorOccurrenceClassification::StaleLifecycle)
+		return fail("old-world owner ABA was not detected");
+
+	NRIActorOccurrenceFrame placementMismatch = baseFrame();
+	placementMismatch.occurrences.front().placementGeneration--;
+	placementMismatch.classification = ClassifyFrame(placementMismatch);
+	if (placementMismatch.classification != NRIActorOccurrenceClassification::StaleTransform)
+		return fail("old placement generation was not detected");
 
 	NRIActorOccurrenceFrame incomplete = baseFrame();
 	incomplete.identityKey = 0;
@@ -704,11 +879,120 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 	if (unauthorized.classification != NRIActorOccurrenceClassification::EvidenceIncomplete)
 		return fail("occurrence disappearance without policy proof did not fail open");
 
+	auto retirementFrame = [&baseFrame](NRIActorOccurrenceLedgerReason reason)
+	{
+		NRIActorOccurrenceFrame frame = baseFrame();
+		frame.occurrences.clear();
+		frame.authorityCurrent = reason != NRIActorOccurrenceLedgerReason::StaleAuthority;
+		frame.publicationEligible = false;
+		frame.pendingRemoval = reason == NRIActorOccurrenceLedgerReason::PendingRemoval;
+		frame.ledgerReason = reason;
+		NRIActorOccurrenceCandidate candidate;
+		candidate.identityKey = frame.identityKey;
+		candidate.lifecycleGeneration = frame.lifecycleGeneration;
+		candidate.ownerWorldEpoch = frame.ownerWorldEpoch;
+		candidate.ownerLifetimeGeneration = frame.ownerLifetimeGeneration;
+		candidate.placementGeneration = frame.placementGeneration;
+		candidate.placementStateHash = frame.placementStateHash;
+		candidate.bindingGeneration = frame.bindingGeneration;
+		candidate.actorIndex = frame.targetActorIndex;
+		candidate.physicalSectorIndex = frame.physicalSectorIndex;
+		candidate.active = true;
+		candidate.publishReady = false;
+		candidate.authorityCurrent = frame.authorityCurrent;
+		candidate.publicationEligible = false;
+		candidate.pendingRemoval = frame.pendingRemoval;
+		candidate.ledgerReason = reason;
+		candidate.reason = GetNRIActorOccurrenceLedgerReasonName(reason);
+		frame.candidates.push_back(candidate);
+		frame.classification = ClassifyFrame(frame);
+		return frame;
+	};
+	if (retirementFrame(NRIActorOccurrenceLedgerReason::PendingRemoval).classification !=
+		NRIActorOccurrenceClassification::RetiredIneligible)
+		return fail("pending-removal whole-role retirement was not accepted");
+	if (retirementFrame(NRIActorOccurrenceLedgerReason::PublicationIneligible).classification !=
+		NRIActorOccurrenceClassification::RetiredIneligible)
+		return fail("publication-ineligible whole-role retirement was not accepted");
+
 	std::string policyFailure;
 	if (!RunNRIActorOccurrencePolicySelfTests(&policyFailure))
 	{
 		if (failureReason != nullptr) *failureReason = "policy: " + policyFailure;
 		return false;
+	}
+
+	std::string ledgerFailure;
+	if (!RunNRIActorOccurrenceLedgerSelfTests(&ledgerFailure))
+	{
+		if (failureReason != nullptr) *failureReason = "ledger: " + ledgerFailure;
+		return false;
+	}
+
+	auto publicationFacts = []()
+	{
+		NRIActorOccurrencePublicationFacts facts;
+		facts.owner = { 5u, 19u };
+		facts.placementGeneration = 8u;
+		facts.placementStateHash = 0x1111u;
+		facts.bindingGeneration = 0x2222u;
+		facts.physicalSectorIndex = 7;
+		facts.roleMask = NRI_ACTOR_OCCURRENCE_ROLE_EXACT |
+			NRI_ACTOR_OCCURRENCE_ROLE_SHADOW_PROXY |
+			NRI_ACTOR_OCCURRENCE_ROLE_EMISSIVE_SURFACE |
+			NRI_ACTOR_OCCURRENCE_ROLE_LIGHT_ANCHOR;
+		facts.exactWorkloadMask = 0x7fu;
+		facts.proxyWorkloadMask = 0x80u;
+		facts.exactBlasHandle = 0x3333u;
+		facts.proxyBlasHandle = 0x4444u;
+		facts.authorityCurrent = true;
+		facts.publicationEligible = true;
+		return facts;
+	};
+	NRIActorOccurrenceLedger ledger;
+	NRIActorOccurrencePublicationFacts oldOwner = publicationFacts();
+	ledger.BeginFrame(20u);
+	const NRIActorOccurrenceLedgerDecision oldOwnerDecision = ledger.CommitPublication(oldOwner);
+	ledger.CommitFrame(20u);
+	NRIActorOccurrencePublicationFacts newOwner = oldOwner;
+	newOwner.owner.worldEpoch++;
+	ledger.BeginFrame(21u);
+	const NRIActorOccurrenceLedgerDecision newOwnerDecision = ledger.CommitPublication(newOwner);
+	ledger.CommitFrame(21u);
+	if (!newOwnerDecision.eligible || ledger.IsCommitted(
+		21u, oldOwner.owner, oldOwner.placementGeneration, oldOwner.bindingGeneration,
+		oldOwnerDecision.publicationHash, NRI_ACTOR_OCCURRENCE_ROLE_EXACT))
+		return fail("old owner remained committed after world-epoch ABA");
+
+	NRIActorOccurrencePublicationFacts movedOwner = newOwner;
+	movedOwner.placementGeneration++;
+	movedOwner.placementStateHash++;
+	ledger.BeginFrame(22u);
+	const NRIActorOccurrenceLedgerDecision movedDecision = ledger.CommitPublication(movedOwner);
+	ledger.CommitFrame(22u);
+	if (!movedDecision.eligible || ledger.IsCommitted(
+		22u, newOwner.owner, newOwner.placementGeneration, newOwner.bindingGeneration,
+		newOwnerDecision.publicationHash, NRI_ACTOR_OCCURRENCE_ROLE_EXACT))
+		return fail("old placement remained committed after authoritative movement");
+
+	for (NRIActorOccurrenceLedgerReason reason : {
+		NRIActorOccurrenceLedgerReason::PendingRemoval,
+		NRIActorOccurrenceLedgerReason::PublicationIneligible })
+	{
+		NRIActorOccurrencePublicationFacts retired = movedOwner;
+		retired.pendingRemoval = reason == NRIActorOccurrenceLedgerReason::PendingRemoval;
+		retired.publicationEligible = reason != NRIActorOccurrenceLedgerReason::PublicationIneligible;
+		ledger.BeginFrame(reason == NRIActorOccurrenceLedgerReason::PendingRemoval ? 23u : 24u);
+		const NRIActorOccurrenceLedgerDecision retiredDecision = ledger.CommitPublication(retired);
+		const uint32_t retiredFrame = reason == NRIActorOccurrenceLedgerReason::PendingRemoval ? 23u : 24u;
+		ledger.CommitFrame(retiredFrame);
+		if (retiredDecision.eligible || retiredDecision.reason != reason || ledger.IsCommitted(
+			retiredFrame, retired.owner, retired.placementGeneration, retired.bindingGeneration,
+			movedDecision.publicationHash,
+			NRI_ACTOR_OCCURRENCE_ROLE_EXACT | NRI_ACTOR_OCCURRENCE_ROLE_SHADOW_PROXY |
+				NRI_ACTOR_OCCURRENCE_ROLE_EMISSIVE_SURFACE |
+				NRI_ACTOR_OCCURRENCE_ROLE_LIGHT_ANCHOR))
+			return fail("ineligible owner retained an actor-derived publication role");
 	}
 
 	return true;

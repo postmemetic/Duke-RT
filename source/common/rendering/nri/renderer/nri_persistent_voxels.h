@@ -16,6 +16,7 @@
 #include "nri_voxel_compute_meshing.h"
 #include "nri_voxel_representation_policy.h"
 #include "nri_actor_occurrence_diagnostics.h"
+#include "nri_actor_occurrence_ledger.h"
 #include "nri_actor_occurrence_policy.h"
 
 #include "../scene/nri_geometry_bridge.h"
@@ -33,6 +34,12 @@ struct PersistentVoxelBatch
 	struct ActorEntry
 	{
 		uint64_t identityKey = 0;
+		uint64_t ownerWorldEpoch = 0;
+		uint64_t ownerLifetimeGeneration = 0;
+		uint64_t placementGeneration = 0;
+		uint64_t placementStateHash = 0;
+		uint64_t bindingGeneration = 0;
+		uint64_t worldTlasPublicationHash = 0;
 		uint64_t signature = 0;
 		uint64_t geometrySignature = 0;
 		uint64_t surfaceSignature = 0;
@@ -44,6 +51,7 @@ struct PersistentVoxelBatch
 		uint64_t lastSeenFrame = 0;
 		uint64_t retainedFrameAge = 0;
 		int32_t actorIndex = -1;
+		int32_t physicalSectorIndex = -1;
 		int32_t sourcePicnum = -1;
 		int32_t resolvedVoxelIndex = -1;
 		uint32_t visibilityChunkIndex = UINT32_MAX;
@@ -53,6 +61,9 @@ struct PersistentVoxelBatch
 		bool capturedThisFrame = false;
 		bool indirectOnly = false;
 		bool inWorldTlasThisFrame = false;
+		bool authorityCurrent = false;
+		bool publicationEligible = false;
+		bool pendingRemoval = false;
 		bool active = true;
 		uint32_t primitiveOffset = 0;
 		uint32_t primitiveCount = 0;
@@ -306,6 +317,11 @@ struct PersistentVoxelAdmissionStats
 struct PersistentVoxelInstanceRecord
 {
 	uint64_t identityKey = 0;
+	uint64_t ownerWorldEpoch = 0;
+	uint64_t ownerLifetimeGeneration = 0;
+	uint64_t placementGeneration = 0;
+	uint64_t placementStateHash = 0;
+	uint64_t bindingGeneration = 0;
 	uint64_t signature = 0;
 	uint64_t geometrySignature = 0;
 	uint64_t surfaceSignature = 0;
@@ -318,6 +334,10 @@ struct PersistentVoxelInstanceRecord
 	uint64_t meshResourceKey = 0;
 	uint32_t primitiveCount = 0;
 	uint32_t lastSeenFrame = 0;
+	int32_t physicalSectorIndex = -1;
+	bool authorityCurrent = false;
+	bool publicationEligible = false;
+	bool pendingRemoval = false;
 	bool active = false;
 	bool pending = false;
 	std::array<float, 12> currentTransform = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
@@ -1143,7 +1163,7 @@ public:
 		bool voxelStatsEnabled,
 		const NRIPersistentVoxelTlasServices& services,
 		NRIPersistentVoxelTlasBuildStats& outStats);
-	void CommitWorldTlasFrame(uint32_t frameIndex) { committedWorldTlasFrameIndex = frameIndex; }
+	void CommitWorldTlasFrame(uint32_t frameIndex);
 	void DiscardAdmissionEntry(PersistentVoxelAdmissionEntry& entry, const NRIPersistentVoxelResetServices& services);
 	PersistentVoxelReadinessStatus GetSharedVariantReadiness(uint64_t meshResourceKey, uint64_t materialKeyHash) const;
 	bool AppendMaterialTextureKeys(uint64_t materialKeyHash, std::vector<uint64_t>& outKeys) const;
@@ -1219,6 +1239,7 @@ public:
 	uint64_t uploadedMaterialResourceGeneration = 0;
 	uint64_t uploadedMaterialPublicationGeneration = 0;
 	uint32_t committedWorldTlasFrameIndex = UINT32_MAX;
+	NRIActorOccurrenceLedger actorOccurrenceLedger;
 	uint32_t pendingMaterialLayoutInvalidatedResources = 0;
 	uint32_t pendingMaterialActorRebinds = 0;
 	std::vector<uint64_t> uploadedMaterialTextureKeys;

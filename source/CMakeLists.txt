@@ -964,6 +964,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp
 	common/rendering/nri/renderer/nri_persistent_voxels.cpp
+	common/rendering/nri/renderer/nri_actor_occurrence_ledger.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_policy.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_diagnostics.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_shadow_proxy.cpp
@@ -1121,6 +1122,7 @@ set (PCH_SOURCES
 	core/thingdef_properties.cpp
 	core/actorlist.cpp
 	core/actor_lifecycle_journal.cpp
+	core/actor_presentation_snapshot.cpp
 	core/automap.cpp
 	core/cheats.cpp
 	core/cheathandler.cpp

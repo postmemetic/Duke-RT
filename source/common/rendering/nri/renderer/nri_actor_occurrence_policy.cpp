@@ -90,8 +90,10 @@ namespace
 		if (!facts.candidate.uniqueActiveOccurrence)
 			return keep(NRIActorOccurrencePolicyReason::DuplicateOccurrence);
 		if (!facts.authorityFound) return keep(NRIActorOccurrencePolicyReason::MissingAuthority);
+		// Actor lifetime zero is valid for the first serialized map actor. The
+		// nonzero world epoch is the ABA-safe validity discriminator.
 		if (!facts.authority.identityCurrent || !facts.authority.live || facts.authority.pendingRemoval ||
-			facts.authority.lifecycleGeneration == 0u)
+			facts.authority.ownerWorldEpoch == 0u)
 			return keep(NRIActorOccurrencePolicyReason::StaleLifecycle);
 		if (!facts.authority.actorPositionSynchronized)
 			return keep(NRIActorOccurrencePolicyReason::StaleTransform);
@@ -263,6 +265,8 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 		facts.candidate.boundsMax[0] = facts.candidate.boundsMax[1] = facts.candidate.boundsMax[2] = 1.0f;
 		facts.authorityFound = true;
 		facts.authority.identityKey = 11u;
+		facts.authority.ownerWorldEpoch = 3u;
+		facts.authority.ownerLifetimeGeneration = 7u;
 		facts.authority.lifecycleGeneration = 7u;
 		facts.authority.actorIndex = 7;
 		facts.authority.physicalSectorIndex = 1;
@@ -277,6 +281,13 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 	if (!decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence ||
 		decision.suppressedWorkloadMask != 0xffu)
 		return fail("certified negative occurrence was not suppressed");
+
+	facts = makeFacts();
+	facts.authority.ownerLifetimeGeneration = 0u;
+	facts.authority.lifecycleGeneration = 0u;
+	decision = EvaluateFacts(facts);
+	if (!decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence)
+		return fail("valid lifetime generation zero was rejected");
 
 	facts = makeFacts();
 	const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot)->reachedSectorIndices.push_back(1u);

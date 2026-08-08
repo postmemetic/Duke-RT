@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_spatial_absence_gate.h"
+#include "nri_actor_occurrence_ledger.h"
 #include "nri_actor_occurrence_policy.h"
 
 #include "../scene/nri_geometry_bridge.h"
@@ -28,6 +29,7 @@ enum class NRIActorOccurrenceClassification : uint32_t
 	WrongLocalitySuppressed,
 	CurrentLegitimate,
 	MixedInvariantFailure,
+	RetiredIneligible,
 };
 
 enum NRIActorOccurrenceInvariantFlags : uint32_t
@@ -44,6 +46,9 @@ enum NRIActorOccurrenceInvariantFlags : uint32_t
 	NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_BOUNDS = 1u << 8,
 	NRI_ACTOR_OCCURRENCE_INVARIANT_INCOMPLETE_CENSUS = 1u << 9,
 	NRI_ACTOR_OCCURRENCE_INVARIANT_DYNAMIC_DUPLICATE = 1u << 10,
+	NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_OWNER = 1u << 11,
+	NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_PLACEMENT = 1u << 12,
+	NRI_ACTOR_OCCURRENCE_INVARIANT_LEDGER_REJECTED = 1u << 13,
 };
 
 struct NRIActorOccurrenceTraceConfig
@@ -58,16 +63,27 @@ struct NRIActorOccurrenceCandidate
 {
 	uint64_t identityKey = 0;
 	uint64_t lifecycleGeneration = 0;
+	uint64_t ownerWorldEpoch = 0;
+	uint64_t ownerLifetimeGeneration = 0;
+	uint64_t placementGeneration = 0;
+	uint64_t placementStateHash = 0;
+	uint64_t bindingGeneration = 0;
+	uint64_t publicationHash = 0;
 	uint64_t meshResourceKey = 0;
 	uint64_t meshKeyHash = 0;
 	uint64_t materialKeyHash = 0;
 	int32_t actorIndex = -1;
+	int32_t physicalSectorIndex = -1;
 	bool active = false;
 	bool capturedThisFrame = false;
 	bool admitted = false;
 	bool publishReady = false;
+	bool authorityCurrent = true;
+	bool publicationEligible = true;
+	bool pendingRemoval = false;
 	bool suppressionAuthorized = false;
 	uint32_t suppressedWorkloadMask = 0;
+	NRIActorOccurrenceLedgerReason ledgerReason = NRIActorOccurrenceLedgerReason::Current;
 	std::string reason;
 };
 
@@ -76,14 +92,25 @@ struct NRIActorOccurrence
 	NRIActorOccurrenceRole role = NRIActorOccurrenceRole::Exact;
 	uint64_t identityKey = 0;
 	uint64_t lifecycleGeneration = 0;
+	uint64_t ownerWorldEpoch = 0;
+	uint64_t ownerLifetimeGeneration = 0;
+	uint64_t placementGeneration = 0;
+	uint64_t placementStateHash = 0;
+	uint64_t bindingGeneration = 0;
+	uint64_t publicationHash = 0;
 	uint64_t meshResourceKey = 0;
 	uint64_t meshKeyHash = 0;
 	uint64_t blasHandle = 0;
 	int32_t actorIndex = -1;
+	int32_t physicalSectorIndex = -1;
 	uint32_t tlasInstanceIndex = UINT32_MAX;
 	uint32_t occurrenceGeneration = 0;
 	uint32_t expectedOccurrenceGeneration = 0;
 	uint32_t workloadMask = 0;
+	bool authorityCurrent = true;
+	bool publicationEligible = true;
+	bool pendingRemoval = false;
+	NRIActorOccurrenceLedgerReason ledgerReason = NRIActorOccurrenceLedgerReason::Current;
 	bool capturedThisFrame = false;
 	bool boundsValid = false;
 	std::array<float, 12> transform = {
@@ -118,12 +145,21 @@ struct NRIActorOccurrenceFrame
 	uint32_t invariantFlags = NRI_ACTOR_OCCURRENCE_INVARIANT_NONE;
 	uint64_t identityKey = 0;
 	uint64_t lifecycleGeneration = 0;
+	uint64_t ownerWorldEpoch = 0;
+	uint64_t ownerLifetimeGeneration = 0;
+	uint64_t placementGeneration = 0;
+	uint64_t placementStateHash = 0;
+	uint64_t bindingGeneration = 0;
+	uint64_t publicationHash = 0;
 	int32_t targetActorIndex = -1;
 	int32_t physicalSectorIndex = -1;
 	uint32_t physicalChunkIndex = UINT32_MAX;
 	int32_t physicalLocalSpaceIndex = -1;
 	int32_t rootSectorIndex = -1;
 	int32_t rootLocalSpaceIndex = -1;
+	bool authorityCurrent = true;
+	bool publicationEligible = true;
+	NRIActorOccurrenceLedgerReason ledgerReason = NRIActorOccurrenceLedgerReason::Current;
 	uint32_t conflictPositiveChunk = UINT32_MAX;
 	uint32_t conflictNegativeChunk = UINT32_MAX;
 	float actorScenePosition[3] = {};

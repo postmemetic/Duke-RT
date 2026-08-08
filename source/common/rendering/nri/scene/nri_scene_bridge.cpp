@@ -11,6 +11,7 @@
 #include "../renderer/nri_voxel_compute_meshing.h"
 
 #include "actor_lifecycle_journal.h"
+#include "actor_presentation_snapshot.h"
 #include "c_cvars.h"
 #include "coreactor.h"
 #include "coreplayer.h"
@@ -165,13 +166,6 @@ namespace
 		uint32_t materialFlags = 0;
 	};
 
-	struct VoxelInstanceKey
-	{
-		int32_t actorIndex = -1;
-		DCoreActor* actorPtr = nullptr;
-		uint32_t actorGeneration = 0;
-	};
-
 	struct VoxelActorCacheEntry
 	{
 		uint64_t signature = 0;
@@ -181,6 +175,11 @@ namespace
 		uint64_t materialSignature = 0;
 		uint64_t transformBasisSignature = 0;
 		uint64_t identityKey = 0;
+		uint64_t ownerWorldEpoch = 0;
+		uint64_t ownerLifetimeGeneration = 0;
+		uint64_t placementGeneration = 0;
+		uint64_t placementStateHash = 0;
+		uint64_t presentationBasisStateHash = 0;
 		uint64_t meshKeyHash = 0;
 		uint64_t materialKeyHash = 0;
 		uint64_t geometryContentHash = 0;
@@ -200,7 +199,7 @@ namespace
 		uint64_t surfaceFrame = 0;
 		uint8_t pendingReason = 0;
 		int32_t actorIndex = -1;
-		uintptr_t actorPtr = 0;
+		int32_t physicalSectorIndex = -1;
 		uintptr_t voxelPtr = 0;
 		uintptr_t voxelModelPtr = 0;
 		int32_t sourcePicnum = -1;
@@ -222,6 +221,8 @@ namespace
 		SurfaceRef desiredMaterialSurface;
 		bool hasDesiredMaterialSurface = false;
 		bool pendingRemoval = false;
+		bool authorityCurrent = false;
+		bool publicationEligible = false;
 	};
 
 	struct VoxelActorCacheLookup;
@@ -435,9 +436,14 @@ namespace
 		uint64_t meshVariantHash = 0;
 		uint64_t materialVariantHash = 0;
 		uint64_t instanceKeyHash = 0;
+		uint64_t ownerWorldEpoch = 0;
+		uint64_t ownerLifetimeGeneration = 0;
+		uint64_t placementGeneration = 0;
+		uint64_t placementStateHash = 0;
+		uint64_t presentationBasisStateHash = 0;
 		VoxelMeshBakeSpace meshBakeSpace = VoxelMeshBakeSpace::Unknown;
 		int32_t actorIndex = -1;
-		uintptr_t actorPtr = 0;
+		int32_t physicalSectorIndex = -1;
 		uintptr_t voxelPtr = 0;
 		uintptr_t voxelModelPtr = 0;
 		int32_t sourcePicnum = -1;
@@ -447,6 +453,8 @@ namespace
 		float actorScenePosition[3] = {};
 		bool hasActorScenePosition = false;
 		bool indirectOnly = false;
+		bool authorityCurrent = false;
+		bool publicationEligible = false;
 		VoxelActorCacheEntry* entry = nullptr;
 	};
 
@@ -2010,15 +2018,6 @@ namespace
 		return key;
 	}
 
-	VoxelInstanceKey BuildVoxelInstanceKey(int32_t actorIndex, DCoreActor* actor)
-	{
-		VoxelInstanceKey key = {};
-		key.actorIndex = actorIndex;
-		key.actorPtr = actor;
-		key.actorGeneration = 0;
-		return key;
-	}
-
 	uint64_t BuildVoxelMeshVariantKeyHash(const VoxelMeshVariantKey& key)
 	{
 		if (key.model == nullptr)
@@ -2065,18 +2064,61 @@ namespace
 		return hashes;
 	}
 
-	uint64_t BuildVoxelInstanceKeyHash(const VoxelInstanceKey& key)
+	uint64_t BuildVoxelActorIdentityKey(const ActorPresentationOwnerKey& owner)
 	{
-		if (key.actorIndex < 0 || key.actorPtr == nullptr)
+		if (!owner.IsValid())
 		{
 			return 0;
 		}
 
 		uint64_t hash = 1469598103934665603ull;
-		hash = HashCombine64(hash, (uint64_t)(uint32_t)key.actorIndex);
-		hash = HashCombine64(hash, (uint64_t)(uintptr_t)key.actorPtr);
-		hash = HashCombine64(hash, (uint64_t)key.actorGeneration);
-		return hash;
+		hash = HashCombine64(hash, owner.ownerWorldEpoch);
+		hash = HashCombine64(hash, (uint64_t)owner.ownerLifetimeGeneration);
+		return hash != 0 ? hash : 1ull;
+	}
+
+	uint64_t BuildLegacyVoxelInstanceKeyHash(int32_t actorIndex, uintptr_t actorAddress)
+	{
+		if (actorIndex < 0 || actorAddress == 0)
+		{
+			return 0;
+		}
+
+		uint64_t hash = 1469598103934665603ull;
+		hash = HashCombine64(hash, (uint64_t)(uint32_t)actorIndex);
+		hash = HashCombine64(hash, (uint64_t)actorAddress);
+		return HashCombine64(hash, 0);
+	}
+
+	uint64_t BuildActorPresentationBasisStateHash(const ActorPresentationState& state)
+	{
+		uint64_t hash = 1469598103934665603ull;
+		hash = HashCombine64(hash, (uint64_t)(uint32_t)state.picnum);
+		hash = HashCombine64(hash, (uint64_t)(uint32_t)state.textureId);
+		hash = HashCombine64(hash, (uint64_t)(uint32_t)state.displayTextureId);
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.angles.yawDegrees, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.angles.pitchDegrees, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.angles.rollDegrees, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.scale.x, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.scale.y, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.modelRotation.yawDegrees, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.modelRotation.pitchDegrees, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.modelRotation.rollDegrees, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.modelPositionOffset.x, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.modelPositionOffset.y, 4096.0));
+		hash = HashCombine64(hash, QuantizeSignatureFloat(state.modelPositionOffset.z, 4096.0));
+		hash = HashCombine64(hash, (uint64_t)state.cstat);
+		hash = HashCombine64(hash, (uint64_t)state.cstat2);
+		hash = HashCombine64(hash, (uint64_t)state.renderFlags);
+		return HashCombine64(hash, QuantizeSignatureFloat((double)state.alpha, 65535.0));
+	}
+
+	bool IsActorPresentationVoxelCacheOwner(const ActorPresentationState& state)
+	{
+		return state.authorityCurrent &&
+			state.publicationEligible &&
+			(state.renderFlags & SPREXT_NOTMD) == 0 &&
+			(state.cstat2 & CSTAT2_SPRITE_NOMODEL) == 0;
 	}
 
 	bool TryBuildVoxelActorIdentity(const HWSprite& sprite, VoxelActorCacheLookup& lookup)
@@ -2086,22 +2128,29 @@ namespace
 			return false;
 		}
 
-		const int32_t actorIndex = (int32_t)sprite.Sprite->ownerActor->GetIndex();
-		if (actorIndex < 0)
+		const ActorPresentationState* authority =
+			LookupActorPresentationByActor(sprite.Sprite->ownerActor);
+		if (authority == nullptr || !authority->owner.IsValid() || authority->actorIndex < 0)
 		{
 			return false;
 		}
 
-		const VoxelInstanceKey instanceKey = BuildVoxelInstanceKey(actorIndex, sprite.Sprite->ownerActor);
-		lookup.identityKey = BuildVoxelInstanceKeyHash(instanceKey);
+		lookup.identityKey = BuildVoxelActorIdentityKey(authority->owner);
 		if (lookup.identityKey == 0)
 		{
 			return false;
 		}
 
-		lookup.actorIndex = actorIndex;
+		lookup.actorIndex = authority->actorIndex;
+		lookup.ownerWorldEpoch = authority->owner.ownerWorldEpoch;
+		lookup.ownerLifetimeGeneration = (uint64_t)authority->owner.ownerLifetimeGeneration;
+		lookup.placementGeneration = authority->placementGeneration;
+		lookup.placementStateHash = authority->placementStateHash;
+		lookup.presentationBasisStateHash = BuildActorPresentationBasisStateHash(*authority);
+		lookup.physicalSectorIndex = authority->physicalSectorIndex;
+		lookup.authorityCurrent = authority->authorityCurrent;
+		lookup.publicationEligible = IsActorPresentationVoxelCacheOwner(*authority);
 		lookup.indirectOnly = IsLocalPlayerActor(sprite.Sprite->ownerActor);
-		lookup.actorPtr = (uintptr_t)sprite.Sprite->ownerActor;
 		lookup.voxelPtr = (uintptr_t)sprite.voxel;
 		lookup.voxelModelPtr = (uintptr_t)sprite.voxel->model;
 		lookup.sourcePicnum = sprite.Sprite->spritetexture().GetIndex();
@@ -2529,8 +2578,13 @@ namespace
 	void InitializeVoxelActorCacheEntryIdentity(VoxelActorCacheEntry& entry, const VoxelActorCacheLookup& lookup)
 	{
 		entry.identityKey = lookup.identityKey;
+		entry.ownerWorldEpoch = lookup.ownerWorldEpoch;
+		entry.ownerLifetimeGeneration = lookup.ownerLifetimeGeneration;
+		entry.placementGeneration = lookup.placementGeneration;
+		entry.placementStateHash = lookup.placementStateHash;
+		entry.presentationBasisStateHash = lookup.presentationBasisStateHash;
 		entry.actorIndex = lookup.actorIndex;
-		entry.actorPtr = lookup.actorPtr;
+		entry.physicalSectorIndex = lookup.physicalSectorIndex;
 		entry.voxelPtr = lookup.voxelPtr;
 		entry.voxelModelPtr = lookup.voxelModelPtr;
 		entry.sourcePicnum = lookup.sourcePicnum;
@@ -2538,6 +2592,9 @@ namespace
 		entry.instanceKeyHash = lookup.instanceKeyHash;
 		entry.meshBakeSpace = lookup.meshBakeSpace;
 		entry.indirectOnly = lookup.indirectOnly;
+		entry.authorityCurrent = lookup.authorityCurrent;
+		entry.publicationEligible = lookup.publicationEligible;
+		entry.pendingRemoval = false;
 	}
 
 	void UpdateVoxelActorCacheEntryScenePosition(VoxelActorCacheEntry& entry, const VoxelActorCacheLookup& lookup)
@@ -4231,79 +4288,113 @@ namespace
 		return alpha;
 	}
 
-	void BuildLiveActorIdentityMap(std::unordered_map<uint64_t, DCoreActor*>& outActors)
+	bool IsActorPresentationVoxelCacheOwnerWithVoxel(const ActorPresentationState& state)
+	{
+		FSetTextureID texture(state.textureId);
+		return IsActorPresentationVoxelCacheOwner(state) && tilehasvoxel(texture) != 0;
+	}
+
+	void BuildActorPresentationIdentityMap(
+		std::unordered_map<uint64_t, const ActorPresentationState*>& outActors)
 	{
 		outActors.clear();
-		if (!r_voxels)
+		const ActorPresentationSnapshot& snapshot = GetActorPresentationSnapshot();
+		if (!r_voxels || !snapshot.complete)
 		{
 			return;
 		}
 
-		TSpriteIterator<DCoreActor> it;
-		while (DCoreActor* actor = it.Next())
+		for (const ActorPresentationState& actor : snapshot.actors)
 		{
-			if (!IsLiveActorVoxelCacheOwner(actor))
+			if (!IsActorPresentationVoxelCacheOwnerWithVoxel(actor))
 			{
 				continue;
 			}
 
-			const int32_t actorIndex = (int32_t)actor->GetIndex();
-			if (actorIndex < 0)
-			{
-				continue;
-			}
-
-			// Cache identity is actor-based. Retain off-camera voxel-capable actors
-			// for reflections, but do not let an actor that no longer resolves to a
-			// voxel keep stale geometry alive at its last captured transform.
-			const uint64_t identityKey = BuildVoxelInstanceKeyHash(BuildVoxelInstanceKey(actorIndex, actor));
+			const uint64_t identityKey = BuildVoxelActorIdentityKey(actor.owner);
 			if (identityKey != 0)
 			{
-				outActors[identityKey] = actor;
+				outActors[identityKey] = &actor;
 			}
 		}
 	}
 
-	bool SyncRetainedVoxelActorTransform(VoxelActorCacheEntry& entry, DCoreActor* actor)
+	void CopyActorPresentationCacheBasisPosition(
+		const ActorPresentationState& actor,
+		float outPosition[3])
 	{
-		if (actor == nullptr || !entry.hasSurface || !entry.persistentReady || entry.lastSeenFrame == gVoxelActorCacheFrame)
-		{
-			return false;
-		}
+		outPosition[0] = (float)actor.position.x;
+		outPosition[1] = (float)-actor.position.y;
+		outPosition[2] = (float)-actor.position.z;
+	}
 
+	bool SyncRetainedVoxelActorAuthority(
+		VoxelActorCacheEntry& entry,
+		const ActorPresentationState& actor)
+	{
+		bool changed = false;
 		float actorScenePosition[3] = {};
-		CopyLiveActorScenePosition(*actor, actorScenePosition);
+		CopyActorPresentationCacheBasisPosition(actor, actorScenePosition);
 		if (!entry.hasLastActorScenePosition)
 		{
 			entry.lastActorScenePosition[0] = actorScenePosition[0];
 			entry.lastActorScenePosition[1] = actorScenePosition[1];
 			entry.lastActorScenePosition[2] = actorScenePosition[2];
 			entry.hasLastActorScenePosition = true;
-			return false;
+			changed = true;
+		}
+		else
+		{
+			const float delta[3] =
+			{
+				actorScenePosition[0] - entry.lastActorScenePosition[0],
+				actorScenePosition[1] - entry.lastActorScenePosition[1],
+				actorScenePosition[2] - entry.lastActorScenePosition[2],
+			};
+			constexpr float Epsilon = 0.0001f;
+			if (std::abs(delta[0]) > Epsilon || std::abs(delta[1]) > Epsilon || std::abs(delta[2]) > Epsilon)
+			{
+				entry.currentTranslation[0] += delta[0];
+				entry.currentTranslation[1] += delta[1];
+				entry.currentTranslation[2] += delta[2];
+				entry.currentTransform[3] += delta[0];
+				entry.currentTransform[7] += delta[1];
+				entry.currentTransform[11] += delta[2];
+				entry.lastActorScenePosition[0] = actorScenePosition[0];
+				entry.lastActorScenePosition[1] = actorScenePosition[1];
+				entry.lastActorScenePosition[2] = actorScenePosition[2];
+				changed = true;
+			}
 		}
 
-		const float delta[3] =
-		{
-			actorScenePosition[0] - entry.lastActorScenePosition[0],
-			actorScenePosition[1] - entry.lastActorScenePosition[1],
-			actorScenePosition[2] - entry.lastActorScenePosition[2],
-		};
-		constexpr float Epsilon = 0.0001f;
-		if (std::abs(delta[0]) <= Epsilon && std::abs(delta[1]) <= Epsilon && std::abs(delta[2]) <= Epsilon)
-		{
-			return false;
-		}
+		const uint64_t basisStateHash = BuildActorPresentationBasisStateHash(actor);
+		const bool basisCurrent = basisStateHash == entry.presentationBasisStateHash;
+		const bool authorityCurrent = actor.authorityCurrent;
+		const bool publicationEligible =
+			IsActorPresentationVoxelCacheOwnerWithVoxel(actor) && basisCurrent;
+		changed = changed ||
+			entry.placementGeneration != actor.placementGeneration ||
+			entry.placementStateHash != actor.placementStateHash ||
+			entry.physicalSectorIndex != actor.physicalSectorIndex ||
+			entry.authorityCurrent != authorityCurrent ||
+			entry.publicationEligible != publicationEligible ||
+			entry.pendingRemoval;
+		entry.placementGeneration = actor.placementGeneration;
+		entry.placementStateHash = actor.placementStateHash;
+		entry.physicalSectorIndex = actor.physicalSectorIndex;
+		entry.authorityCurrent = authorityCurrent;
+		entry.publicationEligible = publicationEligible;
+		entry.pendingRemoval = false;
+		return changed;
+	}
 
-		entry.currentTranslation[0] += delta[0];
-		entry.currentTranslation[1] += delta[1];
-		entry.currentTranslation[2] += delta[2];
-		entry.currentTransform[3] += delta[0];
-		entry.currentTransform[7] += delta[1];
-		entry.currentTransform[11] += delta[2];
-		entry.lastActorScenePosition[0] = actorScenePosition[0];
-		entry.lastActorScenePosition[1] = actorScenePosition[1];
-		entry.lastActorScenePosition[2] = actorScenePosition[2];
-		return true;
+	bool MarkVoxelActorAuthorityMissing(VoxelActorCacheEntry& entry)
+	{
+		const bool changed = entry.authorityCurrent || entry.publicationEligible || !entry.pendingRemoval;
+		entry.authorityCurrent = false;
+		entry.publicationEligible = false;
+		entry.pendingRemoval = true;
+		return changed;
 	}
 
 	bool BeginVoxelActorCacheFrame()
@@ -4668,8 +4759,8 @@ namespace
 	void PruneVoxelActorCacheLegacy(SceneDebugStats& stats)
 	{
 		const auto liveStart = std::chrono::steady_clock::now();
-		std::unordered_map<uint64_t, DCoreActor*> liveActors;
-		BuildLiveActorIdentityMap(liveActors);
+		std::unordered_map<uint64_t, const ActorPresentationState*> liveActors;
+		BuildActorPresentationIdentityMap(liveActors);
 		gDynamicCapturePerfStats.voxelMaintenanceLiveActorsEnumerated += (uint32_t)liveActors.size();
 		gDynamicCapturePerfStats.voxelMaintenanceLiveEnumerationMs +=
 			DurationMs(liveStart, std::chrono::steady_clock::now());
@@ -4681,6 +4772,10 @@ namespace
 			auto liveActor = liveActors.find(it->first);
 			if (liveActor == liveActors.end())
 			{
+				if (MarkVoxelActorAuthorityMissing(it->second))
+				{
+					++gVoxelActorCacheSerial;
+				}
 				if (it->second.lastSeenFrame == gVoxelActorCacheFrame)
 				{
 					EmitVoxelActorStateTrace(nullptr, nullptr, &it->second, "retained-actor-not-live-current-frame", VoxelActorPendingReason::ActorNotLive);
@@ -4694,9 +4789,9 @@ namespace
 				++gVoxelActorCacheSerial;
 				continue;
 			}
-			if (it->second.hasSurface && it->second.lastSeenFrame != gVoxelActorCacheFrame)
+			if (it->second.lastSeenFrame != gVoxelActorCacheFrame)
 			{
-				if (SyncRetainedVoxelActorTransform(it->second, liveActor->second))
+				if (SyncRetainedVoxelActorAuthority(it->second, *liveActor->second))
 				{
 					++gVoxelActorCacheSerial;
 					gDynamicCapturePerfStats.voxelMaintenanceTransformSyncs++;
@@ -4705,7 +4800,10 @@ namespace
 				stats.voxelCacheNotCaptured++;
 				EmitVoxelActorStateTrace(nullptr, nullptr, &it->second, "retained-not-captured", VoxelActorPendingReason::None);
 			}
-			it->second.pendingRemoval = false;
+			else if (SyncRetainedVoxelActorAuthority(it->second, *liveActor->second))
+			{
+				++gVoxelActorCacheSerial;
+			}
 			++it;
 		}
 		gDynamicCapturePerfStats.voxelMaintenanceReconcileMs +=
@@ -4722,9 +4820,6 @@ namespace
 			gDynamicCapturePerfStats.voxelMaintenanceCacheEntriesScanned++;
 			VoxelActorCacheEntry& entry = it->second;
 			// Removal events are authoritative and may outlive the actor object.
-			// Never inspect actorPtr after such an event; GetIndex() is the actor's
-			// spawn-unique identity, so a later allocation at the same address owns
-			// a different cache key.
 			const NRIVoxelActorPendingRemovalAction pendingRemovalAction =
 				ResolveNRIVoxelActorPendingRemoval(
 					entry.pendingRemoval,
@@ -4745,14 +4840,22 @@ namespace
 				++gVoxelActorCacheSerial;
 				continue;
 			}
-			DCoreActor* actor = reinterpret_cast<DCoreActor*>(entry.actorPtr);
-			const bool identityMatches = actor != nullptr &&
-				entry.actorIndex >= 0 &&
-				actor->GetIndex() == entry.actorIndex &&
-				BuildVoxelInstanceKeyHash(BuildVoxelInstanceKey(entry.actorIndex, actor)) == it->first;
-			const bool live = identityMatches && IsLiveActorVoxelCacheOwner(actor);
+			const ActorPresentationOwnerKey owner =
+			{
+				entry.ownerWorldEpoch,
+				(int64_t)entry.ownerLifetimeGeneration
+			};
+			const ActorPresentationState* actor = LookupActorPresentationByOwnerKey(owner);
+			const bool live = actor != nullptr &&
+				actor->actorIndex == entry.actorIndex &&
+				BuildVoxelActorIdentityKey(actor->owner) == it->first &&
+				IsActorPresentationVoxelCacheOwnerWithVoxel(*actor);
 			if (!live)
 			{
+				if (MarkVoxelActorAuthorityMissing(entry))
+				{
+					++gVoxelActorCacheSerial;
+				}
 				if (entry.lastSeenFrame == gVoxelActorCacheFrame)
 				{
 					entry.pendingRemoval = true;
@@ -4769,16 +4872,19 @@ namespace
 				continue;
 			}
 
-			entry.pendingRemoval = false;
-			if (entry.hasSurface && entry.lastSeenFrame != gVoxelActorCacheFrame)
+			if (entry.lastSeenFrame != gVoxelActorCacheFrame)
 			{
-				if (SyncRetainedVoxelActorTransform(entry, actor))
+				if (SyncRetainedVoxelActorAuthority(entry, *actor))
 				{
 					++gVoxelActorCacheSerial;
 					gDynamicCapturePerfStats.voxelMaintenanceTransformSyncs++;
 					EmitVoxelActorStateTrace(nullptr, nullptr, &entry, "retained-transform-sync", VoxelActorPendingReason::None);
 				}
 				stats.voxelCacheNotCaptured++;
+			}
+			else if (SyncRetainedVoxelActorAuthority(entry, *actor))
+			{
+				++gVoxelActorCacheSerial;
 			}
 			++it;
 		}
@@ -4843,14 +4949,24 @@ namespace
 			case ActorLifecycleEventType::Removed:
 			{
 				gDynamicCapturePerfStats.voxelLifecycleRemoveEvents++;
-				const uint64_t key = BuildVoxelInstanceKeyHash(
-					BuildVoxelInstanceKey(event.actorIndex, reinterpret_cast<DCoreActor*>(event.actorAddress)));
+				const uint64_t key = BuildVoxelActorIdentityKey(
+					{ event.worldEpoch, event.actorIndex });
 				auto found = gVoxelActorCache.find(key);
+				if (found == gVoxelActorCache.end())
+				{
+					// Compatibility with cache rows authored by the former pointer-keyed
+					// identity during migration. New rows never persist actor addresses.
+					const uint64_t legacyKey = BuildLegacyVoxelInstanceKeyHash(
+						event.actorIndex,
+						event.actorAddress);
+					found = gVoxelActorCache.find(legacyKey);
+				}
 				if (found != gVoxelActorCache.end())
 				{
-					found->second.pendingRemoval = true;
+					MarkVoxelActorAuthorityMissing(found->second);
 					gVoxelActorPendingRemoval = true;
 					gDynamicCapturePerfStats.voxelLifecycleRemovalEntriesMarked++;
+					++gVoxelActorCacheSerial;
 				}
 				result.forceReconcile = true;
 				break;
@@ -6851,6 +6967,18 @@ bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>
 	sortedEntries.reserve(gVoxelActorCache.size());
 	for (const auto& pair : gVoxelActorCache)
 	{
+		const bool publicationCurrent =
+			pair.second.ownerWorldEpoch != 0 &&
+			pair.second.placementGeneration != 0 &&
+			pair.second.placementStateHash != 0 &&
+			pair.second.physicalSectorIndex >= 0 &&
+			pair.second.authorityCurrent &&
+			pair.second.publicationEligible &&
+			!pair.second.pendingRemoval;
+		if (!publicationCurrent)
+		{
+			continue;
+		}
 		const bool currentReady = pair.second.hasSurface && pair.second.persistentReady && !pair.second.startupPending;
 		const bool desiredDirectPending =
 			ShouldDirectPublishNRIVoxelComputeMeshing() &&
@@ -6881,6 +7009,10 @@ bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>
 	{
 		PersistentVoxelCacheEntryView view = {};
 		view.identityKey = entry.first;
+		view.ownerWorldEpoch = entry.second->ownerWorldEpoch;
+		view.ownerLifetimeGeneration = entry.second->ownerLifetimeGeneration;
+		view.placementGeneration = entry.second->placementGeneration;
+		view.placementStateHash = entry.second->placementStateHash;
 		const bool desiredDirectPending =
 			ShouldDirectPublishNRIVoxelComputeMeshing() &&
 			entry.second->pendingReason != (uint8_t)VoxelActorPendingReason::None &&
@@ -6943,12 +7075,16 @@ bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>
 		view.materialVariantHash = desiredDirectPending ? entry.second->desiredMaterialVariantHash : entry.second->materialVariantHash;
 		view.meshBakeSpace = entry.second->meshBakeSpace;
 		view.actorIndex = entry.second->actorIndex;
+		view.physicalSectorIndex = entry.second->physicalSectorIndex;
 		view.sourcePicnum = entry.second->sourcePicnum;
 		view.resolvedVoxelIndex = entry.second->resolvedVoxelIndex;
 		view.primitiveCount = desiredDirectPending ? entry.second->desiredPrimitiveCount : entry.second->primitiveCount;
 		view.lastSeenFrame = entry.second->lastSeenFrame;
 		view.capturedThisFrame = entry.second->lastSeenFrame == gVoxelActorCacheFrame;
 		view.indirectOnly = entry.second->indirectOnly;
+		view.authorityCurrent = entry.second->authorityCurrent;
+		view.publicationEligible = entry.second->publicationEligible;
+		view.pendingRemoval = entry.second->pendingRemoval;
 		view.retainedFrameAge = entry.second->lastSeenFrame != 0 && gVoxelActorCacheFrame >= entry.second->lastSeenFrame ?
 			gVoxelActorCacheFrame - entry.second->lastSeenFrame :
 			0;
@@ -7003,19 +7139,33 @@ bool GetPersistentVoxelActorAuthority(
 	}
 
 	const VoxelActorCacheEntry& entry = entryIt->second;
+	outAuthority.ownerWorldEpoch = entry.ownerWorldEpoch;
+	outAuthority.ownerLifetimeGeneration = entry.ownerLifetimeGeneration;
+	outAuthority.placementGeneration = entry.placementGeneration;
+	outAuthority.placementStateHash = entry.placementStateHash;
+	outAuthority.physicalSectorIndex = entry.physicalSectorIndex;
 	outAuthority.lastSeenFrame = entry.lastSeenFrame;
 	outAuthority.retainedFrameAge = entry.lastSeenFrame != 0 && gVoxelActorCacheFrame >= entry.lastSeenFrame ?
 		gVoxelActorCacheFrame - entry.lastSeenFrame : 0;
 	outAuthority.pendingRemoval = entry.pendingRemoval;
 	outAuthority.capturedThisFrame = entry.lastSeenFrame == gVoxelActorCacheFrame;
-	DCoreActor* actor = reinterpret_cast<DCoreActor*>(entry.actorPtr);
+	const ActorPresentationOwnerKey owner =
+	{
+		entry.ownerWorldEpoch,
+		(int64_t)entry.ownerLifetimeGeneration
+	};
+	const ActorPresentationState* actor = LookupActorPresentationByOwnerKey(owner);
 	const bool identityCurrent = actor != nullptr &&
 		entry.actorIndex == actorIndex &&
-		actor->GetIndex() == actorIndex &&
-		BuildVoxelInstanceKeyHash(BuildVoxelInstanceKey(actorIndex, actor)) == identityKey;
+		actor->actorIndex == actorIndex &&
+		BuildVoxelActorIdentityKey(actor->owner) == identityKey;
 	outAuthority.identityCurrent = identityCurrent;
-	outAuthority.lifecycleGeneration = identityCurrent ? (uint64_t)(uint32_t)actor->GetIndex() : 0;
-	outAuthority.live = identityCurrent && IsLiveActorVoxelCacheOwner(actor);
+	outAuthority.lifecycleGeneration = identityCurrent ? entry.ownerLifetimeGeneration : 0;
+	outAuthority.authorityCurrent = identityCurrent && actor->authorityCurrent;
+	outAuthority.publicationEligible = identityCurrent &&
+		IsActorPresentationVoxelCacheOwnerWithVoxel(*actor) &&
+		BuildActorPresentationBasisStateHash(*actor) == entry.presentationBasisStateHash;
+	outAuthority.live = outAuthority.authorityCurrent && outAuthority.publicationEligible;
 	if (!outAuthority.live)
 	{
 		return true;
@@ -7024,11 +7174,10 @@ bool GetPersistentVoxelActorAuthority(
 	// The retained-cache delta basis above is legacy engine XYZ. Diagnostics
 	// compare spatial evidence and GPU hits in PT world space (X, -Z, -Y), the
 	// same convention used by WorldToPathTracingPosition and sprite transforms.
-	outAuthority.actorScenePosition[0] = (float)actor->spr.pos.X;
-	outAuthority.actorScenePosition[1] = (float)-actor->spr.pos.Z;
-	outAuthority.actorScenePosition[2] = (float)-actor->spr.pos.Y;
-	outAuthority.physicalSectorIndex = actor->spr.sectp != nullptr ?
-		sector.IndexOf(actor->spr.sectp) : -1;
+	outAuthority.actorScenePosition[0] = (float)actor->position.x;
+	outAuthority.actorScenePosition[1] = (float)-actor->position.z;
+	outAuthority.actorScenePosition[2] = (float)-actor->position.y;
+	outAuthority.physicalSectorIndex = actor->physicalSectorIndex;
 	if (entry.hasLastActorScenePosition)
 	{
 		std::copy(
@@ -7037,7 +7186,7 @@ bool GetPersistentVoxelActorAuthority(
 			std::begin(outAuthority.cachedActorScenePosition));
 		constexpr float PositionEpsilon = 0.001f;
 		float liveCacheBasisPosition[3] = {};
-		CopyLiveActorScenePosition(*actor, liveCacheBasisPosition);
+		CopyActorPresentationCacheBasisPosition(*actor, liveCacheBasisPosition);
 		outAuthority.actorPositionSynchronized =
 			std::abs(liveCacheBasisPosition[0] - outAuthority.cachedActorScenePosition[0]) <= PositionEpsilon &&
 			std::abs(liveCacheBasisPosition[1] - outAuthority.cachedActorScenePosition[1]) <= PositionEpsilon &&

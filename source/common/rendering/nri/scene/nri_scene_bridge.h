@@ -299,6 +299,10 @@ struct SceneView
 struct PersistentVoxelCacheEntryView
 {
 	uint64_t identityKey = 0;
+	uint64_t ownerWorldEpoch = 0;
+	uint64_t ownerLifetimeGeneration = 0;
+	uint64_t placementGeneration = 0;
+	uint64_t placementStateHash = 0;
 	uint64_t signature = 0;
 	uint64_t geometrySignature = 0;
 	uint64_t surfaceSignature = 0;
@@ -313,6 +317,7 @@ struct PersistentVoxelCacheEntryView
 	uint64_t materialVariantHash = 0;
 	VoxelMeshBakeSpace meshBakeSpace = VoxelMeshBakeSpace::Unknown;
 	int32_t actorIndex = -1;
+	int32_t physicalSectorIndex = -1;
 	int32_t sourcePicnum = -1;
 	int32_t resolvedVoxelIndex = -1;
 	uint32_t primitiveCount = 0;
@@ -320,6 +325,9 @@ struct PersistentVoxelCacheEntryView
 	uint64_t retainedFrameAge = 0;
 	bool capturedThisFrame = false;
 	bool indirectOnly = false;
+	bool authorityCurrent = false;
+	bool publicationEligible = false;
+	bool pendingRemoval = false;
 	float instanceTransform[12] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
 	float currentTranslation[3] = {};
 	float bakedTranslation[3] = {};
@@ -342,13 +350,14 @@ struct PersistentVoxelActorCacheStats
 	uint64_t frame = 0;
 };
 
-// Immutable live-state authority for one retained voxel occurrence.  The
-// actor's GetIndex() value is spawn-unique in the engine and therefore serves
-// as the lifecycle generation; identityKey additionally binds that generation
-// to the owning actor pointer used by the retained cache.
+// Immutable engine-owned authority for one retained voxel occurrence.
 struct PersistentVoxelActorAuthorityView
 {
 	uint64_t identityKey = 0;
+	uint64_t ownerWorldEpoch = 0;
+	uint64_t ownerLifetimeGeneration = 0;
+	uint64_t placementGeneration = 0;
+	uint64_t placementStateHash = 0;
 	uint64_t lifecycleGeneration = 0;
 	int32_t actorIndex = -1;
 	int32_t physicalSectorIndex = -1;
@@ -356,6 +365,8 @@ struct PersistentVoxelActorAuthorityView
 	uint64_t retainedFrameAge = 0;
 	bool identityCurrent = false;
 	bool live = false;
+	bool authorityCurrent = false;
+	bool publicationEligible = false;
 	bool pendingRemoval = false;
 	bool capturedThisFrame = false;
 	bool actorPositionSynchronized = false;

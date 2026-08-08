@@ -12,8 +12,18 @@ uint64_t ActorLifecycleJournal::Record(
 	uintptr_t actorAddress,
 	int32_t actorIndex,
 	int32_t oldStat,
-	int32_t newStat)
+	int32_t newStat,
+	int32_t sectorIndex)
 {
+	if (type == ActorLifecycleEventType::Reset)
+	{
+		++mWorldEpoch;
+		if (mWorldEpoch == 0)
+		{
+			mWorldEpoch = 1;
+		}
+	}
+
 	++mLatestSerial;
 	if (mLatestSerial == 0)
 	{
@@ -23,9 +33,11 @@ uint64_t ActorLifecycleJournal::Record(
 
 	ActorLifecycleEvent& event = mEvents[(mLatestSerial - 1) % mEvents.size()];
 	event.serial = mLatestSerial;
+	event.worldEpoch = mWorldEpoch;
 	event.type = type;
 	event.actorAddress = actorAddress;
 	event.actorIndex = actorIndex;
+	event.sectorIndex = sectorIndex;
 	event.oldStat = oldStat;
 	event.newStat = newStat;
 	mCount = (std::min)(mCount + 1, mEvents.size());

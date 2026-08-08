@@ -67,6 +67,7 @@
 #include "d_net.h"
 #include "gamecontrol.h"
 #include "gameupdate.h"
+#include "actor_presentation_snapshot.h"
 #include "lightoverlay_editor.h"
 #include "lightoverlay_smoke_editor.h"
 #include "c_console.h"
@@ -1604,6 +1605,7 @@ void TryRunTics (void)
 			{
 				gGameUpdateGeneration = 1;
 			}
+			PublishActorPresentationSnapshot(gGameUpdateGeneration);
 			++gGameUpdateTicksThisPresentation;
 			gametic++;
 

@@ -34,6 +34,7 @@
 
 #include "build.h"
 #include "actor_lifecycle_journal.h"
+#include "actor_presentation_snapshot.h"
 #include "c_dispatch.h"
 #include "coreactor.h"
 #include "gamefuncs.h"
@@ -198,7 +199,8 @@ int ChangeActorStat(DCoreActor* actor, int statnum, bool tail)
 		reinterpret_cast<uintptr_t>(actor),
 		(int32_t)actor->GetIndex(),
 		oldstat,
-		statnum);
+		statnum,
+		actor->sectno());
 	return 0;
 }
 
@@ -380,7 +382,8 @@ DCoreActor* InsertActor(PClass* type, sectortype* sector, int stat, bool tail)
 		reinterpret_cast<uintptr_t>(actor),
 		(int32_t)actor->GetIndex(),
 		-1,
-		stat);
+		stat,
+		actor->sectno());
 	return actor;
 }
 
@@ -452,7 +455,8 @@ void DCoreActor::OnDestroy()
 		reinterpret_cast<uintptr_t>(this),
 		(int32_t)GetIndex(),
 		link_stat,
-		-1);
+		-1,
+		sectno());
 
 	int stat = link_stat;
 	RemoveActorStat(this);
@@ -511,6 +515,7 @@ void InitSpriteLists()
 	}
 	Numsprites = 0;
 	GetActorLifecycleJournal().Record(ActorLifecycleEventType::Reset);
+	ResetActorPresentationSnapshot(GetActorLifecycleJournal().WorldEpoch());
 }
 
 //==========================================================================
