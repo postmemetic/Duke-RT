@@ -485,6 +485,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	nri_scene::GeometryData& runtimeSpaceLinkGeometry = frame.runtimeSpaceLinkGeometry;
 	nri_scene::GeometryData& dynamicGeometry = frame.dynamicGeometry;
 	nri_scene::GeometryData& mergedDynamicGeometry = frame.mergedDynamicGeometry;
+	nri_scene::GeometryData& actorFilteredDynamicGeometry = frame.actorFilteredDynamicGeometry;
 	nri_scene::GeometryData& debugSphereGeometry = frame.debugSphereGeometry;
 	nri_scene::GeometryData& surfaceLightGeometry = frame.surfaceLightGeometry;
 	nri_scene::MaterialBridgeData& materialBridge = frame.materialBridge;
@@ -511,6 +512,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	refreshedCombinedGpuMaterials.clear();
 	deferredTextureMaterialIndices.clear();
 	nri_scene::ClearGeometryRetainingCapacity(mSelectLocalPlayerReflectionGeometryScratch);
+	nri_scene::ClearGeometryRetainingCapacity(actorFilteredDynamicGeometry);
 	nri_scene::ClearGeometryRetainingCapacity(mSelectOverlayGeometryScratch);
 	nri_scene::ClearMaterialBridgeRetainingCapacity(mSelectOverlayMaterialBridgeScratch);
 	mSelectTopLevelInstanceScratch.clear();
@@ -740,6 +742,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			IsNRILocalPlayerPrimaryVisibleFromViewpoint(viewpointActorIndex, localPlayerActorIndex);
 		NRISceneInstanceVisibilityContext sceneInstanceVisibilityContext = {};
 		sceneInstanceVisibilityContext.localPlayerActorIndex = localPlayerActorIndex;
+		NRIActorOccurrencePolicyContext actorOccurrencePolicyContext = {};
 		NRIPersistentVoxelTlasServices persistentVoxelEligibilityServices = {};
 		persistentVoxelEligibilityServices.user = this;
 		persistentVoxelEligibilityServices.getAccelerationStructureHandle = [](void* user, const NRIAccelerationStructureResource& resource) -> uint64_t
@@ -917,6 +920,60 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			return EnsurePersistentVoxelBatch();
 		}();
 
+		const NRISpatialAbsenceSnapshot& actorSpatialSnapshot = mSpatialAbsenceGate.GetSnapshot();
+		uint32_t actorContextRisks = NRI_ACTOR_CONTEXT_RISK_NONE;
+		if (localPlayerActorIndex < 0 || viewpointActorIndex != localPlayerActorIndex)
+		{
+			actorContextRisks |= NRI_ACTOR_CONTEXT_RISK_NON_PLAYER_CAMERA;
+		}
+		if (actorSpatialSnapshot.rootSectorIndices.size() != 1u)
+		{
+			actorContextRisks |= NRI_ACTOR_CONTEXT_RISK_MULTIPLE_ROOTS;
+		}
+		if (!mMapWorld.portals.empty())
+		{
+			actorContextRisks |= NRI_ACTOR_CONTEXT_RISK_PORTAL_GRAPH;
+		}
+		const bool reachedPlainMirror = std::any_of(
+			mMapWorld.surfaces.begin(), mMapWorld.surfaces.end(),
+			[&actorSpatialSnapshot](const nri_scene::PTMapSurface& surface)
+			{
+				const int32_t wallIndex = surface.surface.provenance.wallIndex;
+				return wallIndex >= 0 &&
+					(surface.surface.material.flags & nri_scene::MaterialFlag_Mirror) != 0u &&
+					std::binary_search(
+						actorSpatialSnapshot.reachedWallIndices.begin(),
+						actorSpatialSnapshot.reachedWallIndices.end(),
+						(uint32_t)wallIndex);
+			});
+		if (reachedPlainMirror)
+		{
+			actorContextRisks |= NRI_ACTOR_CONTEXT_RISK_REACHED_MIRROR;
+		}
+		const bool runtimeLinkRisk =
+			hasRuntimeSpaceLinkOverlay ||
+			mRuntimeSpaceLinkLastFrame.active ||
+			mRuntimeSpaceLinkLastFrame.geoEffectActive ||
+			mRuntimeSpaceLinkLastFrame.linkCount != 0u ||
+			mRuntimeSpaceLinkLastFrame.translatedChunkCount != 0u ||
+			mRuntimeSpaceLinkLastFrame.unresolvedRuntimePortalCount != 0u;
+		if (runtimeLinkRisk)
+		{
+			actorContextRisks |= NRI_ACTOR_CONTEXT_RISK_RUNTIME_LINK;
+		}
+		actorOccurrencePolicyContext.enabled = persistentVoxelSettings.actorAbsenceGateEnabled;
+		actorOccurrencePolicyContext.logicalMainRoot =
+			!inputs.preserveHistory && localPlayerActorIndex >= 0 &&
+			viewpointActorIndex == localPlayerActorIndex &&
+			actorSpatialSnapshot.rootSectorIndices.size() == 1u;
+		actorOccurrencePolicyContext.contextRiskFlags = actorContextRisks;
+		actorOccurrencePolicyContext.frameIndex = mFrameIndex;
+		actorOccurrencePolicyContext.mapWorld = &mMapWorld;
+		actorOccurrencePolicyContext.spatialSnapshot = &actorSpatialSnapshot;
+		mPersistentVoxels.EvaluateActorOccurrencePolicies(
+			mFrameIndex,
+			actorOccurrencePolicyContext);
+
 		PersistentDynamicSurfaceStats persistentDynamicStats = {};
 		{
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectPersistentEmissiveMs);
@@ -1014,6 +1071,21 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		if (hasPersistentVoxelBatch && mPersistentVoxels.HasValidBatch())
 		{
 			appendPersistentVoxelSceneLights = true;
+		}
+
+		const std::unordered_set<int32_t>* suppressedActorIndices =
+			mPersistentVoxels.GetSuppressedActorIndices(mFrameIndex);
+		if (activeDynamicGeometry != nullptr && suppressedActorIndices != nullptr &&
+			!suppressedActorIndices->empty())
+		{
+			const uint32_t removedActorPrimitives = FilterNRIActorOccurrenceGeometry(
+				*activeDynamicGeometry,
+				*suppressedActorIndices,
+				actorFilteredDynamicGeometry);
+			if (removedActorPrimitives != 0u)
+			{
+				activeDynamicGeometry = &actorFilteredDynamicGeometry;
+			}
 		}
 
 		const bool runtimeDebugSphereBuilt = !deferOverlayThisFrame && [&]()
@@ -1421,6 +1493,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						persistentVoxelTlasServices.occurrenceTrace.mapWorld = &mMapWorld;
 						persistentVoxelTlasServices.occurrenceTrace.spatialSnapshot =
 							&mSpatialAbsenceGate.GetSnapshot();
+						persistentVoxelTlasServices.occurrencePolicy = actorOccurrencePolicyContext;
 						persistentVoxelTlasServices.getAccelerationStructureHandle = [](void* user, const NRIAccelerationStructureResource& resource) -> uint64_t
 						{
 							NRIRenderer* renderer = static_cast<NRIRenderer*>(user);

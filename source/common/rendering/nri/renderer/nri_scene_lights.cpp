@@ -2672,6 +2672,7 @@ void NRIRenderer::RefreshSceneLightSystem(
 	assemblyInput.surfaceLightSceneView = surfaceLightSceneView;
 	assemblyInput.surfaceLightMaterials = surfaceLightMaterials;
 	assemblyInput.appendPersistentVoxelSceneLights = appendPersistentVoxelSceneLights;
+	assemblyInput.suppressedActorIndices = mPersistentVoxels.GetSuppressedActorIndices(mFrameIndex);
 
 	SceneLightSystem::FrameAssemblyServices assemblyServices = {};
 	assemblyServices.runtimeMutationUser = &mRuntimeMutation;
@@ -2914,6 +2915,7 @@ void SceneLightSystem::Reset()
 	mFrameSerial = 0;
 	mActivatedActorOverlayKeys.clear();
 	mPublishedActorOverlayIndices.clear();
+	mSuppressedActorIndices.clear();
 	mEmissiveStableSurfaceStates.clear();
 	mResolvedMuzzleFlashRuleLookup.clear();
 	mTransientMuzzleFlashSlots.clear();
@@ -3538,6 +3540,7 @@ void SceneLightSystem::BeginFrame(uint64_t frameSerial)
 	mSurfaceRecords.clear();
 	mSurfaceRecordIndex.Clear();
 	mPublishedActorOverlayIndices.clear();
+	mSuppressedActorIndices.clear();
 	mFrameAppendStats = {};
 	mAnalyticLights.matchedSurfaceCount = 0;
 	mAnalyticLights.actorOverlayRuleCount = 0;
@@ -3572,6 +3575,10 @@ SceneLightSystem::FrameAssemblyTimingStats SceneLightSystem::AssembleFrameSurfac
 {
 	FrameAssemblyTimingStats timings = {};
 	BeginFrame(input.frameSerial);
+	if (input.suppressedActorIndices != nullptr)
+	{
+		mSuppressedActorIndices = *input.suppressedActorIndices;
+	}
 
 	auto measure = [](double& target, auto&& work)
 	{
@@ -3756,10 +3763,15 @@ void SceneLightSystem::AppendSurfaceRecords(
 
 void SceneLightSystem::MarkActorPublishedForOverlayActivation(int32_t actorIndex)
 {
-	if (actorIndex >= 0)
+	if (actorIndex >= 0 && !IsActorSuppressedForFrame(actorIndex))
 	{
 		mPublishedActorOverlayIndices.insert(actorIndex);
 	}
+}
+
+bool SceneLightSystem::IsActorSuppressedForFrame(int32_t actorIndex) const
+{
+	return actorIndex >= 0 && mSuppressedActorIndices.find(actorIndex) != mSuppressedActorIndices.end();
 }
 
 bool SceneLightSystem::HasActorAppearanceEvidence(int32_t actorIndex) const
@@ -3843,6 +3855,14 @@ void SceneLightSystem::RebuildAnalyticLights(
 
 	auto tryAppendLight = [this, &nextLights, &keyToLightIndex](const SceneAnalyticLight& light)
 	{
+		// A certified wrong-locality actor is omitted as one frame-local
+		// occurrence.  Apply that same answer at the final analytic-light
+		// publication boundary so sprite heuristics, transient actor lights,
+		// and overlay rules cannot leave a light-only apparition behind.
+		if (IsActorSuppressedForFrame(light.actorIndex))
+		{
+			return;
+		}
 		if (keyToLightIndex.find(light.stableKey) != keyToLightIndex.end())
 		{
 			mAnalyticLights.dedupedMatchCount++;
@@ -3983,6 +4003,10 @@ void SceneLightSystem::RebuildAnalyticLights(
 			const SurfaceRecord* record)
 		{
 			if (rule.actorIndex < 0)
+			{
+				return;
+			}
+			if (IsActorSuppressedForFrame(rule.actorIndex))
 			{
 				return;
 			}
@@ -6861,6 +6885,10 @@ bool SceneLightSystem::ConsumeSectorLightingTopologyChanged()
 
 void SceneLightSystem::AppendSurfaceRecord(SurfaceRecord record, uint32_t materialIndexBase)
 {
+	if (IsActorSuppressedForFrame(record.provenance.actorIndex))
+	{
+		return;
+	}
 	if (record.materialIndex != UINT32_MAX)
 	{
 		record.materialIndex += materialIndexBase;

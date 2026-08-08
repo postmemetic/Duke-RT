@@ -89,6 +89,7 @@ struct RenderSceneFrameBuildResult
 	nri_scene::GeometryData runtimeSpaceLinkGeometry;
 	nri_scene::GeometryData dynamicGeometry;
 	nri_scene::GeometryData mergedDynamicGeometry;
+	nri_scene::GeometryData actorFilteredDynamicGeometry;
 	nri_scene::GeometryData debugSphereGeometry;
 	nri_scene::GeometryData surfaceLightGeometry;
 	NRIRuntimeMutationFrameOutput runtimeMutationFrame;

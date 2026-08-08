@@ -85,6 +85,7 @@ struct NRISpatialAbsenceCensusInput
 	uint32_t probeReferencePixel = 0;
 	std::vector<uint32_t> rootSectorIndices;
 	std::vector<uint32_t> reachedSectorIndices;
+	std::vector<uint32_t> reachedWallIndices;
 	std::vector<uint32_t> uncertainSectorIndices;
 	// Runtime-dragged/replaced chunks must remain fail-open until their current
 	// occurrence bounds and generation are available to the classifier.
@@ -152,6 +153,7 @@ struct NRISpatialAbsenceSnapshot
 	int32_t rootLocalSpaceIndex = -1;
 	std::vector<uint32_t> rootSectorIndices;
 	std::vector<uint32_t> reachedSectorIndices;
+	std::vector<uint32_t> reachedWallIndices;
 	bool previousAuthority = false;
 	bool authorityTransition = false;
 	float center[3] = {};

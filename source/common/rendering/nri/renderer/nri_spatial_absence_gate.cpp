@@ -912,6 +912,11 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	std::sort(reached.begin(), reached.end());
 	reached.erase(std::unique(reached.begin(), reached.end()), reached.end());
 	mSnapshot.reachedSectorIndices = reached;
+	mSnapshot.reachedWallIndices = input.reachedWallIndices;
+	std::sort(mSnapshot.reachedWallIndices.begin(), mSnapshot.reachedWallIndices.end());
+	mSnapshot.reachedWallIndices.erase(
+		std::unique(mSnapshot.reachedWallIndices.begin(), mSnapshot.reachedWallIndices.end()),
+		mSnapshot.reachedWallIndices.end());
 	std::sort(uncertain.begin(), uncertain.end());
 	uncertain.erase(std::unique(uncertain.begin(), uncertain.end()), uncertain.end());
 	std::sort(uncertainChunks.begin(), uncertainChunks.end());

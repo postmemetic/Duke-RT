@@ -16,6 +16,7 @@
 #include "nri_voxel_compute_meshing.h"
 #include "nri_voxel_representation_policy.h"
 #include "nri_actor_occurrence_diagnostics.h"
+#include "nri_actor_occurrence_policy.h"
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_material_bridge.h"
@@ -909,6 +910,7 @@ struct NRIPersistentVoxelTlasServices
 	GetAccelerationStructureHandleFn getAccelerationStructureHandle = nullptr;
 	EvaluateRepresentationFn evaluateRepresentation = nullptr;
 	NRIActorOccurrenceTraceConfig occurrenceTrace;
+	NRIActorOccurrencePolicyContext occurrencePolicy;
 
 	uint64_t GetAccelerationStructureHandle(const NRIAccelerationStructureResource& resource) const;
 	NRIVoxelRepresentationDecision EvaluateRepresentation(const NRIVoxelRepresentationFacts& facts) const;
@@ -923,6 +925,8 @@ struct NRIPersistentVoxelTlasBuildStats
 	uint32_t shadowProxyInstanceCount = 0;
 	uint64_t shadowProxyPrimitiveCount = 0;
 	uint64_t exactShadowPrimitiveCountRemoved = 0;
+	uint32_t actorOccurrenceSuppressedCount = 0;
+	std::vector<int32_t> suppressedActorIndices;
 	NRIActorOccurrenceFrame occurrenceFrame;
 };
 
@@ -1086,6 +1090,10 @@ public:
 	bool HasValidBatch() const;
 	bool HasRenderableOverlay() const;
 	bool HasResidentIndirectOnlyActor(int32_t actorIndex) const;
+	uint32_t EvaluateActorOccurrencePolicies(
+		uint32_t frameIndex,
+		const NRIActorOccurrencePolicyContext& context);
+	const std::unordered_set<int32_t>* GetSuppressedActorIndices(uint32_t frameIndex) const;
 	bool HasOverlayPreparationEligibleActor(const NRIPersistentVoxelSettings& settings) const;
 	bool IsIndirectOnlyActorTlasAppendEligible(
 		int32_t actorIndex,
@@ -1176,6 +1184,9 @@ public:
 	std::unordered_map<uint64_t, PersistentVoxelAdmissionEntry> admissionQueue;
 	std::unordered_map<uint64_t, uint32_t> activeMeshReferences;
 	std::unordered_map<uint64_t, uint32_t> activeMaterialReferences;
+	uint32_t actorOccurrencePolicyFrameIndex = UINT32_MAX;
+	std::unordered_map<int32_t, NRIActorOccurrencePolicyDecision> actorOccurrencePolicyDecisions;
+	std::unordered_set<int32_t> suppressedActorIndices;
 	NRIPersistentVoxelAdmissionIndex admissionIndex;
 	uint64_t maintenanceMutationGeneration = 1;
 	mutable uint64_t cachedMemoryUsageGeneration = 0;

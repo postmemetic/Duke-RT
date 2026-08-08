@@ -653,6 +653,7 @@ public:
 		const nri_scene::SceneView* surfaceLightSceneView = nullptr;
 		const nri_scene::MaterialBridgeData* surfaceLightMaterials = nullptr;
 		bool appendPersistentVoxelSceneLights = false;
+		const std::unordered_set<int32_t>* suppressedActorIndices = nullptr;
 	};
 
 	struct FrameAssemblyServices
@@ -973,6 +974,7 @@ private:
 
 	static NRILightingSettings CaptureSettings();
 	bool IsActorPublishedForOverlayActivation(int32_t actorIndex) const;
+	bool IsActorSuppressedForFrame(int32_t actorIndex) const;
 	void AppendSurfaceRecord(SurfaceRecord record, uint32_t materialIndexBase);
 	void AppendSurfaceList(
 		const std::vector<nri_scene::SurfaceRef>& surfaces,
@@ -998,6 +1000,7 @@ private:
 	uint32_t mNextRuntimePointLightId = 1;
 	std::unordered_set<uint64_t> mActivatedActorOverlayKeys;
 	std::unordered_set<int32_t> mPublishedActorOverlayIndices;
+	std::unordered_set<int32_t> mSuppressedActorIndices;
 	std::unordered_map<uint64_t, EmissiveStableSurfaceState> mEmissiveStableSurfaceStates;
 	std::unordered_map<std::string, ResolvedLightOverlayMuzzleFlashRule> mResolvedMuzzleFlashRuleLookup;
 	std::vector<TransientMuzzleFlashSlot> mTransientMuzzleFlashSlots;

@@ -185,7 +185,16 @@ namespace
 			NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_SECTOR |
 			NRI_ACTOR_OCCURRENCE_INVARIANT_MISSING_BOUNDS |
 			NRI_ACTOR_OCCURRENCE_INVARIANT_INCOMPLETE_CENSUS;
-		if ((invariantFlags & incompleteFlags) != 0u || exact.empty())
+		const bool suppressionCandidateValid =
+			frame.candidates.size() == 1u &&
+			frame.candidates.front().publishReady &&
+			frame.candidates.front().suppressionAuthorized &&
+			!frame.candidates.front().admitted &&
+			frame.candidates.front().suppressedWorkloadMask != 0u;
+		const bool suppressionProof =
+			frame.suppressionAuthorized && frame.suppressedWorkloadMask != 0u &&
+			suppressionCandidateValid && exact.empty() && proxies.empty() && dynamic.empty();
+		if ((invariantFlags & incompleteFlags) != 0u || (exact.empty() && !suppressionProof))
 		{
 			return NRIActorOccurrenceClassification::EvidenceIncomplete;
 		}
@@ -204,8 +213,12 @@ namespace
 			{
 				return (occurrence->workloadMask & 1u) != 0u;
 			});
+		const bool wrongLocalitySuppressed = suppressionProof && frame.spatialEvidenceComplete &&
+			frame.ownerChunkNegative && !frame.ownerSectorReachedBy360 &&
+			frame.boundsOverlapConflict && frame.actorPositionInsideConflict;
 		const uint32_t provenClasses = (staleLifecycle ? 1u : 0u) + (duplicate ? 1u : 0u) +
-			(stalePublication ? 1u : 0u) + (wrongLocality ? 1u : 0u);
+			(stalePublication ? 1u : 0u) + (wrongLocality ? 1u : 0u) +
+			(wrongLocalitySuppressed ? 1u : 0u);
 		if (provenClasses > 1u)
 		{
 			return NRIActorOccurrenceClassification::MixedInvariantFailure;
@@ -225,6 +238,10 @@ namespace
 		if (wrongLocality)
 		{
 			return NRIActorOccurrenceClassification::WrongLocalitySingleCurrent;
+		}
+		if (wrongLocalitySuppressed)
+		{
+			return NRIActorOccurrenceClassification::WrongLocalitySuppressed;
 		}
 		return NRIActorOccurrenceClassification::CurrentLegitimate;
 	}
@@ -311,6 +328,36 @@ void NRIActorOccurrenceCensus::RecordCandidate(const NRIActorOccurrenceCandidate
 	{
 		ResolveAuthority(candidate.identityKey, candidate.actorIndex);
 	}
+}
+
+void NRIActorOccurrenceCensus::RecordPolicyDecision(const NRIActorOccurrencePolicyDecision& decision)
+{
+	if (!Targets(decision.actorIndex))
+	{
+		return;
+	}
+	mFrame.authorityFound = decision.authorityFound;
+	mFrame.identityCurrent = decision.identityCurrent;
+	mFrame.live = decision.live;
+	mFrame.pendingRemoval = decision.pendingRemoval;
+	mFrame.actorPositionSynchronized = decision.actorPositionSynchronized;
+	mFrame.spatialEvidenceComplete = decision.spatialEvidenceComplete;
+	mFrame.ownerSectorReachedBy360 = decision.ownerSectorReachedBy360;
+	mFrame.ownerChunkNegative = decision.ownerChunkNegative;
+	mFrame.boundsOverlapConflict = decision.boundsOverlapConflict;
+	mFrame.actorPositionInsideConflict = decision.actorPositionInsideConflict;
+	mFrame.suppressionAuthorized = decision.suppress;
+	mFrame.suppressedWorkloadMask = decision.suppressedWorkloadMask;
+	mFrame.identityKey = decision.identityKey;
+	mFrame.lifecycleGeneration = decision.lifecycleGeneration;
+	mFrame.physicalSectorIndex = decision.physicalSectorIndex;
+	mFrame.physicalChunkIndex = decision.physicalChunkIndex;
+	mFrame.physicalLocalSpaceIndex = decision.physicalLocalSpaceIndex;
+	mFrame.rootSectorIndex = decision.rootSectorIndex;
+	mFrame.rootLocalSpaceIndex = decision.rootLocalSpaceIndex;
+	mFrame.conflictPositiveChunk = decision.conflictPositiveChunk;
+	mFrame.conflictNegativeChunk = decision.conflictNegativeChunk;
+	std::memcpy(mFrame.actorScenePosition, decision.actorScenePosition, sizeof(mFrame.actorScenePosition));
 }
 
 void NRIActorOccurrenceCensus::RecordOccurrence(const NRIActorOccurrence& occurrence)
@@ -481,6 +528,7 @@ const char* GetNRIActorOccurrenceClassificationName(NRIActorOccurrenceClassifica
 	case NRIActorOccurrenceClassification::DuplicateOccurrence: return "duplicate-occurrence";
 	case NRIActorOccurrenceClassification::StaleTransform: return "stale-transform";
 	case NRIActorOccurrenceClassification::WrongLocalitySingleCurrent: return "wrong-locality-single-current";
+	case NRIActorOccurrenceClassification::WrongLocalitySuppressed: return "wrong-locality-suppressed";
 	case NRIActorOccurrenceClassification::CurrentLegitimate: return "current-legitimate";
 	case NRIActorOccurrenceClassification::MixedInvariantFailure: return "mixed-invariant-failure";
 	default: return "unknown";
@@ -510,7 +558,7 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 		GetNRIActorOccurrenceClassificationName(frame.classification));
 	for (const NRIActorOccurrenceCandidate& candidate : frame.candidates)
 	{
-		Printf("NRI PT actor occurrence candidate: frame=%u actor=%d actor_key=0x%llx lifecycle=%llu mesh_resource=0x%llx mesh_key=0x%llx material_key=0x%llx captured=%u active=%u admitted=%u reason=%s\n",
+		Printf("NRI PT actor occurrence candidate: frame=%u actor=%d actor_key=0x%llx lifecycle=%llu mesh_resource=0x%llx mesh_key=0x%llx material_key=0x%llx captured=%u active=%u admitted=%u publish_ready=%u suppression_authorized=%u suppressed_mask=0x%x reason=%s\n",
 			frame.frameIndex, candidate.actorIndex,
 			(unsigned long long)candidate.identityKey,
 			(unsigned long long)candidate.lifecycleGeneration,
@@ -518,7 +566,9 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 			(unsigned long long)candidate.meshKeyHash,
 			(unsigned long long)candidate.materialKeyHash,
 			candidate.capturedThisFrame ? 1u : 0u, candidate.active ? 1u : 0u,
-			candidate.admitted ? 1u : 0u, candidate.reason.c_str());
+			candidate.admitted ? 1u : 0u, candidate.publishReady ? 1u : 0u,
+			candidate.suppressionAuthorized ? 1u : 0u,
+			candidate.suppressedWorkloadMask, candidate.reason.c_str());
 	}
 	for (const NRIActorOccurrence& occurrence : frame.occurrences)
 	{
@@ -623,6 +673,43 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 	mixed.classification = ClassifyFrame(mixed);
 	if (mixed.classification != NRIActorOccurrenceClassification::MixedInvariantFailure)
 		return fail("mixed duplicate and locality failure was not classified");
+
+	NRIActorOccurrenceFrame suppressed = baseFrame();
+	suppressed.occurrences.clear();
+	suppressed.spatialEvidenceComplete = true;
+	suppressed.ownerChunkNegative = true;
+	suppressed.ownerSectorReachedBy360 = false;
+	suppressed.boundsOverlapConflict = true;
+	suppressed.actorPositionInsideConflict = true;
+	suppressed.suppressionAuthorized = true;
+	suppressed.suppressedWorkloadMask = 0xffu;
+	NRIActorOccurrenceCandidate suppressedCandidate;
+	suppressedCandidate.identityKey = suppressed.identityKey;
+	suppressedCandidate.lifecycleGeneration = suppressed.lifecycleGeneration;
+	suppressedCandidate.actorIndex = suppressed.targetActorIndex;
+	suppressedCandidate.active = true;
+	suppressedCandidate.publishReady = true;
+	suppressedCandidate.suppressionAuthorized = true;
+	suppressedCandidate.suppressedWorkloadMask = 0xffu;
+	suppressedCandidate.reason = "certified-negative-whole-occurrence";
+	suppressed.candidates.push_back(suppressedCandidate);
+	suppressed.classification = ClassifyFrame(suppressed);
+	if (suppressed.classification != NRIActorOccurrenceClassification::WrongLocalitySuppressed)
+		return fail("authorized whole occurrence suppression was not classified");
+
+	NRIActorOccurrenceFrame unauthorized = suppressed;
+	unauthorized.suppressionAuthorized = false;
+	unauthorized.candidates.front().suppressionAuthorized = false;
+	unauthorized.classification = ClassifyFrame(unauthorized);
+	if (unauthorized.classification != NRIActorOccurrenceClassification::EvidenceIncomplete)
+		return fail("occurrence disappearance without policy proof did not fail open");
+
+	std::string policyFailure;
+	if (!RunNRIActorOccurrencePolicySelfTests(&policyFailure))
+	{
+		if (failureReason != nullptr) *failureReason = "policy: " + policyFailure;
+		return false;
+	}
 
 	return true;
 }

@@ -1632,6 +1632,10 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // establish exact conflict witnesses and protected-region behavior.
 CVAR(Bool, nri_pt360absencegate, false, 0)
 
+// Actor occurrence omission is independently switchable for deterministic A/B
+// validation. It still consumes the same current logical-player 360 census.
+CVAR(Bool, nri_pt360actorabsencegate, false, 0)
+
 CVAR(Bool, nri_pt360absenceprobe, false, 0)
 
 CUSTOM_CVAR(Int, nri_pt360absenceprobechunk, -1, 0)

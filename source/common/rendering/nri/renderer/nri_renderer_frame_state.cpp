@@ -334,7 +334,8 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 	}
 	FillMatrix(mCurrentViewToClip, di.VPUniforms.mProjectionMatrix);
 	FillMatrix(mCurrentWorldToView, di.VPUniforms.mViewMatrix);
-	const bool spatialAbsenceRequested = (bool)nri_pt360absencegate || (bool)nri_pt360absenceprobe || (int)nri_pt360absencetrace > 0;
+	const bool spatialAbsenceRequested = (bool)nri_pt360absencegate || (bool)nri_pt360actorabsencegate ||
+		(bool)nri_pt360absenceprobe || (int)nri_pt360absencetrace > 0;
 	if (spatialAbsenceRequested && logicalMainView && mMapWorld.valid && mMapWorld.buildSerial != 0)
 	{
 		di.Capture360Census(mMapWorld.buildSerial, 0, true);
@@ -372,6 +373,14 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 			if (census.ContainsSector(sectorIndex))
 			{
 				input.reachedSectorIndices.push_back(sectorIndex);
+			}
+		}
+		input.reachedWallIndices.reserve(census.reachedWallCount);
+		for (unsigned wallIndex = 0; wallIndex < census.reachedWalls.Size(); ++wallIndex)
+		{
+			if (census.reachedWalls[wallIndex])
+			{
+				input.reachedWallIndices.push_back(wallIndex);
 			}
 		}
 		for (uint32_t chunkIndex = 0; chunkIndex < mMapWorld.chunks.size(); ++chunkIndex)

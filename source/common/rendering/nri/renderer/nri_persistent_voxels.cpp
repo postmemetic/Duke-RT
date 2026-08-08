@@ -1045,6 +1045,66 @@ bool NRIPersistentVoxelResidency::HasResidentIndirectOnlyActor(int32_t actorInde
 	return false;
 }
 
+const std::unordered_set<int32_t>* NRIPersistentVoxelResidency::GetSuppressedActorIndices(uint32_t frameIndex) const
+{
+	return actorOccurrencePolicyFrameIndex == frameIndex ? &suppressedActorIndices : nullptr;
+}
+
+uint32_t NRIPersistentVoxelResidency::EvaluateActorOccurrencePolicies(
+	uint32_t frameIndex,
+	const NRIActorOccurrencePolicyContext& context)
+{
+	actorOccurrencePolicyFrameIndex = frameIndex;
+	actorOccurrencePolicyDecisions.clear();
+	suppressedActorIndices.clear();
+	if (!context.enabled || !batch.valid)
+	{
+		return 0u;
+	}
+
+	std::unordered_map<int32_t, uint32_t> activeOccurrenceCounts;
+	activeOccurrenceCounts.reserve(batch.actors.size());
+	for (const PersistentVoxelBatch::ActorEntry& actor : batch.actors)
+	{
+		if (actor.active && actor.actorIndex >= 0)
+		{
+			activeOccurrenceCounts[actor.actorIndex]++;
+		}
+	}
+
+	for (const PersistentVoxelBatch::ActorEntry& actor : batch.actors)
+	{
+		if (!actor.active || actor.actorIndex < 0)
+		{
+			continue;
+		}
+		NRIActorOccurrencePolicyCandidate candidate = {};
+		candidate.identityKey = actor.identityKey;
+		candidate.actorIndex = actor.actorIndex;
+		candidate.requestedWorkloadMask = NRI_TLAS_MASK_ALL_WORKLOADS;
+		candidate.active = true;
+		candidate.uniqueActiveOccurrence = activeOccurrenceCounts[actor.actorIndex] == 1u;
+		const auto meshResourceIt = meshVariantResources.find(actor.meshResourceKey);
+		if (meshResourceIt != meshVariantResources.end())
+		{
+			const PersistentVoxelMeshVariantResource& mesh = meshResourceIt->second;
+			candidate.boundsValid = mesh.boundsValid && ComputeNRIActorOccurrenceWorldBounds(
+				actor.instanceTransform,
+				mesh.boundsMin,
+				mesh.boundsMax,
+				candidate.boundsMin,
+				candidate.boundsMax);
+		}
+		NRIActorOccurrencePolicyDecision decision = EvaluateNRIActorOccurrencePolicy(context, candidate);
+		actorOccurrencePolicyDecisions[actor.actorIndex] = decision;
+		if (decision.suppress)
+		{
+			suppressedActorIndices.insert(actor.actorIndex);
+		}
+	}
+	return (uint32_t)suppressedActorIndices.size();
+}
+
 bool NRIPersistentVoxelResidency::IsIndirectOnlyActorTlasAppendEligible(
 	int32_t actorIndex,
 	uint32_t frameIndex,
@@ -1543,6 +1603,9 @@ void NRIPersistentVoxelResidency::RefreshActiveResourceReferences(uint32_t frame
 void NRIPersistentVoxelResidency::ClearActorInstances(const NRIPersistentVoxelResetServices& services)
 {
 	batch = {};
+	actorOccurrencePolicyFrameIndex = UINT32_MAX;
+	actorOccurrencePolicyDecisions.clear();
+	suppressedActorIndices.clear();
 	RefreshActiveResourceReferences(0);
 	instances.clear();
 	const bool keepSharedVariantArena = !meshVariantResources.empty();
@@ -1970,6 +2033,10 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 {
 	constexpr uint32_t PersistentVoxelSceneDataSource = 2u;
 	outStats = {};
+	if (actorOccurrencePolicyFrameIndex != frameIndex)
+	{
+		EvaluateActorOccurrencePolicies(frameIndex, services.occurrencePolicy);
+	}
 	NRIActorOccurrenceCensus occurrenceCensus(services.occurrenceTrace, frameIndex);
 	auto recordOccurrenceCandidate = [&](const PersistentVoxelBatch::ActorEntry& actor, bool admitted, const char* reason)
 	{
@@ -1987,7 +2054,32 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		candidate.active = actor.active;
 		candidate.capturedThisFrame = actor.capturedThisFrame;
 		candidate.admitted = admitted;
+		candidate.publishReady = admitted;
 		candidate.reason = reason != nullptr ? reason : "none";
+		occurrenceCensus.RecordCandidate(candidate);
+	};
+	auto recordSuppressedOccurrenceCandidate = [&](
+		const PersistentVoxelBatch::ActorEntry& actor,
+		const NRIActorOccurrencePolicyDecision& policyDecision)
+	{
+		if (!occurrenceCensus.Targets(actor.actorIndex))
+		{
+			return;
+		}
+		NRIActorOccurrenceCandidate candidate;
+		candidate.identityKey = actor.identityKey;
+		candidate.lifecycleGeneration = actor.actorIndex >= 0 ? (uint64_t)(uint32_t)actor.actorIndex : 0;
+		candidate.meshResourceKey = actor.meshResourceKey;
+		candidate.meshKeyHash = actor.meshKeyHash;
+		candidate.materialKeyHash = actor.materialKeyHash;
+		candidate.actorIndex = actor.actorIndex;
+		candidate.active = actor.active;
+		candidate.capturedThisFrame = actor.capturedThisFrame;
+		candidate.admitted = false;
+		candidate.publishReady = true;
+		candidate.suppressionAuthorized = policyDecision.suppress;
+		candidate.suppressedWorkloadMask = policyDecision.suppressedWorkloadMask;
+		candidate.reason = GetNRIActorOccurrencePolicyReasonName(policyDecision.reason);
 		occurrenceCensus.RecordCandidate(candidate);
 	};
 
@@ -2593,6 +2685,43 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 	{
 		PersistentVoxelBatch::ActorEntry& actor = *actorPtr;
 		persistentVoxelTlasCandidateCount++;
+		const auto policyIt = actorOccurrencePolicyDecisions.find(actor.actorIndex);
+		const NRIActorOccurrencePolicyDecision* policyDecision =
+			policyIt != actorOccurrencePolicyDecisions.end() ? &policyIt->second : nullptr;
+		if (policyDecision != nullptr)
+		{
+			occurrenceCensus.RecordPolicyDecision(*policyDecision);
+			if (voxelStatsEnabled || occurrenceCensus.Targets(actor.actorIndex))
+			{
+				const auto residentMeshIt = meshVariantResources.find(actor.meshResourceKey);
+				const bool blasResident = residentMeshIt != meshVariantResources.end() &&
+					residentMeshIt->second.accelerationStructure.accelerationStructure != nullptr;
+				Printf("NRI PT actor occurrence policy: frame=%u actor=%d actor_key=0x%llx enabled=%u logical_main=%u context_risks=0x%x action=%s reason=%s mask=0x%x cache_resident=1 blas_resident=%u physical_sector=%d physical_chunk=%u root_sector=%d conflict_positive=%u conflict_negative=%u bounds_overlap=%u actor_inside=%u\n",
+					frameIndex, actor.actorIndex, (unsigned long long)actor.identityKey,
+					services.occurrencePolicy.enabled ? 1u : 0u,
+					services.occurrencePolicy.logicalMainRoot ? 1u : 0u,
+					services.occurrencePolicy.contextRiskFlags,
+					policyDecision->suppress ? "suppress" : "keep",
+					GetNRIActorOccurrencePolicyReasonName(policyDecision->reason),
+					policyDecision->suppressedWorkloadMask,
+					blasResident ? 1u : 0u,
+					policyDecision->physicalSectorIndex, policyDecision->physicalChunkIndex,
+					policyDecision->rootSectorIndex, policyDecision->conflictPositiveChunk,
+					policyDecision->conflictNegativeChunk,
+					policyDecision->boundsOverlapConflict ? 1u : 0u,
+					policyDecision->actorPositionInsideConflict ? 1u : 0u);
+			}
+			if (policyDecision->suppress)
+			{
+				recordSuppressedOccurrenceCandidate(actor, *policyDecision);
+				outStats.actorOccurrenceSuppressedCount++;
+				outStats.suppressedActorIndices.push_back(actor.actorIndex);
+				persistentVoxelTlasSkippedCount++;
+				persistentVoxelTlasExcludedSkipCount++;
+				persistentVoxelTlasExcludedSkipPrimitiveCount += actor.primitiveCount;
+				continue;
+			}
+		}
 		const bool omittedByDiagnostic = settings.omitTlasOccurrences;
 		const bool excludedByIndex = actor.resolvedVoxelIndex >= 0 &&
 			(actor.resolvedVoxelIndex == persistentVoxelExcludeIndex0 ||
@@ -8876,6 +9005,9 @@ void NRIPersistentVoxelResidency::Reset(
 	}
 
 	batch = {};
+	actorOccurrencePolicyFrameIndex = UINT32_MAX;
+	actorOccurrencePolicyDecisions.clear();
+	suppressedActorIndices.clear();
 	RefreshActiveResourceReferences(0);
 	instances.clear();
 	actorRejectedSignatures.clear();

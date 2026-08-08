@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_spatial_absence_gate.h"
+#include "nri_actor_occurrence_policy.h"
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_world.h"
@@ -24,6 +25,7 @@ enum class NRIActorOccurrenceClassification : uint32_t
 	DuplicateOccurrence,
 	StaleTransform,
 	WrongLocalitySingleCurrent,
+	WrongLocalitySuppressed,
 	CurrentLegitimate,
 	MixedInvariantFailure,
 };
@@ -63,6 +65,9 @@ struct NRIActorOccurrenceCandidate
 	bool active = false;
 	bool capturedThisFrame = false;
 	bool admitted = false;
+	bool publishReady = false;
+	bool suppressionAuthorized = false;
+	uint32_t suppressedWorkloadMask = 0;
 	std::string reason;
 };
 
@@ -107,6 +112,8 @@ struct NRIActorOccurrenceFrame
 	bool completeBoundsInsideConflict = false;
 	bool boundsOverlapConflict = false;
 	bool actorPositionInsideConflict = false;
+	bool suppressionAuthorized = false;
+	uint32_t suppressedWorkloadMask = 0;
 	uint32_t frameIndex = 0;
 	uint32_t invariantFlags = NRI_ACTOR_OCCURRENCE_INVARIANT_NONE;
 	uint64_t identityKey = 0;
@@ -136,6 +143,7 @@ public:
 	NRIActorOccurrenceCensus(const NRIActorOccurrenceTraceConfig& config, uint32_t frameIndex);
 	bool Targets(int32_t actorIndex) const;
 	void RecordCandidate(const NRIActorOccurrenceCandidate& candidate);
+	void RecordPolicyDecision(const NRIActorOccurrencePolicyDecision& decision);
 	void RecordOccurrence(const NRIActorOccurrence& occurrence);
 	NRIActorOccurrenceFrame FinishPersistent();
 
