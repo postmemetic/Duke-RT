@@ -35,6 +35,13 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "gamestate.h"
 #include "gamefuncs.h"
 #include "dukeactor.h"
+#include "gameupdate.h"
+
+#include <cerrno>
+#include <cmath>
+#include <limits>
+
+EXTERN_CVAR(Int, developer)
 
 BEGIN_DUKE_NS
 
@@ -126,6 +133,185 @@ static int ccmd_spawn(CCmdFuncPtr parm)
 	return CCMD_OK;
 }
 
+namespace
+{
+	bool ParseRelocateInteger(const char* text, int& value)
+	{
+		if (text == nullptr || *text == '\0') return false;
+
+		errno = 0;
+		char* end = nullptr;
+		const long parsed = strtol(text, &end, 10);
+		if (errno == ERANGE || end == text || *end != '\0' ||
+			parsed < std::numeric_limits<int>::min() || parsed > std::numeric_limits<int>::max())
+		{
+			return false;
+		}
+
+		value = (int)parsed;
+		return true;
+	}
+
+	bool ParseRelocateCoordinate(const char* text, double& value)
+	{
+		if (text == nullptr || *text == '\0') return false;
+
+		errno = 0;
+		char* end = nullptr;
+		const double parsed = strtod(text, &end);
+		if (errno == ERANGE || end == text || *end != '\0' || !std::isfinite(parsed)) return false;
+
+		value = parsed;
+		return true;
+	}
+
+	void PrintActorRelocateRejection(const char* reason)
+	{
+		Printf("duke_test_actor_relocate: result=rejected reason=%s\n", reason);
+	}
+}
+
+static int ccmd_test_actor_relocate(CCmdFuncPtr parm)
+{
+	if (parm->numparms != 7 && parm->numparms != 8) return CCMD_SHOWHELP;
+
+	if ((int)developer <= 0)
+	{
+		PrintActorRelocateRejection("developer-disabled");
+		return CCMD_OK;
+	}
+	if (gamestate != GS_LEVEL || numplayers != 1 || netgame || ud.recstat != 0)
+	{
+		PrintActorRelocateRejection("unsupported-game-state");
+		return CCMD_OK;
+	}
+
+	int actorIndex = 0;
+	int expectedSectorIndex = -1;
+	int destinationSectorIndex = -1;
+	double x = 0;
+	double y = 0;
+	double z = 0;
+	if (!ParseRelocateInteger(parm->parms[0], actorIndex) || actorIndex < 0)
+	{
+		PrintActorRelocateRejection("invalid-actor-index");
+		return CCMD_OK;
+	}
+	if (!ParseRelocateInteger(parm->parms[2], expectedSectorIndex) || !validSectorIndex(expectedSectorIndex))
+	{
+		PrintActorRelocateRejection("invalid-expected-sector");
+		return CCMD_OK;
+	}
+	if (!ParseRelocateInteger(parm->parms[3], destinationSectorIndex) || !validSectorIndex(destinationSectorIndex))
+	{
+		PrintActorRelocateRejection("invalid-destination-sector");
+		return CCMD_OK;
+	}
+	if (!ParseRelocateCoordinate(parm->parms[4], x) ||
+		!ParseRelocateCoordinate(parm->parms[5], y) ||
+		!ParseRelocateCoordinate(parm->parms[6], z))
+	{
+		PrintActorRelocateRejection("invalid-coordinate");
+		return CCMD_OK;
+	}
+
+	const bool stop = parm->numparms == 8;
+	if (stop && stricmp(parm->parms[7], "stop") != 0)
+	{
+		PrintActorRelocateRejection("invalid-option");
+		return CCMD_OK;
+	}
+
+	auto expectedClass = PClass::FindActor(parm->parms[1]);
+	if (expectedClass == nullptr || !expectedClass->IsDescendantOf(RUNTIME_CLASS(DDukeActor)))
+	{
+		PrintActorRelocateRejection("invalid-expected-class");
+		return CCMD_OK;
+	}
+
+	DDukeActor* actor = nullptr;
+	int matches = 0;
+	DukeSpriteIterator iterator;
+	while (auto candidate = iterator.Next())
+	{
+		if (candidate->exists() && (candidate->ObjectFlags & OF_EuthanizeMe) == 0 && candidate->GetIndex() == actorIndex)
+		{
+			actor = candidate;
+			matches++;
+		}
+	}
+	if (matches != 1 || actor == nullptr)
+	{
+		PrintActorRelocateRejection(matches == 0 ? "actor-not-found" : "ambiguous-actor-index");
+		return CCMD_OK;
+	}
+	if (actor->isPlayer())
+	{
+		PrintActorRelocateRejection("player-actor");
+		return CCMD_OK;
+	}
+	if (actor->GetClass() != expectedClass)
+	{
+		PrintActorRelocateRejection("class-mismatch");
+		return CCMD_OK;
+	}
+	if (actor->sectno() != expectedSectorIndex)
+	{
+		PrintActorRelocateRejection("sector-mismatch");
+		return CCMD_OK;
+	}
+	if (actor->actorstayput != nullptr)
+	{
+		PrintActorRelocateRejection("stayput-actor");
+		return CCMD_OK;
+	}
+
+	auto destinationSector = &sector[destinationSectorIndex];
+	if (!inside(x, y, destinationSector))
+	{
+		PrintActorRelocateRejection("destination-xy-outside-sector");
+		return CCMD_OK;
+	}
+	const double ceilingz = getceilzofslopeptr(destinationSector, x, y);
+	const double floorz = getflorzofslopeptr(destinationSector, x, y);
+	if (ceilingz > floorz || z < ceilingz || z > floorz)
+	{
+		PrintActorRelocateRejection("destination-z-outside-sector");
+		return CCMD_OK;
+	}
+
+	const DVector3 oldPosition = actor->spr.pos;
+	const int oldSectorIndex = actor->sectno();
+	actor->spr.pos = DVector3(x, y, z);
+	if (actor->sector() != destinationSector) ChangeActorSect(actor, destinationSector);
+	actor->backuploc();
+	actor->ceilingz = ceilingz;
+	actor->floorz = floorz;
+	actor->cgg = 0;
+	actor->timetosleep = 0;
+	if (stop)
+	{
+		actor->vel.Zero();
+		actor->ovel.Zero();
+	}
+
+	const GameUpdateSnapshot gameUpdate = GetGameUpdateSnapshot();
+	Printf("duke_test_actor_relocate: result=relocated simulation_generation=%llu actor=%d class=%s old_sector=%d old_pos=(%.4f,%.4f,%.4f) new_sector=%d new_pos=(%.4f,%.4f,%.4f) stop=%s\n",
+		(unsigned long long)gameUpdate.simulationGeneration,
+		actor->GetIndex(),
+		actor->GetClass()->TypeName.GetChars(),
+		oldSectorIndex,
+		oldPosition.X,
+		oldPosition.Y,
+		oldPosition.Z,
+		actor->sectno(),
+		actor->spr.pos.X,
+		actor->spr.pos.Y,
+		actor->spr.pos.Z,
+		stop ? "true" : "false");
+	return CCMD_OK;
+}
+
 void GameInterface::ToggleThirdPerson()
 {
 	if (gamestate != GS_LEVEL) return;
@@ -170,6 +356,9 @@ bool GameInterface::WantEscape()
 int registerosdcommands(void)
 {
 	C_RegisterFunction("spawn","spawn <typename> [palnum] [cstat] [ang] [x y z]: spawns a sprite with the given properties",ccmd_spawn);
+	C_RegisterFunction("duke_test_actor_relocate",
+		"duke_test_actor_relocate <actorIndex> <expectedClass> <expectedSector> <destSector> <x> <y> <z> [stop]: relocates one live actor for lifecycle validation",
+		ccmd_test_actor_relocate);
 	return 0;
 }
 
