@@ -131,6 +131,7 @@ struct PTMapWorld
 {
 	MapRecord* level = nullptr;
 	uint64_t buildSerial = 0;
+	uint64_t topologyRevision = 0;
 	bool valid = false;
 	std::vector<PTMapChunk> chunks;
 	std::vector<uint32_t> sectorChunkLookup;

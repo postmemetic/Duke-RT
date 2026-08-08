@@ -21,6 +21,7 @@ namespace
 	using namespace nri_scene;
 
 	uint64_t gPendingLevelGeometryBuildSerial = 0;
+	uint64_t gMapWorldTopologyRevision = 0;
 
 	enum class PTWallBandKind : uint32_t
 	{
@@ -1383,6 +1384,7 @@ bool BuildMapWorld(PTMapWorld& outWorld, const PTMapBuildOptions& options)
 	outWorld.Reset();
 	outWorld.level = currentLevel;
 	outWorld.buildSerial = gPendingLevelGeometryBuildSerial;
+	outWorld.topologyRevision = ++gMapWorldTopologyRevision;
 
 	if (sector.Size() == 0 || sections.Size() == 0 || sectionsPerSector.Size() == 0)
 	{
@@ -1426,6 +1428,7 @@ bool BuildLiveMapChunkWorld(const PTMapChunk& chunk, PTMapWorld& outWorld, PTMap
 
 	outWorld.level = currentLevel;
 	outWorld.buildSerial = gPendingLevelGeometryBuildSerial;
+	outWorld.topologyRevision = ++gMapWorldTopologyRevision;
 	outWorld.stats.sectorCount = (uint32_t)sector.Size();
 	outWorld.stats.sectionCount = (uint32_t)sections.Size();
 

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -43,6 +44,7 @@ namespace
 		uint32_t referenceCount = 0;
 		uint32_t referenceRecordCount = 0;
 		std::vector<std::vector<uint32_t>> cells;
+		std::vector<uint32_t> interiorTriangles;
 	};
 
 	struct CertifiedPair
@@ -55,6 +57,24 @@ namespace
 		float distanceToCenter = 0.0f;
 		uint32_t exactWitnessCount = 0;
 		bool authorized = false;
+	};
+
+	struct CachedChunkTopology
+	{
+		bool resolved = false;
+		bool flatClosed = false;
+		bool gridValid = false;
+		std::vector<Triangle2D> footprint;
+		FootprintGrid grid;
+	};
+
+	struct CachedPairTopology
+	{
+		size_t firstIndex = 0;
+		size_t secondIndex = 0;
+		PairClassification bounds;
+		bool exactWitnessResolved = false;
+		uint32_t exactWitnessCount = 0;
 	};
 
 	bool IsFinite3(const float value[3])
@@ -286,37 +306,6 @@ namespace
 			sawCeiling |= surface.kind == nri_scene::PTMapSurfaceKind::Ceiling;
 		}
 		return sawFloor && sawCeiling;
-	}
-
-	uint32_t CountExactOverlapWitnesses(
-		const nri_scene::PTMapWorld& mapWorld,
-		const nri_scene::PTMapChunk& positive,
-		const nri_scene::PTMapChunk& negative)
-	{
-		// Chunk-wide vertical bounds are exact only for flat floor/ceiling
-		// volumes. Slopes require a per-XY plane interval and remain fail-open.
-		if (!HasFlatClosedVolume(mapWorld, positive) || !HasFlatClosedVolume(mapWorld, negative))
-		{
-			return 0;
-		}
-		const float minZ = std::max(positive.bounds.min[1], negative.bounds.min[1]);
-		const float maxZ = std::min(positive.bounds.max[1], negative.bounds.max[1]);
-		if (maxZ - minZ <= kBoundsEpsilon)
-		{
-			return 0;
-		}
-
-		const std::vector<Triangle2D> positiveTriangles = CollectChunkFootprintTriangles(mapWorld, positive);
-		const std::vector<Triangle2D> negativeTriangles = CollectChunkFootprintTriangles(mapWorld, negative);
-		uint32_t witnessCount = 0;
-		for (const Triangle2D& first : positiveTriangles)
-		{
-			for (const Triangle2D& second : negativeTriangles)
-			{
-				witnessCount += TriangleIntersectionArea(first, second) > kAreaEpsilon ? 1u : 0u;
-			}
-		}
-		return witnessCount;
 	}
 
 	PairClassification ClassifyBounds(
@@ -634,6 +623,37 @@ namespace
 		return true;
 	}
 
+	bool FootprintTriangleContainsGridCell(
+		const FootprintGrid& grid,
+		const Triangle2D& triangle,
+		uint32_t cellX,
+		uint32_t cellY)
+	{
+		const float cellMin[2] = {
+			grid.boundsMin[0] + (float)cellX * grid.cellSize[0],
+			grid.boundsMin[1] + (float)cellY * grid.cellSize[1]
+		};
+		const float cellMax[2] = {
+			cellX + 1u == grid.width ? grid.boundsMax[0] : cellMin[0] + grid.cellSize[0],
+			cellY + 1u == grid.height ? grid.boundsMax[1] : cellMin[1] + grid.cellSize[1]
+		};
+		const float area = Cross2(triangle.point[0], triangle.point[1], triangle.point[2]);
+		if (std::fabs(area) <= kAreaEpsilon) return false;
+		const float orientation = area >= 0.0f ? 1.0f : -1.0f;
+		const float corners[4][2] = {
+			{ cellMin[0], cellMin[1] }, { cellMax[0], cellMin[1] },
+			{ cellMin[0], cellMax[1] }, { cellMax[0], cellMax[1] }
+		};
+		for (const auto& corner : corners)
+		{
+			if (orientation * Cross2(triangle.point[0], triangle.point[1], corner) < -kFootprintPredicateEpsilon ||
+				orientation * Cross2(triangle.point[1], triangle.point[2], corner) < -kFootprintPredicateEpsilon ||
+				orientation * Cross2(triangle.point[2], triangle.point[0], corner) < -kFootprintPredicateEpsilon)
+				return false;
+		}
+		return true;
+	}
+
 	bool BuildFootprintGrid(const std::vector<Triangle2D>& triangles, FootprintGrid& grid)
 	{
 		grid = {};
@@ -693,6 +713,20 @@ namespace
 			referenceRecordCount += (references.size() + 2u) / 3u;
 		if (referenceRecordCount >= kMaxFloatExactInteger) return false;
 		grid.referenceRecordCount = (uint32_t)referenceRecordCount;
+		grid.interiorTriangles.assign(grid.cells.size(), UINT32_MAX);
+		for (uint32_t cellIndex = 0; cellIndex < grid.cells.size(); ++cellIndex)
+		{
+			const uint32_t cellX = cellIndex % grid.width;
+			const uint32_t cellY = cellIndex / grid.width;
+			for (uint32_t triangleIndex : grid.cells[cellIndex])
+			{
+				if (FootprintTriangleContainsGridCell(grid, triangles[triangleIndex], cellX, cellY))
+				{
+					grid.interiorTriangles[cellIndex] = triangleIndex;
+					break;
+				}
+			}
+		}
 		return true;
 	}
 
@@ -701,6 +735,7 @@ namespace
 		if (triangles.empty() || grid.width == 0u || grid.height == 0u ||
 			grid.width > kFootprintGridMaxDimension || grid.height > kFootprintGridMaxDimension ||
 			grid.cells.size() != (size_t)grid.width * grid.height ||
+			grid.interiorTriangles.size() != grid.cells.size() ||
 			!std::isfinite(grid.boundsMin[0]) || !std::isfinite(grid.boundsMin[1]) ||
 			!std::isfinite(grid.boundsMax[0]) || !std::isfinite(grid.boundsMax[1]) ||
 			!std::isfinite(grid.cellSize[0]) || !std::isfinite(grid.cellSize[1]) ||
@@ -724,6 +759,15 @@ namespace
 				const uint32_t y = cellIndex / grid.width;
 				if (x < minimum[0] || x > maximum[0] || y < minimum[1] || y > maximum[1] ||
 					!FootprintTriangleOverlapsGridCell(grid, triangles[triangleIndex], x, y)) return false;
+			}
+			if (grid.interiorTriangles[cellIndex] != UINT32_MAX)
+			{
+				const uint32_t x = cellIndex % grid.width;
+				const uint32_t y = cellIndex / grid.width;
+				const uint32_t triangleIndex = grid.interiorTriangles[cellIndex];
+				if (triangleIndex >= triangles.size() ||
+					!std::binary_search(references.begin(), references.end(), triangleIndex) ||
+					!FootprintTriangleContainsGridCell(grid, triangles[triangleIndex], x, y)) return false;
 			}
 			referenceCount += references.size();
 		}
@@ -770,6 +814,22 @@ namespace
 	}
 }
 
+struct NRISpatialAbsenceGate::TopologyCache
+{
+	uint64_t worldGeneration = 0;
+	uint64_t topologyRevision = 0;
+	size_t chunkCount = 0;
+	std::vector<CachedChunkTopology> chunks;
+	std::vector<CachedPairTopology> pairs;
+};
+
+NRISpatialAbsenceGate::NRISpatialAbsenceGate()
+	: mTopologyCache(std::make_unique<TopologyCache>())
+{
+}
+
+NRISpatialAbsenceGate::~NRISpatialAbsenceGate() = default;
+
 bool NRISpatialAbsenceContinuityKey::operator<(const NRISpatialAbsenceContinuityKey& other) const
 {
 	if (worldGeneration != other.worldGeneration) return worldGeneration < other.worldGeneration;
@@ -787,7 +847,28 @@ bool NRISpatialAbsenceContinuityKey::operator==(const NRISpatialAbsenceContinuit
 
 void NRISpatialAbsenceGate::Reset(uint32_t frameIndex, bool resetStability)
 {
+	auto rootSectorIndices = std::move(mSnapshot.rootSectorIndices);
+	auto reachedSectorIndices = std::move(mSnapshot.reachedSectorIndices);
+	auto reachedWallIndices = std::move(mSnapshot.reachedWallIndices);
+	auto negativeChunkWords = std::move(mSnapshot.negativeChunkWords);
+	auto gpuRecords = std::move(mSnapshot.gpuRecords);
+	auto conflicts = std::move(mSnapshot.conflicts);
+	auto selections = std::move(mSnapshot.selections);
 	mSnapshot = {};
+	mSnapshot.rootSectorIndices = std::move(rootSectorIndices);
+	mSnapshot.reachedSectorIndices = std::move(reachedSectorIndices);
+	mSnapshot.reachedWallIndices = std::move(reachedWallIndices);
+	mSnapshot.negativeChunkWords = std::move(negativeChunkWords);
+	mSnapshot.gpuRecords = std::move(gpuRecords);
+	mSnapshot.conflicts = std::move(conflicts);
+	mSnapshot.selections = std::move(selections);
+	mSnapshot.rootSectorIndices.clear();
+	mSnapshot.reachedSectorIndices.clear();
+	mSnapshot.reachedWallIndices.clear();
+	mSnapshot.negativeChunkWords.clear();
+	mSnapshot.gpuRecords.clear();
+	mSnapshot.conflicts.clear();
+	mSnapshot.selections.clear();
 	mSnapshot.frameIndex = frameIndex;
 	mSnapshot.gpuRecords.resize(1);
 	if (resetStability)
@@ -810,6 +891,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	const nri_scene::PTMapWorld& mapWorld,
 	const NRISpatialAbsenceCensusInput& input)
 {
+	const auto buildStarted = std::chrono::steady_clock::now();
+	bool topologyCacheHit = false;
 	Reset(input.frameIndex, false);
 	auto finalizeTelemetry = [&]() -> const NRISpatialAbsenceSnapshot&
 	{
@@ -823,6 +906,9 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mPreviousCensusObservationHash = mSnapshot.censusObservationHash;
 		mHasPreviousAuthority = true;
 		mPreviousAuthority = authority;
+		mSnapshot.topologyCacheHit = topologyCacheHit;
+		mSnapshot.buildElapsedMilliseconds = std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - buildStarted).count();
 		return mSnapshot;
 	};
 	mSnapshot.captureSerial = input.captureSerial;
@@ -923,107 +1009,162 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	uncertainChunks.erase(std::unique(uncertainChunks.begin(), uncertainChunks.end()), uncertainChunks.end());
 
 	std::vector<CertifiedPair> certifiedPairs;
-
-	for (size_t firstIndex = 0; firstIndex < mapWorld.chunks.size(); ++firstIndex)
+	const bool rebuildTopology = mTopologyCache->worldGeneration != input.worldGeneration ||
+		mTopologyCache->topologyRevision != mapWorld.topologyRevision ||
+		mTopologyCache->chunkCount != mapWorld.chunks.size();
+	if (rebuildTopology)
 	{
-		const nri_scene::PTMapChunk& first = mapWorld.chunks[firstIndex];
-		if (!first.bounds.valid || !IsFinite3(first.bounds.min) || !IsFinite3(first.bounds.max))
+		mTopologyCache->worldGeneration = input.worldGeneration;
+		mTopologyCache->topologyRevision = mapWorld.topologyRevision;
+		mTopologyCache->chunkCount = mapWorld.chunks.size();
+		mTopologyCache->chunks.assign(mapWorld.chunks.size(), {});
+		mTopologyCache->pairs.clear();
+		const float topologyCenter[3] = {};
+		for (size_t firstIndex = 0; firstIndex < mapWorld.chunks.size(); ++firstIndex)
 		{
-			continue;
-		}
-
-		for (size_t secondIndex = firstIndex + 1u; secondIndex < mapWorld.chunks.size(); ++secondIndex)
-		{
-			const nri_scene::PTMapChunk& second = mapWorld.chunks[secondIndex];
-			if (!second.bounds.valid || !IsFinite3(second.bounds.min) || !IsFinite3(second.bounds.max))
-			{
+			const nri_scene::PTMapChunk& first = mapWorld.chunks[firstIndex];
+			if (!first.bounds.valid || !IsFinite3(first.bounds.min) || !IsFinite3(first.bounds.max))
 				continue;
-			}
-
-			PairClassification classification = ClassifyBounds(first.bounds, second.bounds, input.center, input.guardRadius);
-			if (classification.decision == NRISpatialAbsenceConflictDecision::Disjoint)
+			for (size_t secondIndex = firstIndex + 1u; secondIndex < mapWorld.chunks.size(); ++secondIndex)
 			{
-				continue;
+				const nri_scene::PTMapChunk& second = mapWorld.chunks[secondIndex];
+				if (!second.bounds.valid || !IsFinite3(second.bounds.min) || !IsFinite3(second.bounds.max))
+					continue;
+				PairClassification bounds = ClassifyBounds(
+					first.bounds, second.bounds, topologyCenter, std::numeric_limits<float>::max());
+				if (bounds.decision == NRISpatialAbsenceConflictDecision::Disjoint)
+					continue;
+				CachedPairTopology pair;
+				pair.firstIndex = firstIndex;
+				pair.secondIndex = secondIndex;
+				pair.bounds = bounds;
+				mTopologyCache->pairs.push_back(std::move(pair));
 			}
-			mSnapshot.candidateCount++;
-
-			const bool firstVisible = ContainsSorted(reached, first.sectorIndex);
-			const bool secondVisible = ContainsSorted(reached, second.sectorIndex);
-			const bool firstUnknown = ContainsSorted(uncertain, first.sectorIndex);
-			const bool secondUnknown = ContainsSorted(uncertain, second.sectorIndex);
-			const bool firstRuntimeUnknown = std::binary_search(uncertainChunks.begin(), uncertainChunks.end(), first.chunkIndex);
-			const bool secondRuntimeUnknown = std::binary_search(uncertainChunks.begin(), uncertainChunks.end(), second.chunkIndex);
-			const nri_scene::PTMapChunk* positive = &first;
-			const nri_scene::PTMapChunk* negative = &second;
-
-			if (firstUnknown || secondUnknown || first.sectorIndex < 0 || second.sectorIndex < 0)
-			{
-				classification.decision = NRISpatialAbsenceConflictDecision::UnknownSector;
-			}
-			else if (firstVisible == secondVisible)
-			{
-				classification.decision = NRISpatialAbsenceConflictDecision::SameVisibility;
-			}
-			else
-			{
-				if (!firstVisible)
-				{
-					positive = &second;
-					negative = &first;
-				}
-				if (firstRuntimeUnknown || secondRuntimeUnknown)
-				{
-					classification.decision = NRISpatialAbsenceConflictDecision::RuntimeAuthorityUnknown;
-				}
-				else if (first.localSpaceIndex != second.localSpaceIndex)
-				{
-					classification.decision = NRISpatialAbsenceConflictDecision::DifferentLocalSpace;
-				}
-				else if (first.localSpaceIndex != (uint32_t)rootLocalSpace)
-				{
-					classification.decision = NRISpatialAbsenceConflictDecision::DifferentLocalSpace;
-				}
-				else if (AreLinkedAdjacent(first.sectorIndex, second.sectorIndex) ||
-					AreLinkedAdjacent(second.sectorIndex, first.sectorIndex))
-				{
-					classification.decision = NRISpatialAbsenceConflictDecision::LinkedAdjacent;
-				}
-				else if (ArePortalRelated(mapWorld, first.chunkIndex, second.chunkIndex))
-				{
-					classification.decision = NRISpatialAbsenceConflictDecision::PortalRelated;
-				}
-			}
-			uint32_t exactWitnessCount = 0;
-			if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
-			{
-				exactWitnessCount = CountExactOverlapWitnesses(mapWorld, *positive, *negative);
-				if (exactWitnessCount == 0)
-				{
-					classification.decision = NRISpatialAbsenceConflictDecision::ExactOverlapMissing;
-				}
-			}
-
-			mSnapshot.conflicts.push_back(MakeDebugRecord(*positive, *negative, classification));
-			mSnapshot.conflicts.back().exactWitnessCount = exactWitnessCount;
-			if (classification.decision != NRISpatialAbsenceConflictDecision::Certified)
-			{
-				continue;
-			}
-
-			CertifiedPair pair;
-			pair.continuityKey.worldGeneration = input.worldGeneration;
-			pair.continuityKey.positiveChunk = positive->chunkIndex;
-			pair.continuityKey.negativeChunk = negative->chunkIndex;
-			pair.continuityKey.localSpaceIndex = positive->localSpaceIndex;
-			pair.positiveSector = (uint32_t)positive->sectorIndex;
-			pair.negativeSector = (uint32_t)negative->sectorIndex;
-			std::memcpy(pair.overlapMin, classification.overlapMin, sizeof(pair.overlapMin));
-			std::memcpy(pair.overlapMax, classification.overlapMax, sizeof(pair.overlapMax));
-			pair.distanceToCenter = classification.distanceToCenter;
-			pair.exactWitnessCount = exactWitnessCount;
-			certifiedPairs.push_back(pair);
 		}
 	}
+	topologyCacheHit = !rebuildTopology;
+	mSnapshot.topologyPairCount = (uint32_t)std::min<size_t>(
+		mTopologyCache->pairs.size(), std::numeric_limits<uint32_t>::max());
+
+	auto ensureChunkTopology = [&](size_t chunkIndex) -> CachedChunkTopology&
+	{
+		CachedChunkTopology& cached = mTopologyCache->chunks[chunkIndex];
+		if (!cached.resolved)
+		{
+			topologyCacheHit = false;
+			cached.flatClosed = HasFlatClosedVolume(mapWorld, mapWorld.chunks[chunkIndex]);
+			cached.footprint = CollectChunkFootprintTriangles(mapWorld, mapWorld.chunks[chunkIndex]);
+			cached.gridValid = !cached.footprint.empty() &&
+				BuildFootprintGrid(cached.footprint, cached.grid) &&
+				ValidateFootprintGrid(cached.footprint, cached.grid);
+			cached.resolved = true;
+		}
+		return cached;
+	};
+
+	for (CachedPairTopology& cachedPair : mTopologyCache->pairs)
+	{
+		const nri_scene::PTMapChunk& first = mapWorld.chunks[cachedPair.firstIndex];
+		const nri_scene::PTMapChunk& second = mapWorld.chunks[cachedPair.secondIndex];
+		PairClassification classification = cachedPair.bounds;
+		if (classification.decision != NRISpatialAbsenceConflictDecision::BoundaryContact)
+		{
+			classification.distanceToCenter = DistanceToBounds(
+				input.center, classification.overlapMin, classification.overlapMax);
+			classification.decision = classification.distanceToCenter > input.guardRadius
+				? NRISpatialAbsenceConflictDecision::OutsideGuard
+				: NRISpatialAbsenceConflictDecision::Certified;
+		}
+		mSnapshot.candidateCount++;
+
+		const bool firstVisible = ContainsSorted(reached, first.sectorIndex);
+		const bool secondVisible = ContainsSorted(reached, second.sectorIndex);
+		const bool firstUnknown = ContainsSorted(uncertain, first.sectorIndex);
+		const bool secondUnknown = ContainsSorted(uncertain, second.sectorIndex);
+		const bool firstRuntimeUnknown = std::binary_search(uncertainChunks.begin(), uncertainChunks.end(), first.chunkIndex);
+		const bool secondRuntimeUnknown = std::binary_search(uncertainChunks.begin(), uncertainChunks.end(), second.chunkIndex);
+		const nri_scene::PTMapChunk* positive = &first;
+		const nri_scene::PTMapChunk* negative = &second;
+
+		if (firstUnknown || secondUnknown || first.sectorIndex < 0 || second.sectorIndex < 0)
+		{
+			classification.decision = NRISpatialAbsenceConflictDecision::UnknownSector;
+		}
+		else if (firstVisible == secondVisible)
+		{
+			classification.decision = NRISpatialAbsenceConflictDecision::SameVisibility;
+		}
+		else
+		{
+			if (!firstVisible)
+			{
+				positive = &second;
+				negative = &first;
+			}
+			if (firstRuntimeUnknown || secondRuntimeUnknown)
+			{
+				classification.decision = NRISpatialAbsenceConflictDecision::RuntimeAuthorityUnknown;
+			}
+			else if (first.localSpaceIndex != second.localSpaceIndex)
+			{
+				classification.decision = NRISpatialAbsenceConflictDecision::DifferentLocalSpace;
+			}
+			else if (first.localSpaceIndex != (uint32_t)rootLocalSpace)
+			{
+				classification.decision = NRISpatialAbsenceConflictDecision::DifferentLocalSpace;
+			}
+			else if (AreLinkedAdjacent(first.sectorIndex, second.sectorIndex) ||
+				AreLinkedAdjacent(second.sectorIndex, first.sectorIndex))
+			{
+				classification.decision = NRISpatialAbsenceConflictDecision::LinkedAdjacent;
+			}
+			else if (ArePortalRelated(mapWorld, first.chunkIndex, second.chunkIndex))
+			{
+				classification.decision = NRISpatialAbsenceConflictDecision::PortalRelated;
+			}
+		}
+		uint32_t exactWitnessCount = 0;
+		if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
+		{
+			if (!cachedPair.exactWitnessResolved)
+			{
+				topologyCacheHit = false;
+				const CachedChunkTopology& firstTopology = ensureChunkTopology(cachedPair.firstIndex);
+				const CachedChunkTopology& secondTopology = ensureChunkTopology(cachedPair.secondIndex);
+				if (firstTopology.flatClosed && secondTopology.flatClosed &&
+					std::min(first.bounds.max[1], second.bounds.max[1]) -
+					std::max(first.bounds.min[1], second.bounds.min[1]) > kBoundsEpsilon)
+				{
+					for (const Triangle2D& firstTriangle : firstTopology.footprint)
+						for (const Triangle2D& secondTriangle : secondTopology.footprint)
+							cachedPair.exactWitnessCount += TriangleIntersectionArea(
+								firstTriangle, secondTriangle) > kAreaEpsilon ? 1u : 0u;
+				}
+				cachedPair.exactWitnessResolved = true;
+			}
+			exactWitnessCount = cachedPair.exactWitnessCount;
+			if (exactWitnessCount == 0)
+				classification.decision = NRISpatialAbsenceConflictDecision::ExactOverlapMissing;
+		}
+
+		mSnapshot.conflicts.push_back(MakeDebugRecord(*positive, *negative, classification));
+		mSnapshot.conflicts.back().exactWitnessCount = exactWitnessCount;
+		if (classification.decision != NRISpatialAbsenceConflictDecision::Certified)
+			continue;
+
+		CertifiedPair pair;
+		pair.continuityKey.worldGeneration = input.worldGeneration;
+		pair.continuityKey.positiveChunk = positive->chunkIndex;
+		pair.continuityKey.negativeChunk = negative->chunkIndex;
+		pair.continuityKey.localSpaceIndex = positive->localSpaceIndex;
+		pair.positiveSector = (uint32_t)positive->sectorIndex;
+		pair.negativeSector = (uint32_t)negative->sectorIndex;
+		std::memcpy(pair.overlapMin, classification.overlapMin, sizeof(pair.overlapMin));
+		std::memcpy(pair.overlapMax, classification.overlapMax, sizeof(pair.overlapMax));
+		pair.distanceToCenter = classification.distanceToCenter;
+		pair.exactWitnessCount = exactWitnessCount;
+		certifiedPairs.push_back(pair);
+		}
 
 	std::sort(certifiedPairs.begin(), certifiedPairs.end(), [](const CertifiedPair& first, const CertifiedPair& second)
 	{
@@ -1050,7 +1191,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 
 	mSnapshot.gpuRecords.resize(mapWorld.chunks.size() + 1u);
 	mSnapshot.negativeChunkWords.resize(std::max<size_t>((mapWorld.chunks.size() + 31u) / 32u, 1u), 0u);
-	std::vector<std::vector<Triangle2D>> footprints(mapWorld.chunks.size());
+	std::vector<const std::vector<Triangle2D>*> footprints(mapWorld.chunks.size(), nullptr);
+	std::vector<const FootprintGrid*> footprintGrids(mapWorld.chunks.size(), nullptr);
 	std::vector<uint32_t> involvedChunks;
 	for (const CertifiedPair& pair : certifiedPairs)
 	{
@@ -1063,9 +1205,12 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	for (uint32_t chunkIndex : involvedChunks)
 	{
 		if (chunkIndex < mapWorld.chunks.size())
-			footprints[chunkIndex] = CollectChunkFootprintTriangles(mapWorld, mapWorld.chunks[chunkIndex]);
+		{
+			const CachedChunkTopology& cached = ensureChunkTopology(chunkIndex);
+			footprints[chunkIndex] = &cached.footprint;
+			footprintGrids[chunkIndex] = cached.gridValid ? &cached.grid : nullptr;
+		}
 	}
-	std::vector<FootprintGrid> footprintGrids(mapWorld.chunks.size());
 	bool gridBuildFailed = false;
 	size_t estimatedRecordCount = mapWorld.chunks.size() + 1u;
 	auto addEstimatedRecords = [&](size_t count)
@@ -1079,16 +1224,22 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	addEstimatedRecords(mSnapshot.authorizedPairCount);
 	for (uint32_t chunkIndex : involvedChunks)
 	{
-		if (chunkIndex >= footprints.size() || footprints[chunkIndex].empty()) continue;
-		FootprintGrid& grid = footprintGrids[chunkIndex];
-		if (!BuildFootprintGrid(footprints[chunkIndex], grid) ||
-			!ValidateFootprintGrid(footprints[chunkIndex], grid))
+		if (chunkIndex >= footprints.size() || footprints[chunkIndex] == nullptr ||
+			footprints[chunkIndex]->empty()) continue;
+		if (footprintGrids[chunkIndex] == nullptr)
 		{
 			gridBuildFailed = true;
 			break;
 		}
-		addEstimatedRecords(footprints[chunkIndex].size());
-		addEstimatedRecords(1u + grid.cells.size() + grid.referenceRecordCount);
+		const FootprintGrid& grid = *footprintGrids[chunkIndex];
+		size_t serializedReferenceRecordCount = 0u;
+		for (size_t cellIndex = 0; cellIndex < grid.cells.size(); ++cellIndex)
+		{
+			if (grid.interiorTriangles[cellIndex] == UINT32_MAX)
+				serializedReferenceRecordCount += (grid.cells[cellIndex].size() + 2u) / 3u;
+		}
+		addEstimatedRecords(footprints[chunkIndex]->size());
+		addEstimatedRecords(1u + grid.cells.size() + serializedReferenceRecordCount);
 	}
 	if (gridBuildFailed)
 	{
@@ -1114,7 +1265,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		for (size_t index = firstPair; index < pairEnd; ++index)
 			if (certifiedPairs[index].authorized) authorizedIndices.push_back(index);
 		firstPair = pairEnd;
-		if (authorizedIndices.empty() || negativeChunk >= mapWorld.chunks.size() || footprints[negativeChunk].empty())
+		if (authorizedIndices.empty() || negativeChunk >= mapWorld.chunks.size() ||
+			footprints[negativeChunk] == nullptr || footprints[negativeChunk]->empty())
 			continue;
 
 		NRISpatialAbsenceSelectionRecord selection;
@@ -1128,7 +1280,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		{
 			const CertifiedPair& pair = certifiedPairs[pairIndex];
 			const uint32_t positiveChunk = pair.continuityKey.positiveChunk;
-			if (positiveChunk >= mapWorld.chunks.size() || footprints[positiveChunk].empty())
+			if (positiveChunk >= mapWorld.chunks.size() || footprints[positiveChunk] == nullptr ||
+				footprints[positiveChunk]->empty())
 				continue;
 			NRISpatialAbsenceGpuRecord pairRecord;
 			pairRecord.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
@@ -1141,7 +1294,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			mSnapshot.gpuRecords.push_back(pairRecord);
 			owners.push_back(positiveChunk);
 			selection.sourceWitnessCount += pair.exactWitnessCount;
-			selection.footprintTriangleCount += (uint32_t)footprints[positiveChunk].size();
+			selection.footprintTriangleCount += (uint32_t)footprints[positiveChunk]->size();
 			for (uint32_t axis = 0; axis < 3u; ++axis)
 			{
 				selection.boundsMin[axis] = std::min(selection.boundsMin[axis], pair.overlapMin[axis]);
@@ -1160,11 +1313,11 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		selection.sourcePositiveOwnerCount = selection.selectedPositiveOwnerCount = (uint32_t)owners.size();
 		selection.sourcePositiveOwnerHash = selection.selectedPositiveOwnerHash = HashPositiveOwners(owners);
 		selection.selectedWitnessCount = selection.sourceWitnessCount;
-		selection.footprintTriangleCount += (uint32_t)footprints[negativeChunk].size();
-		for (const Triangle2D& triangle : footprints[negativeChunk])
+		selection.footprintTriangleCount += (uint32_t)footprints[negativeChunk]->size();
+		for (const Triangle2D& triangle : *footprints[negativeChunk])
 			representationHash = HashBytes(representationHash, &triangle, sizeof(triangle));
 		for (uint32_t owner : owners)
-			for (const Triangle2D& triangle : footprints[owner])
+			for (const Triangle2D& triangle : *footprints[owner])
 				representationHash = HashBytes(representationHash, &triangle, sizeof(triangle));
 		selection.selectionHash = representationHash;
 		mSnapshot.sourceWitnessCount += selection.sourceWitnessCount;
@@ -1183,9 +1336,10 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 
 	for (uint32_t chunkIndex : involvedChunks)
 	{
-		if (chunkIndex >= mapWorld.chunks.size() || footprints[chunkIndex].empty()) continue;
+		if (chunkIndex >= mapWorld.chunks.size() || footprints[chunkIndex] == nullptr ||
+			footprints[chunkIndex]->empty() || footprintGrids[chunkIndex] == nullptr) continue;
 		const uint32_t triangleStart = (uint32_t)mSnapshot.gpuRecords.size();
-		for (const Triangle2D& triangle : footprints[chunkIndex])
+		for (const Triangle2D& triangle : *footprints[chunkIndex])
 		{
 			NRISpatialAbsenceGpuRecord triangleRecord;
 			triangleRecord.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
@@ -1194,7 +1348,15 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			std::memcpy(triangleRecord.payload, triangle.point, sizeof(triangle.point));
 			mSnapshot.gpuRecords.push_back(triangleRecord);
 		}
-		const FootprintGrid& grid = footprintGrids[chunkIndex];
+		const FootprintGrid& grid = *footprintGrids[chunkIndex];
+		uint32_t serializedReferenceCount = 0u;
+		uint32_t serializedReferenceRecordCount = 0u;
+		for (size_t cellIndex = 0; cellIndex < grid.cells.size(); ++cellIndex)
+		{
+			if (grid.interiorTriangles[cellIndex] != UINT32_MAX) continue;
+			serializedReferenceCount += (uint32_t)grid.cells[cellIndex].size();
+			serializedReferenceRecordCount += (uint32_t)((grid.cells[cellIndex].size() + 2u) / 3u);
+		}
 		const uint32_t gridHeaderIndex = (uint32_t)mSnapshot.gpuRecords.size();
 		const uint32_t cellRecordStart = gridHeaderIndex + 1u;
 		const uint32_t referenceRecordStart = cellRecordStart + (uint32_t)grid.cells.size();
@@ -1211,26 +1373,34 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		gridHeader.payload[4] = (float)grid.width;
 		gridHeader.payload[5] = (float)grid.height;
 		gridHeader.payload[6] = (float)grid.cells.size();
-		gridHeader.payload[7] = (float)grid.referenceCount;
-		gridHeader.payload[8] = (float)grid.referenceRecordCount;
+		gridHeader.payload[7] = (float)serializedReferenceCount;
+		gridHeader.payload[8] = (float)serializedReferenceRecordCount;
 		mSnapshot.gpuRecords.push_back(gridHeader);
 		uint32_t nextReferenceRecord = referenceRecordStart;
 		for (uint32_t cellIndex = 0; cellIndex < grid.cells.size(); ++cellIndex)
 		{
 			const std::vector<uint32_t>& references = grid.cells[cellIndex];
+			const bool interior = grid.interiorTriangles[cellIndex] != UINT32_MAX;
 			NRISpatialAbsenceGpuRecord cellRecord;
 			cellRecord.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
 				NRI_SPATIAL_ABSENCE_GPU_GRID | NRI_SPATIAL_ABSENCE_GPU_GRID_CELL;
+			if (interior)
+			{
+				cellRecord.flags |= NRI_SPATIAL_ABSENCE_GPU_GRID_CELL_INTERIOR;
+				cellRecord.payload[2] = (float)grid.interiorTriangles[cellIndex];
+			}
 			cellRecord.data0 = chunkIndex;
 			cellRecord.data1 = nextReferenceRecord;
-			cellRecord.data2 = (uint32_t)references.size();
+			cellRecord.data2 = interior ? 0u : (uint32_t)references.size();
 			cellRecord.payload[0] = (float)cellIndex;
-			cellRecord.payload[1] = (float)((references.size() + 2u) / 3u);
+			cellRecord.payload[1] = (float)((cellRecord.data2 + 2u) / 3u);
 			mSnapshot.gpuRecords.push_back(cellRecord);
 			nextReferenceRecord += (cellRecord.data2 + 2u) / 3u;
 		}
-		for (const std::vector<uint32_t>& references : grid.cells)
+		for (size_t cellIndex = 0; cellIndex < grid.cells.size(); ++cellIndex)
 		{
+			if (grid.interiorTriangles[cellIndex] != UINT32_MAX) continue;
+			const std::vector<uint32_t>& references = grid.cells[cellIndex];
 			for (uint32_t referenceOffset = 0; referenceOffset < references.size(); referenceOffset += 3u)
 			{
 				NRISpatialAbsenceGpuRecord referenceRecord;
@@ -1250,10 +1420,13 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		lookup.flags |= NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
 			NRI_SPATIAL_ABSENCE_GPU_FOOTPRINT | NRI_SPATIAL_ABSENCE_GPU_GRID;
 		lookup.data0 = triangleStart;
-		lookup.data1 = (uint32_t)footprints[chunkIndex].size();
+		lookup.data1 = (uint32_t)footprints[chunkIndex]->size();
 		lookup.payload[9] = (float)gridHeaderIndex;
 		mSnapshot.footprintTriangleCount += lookup.data1;
 		mSnapshot.footprintGridCellCount += (uint32_t)grid.cells.size();
+		// Keep semantic coverage telemetry independent of the packed payload:
+		// certified cells omit redundant references, but still represent the
+		// same complete logical candidate set.
 		mSnapshot.footprintGridReferenceCount += grid.referenceCount;
 	}
 
@@ -1382,7 +1555,21 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 				return fail("footprint grid did not match exhaustive exact containment");
 		}
 	}
-	FootprintGrid malformedGrid = manyGrid;
+	std::vector<Triangle2D> certificateTriangles(9u,
+		Triangle2D{ { { 0.0f, 0.0f }, { 100.0f, 0.0f }, { 0.0f, 100.0f } } });
+	FootprintGrid certificateGrid;
+	if (!BuildFootprintGrid(certificateTriangles, certificateGrid) ||
+		!ValidateFootprintGrid(certificateTriangles, certificateGrid))
+		return fail("interior-certificate footprint grid construction failed");
+	FootprintGrid malformedGrid = certificateGrid;
+	auto interiorCell = std::find_if(malformedGrid.interiorTriangles.begin(), malformedGrid.interiorTriangles.end(),
+		[](uint32_t triangleIndex) { return triangleIndex != UINT32_MAX; });
+	if (interiorCell == malformedGrid.interiorTriangles.end())
+		return fail("footprint grid unexpectedly produced no exact interior certificate");
+	*interiorCell = (uint32_t)certificateTriangles.size();
+	if (ValidateFootprintGrid(certificateTriangles, malformedGrid))
+		return fail("out-of-range footprint-grid interior certificate did not fail open");
+	malformedGrid = manyGrid;
 	auto nonemptyCell = std::find_if(malformedGrid.cells.begin(), malformedGrid.cells.end(),
 		[](const std::vector<uint32_t>& references) { return !references.empty(); });
 	if (nonemptyCell == malformedGrid.cells.end())
@@ -1530,6 +1717,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	stableInput.reachedSectorIndices.push_back(0);
 	const NRISpatialAbsenceSnapshot& firstStable = stableGate.Build(stableWorld, stableInput);
 	if (firstStable.stableCaptureCount != 1u ||
+		firstStable.topologyCacheHit ||
 		firstStable.censusObservationHash != 0x1234 ||
 		firstStable.previousCensusObservationHash != 0 ||
 		firstStable.failOpenFlags != NRI_SPATIAL_ABSENCE_FAIL_NONE ||
@@ -1540,7 +1728,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	stableInput.captureSerial++;
 	stableInput.frameIndex++;
 	const NRISpatialAbsenceSnapshot& secondStable = stableGate.Build(stableWorld, stableInput);
-	if (secondStable.stableCaptureCount != 2u || !secondStable.valid ||
+	if (secondStable.stableCaptureCount != 2u || !secondStable.valid || !secondStable.topologyCacheHit ||
 		secondStable.censusObservationHash != 0x1234 ||
 		secondStable.previousCensusObservationHash != 0x1234 ||
 		(secondStable.failOpenFlags & NRI_SPATIAL_ABSENCE_FAIL_UNSTABLE_ROOT) != 0)
@@ -1552,9 +1740,18 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	stableInput.frameIndex++;
 	stableInput.center[0] = 2.0f;
 	const NRISpatialAbsenceSnapshot& translatedStable = stableGate.Build(stableWorld, stableInput);
-	if (translatedStable.stableCaptureCount != 3u || translatedStable.semanticHash != stableSemanticHash)
+	if (translatedStable.stableCaptureCount != 3u || !translatedStable.topologyCacheHit ||
+		translatedStable.semanticHash != stableSemanticHash)
 	{
 		return fail("camera-only translation changed stable semantic telemetry");
+	}
+	stableInput.captureSerial++;
+	stableInput.frameIndex++;
+	stableWorld.topologyRevision++;
+	const NRISpatialAbsenceSnapshot& rebuiltTopology = stableGate.Build(stableWorld, stableInput);
+	if (rebuiltTopology.topologyCacheHit || rebuiltTopology.semanticHash != stableSemanticHash)
+	{
+		return fail("map topology replacement did not invalidate cached topology safely");
 	}
 	stableInput.captureSerial++;
 	stableInput.frameIndex++;

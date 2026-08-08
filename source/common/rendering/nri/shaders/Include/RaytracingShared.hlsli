@@ -795,6 +795,7 @@ static const uint SPATIAL_ABSENCE_FLAG_GRID = 1u << 5u;
 static const uint SPATIAL_ABSENCE_FLAG_GRID_CELL = 1u << 6u;
 static const uint SPATIAL_ABSENCE_FLAG_GRID_REFERENCE = 1u << 7u;
 static const uint SPATIAL_ABSENCE_FLAG_PROBE = 1u << 8u;
+static const uint SPATIAL_ABSENCE_FLAG_GRID_CELL_INTERIOR = 1u << 9u;
 static const uint SPATIAL_ABSENCE_GRID_MAX_DIMENSION = 32u;
 static const uint SPATIAL_ABSENCE_RECORD_STRIDE = 80u;
 static const float SPATIAL_ABSENCE_MAX_FLOAT_EXACT_INTEGER = 16777216.0;
@@ -899,7 +900,7 @@ bool ValidateSpatialFootprintLookup(uint ownerChunk, SpatialAbsenceRecord lookup
 		height > SPATIAL_ABSENCE_GRID_MAX_DIMENSION || cellCount != width * height ||
 		grid.Data1 != gridHeaderIndex + 1u || grid.Data1 > recordCount ||
 		cellCount > recordCount - grid.Data1 || grid.Data2 != grid.Data1 + cellCount ||
-		grid.Data2 > recordCount || referenceCount == 0u || referenceRecordCount == 0u ||
+		grid.Data2 > recordCount ||
 		referenceRecordCount > recordCount - grid.Data2)
 		return false;
 	return true;
@@ -910,11 +911,12 @@ bool PointInSpatialFootprint(
 	SpatialAbsenceRecord lookup,
 	float2 samplePoint,
 	uint recordCount,
+	bool lookupPrevalidated,
 	out bool recordsValid,
 	out SpatialFootprintProbeDetails probeDetails)
 {
 	probeDetails = EmptySpatialFootprintProbeDetails();
-	recordsValid = ValidateSpatialFootprintLookup(ownerChunk, lookup, recordCount);
+	recordsValid = lookupPrevalidated || ValidateSpatialFootprintLookup(ownerChunk, lookup, recordCount);
 	if (!recordsValid)
 		return false;
 	if (!all(isfinite(samplePoint)))
@@ -961,27 +963,52 @@ bool PointInSpatialFootprint(
 	if (!cellValid)
 		return false;
 	probeDetails.cellReferenceCount = cell.Data2;
+	bool inside = false;
+	if ((cell.Flags & SPATIAL_ABSENCE_FLAG_GRID_CELL_INTERIOR) != 0u)
+	{
+		uint certifiedTriangleOffset = 0u;
+		const bool certificateReferenceValid =
+			DecodeSpatialExactUint(cell.Payload0.z, certifiedTriangleOffset) &&
+			certifiedTriangleOffset < lookup.Data1 &&
+			lookup.Data0 + certifiedTriangleOffset < recordCount;
+		recordsValid = recordsValid && certificateReferenceValid;
+		if (!certificateReferenceValid)
+			return false;
+		const SpatialAbsenceRecord certifiedTriangle =
+			gSpatialAbsenceRecords[lookup.Data0 + certifiedTriangleOffset];
+		const bool certificateValid =
+			(certifiedTriangle.Flags & SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS) ==
+				SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS &&
+			certifiedTriangle.Data0 == ownerChunk && all(isfinite(certifiedTriangle.Payload0)) &&
+			all(isfinite(certifiedTriangle.Payload1.xy));
+		recordsValid = recordsValid && certificateValid;
+		if (!certificateValid)
+			return false;
+		TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+		float certificateMargin = -3.402823466e+38;
+		const bool certificateInside = PointInSpatialTriangle(
+			samplePoint, certifiedTriangle.Payload0.xy, certifiedTriangle.Payload0.zw,
+			certifiedTriangle.Payload1.xy, certificateMargin);
+		probeDetails.bestMargin = certificateMargin;
+		probeDetails.bestTriangle = certifiedTriangleOffset;
+		inside = certificateInside;
+	}
 	if (cell.Data2 == 0u)
 	{
-		probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_EMPTY_CELL;
-		return false;
+		if (!inside)
+			probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_EMPTY_CELL;
+		return inside;
 	}
-	bool inside = false;
 	[loop]
-	for (uint referenceOffset = 0u; referenceOffset < cell.Data2; ++referenceOffset)
+	for (uint referenceRecordOffset = 0u; referenceRecordOffset < cellReferenceRecordCount; ++referenceRecordOffset)
 	{
-		const uint referenceRecordOffset = referenceOffset / 3u;
 		const SpatialAbsenceRecord referenceRecord = gSpatialAbsenceRecords[cell.Data1 + referenceRecordOffset];
 		uint referenceOwner = 0u;
 		uint storedReferenceRecordOffset = 0u;
-		bool tailValid = true;
-		if (referenceRecordOffset + 1u == cellReferenceRecordCount)
-		{
-			const uint tailCount = cell.Data2 - referenceRecordOffset * 3u;
-			tailValid = tailCount == 3u ||
-				(tailCount == 2u && referenceRecord.Data2 == 0xffffffffu) ||
-				(tailCount == 1u && referenceRecord.Data1 == 0xffffffffu && referenceRecord.Data2 == 0xffffffffu);
-		}
+		const uint tailCount = min(cell.Data2 - referenceRecordOffset * 3u, 3u);
+		const bool tailValid = tailCount == 3u ||
+			(tailCount == 2u && referenceRecord.Data2 == 0xffffffffu) ||
+			(tailCount == 1u && referenceRecord.Data1 == 0xffffffffu && referenceRecord.Data2 == 0xffffffffu);
 		const bool referenceValid =
 			(referenceRecord.Flags & SPATIAL_ABSENCE_REQUIRED_GRID_REFERENCE_FLAGS) == SPATIAL_ABSENCE_REQUIRED_GRID_REFERENCE_FLAGS &&
 			DecodeSpatialExactUint(referenceRecord.Payload0.x, referenceOwner) && referenceOwner == ownerChunk &&
@@ -990,32 +1017,39 @@ bool PointInSpatialFootprint(
 		recordsValid = recordsValid && referenceValid;
 		if (!referenceValid)
 			continue;
-		uint triangleOffset = referenceRecord.Data0;
-		if (referenceOffset % 3u == 1u) triangleOffset = referenceRecord.Data1;
-		else if (referenceOffset % 3u == 2u) triangleOffset = referenceRecord.Data2;
-		const bool triangleReferenceValid = triangleOffset < lookup.Data1 &&
-			lookup.Data0 + triangleOffset < recordCount;
-		recordsValid = recordsValid && triangleReferenceValid;
-		if (!triangleReferenceValid)
-			continue;
-		const SpatialAbsenceRecord triangleRecord = gSpatialAbsenceRecords[lookup.Data0 + triangleOffset];
-		const bool triangleValid =
-			(triangleRecord.Flags & SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS) == SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS &&
-			triangleRecord.Data0 == ownerChunk && all(isfinite(triangleRecord.Payload0)) && all(isfinite(triangleRecord.Payload1.xy));
-		recordsValid = recordsValid && triangleValid;
-		if (triangleValid)
+		const uint triangleOffsets[3] = {
+			referenceRecord.Data0, referenceRecord.Data1, referenceRecord.Data2
+		};
+		[unroll]
+		for (uint triangleLane = 0u; triangleLane < 3u; ++triangleLane)
 		{
-			TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
-			float edgeMargin = -3.402823466e+38;
-			const bool triangleInside = PointInSpatialTriangle(
-				samplePoint, triangleRecord.Payload0.xy, triangleRecord.Payload0.zw,
-				triangleRecord.Payload1.xy, edgeMargin);
-			if (edgeMargin > probeDetails.bestMargin)
+			if (triangleLane >= tailCount)
+				continue;
+			const uint triangleOffset = triangleOffsets[triangleLane];
+			const bool triangleReferenceValid = triangleOffset < lookup.Data1 &&
+				lookup.Data0 + triangleOffset < recordCount;
+			recordsValid = recordsValid && triangleReferenceValid;
+			if (!triangleReferenceValid)
+				continue;
+			const SpatialAbsenceRecord triangleRecord = gSpatialAbsenceRecords[lookup.Data0 + triangleOffset];
+			const bool triangleValid =
+				(triangleRecord.Flags & SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS) == SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS &&
+				triangleRecord.Data0 == ownerChunk && all(isfinite(triangleRecord.Payload0)) && all(isfinite(triangleRecord.Payload1.xy));
+			recordsValid = recordsValid && triangleValid;
+			if (triangleValid && !inside)
 			{
-				probeDetails.bestMargin = edgeMargin;
-				probeDetails.bestTriangle = triangleOffset;
+				TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+				float edgeMargin = -3.402823466e+38;
+				const bool triangleInside = PointInSpatialTriangle(
+					samplePoint, triangleRecord.Payload0.xy, triangleRecord.Payload0.zw,
+					triangleRecord.Payload1.xy, edgeMargin);
+				if (edgeMargin > probeDetails.bestMargin)
+				{
+					probeDetails.bestMargin = edgeMargin;
+					probeDetails.bestTriangle = triangleOffset;
+				}
+				inside = inside || triangleInside;
 			}
-			inside = inside || triangleInside;
 		}
 	}
 	if (recordsValid && !inside)
@@ -1202,7 +1236,7 @@ uint EvaluateSpatialAbsence(
 	{
 		insideNegative = PointInSpatialFootprint(
 			chunkIndex, chunkRecord, worldPosition.xz, recordCount,
-			negativeRecordsValid, footprintProbeDetails);
+			true, negativeRecordsValid, footprintProbeDetails);
 	}
 	if (!negativeRecordsValid)
 	{
@@ -1231,7 +1265,7 @@ uint EvaluateSpatialAbsence(
 		SpatialFootprintProbeDetails positiveProbeDetails = EmptySpatialFootprintProbeDetails();
 		const bool insidePositive = PointInSpatialFootprint(
 			pair.Data1, gSpatialAbsenceRecords[pair.Data1 + 1u], worldPosition.xz,
-			recordCount, positiveRecordsValid, positiveProbeDetails);
+			recordCount, true, positiveRecordsValid, positiveProbeDetails);
 		if (!positiveRecordsValid)
 		{
 			footprintProbeDetails = positiveProbeDetails;
@@ -1611,6 +1645,8 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 	hitData = MakeEmptyHitData();
 	float accumulatedDistance = 0.0;
 	TraceShaderStatCall(statsKind);
+	const bool spatialAbsenceGateActive = gateSpatialAbsence &&
+		(gTraceConstants.Flags & NRI_FLAG_SPATIAL_ABSENCE_GATE) != 0u;
 	uint probeExpectedChunk = 0xffffffffu;
 	SpatialAbsenceRecord probeHeader;
 	float3 probeOrigin;
@@ -1695,7 +1731,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 		uint matchedPositiveChunk = 0xffffffffu;
 		uint spatialCandidateMaterialFlags = 0xffffffffu;
 		SpatialFootprintProbeDetails footprintProbeDetails = EmptySpatialFootprintProbeDetails();
-		if (instanceData.dataSource == SCENE_DATA_SOURCE_STATIC && (gateSpatialAbsence || probeCandidate))
+		if (instanceData.dataSource == SCENE_DATA_SOURCE_STATIC && (spatialAbsenceGateActive || probeCandidate))
 		{
 			spatialCandidateMaterialFlags = GetMaterialData(materialIndex, instanceData.dataSource).flags;
 			const bool exactNegativeSurfaceMembership =
@@ -1729,7 +1765,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				spatialProbeRecordBase = candidateRecordBase;
 			}
 		}
-		if (gateSpatialAbsence && spatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
+		if (spatialAbsenceGateActive && spatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
 		{
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);

@@ -3,6 +3,7 @@
 #include "../scene/nri_map_world.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,7 @@ enum NRISpatialAbsenceGpuFlags : uint32_t
 	NRI_SPATIAL_ABSENCE_GPU_GRID_CELL = 1u << 6,
 	NRI_SPATIAL_ABSENCE_GPU_GRID_REFERENCE = 1u << 7,
 	NRI_SPATIAL_ABSENCE_GPU_PROBE = 1u << 8,
+	NRI_SPATIAL_ABSENCE_GPU_GRID_CELL_INTERIOR = 1u << 9,
 };
 
 // Record zero is the snapshot header. The next chunkCount records form the
@@ -149,6 +151,9 @@ struct NRISpatialAbsenceSnapshot
 	uint32_t footprintGridCellCount = 0;
 	uint32_t footprintGridReferenceCount = 0;
 	uint32_t stableCaptureCount = 0;
+	double buildElapsedMilliseconds = 0.0;
+	bool topologyCacheHit = false;
+	uint32_t topologyPairCount = 0;
 	int32_t authoritativeRootSector = -1;
 	int32_t rootLocalSpaceIndex = -1;
 	std::vector<uint32_t> rootSectorIndices;
@@ -197,6 +202,11 @@ struct NRISpatialAbsenceContinuityRecord
 class NRISpatialAbsenceGate
 {
 public:
+	NRISpatialAbsenceGate();
+	~NRISpatialAbsenceGate();
+	NRISpatialAbsenceGate(const NRISpatialAbsenceGate&) = delete;
+	NRISpatialAbsenceGate& operator=(const NRISpatialAbsenceGate&) = delete;
+
 	const NRISpatialAbsenceSnapshot& Build(
 		const nri_scene::PTMapWorld& mapWorld,
 		const NRISpatialAbsenceCensusInput& census);
@@ -205,6 +215,8 @@ public:
 	const NRISpatialAbsenceSnapshot& GetSnapshot() const { return mSnapshot; }
 
 private:
+	struct TopologyCache;
+	std::unique_ptr<TopologyCache> mTopologyCache;
 	NRISpatialAbsenceSnapshot mSnapshot;
 	uint64_t mStableWorldGeneration = 0;
 	uint64_t mStableObservationHash = 0;

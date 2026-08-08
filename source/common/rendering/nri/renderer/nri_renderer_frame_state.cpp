@@ -406,7 +406,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					centerDelta[axis] = absence.center[axis] - mPreviousCameraPos[axis];
 				}
 			}
-			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
+			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u build_elapsed_ms=%.3f topology_cache_hit=%u topology_pairs=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
 				mFrameIndex,
 				(unsigned long long)census.captureSerial,
 				census.complete ? 1u : 0u,
@@ -420,6 +420,9 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 				(unsigned long long)absence.previousCensusObservationHash,
 				census.elapsedMilliseconds,
 				census.traversal.scratchArrayGrowths,
+				absence.buildElapsedMilliseconds,
+				absence.topologyCacheHit ? 1u : 0u,
+				absence.topologyPairCount,
 				(unsigned long long)absence.worldGeneration,
 				(unsigned long long)absence.payloadHash,
 				(unsigned long long)absence.semanticHash,

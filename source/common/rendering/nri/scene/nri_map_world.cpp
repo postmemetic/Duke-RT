@@ -64,6 +64,7 @@ void PTMapWorld::Reset()
 {
 	level = nullptr;
 	buildSerial = 0;
+	topologyRevision = 0;
 	valid = false;
 	chunks.clear();
 	sectorChunkLookup.clear();
