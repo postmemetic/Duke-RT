@@ -1952,6 +1952,27 @@ CCMD(nri_pt360absence_selftest)
 		failure.empty() ? "none" : failure.c_str());
 }
 
+// Compact diagnostic command used by the deterministic motion harness. A
+// single command keeps a per-frame arbitrary-pixel GPU probe replay below the
+// Windows process command-line limit while still going through the validated
+// session-only CVars consumed by the frame snapshot.
+CCMD(nri_pt360probestep)
+{
+	if (argv.argc() != 8)
+	{
+		Printf("nri_pt360probestep <origin-x> <origin-y> <origin-z> <target-x> <target-y> <reference-x> <reference-y>\n");
+		return;
+	}
+
+	nri_pt360absenceprobeoriginx = (float)atof(argv[1]);
+	nri_pt360absenceprobeoriginy = (float)atof(argv[2]);
+	nri_pt360absenceprobeoriginz = (float)atof(argv[3]);
+	nri_pt360absenceprobetargetx = atoi(argv[4]);
+	nri_pt360absenceprobetargety = atoi(argv[5]);
+	nri_pt360absenceprobereferencex = atoi(argv[6]);
+	nri_pt360absenceprobereferencey = atoi(argv[7]);
+}
+
 CCMD(nri_ptvoxeloccurrence_selftest)
 {
 	std::string failure;
