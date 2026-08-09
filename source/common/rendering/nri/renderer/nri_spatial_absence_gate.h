@@ -117,6 +117,10 @@ struct NRISpatialAbsenceConflictRecord
 	float overlapMax[3] = {};
 	float distanceToGuardCenter = 0.0f;
 	uint32_t exactWitnessCount = 0;
+	uint32_t continuityCount = 0;
+	bool continuityPresentPrevious = false;
+	bool continuityContextContinuous = false;
+	bool continuityAuthorized = false;
 };
 
 // Camera-independent summary of the exact coverage for one census-negative
@@ -218,6 +222,7 @@ struct NRISpatialAbsenceContinuityRecord
 {
 	NRISpatialAbsenceContinuityKey key;
 	uint32_t consecutiveCaptureCount = 0;
+	bool presentPrevious = false;
 	bool authorized = false;
 };
 

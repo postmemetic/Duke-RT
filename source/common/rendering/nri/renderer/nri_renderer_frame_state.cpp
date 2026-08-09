@@ -450,14 +450,21 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 			uint32_t rows = 0;
 			auto printConflict = [&](const NRISpatialAbsenceConflictRecord& conflict)
 			{
-				Printf("NRI PT 360 absence conflict: frame=%u decision=%s positive_chunk=%u positive_sector=%d negative_chunk=%u negative_sector=%d witnesses=%u distance=%.3f overlap=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f))\n",
+				Printf("NRI PT 360 absence conflict: frame=%u capture=%llu world=%llu local_space=%d decision=%s positive_chunk=%u positive_sector=%d negative_chunk=%u negative_sector=%d witnesses=%u continuity_count=%u continuity_previous=%u continuity_context=%u continuity_authorized=%u distance=%.3f overlap=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f))\n",
 					mFrameIndex,
+					(unsigned long long)absence.captureSerial,
+					(unsigned long long)absence.worldGeneration,
+					absence.rootLocalSpaceIndex,
 					GetNRISpatialAbsenceConflictDecisionName(conflict.decision),
 					conflict.positiveChunk,
 					conflict.positiveSector,
 					conflict.negativeChunk,
 					conflict.negativeSector,
 					conflict.exactWitnessCount,
+					conflict.continuityCount,
+					conflict.continuityPresentPrevious ? 1u : 0u,
+					conflict.continuityContextContinuous ? 1u : 0u,
+					conflict.continuityAuthorized ? 1u : 0u,
 					conflict.distanceToGuardCenter,
 					conflict.overlapMin[0], conflict.overlapMin[1], conflict.overlapMin[2],
 					conflict.overlapMax[0], conflict.overlapMax[1], conflict.overlapMax[2]);

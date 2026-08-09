@@ -70,3 +70,5 @@ public:
 };
 
 bool RunHW360CensusContractSelfTest();
+int ResolveHW360CensusAuthoritativeRoot(
+	const int* roots, unsigned rootCount, int cameraActorRoot, bool explicitRoots);

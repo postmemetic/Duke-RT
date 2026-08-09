@@ -154,6 +154,17 @@ CCMD(hw_360census_status)
 
 bool RunHW360CensusContractSelfTest()
 {
+	const int soleExplicitRoot = 290;
+	if (ResolveHW360CensusAuthoritativeRoot(&soleExplicitRoot, 1, 293, true) != 290)
+		return false;
+	if (ResolveHW360CensusAuthoritativeRoot(&soleExplicitRoot, 1, 293, false) != 293)
+		return false;
+	const int portalRoots[2] = { 290, 293 };
+	if (ResolveHW360CensusAuthoritativeRoot(portalRoots, 2, 293, true) != 293)
+		return false;
+	if (ResolveHW360CensusAuthoritativeRoot(portalRoots, 2, 291, true) != 291)
+		return false;
+
 	HW360CensusSnapshot empty;
 	if (empty.HasNegativeAuthority()) return false;
 
@@ -192,6 +203,22 @@ bool RunHW360CensusContractSelfTest()
 CCMD(hw_360census_selftest)
 {
 	Printf("HW 360 census self-test: result=%s\n", RunHW360CensusContractSelfTest() ? "pass" : "fail");
+}
+
+int ResolveHW360CensusAuthoritativeRoot(
+	const int* roots, unsigned rootCount, int cameraActorRoot, bool explicitRoots)
+{
+	if (cameraActorRoot < 0 || roots == nullptr || rootCount == 0)
+		return cameraActorRoot;
+	if (std::find(roots, roots + rootCount, cameraActorRoot) != roots + rootCount)
+		return cameraActorRoot;
+	// Explicit SectNums are the roots actually consumed by CreateScene. During
+	// interpolated sector crossings the camera actor can relink one render frame
+	// before that list. A sole explicit root is still unambiguous presentation
+	// authority; multi-root disagreements remain fail-open.
+	if (explicitRoots && rootCount == 1)
+		return roots[0];
+	return cameraActorRoot;
 }
 
 void HW360Census::Capture(const DVector3& renderOrigin, const int* roots, unsigned rootCount, int authoritativeRoot,

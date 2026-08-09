@@ -61,6 +61,7 @@ namespace
 		float overlapMax[3] = {};
 		float distanceToCenter = 0.0f;
 		uint32_t exactWitnessCount = 0;
+		size_t debugRecordIndex = std::numeric_limits<size_t>::max();
 		bool authorized = false;
 	};
 
@@ -844,12 +845,14 @@ namespace
 		{
 			while (previousIndex < previous.size() && previous[previousIndex].key < key)
 				++previousIndex;
+			const bool presentPrevious = previousIndex < previous.size() && previous[previousIndex].key == key;
 			uint32_t count = 1u;
-			if (contextContinuous && previousIndex < previous.size() && previous[previousIndex].key == key)
+			if (contextContinuous && presentPrevious)
 				count = std::min(previous[previousIndex].consecutiveCaptureCount + 1u, 0xffffu);
 			NRISpatialAbsenceContinuityRecord record;
 			record.key = key;
 			record.consecutiveCaptureCount = count;
+			record.presentPrevious = presentPrevious;
 			record.authorized = count >= 2u;
 			result.push_back(record);
 		}
@@ -1490,6 +1493,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		}
 
 		mSnapshot.conflicts.push_back(MakeDebugRecord(*positive, *negative, classification));
+		const size_t debugRecordIndex = mSnapshot.conflicts.size() - 1u;
 		mSnapshot.conflicts.back().exactWitnessCount = exactWitnessCount;
 		if (classification.decision != NRISpatialAbsenceConflictDecision::Certified)
 			continue;
@@ -1505,6 +1509,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		std::memcpy(pair.overlapMax, classification.overlapMax, sizeof(pair.overlapMax));
 		pair.distanceToCenter = classification.distanceToCenter;
 		pair.exactWitnessCount = exactWitnessCount;
+		pair.debugRecordIndex = debugRecordIndex;
 		certifiedPairs.push_back(pair);
 		}
 
@@ -1524,6 +1529,14 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	for (size_t index = 0; index < certifiedPairs.size(); ++index)
 	{
 		certifiedPairs[index].authorized = mConflictContinuity[index].authorized;
+		if (certifiedPairs[index].debugRecordIndex < mSnapshot.conflicts.size())
+		{
+			NRISpatialAbsenceConflictRecord& debug = mSnapshot.conflicts[certifiedPairs[index].debugRecordIndex];
+			debug.continuityCount = mConflictContinuity[index].consecutiveCaptureCount;
+			debug.continuityPresentPrevious = mConflictContinuity[index].presentPrevious;
+			debug.continuityContextContinuous = contextContinuous;
+			debug.continuityAuthorized = mConflictContinuity[index].authorized;
+		}
 		mSnapshot.authorizedPairCount += certifiedPairs[index].authorized ? 1u : 0u;
 		mSnapshot.pendingPairCount += certifiedPairs[index].authorized ? 0u : 1u;
 	}
@@ -1976,10 +1989,12 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	NRISpatialAbsenceContinuityKey keyB = { 7u, 4u, 10u, 0u };
 	std::vector<NRISpatialAbsenceContinuityRecord> continuity;
 	continuity = AdvanceConflictContinuity({ keyA }, continuity, false);
-	if (continuity.size() != 1u || continuity[0].authorized || continuity[0].consecutiveCaptureCount != 1u)
+	if (continuity.size() != 1u || continuity[0].authorized || continuity[0].presentPrevious ||
+		continuity[0].consecutiveCaptureCount != 1u)
 		return fail("new conflict did not remain pending on its first complete observation");
 	continuity = AdvanceConflictContinuity({ keyA }, continuity, true);
-	if (!continuity[0].authorized || continuity[0].consecutiveCaptureCount != 2u)
+	if (!continuity[0].authorized || !continuity[0].presentPrevious ||
+		continuity[0].consecutiveCaptureCount != 2u)
 		return fail("conflict did not authorize after two consecutive current certifications");
 	continuity = AdvanceConflictContinuity({ keyA, keyB }, continuity, true);
 	if (!continuity[0].authorized || continuity[1].authorized)
