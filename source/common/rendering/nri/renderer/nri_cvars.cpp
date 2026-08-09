@@ -321,6 +321,10 @@ CVAR(Bool, nri_ptvoxelactorlifecycle, true, 0)
 
 CVAR(Int, nri_ptvoxelactorstatetracelimit, 12000, 0)
 
+CVAR(Int, nri_ptvoxelvariantdelayactor, -1, 0)
+
+CVAR(Int, nri_ptvoxelvariantdelayframes, 0, 0)
+
 CVAR(Int, nri_ptvoxeltrianglebudget, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(Int, nri_ptvoxelmaxtriangles, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

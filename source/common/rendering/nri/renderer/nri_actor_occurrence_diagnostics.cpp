@@ -425,6 +425,7 @@ void NRIActorOccurrenceCensus::RecordPolicyDecision(const NRIActorOccurrencePoli
 	mFrame.spatialEvidenceComplete = decision.spatialEvidenceComplete;
 	mFrame.ownerSectorReachedBy360 = decision.ownerSectorReachedBy360;
 	mFrame.ownerChunkNegative = decision.ownerChunkNegative;
+	mFrame.insideCensusSphere = decision.insideCensusSphere;
 	mFrame.boundsOverlapConflict = decision.boundsOverlapConflict;
 	mFrame.actorPositionInsideConflict = decision.actorPositionInsideConflict;
 	mFrame.suppressionAuthorized = decision.suppress;
@@ -650,7 +651,7 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 	{
 		return;
 	}
-	Printf("NRI PT actor occurrence census: frame=%u target_actor=%d actor_key=0x%llx lifecycle=%llu authority=%u live=%u pending_removal=%u position_sync=%u physical_sector=%d physical_chunk=%u physical_local_space=%d root_sector=%d root_local_space=%d owner_reached=%u owner_negative=%u conflict_positive=%u conflict_negative=%u bounds_inside=%u bounds_overlap=%u actor_inside=%u candidates=%u occurrences=%u committed=%u invariant=0x%x classification=%s owner_world_epoch=%llu owner_lifetime=%llu placement_generation=%llu placement_state_hash=0x%llx binding_generation=%llu publication_hash=0x%llx authority_current=%u publication_eligible=%u ledger_reason=%s\n",
+	Printf("NRI PT actor occurrence census: frame=%u target_actor=%d actor_key=0x%llx lifecycle=%llu authority=%u live=%u pending_removal=%u position_sync=%u physical_sector=%d physical_chunk=%u physical_local_space=%d root_sector=%d root_local_space=%d owner_reached=%u owner_negative=%u census_sphere=%u conflict_positive=%u conflict_negative=%u bounds_inside=%u bounds_overlap=%u actor_inside=%u candidates=%u occurrences=%u committed=%u invariant=0x%x classification=%s owner_world_epoch=%llu owner_lifetime=%llu placement_generation=%llu placement_state_hash=0x%llx binding_generation=%llu publication_hash=0x%llx authority_current=%u publication_eligible=%u ledger_reason=%s\n",
 		frame.frameIndex, frame.targetActorIndex,
 		(unsigned long long)frame.identityKey, (unsigned long long)frame.lifecycleGeneration,
 		frame.authorityFound ? 1u : 0u, frame.live ? 1u : 0u,
@@ -658,6 +659,7 @@ void TraceNRIActorOccurrenceFrame(const NRIActorOccurrenceFrame& frame)
 		frame.physicalSectorIndex, frame.physicalChunkIndex, frame.physicalLocalSpaceIndex,
 		frame.rootSectorIndex, frame.rootLocalSpaceIndex,
 		frame.ownerSectorReachedBy360 ? 1u : 0u, frame.ownerChunkNegative ? 1u : 0u,
+		frame.insideCensusSphere ? 1u : 0u,
 		frame.conflictPositiveChunk, frame.conflictNegativeChunk,
 		frame.completeBoundsInsideConflict ? 1u : 0u,
 		frame.boundsOverlapConflict ? 1u : 0u,

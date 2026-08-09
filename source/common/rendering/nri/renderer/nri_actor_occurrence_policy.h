@@ -57,6 +57,7 @@ struct NRIActorOccurrencePolicyCandidate
 	uint32_t requestedWorkloadMask = 0;
 	bool active = false;
 	bool uniqueActiveOccurrence = false;
+	bool capturedThisFrame = false;
 	bool boundsValid = false;
 	float boundsMin[3] = {};
 	float boundsMax[3] = {};
@@ -78,6 +79,8 @@ struct NRIActorOccurrencePolicyDecision
 	bool spatialEvidenceComplete = false;
 	bool ownerSectorReachedBy360 = false;
 	bool ownerChunkNegative = false;
+	bool capturedThisFrame = false;
+	bool insideCensusSphere = false;
 	bool boundsOverlapConflict = false;
 	bool actorPositionInsideConflict = false;
 	uint32_t suppressedWorkloadMask = 0;

@@ -53,6 +53,32 @@ namespace
 		return true;
 	}
 
+	bool CandidateIntersectsCensusSphere(
+		const NRIActorOccurrencePolicyCandidate& candidate,
+		const float center[3],
+		float radius)
+	{
+		if (!candidate.boundsValid || !std::isfinite(radius) || radius <= 0.0f)
+		{
+			return false;
+		}
+		float distanceSquared = 0.0f;
+		for (uint32_t axis = 0; axis < 3u; ++axis)
+		{
+			if (!std::isfinite(center[axis]) ||
+				!std::isfinite(candidate.boundsMin[axis]) ||
+				!std::isfinite(candidate.boundsMax[axis]))
+			{
+				return false;
+			}
+			const float distance = center[axis] < candidate.boundsMin[axis] ?
+				candidate.boundsMin[axis] - center[axis] :
+				(center[axis] > candidate.boundsMax[axis] ? center[axis] - candidate.boundsMax[axis] : 0.0f);
+			distanceSquared += distance * distance;
+		}
+		return distanceSquared <= radius * radius;
+	}
+
 	struct NRIActorOccurrencePolicyFacts
 	{
 		NRIActorOccurrencePolicyContext context;
@@ -72,6 +98,7 @@ namespace
 		decision.live = facts.authority.live;
 		decision.pendingRemoval = facts.authority.pendingRemoval;
 		decision.actorPositionSynchronized = facts.authority.actorPositionSynchronized;
+		decision.capturedThisFrame = facts.candidate.capturedThisFrame;
 		decision.lifecycleGeneration = facts.authority.lifecycleGeneration;
 		decision.physicalSectorIndex = facts.authority.physicalSectorIndex;
 		std::memcpy(decision.actorScenePosition, facts.authority.actorScenePosition, sizeof(decision.actorScenePosition));
@@ -126,27 +153,55 @@ namespace
 			snapshot->reachedSectorIndices.begin(), snapshot->reachedSectorIndices.end(),
 			(uint32_t)facts.authority.physicalSectorIndex);
 		decision.ownerChunkNegative = IsChunkMarked(snapshot->negativeChunkWords, decision.physicalChunkIndex);
+		decision.insideCensusSphere = CandidateIntersectsCensusSphere(
+			facts.candidate, snapshot->center, snapshot->guardRadius);
 		if (decision.ownerSectorReachedBy360)
 			return keep(NRIActorOccurrencePolicyReason::OwnerReached);
 		if (!decision.ownerChunkNegative)
 			return keep(NRIActorOccurrencePolicyReason::OwnerNotNegative);
 
-		const NRISpatialAbsenceConflictRecord* matchedConflict = nullptr;
-		uint32_t matchingConflictCount = 0u;
+		const NRISpatialAbsenceConflictRecord* reachedConflict = nullptr;
+		const NRISpatialAbsenceConflictRecord* fallbackConflict = nullptr;
+		bool duplicateConflict = false;
 		for (const NRISpatialAbsenceConflictRecord& conflict : snapshot->conflicts)
 		{
 			if (conflict.decision != NRISpatialAbsenceConflictDecision::Certified ||
-				conflict.negativeChunk != decision.physicalChunkIndex ||
-				conflict.positiveSector != snapshot->authoritativeRootSector)
+				conflict.negativeChunk != decision.physicalChunkIndex)
 			{
 				continue;
 			}
-			matchedConflict = &conflict;
-			matchingConflictCount++;
+			if (fallbackConflict != nullptr &&
+				fallbackConflict->positiveChunk == conflict.positiveChunk)
+			{
+				duplicateConflict = true;
+				continue;
+			}
+			if (fallbackConflict == nullptr)
+			{
+				fallbackConflict = &conflict;
+			}
+			const bool positiveReached = conflict.positiveSector >= 0 &&
+				std::binary_search(
+					snapshot->reachedSectorIndices.begin(), snapshot->reachedSectorIndices.end(),
+					(uint32_t)conflict.positiveSector);
+			// Prefer a root-local witness for diagnostics, then any reached
+			// positive owner. Both are stronger than the bounded negative-owner
+			// fallback used for an uncaptured actor inside the census sphere.
+			if (positiveReached && (reachedConflict == nullptr ||
+				conflict.positiveSector == snapshot->authoritativeRootSector))
+			{
+				reachedConflict = &conflict;
+			}
 		}
-		if (matchingConflictCount == 0u)
+		const NRISpatialAbsenceConflictRecord* matchedConflict = reachedConflict;
+		if (matchedConflict == nullptr && !facts.candidate.capturedThisFrame &&
+			decision.insideCensusSphere)
+		{
+			matchedConflict = fallbackConflict;
+		}
+		if (matchedConflict == nullptr)
 			return keep(NRIActorOccurrencePolicyReason::NoCertifiedConflict);
-		if (matchingConflictCount != 1u || matchedConflict == nullptr)
+		if (duplicateConflict)
 			return keep(NRIActorOccurrencePolicyReason::AmbiguousConflict);
 
 		decision.conflictPositiveChunk = matchedConflict->positiveChunk;
@@ -264,6 +319,7 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 		facts.candidate.requestedWorkloadMask = 0xffu;
 		facts.candidate.active = true;
 		facts.candidate.uniqueActiveOccurrence = true;
+		facts.candidate.capturedThisFrame = false;
 		facts.candidate.boundsValid = true;
 		facts.candidate.boundsMin[0] = facts.candidate.boundsMin[1] = facts.candidate.boundsMin[2] = -1.0f;
 		facts.candidate.boundsMax[0] = facts.candidate.boundsMax[1] = facts.candidate.boundsMax[2] = 1.0f;
@@ -330,7 +386,78 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 	const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot)->conflicts.clear();
 	decision = EvaluateFacts(facts);
 	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::NoCertifiedConflict)
-		return fail("negative owner without a certified root conflict did not fail open");
+		return fail("negative owner without a certified reached conflict did not fail open");
+
+	facts = makeFacts();
+	auto* adjacentRootSnapshot = const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot);
+	auto* adjacentRootWorld = const_cast<nri_scene::PTMapWorld*>(facts.context.mapWorld);
+	adjacentRootWorld->sectorChunkLookup.push_back(2u);
+	adjacentRootWorld->chunks.resize(3u);
+	adjacentRootWorld->chunks[2].chunkIndex = 2u;
+	adjacentRootWorld->chunks[2].sectorIndex = 2;
+	adjacentRootWorld->chunks[2].localSpaceIndex = 0u;
+	adjacentRootWorld->localSpaces[0].chunkCount = 3u;
+	adjacentRootSnapshot->authoritativeRootSector = 2;
+	adjacentRootSnapshot->reachedSectorIndices = { 0u, 2u };
+	NRISpatialAbsenceConflictRecord rootConflict = adjacentRootSnapshot->conflicts.front();
+	rootConflict.positiveChunk = 2u;
+	rootConflict.positiveSector = 2;
+	adjacentRootSnapshot->conflicts.push_back(rootConflict);
+	decision = EvaluateFacts(facts);
+	if (!decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence ||
+		decision.conflictPositiveChunk != 2u)
+		return fail("negative owner with multiple reached witnesses was not suppressed from an adjacent root");
+
+	facts = makeFacts();
+	auto* unreachedSnapshot = const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot);
+	auto* unreachedWorld = const_cast<nri_scene::PTMapWorld*>(facts.context.mapWorld);
+	unreachedWorld->sectorChunkLookup.push_back(2u);
+	unreachedWorld->chunks.resize(3u);
+	unreachedWorld->chunks[2].chunkIndex = 2u;
+	unreachedWorld->chunks[2].sectorIndex = 2;
+	unreachedWorld->chunks[2].localSpaceIndex = 0u;
+	unreachedWorld->localSpaces[0].chunkCount = 3u;
+	unreachedSnapshot->authoritativeRootSector = 2;
+	unreachedSnapshot->reachedSectorIndices = { 2u };
+	decision = EvaluateFacts(facts);
+	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::NoCertifiedConflict)
+		return fail("unreached positive witness authorized whole-occurrence suppression");
+
+	facts = makeFacts();
+	auto* sphereFallbackSnapshot = const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot);
+	auto* sphereFallbackWorld = const_cast<nri_scene::PTMapWorld*>(facts.context.mapWorld);
+	sphereFallbackWorld->sectorChunkLookup.push_back(2u);
+	sphereFallbackWorld->chunks.resize(3u);
+	sphereFallbackWorld->chunks[2].chunkIndex = 2u;
+	sphereFallbackWorld->chunks[2].sectorIndex = 2;
+	sphereFallbackWorld->chunks[2].localSpaceIndex = 0u;
+	sphereFallbackWorld->localSpaces[0].chunkCount = 3u;
+	sphereFallbackSnapshot->authoritativeRootSector = 2;
+	sphereFallbackSnapshot->reachedSectorIndices = { 2u };
+	sphereFallbackSnapshot->guardRadius = 8.0f;
+	decision = EvaluateFacts(facts);
+	if (!decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence ||
+		!decision.insideCensusSphere)
+		return fail("uncaptured negative owner inside the census sphere did not use its certified overlap witness");
+
+	facts.candidate.capturedThisFrame = true;
+	decision = EvaluateFacts(facts);
+	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::NoCertifiedConflict)
+		return fail("hardware-captured actor used the bounded negative-owner fallback");
+
+	facts.candidate.capturedThisFrame = false;
+	facts.candidate.boundsMin[0] = facts.candidate.boundsMin[1] = facts.candidate.boundsMin[2] = 20.0f;
+	facts.candidate.boundsMax[0] = facts.candidate.boundsMax[1] = facts.candidate.boundsMax[2] = 22.0f;
+	decision = EvaluateFacts(facts);
+	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::NoCertifiedConflict ||
+		decision.insideCensusSphere)
+		return fail("actor outside the census sphere used the bounded negative-owner fallback");
+
+	facts.candidate.boundsValid = false;
+	decision = EvaluateFacts(facts);
+	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::NoCertifiedConflict ||
+		decision.insideCensusSphere)
+		return fail("actor with invalid bounds used the bounded negative-owner fallback");
 
 	facts = makeFacts();
 	auto* ambiguousSnapshot = const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot);

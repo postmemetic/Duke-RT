@@ -136,6 +136,7 @@ struct NRIActorOccurrenceFrame
 	bool spatialEvidenceComplete = false;
 	bool ownerSectorReachedBy360 = false;
 	bool ownerChunkNegative = false;
+	bool insideCensusSphere = false;
 	bool completeBoundsInsideConflict = false;
 	bool boundsOverlapConflict = false;
 	bool actorPositionInsideConflict = false;
