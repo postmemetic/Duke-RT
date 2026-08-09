@@ -413,7 +413,9 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.frame.guiCaptureActive = mGuiCaptureActive;
 	init.frame.resetHistory = mResetHistory;
 	init.frame.mainViewEligible = mainViewEligible;
-	init.frame.spatialAbsenceAuthority = mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority();
+	init.frame.spatialAbsenceAuthority =
+		mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority() &&
+		mSpatialAbsenceRayQueryCandidateInstanceCount > 0u;
 	init.sceneStats.sceneInstanceCount = (uint32_t)mBoundSceneInstances.size();
 	init.sceneStats.staticPrimitiveCount = mBoundStaticPrimitiveCount;
 	init.sceneStats.dynamicPrimitiveCount = mBoundDynamicPrimitiveCount;

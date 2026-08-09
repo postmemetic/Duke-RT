@@ -1277,6 +1277,20 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectStaticInstancesMs);
 				BuildStaticMapInstances(instances, sceneInstances);
 				mMapMoverRigidRoute.PatchStaticInstances(instances, sceneInstances);
+				mSpatialAbsenceRayQueryCandidateInstanceCount = ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+					(bool)nri_pt360absencegate,
+					mSpatialAbsenceGate.GetSnapshot(),
+					instances,
+					sceneInstances);
+				if ((int)nri_pt360absencetrace > 0)
+				{
+					Printf("NRI PT 360 candidate instances: frame=%u marked=%u static_instances=%u snapshot_authority=%u shader_authority=%u\n",
+						mFrameIndex,
+						mSpatialAbsenceRayQueryCandidateInstanceCount,
+						(uint32_t)sceneInstances.size(),
+						mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority() ? 1u : 0u,
+						mSpatialAbsenceRayQueryCandidateInstanceCount != 0u ? 1u : 0u);
+				}
 			}
 			const uint32_t staticSceneInstanceBaselineCount = (uint32_t)sceneInstances.size();
 			selectedStaticSceneInstanceCount = staticSceneInstanceBaselineCount;

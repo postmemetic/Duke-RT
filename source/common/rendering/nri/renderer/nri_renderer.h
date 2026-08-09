@@ -2815,6 +2815,7 @@ private:
 	NRIMapMoverSystem mMapMovers;
 	NRIMapMoverShadow mMapMoverShadow;
 	NRISpatialAbsenceGate mSpatialAbsenceGate;
+	uint32_t mSpatialAbsenceRayQueryCandidateInstanceCount = 0;
 	NRIMapMoverRigidRoute mMapMoverRigidRoute;
 	NRISE29FloorDeformerRoute mSE29FloorDeformerRoute;
 	NRIMapMaterialOnlyRoute mMapMaterialOnlyRoute;

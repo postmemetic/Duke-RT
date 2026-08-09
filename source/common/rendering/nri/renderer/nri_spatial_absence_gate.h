@@ -7,6 +7,13 @@
 #include <string>
 #include <vector>
 
+namespace nri
+{
+	struct TopLevelInstance;
+}
+
+struct SceneInstanceData;
+
 enum NRISpatialAbsenceGpuFlags : uint32_t
 {
 	NRI_SPATIAL_ABSENCE_GPU_VALID = 1u << 0,
@@ -19,6 +26,10 @@ enum NRISpatialAbsenceGpuFlags : uint32_t
 	NRI_SPATIAL_ABSENCE_GPU_GRID_REFERENCE = 1u << 7,
 	NRI_SPATIAL_ABSENCE_GPU_PROBE = 1u << 8,
 	NRI_SPATIAL_ABSENCE_GPU_GRID_CELL_INTERIOR = 1u << 9,
+	// CPU structural validation covered every serialized record reachable from
+	// the authorized negative selections. Shaders may use their exact
+	// membership fast path only while this header-only seal is present.
+	NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED = 1u << 10,
 };
 
 // Record zero is the snapshot header. The next chunkCount records form the
@@ -49,6 +60,7 @@ enum NRISpatialAbsenceFailOpenFlags : uint32_t
 	NRI_SPATIAL_ABSENCE_FAIL_INVALID_GUARD = 1u << 4,
 	NRI_SPATIAL_ABSENCE_FAIL_AMBIGUOUS_CONFLICT = 1u << 5,
 	NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW = 1u << 6,
+	NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID = 1u << 7,
 };
 
 enum class NRISpatialAbsenceConflictDecision : uint32_t
@@ -170,16 +182,26 @@ struct NRISpatialAbsenceSnapshot
 
 	bool HasNegativeAuthority() const
 	{
-		return valid && certifiedCount != 0 &&
+		return valid && certifiedCount != 0 && !gpuRecords.empty() &&
+			(gpuRecords[0].flags & NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED) != 0 &&
 			(failOpenFlags & (NRI_SPATIAL_ABSENCE_FAIL_INVALID_WORLD |
 				NRI_SPATIAL_ABSENCE_FAIL_INCOMPLETE_CENSUS |
 				NRI_SPATIAL_ABSENCE_FAIL_UNSTABLE_ROOT |
 				NRI_SPATIAL_ABSENCE_FAIL_GENERATION_MISMATCH |
 				NRI_SPATIAL_ABSENCE_FAIL_INVALID_GUARD |
 				NRI_SPATIAL_ABSENCE_FAIL_AMBIGUOUS_CONFLICT |
-				NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW)) == 0;
+				NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW |
+				NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID)) == 0;
 	}
 };
+
+// Marks only currently authorized census-negative static occurrences for
+// candidate-stage inline ray filtering. Other TLAS instances remain opaque.
+uint32_t ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+	bool enabled,
+	const NRISpatialAbsenceSnapshot& snapshot,
+	std::vector<nri::TopLevelInstance>& tlasInstances,
+	const std::vector<SceneInstanceData>& sceneInstances);
 
 struct NRISpatialAbsenceContinuityKey
 {

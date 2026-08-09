@@ -1,6 +1,11 @@
 #include "nri_spatial_absence_gate.h"
 
+#include "nri_diagnostic_names.h"
+#include "nri_frame_resources.h"
+
 #include "build.h"
+
+#include <Extensions/NRIRayTracing.h>
 
 #include <algorithm>
 #include <array>
@@ -433,6 +438,343 @@ namespace
 			hash = HashValue(hash, selection.footprintTriangleCount);
 		}
 		return hash;
+	}
+
+	bool DecodeSerializedUint(float value, uint32_t& decoded)
+	{
+		decoded = 0;
+		if (!std::isfinite(value) || value < 0.0f || value > (float)kMaxFloatExactInteger)
+			return false;
+		decoded = (uint32_t)std::round(value);
+		return value == (float)decoded;
+	}
+
+	bool SerializedRangeFits(uint32_t first, uint32_t count, size_t recordCount)
+	{
+		return (size_t)first <= recordCount && (size_t)count <= recordCount - (size_t)first;
+	}
+
+	bool ValidateSerializedSpatialAbsencePayload(const NRISpatialAbsenceSnapshot& snapshot)
+	{
+		const std::vector<NRISpatialAbsenceGpuRecord>& records = snapshot.gpuRecords;
+		if (records.size() <= 1u || records.size() > kMaxFloatExactInteger)
+			return false;
+
+		constexpr uint32_t requiredBaseFlags =
+			NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE;
+		constexpr uint32_t requiredFootprintFlags =
+			requiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_FOOTPRINT;
+		constexpr uint32_t requiredGridFlags = requiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_GRID;
+		constexpr uint32_t requiredChunkFlags =
+			requiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_CERTIFIED |
+			NRI_SPATIAL_ABSENCE_GPU_FOOTPRINT | NRI_SPATIAL_ABSENCE_GPU_GRID;
+		constexpr uint32_t requiredPairFlags =
+			requiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_CERTIFIED | NRI_SPATIAL_ABSENCE_GPU_PAIR;
+		constexpr uint32_t requiredCellFlags =
+			requiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_GRID | NRI_SPATIAL_ABSENCE_GPU_GRID_CELL;
+		constexpr uint32_t requiredReferenceFlags =
+			requiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_GRID | NRI_SPATIAL_ABSENCE_GPU_GRID_REFERENCE;
+
+		const NRISpatialAbsenceGpuRecord& header = records[0];
+		uint32_t chunkCount = 0;
+		uint32_t certifiedCount = 0;
+		uint32_t authorizedPairCount = 0;
+		uint32_t footprintTriangleCount = 0;
+		uint32_t footprintGridCellCount = 0;
+		if ((header.flags & requiredBaseFlags) != requiredBaseFlags ||
+			header.data0 != snapshot.frameIndex ||
+			((uint64_t)header.data1 | ((uint64_t)header.data2 << 32u)) != snapshot.worldGeneration ||
+			!std::isfinite(header.payload[0]) || !std::isfinite(header.payload[1]) ||
+			!std::isfinite(header.payload[2]) || !std::isfinite(header.payload[3]) ||
+			header.payload[3] <= 0.0f ||
+			!DecodeSerializedUint(header.payload[4], chunkCount) ||
+			!DecodeSerializedUint(header.payload[5], certifiedCount) ||
+			!DecodeSerializedUint(header.payload[6], authorizedPairCount) ||
+			!DecodeSerializedUint(header.payload[7], footprintTriangleCount) ||
+			!DecodeSerializedUint(header.payload[8], footprintGridCellCount) ||
+			chunkCount == 0u || !SerializedRangeFits(1u, chunkCount, records.size()) ||
+			certifiedCount != snapshot.certifiedCount ||
+			authorizedPairCount != snapshot.authorizedPairCount ||
+			footprintTriangleCount != snapshot.footprintTriangleCount ||
+			footprintGridCellCount != snapshot.footprintGridCellCount)
+		{
+			return false;
+		}
+
+		const size_t expectedNegativeWordCount = std::max<size_t>((chunkCount + 31u) / 32u, 1u);
+		if (snapshot.negativeChunkWords.size() != expectedNegativeWordCount ||
+			snapshot.selections.size() != certifiedCount)
+		{
+			return false;
+		}
+
+		std::vector<uint8_t> selectedNegativeChunks(chunkCount, 0u);
+		uint32_t selectedNegativeCount = 0u;
+		for (size_t wordIndex = 0; wordIndex < snapshot.negativeChunkWords.size(); ++wordIndex)
+		{
+			uint32_t bits = snapshot.negativeChunkWords[wordIndex];
+			for (uint32_t bitIndex = 0; bitIndex < 32u; ++bitIndex)
+			{
+				if ((bits & (1u << bitIndex)) == 0u)
+					continue;
+				const uint64_t chunkIndex = (uint64_t)wordIndex * 32u + bitIndex;
+				if (chunkIndex >= chunkCount)
+					return false;
+				selectedNegativeChunks[(size_t)chunkIndex] = 1u;
+				selectedNegativeCount++;
+			}
+		}
+		if (selectedNegativeCount != certifiedCount)
+			return false;
+
+		std::vector<uint8_t> selectionSeen(chunkCount, 0u);
+		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
+		{
+			if (selection.negativeChunk >= chunkCount ||
+				selectedNegativeChunks[selection.negativeChunk] == 0u ||
+				selectionSeen[selection.negativeChunk] != 0u)
+			{
+				return false;
+			}
+			selectionSeen[selection.negativeChunk] = 1u;
+		}
+
+		enum SerializedRecordRole : uint8_t
+		{
+			SerializedRoleNone = 0,
+			SerializedRoleLookup,
+			SerializedRolePair,
+			SerializedRoleTriangle,
+			SerializedRoleGrid,
+			SerializedRoleCell,
+			SerializedRoleReference,
+		};
+		std::vector<uint8_t> recordRoles(records.size(), SerializedRoleNone);
+		for (uint32_t recordIndex = 0; recordIndex <= chunkCount; ++recordIndex)
+			recordRoles[recordIndex] = SerializedRoleLookup;
+		auto claimRecord = [&](uint32_t recordIndex, SerializedRecordRole role)
+		{
+			if (recordIndex >= records.size() || recordRoles[recordIndex] != SerializedRoleNone)
+				return false;
+			recordRoles[recordIndex] = role;
+			return true;
+		};
+
+		uint64_t validatedTriangleCount = 0u;
+		uint64_t validatedGridCellCount = 0u;
+		std::vector<uint8_t> footprintValidated(chunkCount, 0u);
+		auto validateFootprint = [&](uint32_t ownerChunk)
+		{
+			if (ownerChunk >= chunkCount)
+				return false;
+			if (footprintValidated[ownerChunk] != 0u)
+				return true;
+
+			const NRISpatialAbsenceGpuRecord& lookup = records[(size_t)ownerChunk + 1u];
+			uint32_t gridHeaderIndex = 0u;
+			if ((lookup.flags & (requiredFootprintFlags | NRI_SPATIAL_ABSENCE_GPU_GRID)) !=
+					(requiredFootprintFlags | NRI_SPATIAL_ABSENCE_GPU_GRID) ||
+				lookup.data1 == 0u || lookup.data0 <= chunkCount ||
+				!SerializedRangeFits(lookup.data0, lookup.data1, records.size()) ||
+				!DecodeSerializedUint(lookup.payload[9], gridHeaderIndex) ||
+				gridHeaderIndex <= chunkCount || gridHeaderIndex >= records.size())
+			{
+				return false;
+			}
+
+			for (uint32_t triangleOffset = 0; triangleOffset < lookup.data1; ++triangleOffset)
+			{
+				const uint32_t triangleIndex = lookup.data0 + triangleOffset;
+				if (!claimRecord(triangleIndex, SerializedRoleTriangle))
+					return false;
+				const NRISpatialAbsenceGpuRecord& triangle = records[triangleIndex];
+				if ((triangle.flags & requiredFootprintFlags) != requiredFootprintFlags ||
+					triangle.data0 != ownerChunk ||
+					!std::isfinite(triangle.payload[0]) || !std::isfinite(triangle.payload[1]) ||
+					!std::isfinite(triangle.payload[2]) || !std::isfinite(triangle.payload[3]) ||
+					!std::isfinite(triangle.payload[4]) || !std::isfinite(triangle.payload[5]))
+				{
+					return false;
+				}
+			}
+
+			if (!claimRecord(gridHeaderIndex, SerializedRoleGrid))
+				return false;
+			const NRISpatialAbsenceGpuRecord& grid = records[gridHeaderIndex];
+			uint32_t width = 0u;
+			uint32_t height = 0u;
+			uint32_t cellCount = 0u;
+			uint32_t referenceCount = 0u;
+			uint32_t referenceRecordCount = 0u;
+			if ((grid.flags & requiredGridFlags) != requiredGridFlags || grid.data0 != ownerChunk ||
+				!std::isfinite(grid.payload[0]) || !std::isfinite(grid.payload[1]) ||
+				!std::isfinite(grid.payload[2]) || !std::isfinite(grid.payload[3]) ||
+				grid.payload[0] >= grid.payload[2] || grid.payload[1] >= grid.payload[3] ||
+				!DecodeSerializedUint(grid.payload[4], width) ||
+				!DecodeSerializedUint(grid.payload[5], height) ||
+				!DecodeSerializedUint(grid.payload[6], cellCount) ||
+				!DecodeSerializedUint(grid.payload[7], referenceCount) ||
+				!DecodeSerializedUint(grid.payload[8], referenceRecordCount) ||
+				width == 0u || height == 0u || width > kFootprintGridMaxDimension ||
+				height > kFootprintGridMaxDimension || cellCount != width * height ||
+				grid.data1 != gridHeaderIndex + 1u ||
+				!SerializedRangeFits(grid.data1, cellCount, records.size()) ||
+				grid.data2 != grid.data1 + cellCount ||
+				!SerializedRangeFits(grid.data2, referenceRecordCount, records.size()))
+			{
+				return false;
+			}
+
+			uint64_t nextReferenceRecord = grid.data2;
+			uint64_t accumulatedReferences = 0u;
+			for (uint32_t cellOffset = 0; cellOffset < cellCount; ++cellOffset)
+			{
+				const uint32_t cellIndex = grid.data1 + cellOffset;
+				if (!claimRecord(cellIndex, SerializedRoleCell))
+					return false;
+				const NRISpatialAbsenceGpuRecord& cell = records[cellIndex];
+				uint32_t storedCellOffset = 0u;
+				uint32_t cellReferenceRecordCount = 0u;
+				const uint32_t expectedCellReferenceRecordCount = (cell.data2 + 2u) / 3u;
+				if ((cell.flags & requiredCellFlags) != requiredCellFlags || cell.data0 != ownerChunk ||
+					!DecodeSerializedUint(cell.payload[0], storedCellOffset) || storedCellOffset != cellOffset ||
+					!DecodeSerializedUint(cell.payload[1], cellReferenceRecordCount) ||
+					cellReferenceRecordCount != expectedCellReferenceRecordCount ||
+					cell.data2 > referenceCount || cell.data1 != nextReferenceRecord ||
+					!SerializedRangeFits(cell.data1, cellReferenceRecordCount, records.size()) ||
+					(uint64_t)cell.data1 + cellReferenceRecordCount >
+						(uint64_t)grid.data2 + referenceRecordCount)
+				{
+					return false;
+				}
+
+				if ((cell.flags & NRI_SPATIAL_ABSENCE_GPU_GRID_CELL_INTERIOR) != 0u)
+				{
+					uint32_t certificateTriangle = 0u;
+					if (!DecodeSerializedUint(cell.payload[2], certificateTriangle) ||
+						certificateTriangle >= lookup.data1)
+					{
+						return false;
+					}
+				}
+
+				for (uint32_t referenceOffset = 0; referenceOffset < cellReferenceRecordCount; ++referenceOffset)
+				{
+					const uint32_t referenceIndex = cell.data1 + referenceOffset;
+					if (!claimRecord(referenceIndex, SerializedRoleReference))
+						return false;
+					const NRISpatialAbsenceGpuRecord& reference = records[referenceIndex];
+					uint32_t referenceOwner = 0u;
+					uint32_t storedReferenceOffset = 0u;
+					const uint32_t consumedReferences = referenceOffset * 3u;
+					const uint32_t tailCount = std::min(cell.data2 - consumedReferences, 3u);
+					const bool tailValid = tailCount == 3u ||
+						(tailCount == 2u && reference.data2 == UINT32_MAX) ||
+						(tailCount == 1u && reference.data1 == UINT32_MAX && reference.data2 == UINT32_MAX);
+					if ((reference.flags & requiredReferenceFlags) != requiredReferenceFlags ||
+						!DecodeSerializedUint(reference.payload[0], referenceOwner) ||
+						referenceOwner != ownerChunk ||
+						!DecodeSerializedUint(reference.payload[1], storedReferenceOffset) ||
+						storedReferenceOffset != referenceOffset || !tailValid)
+					{
+						return false;
+					}
+					const uint32_t triangleOffsets[3] = { reference.data0, reference.data1, reference.data2 };
+					for (uint32_t lane = 0; lane < tailCount; ++lane)
+					{
+						if (triangleOffsets[lane] >= lookup.data1)
+							return false;
+					}
+				}
+
+				nextReferenceRecord += cellReferenceRecordCount;
+				accumulatedReferences += cell.data2;
+			}
+			if (nextReferenceRecord != (uint64_t)grid.data2 + referenceRecordCount ||
+				accumulatedReferences != referenceCount)
+			{
+				return false;
+			}
+
+			validatedTriangleCount += lookup.data1;
+			validatedGridCellCount += cellCount;
+			footprintValidated[ownerChunk] = 1u;
+			return true;
+		};
+
+		uint64_t validatedPairCount = 0u;
+		for (uint32_t negativeChunk = 0; negativeChunk < chunkCount; ++negativeChunk)
+		{
+			const NRISpatialAbsenceGpuRecord& chunk = records[(size_t)negativeChunk + 1u];
+			const bool selected = selectedNegativeChunks[negativeChunk] != 0u;
+			if (((chunk.flags & NRI_SPATIAL_ABSENCE_GPU_CERTIFIED) != 0u) != selected)
+				return false;
+			if (!selected)
+				continue;
+
+			uint32_t pairCount = 0u;
+			if ((chunk.flags & requiredChunkFlags) != requiredChunkFlags ||
+				!DecodeSerializedUint(chunk.payload[8], pairCount) || pairCount == 0u ||
+				chunk.data2 <= chunkCount || !SerializedRangeFits(chunk.data2, pairCount, records.size()) ||
+				!std::isfinite(chunk.payload[0]) || !std::isfinite(chunk.payload[1]) ||
+				!std::isfinite(chunk.payload[2]) || !std::isfinite(chunk.payload[4]) ||
+				!std::isfinite(chunk.payload[5]) || !std::isfinite(chunk.payload[6]) ||
+				chunk.payload[0] > chunk.payload[4] || chunk.payload[1] > chunk.payload[5] ||
+				chunk.payload[2] > chunk.payload[6] || !validateFootprint(negativeChunk))
+			{
+				return false;
+			}
+
+			for (uint32_t pairOffset = 0; pairOffset < pairCount; ++pairOffset)
+			{
+				const uint32_t pairIndex = chunk.data2 + pairOffset;
+				if (!claimRecord(pairIndex, SerializedRolePair))
+					return false;
+				const NRISpatialAbsenceGpuRecord& pair = records[pairIndex];
+				if ((pair.flags & requiredPairFlags) != requiredPairFlags ||
+					pair.data0 != negativeChunk || pair.data1 >= chunkCount ||
+					!std::isfinite(pair.payload[0]) || !std::isfinite(pair.payload[1]) ||
+					!std::isfinite(pair.payload[2]) || !std::isfinite(pair.payload[4]) ||
+					!std::isfinite(pair.payload[5]) || !std::isfinite(pair.payload[6]) ||
+					pair.payload[0] > pair.payload[4] || pair.payload[1] > pair.payload[5] ||
+					pair.payload[2] > pair.payload[6] || !validateFootprint(pair.data1))
+				{
+					return false;
+				}
+			}
+			validatedPairCount += pairCount;
+		}
+
+		if (validatedPairCount != authorizedPairCount ||
+			validatedTriangleCount != footprintTriangleCount ||
+			validatedGridCellCount != footprintGridCellCount)
+		{
+			return false;
+		}
+		for (size_t recordIndex = (size_t)chunkCount + 1u; recordIndex < recordRoles.size(); ++recordIndex)
+		{
+			if (recordRoles[recordIndex] == SerializedRoleNone)
+				return false;
+		}
+		return true;
+	}
+
+	bool SealSerializedSpatialAbsencePayload(NRISpatialAbsenceSnapshot& snapshot)
+	{
+		snapshot.failOpenFlags &= ~NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID;
+		if (snapshot.gpuRecords.empty())
+		{
+			snapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID;
+			return false;
+		}
+		snapshot.gpuRecords[0].flags &= ~NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED;
+		if (!ValidateSerializedSpatialAbsencePayload(snapshot))
+		{
+			snapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID;
+			return false;
+		}
+		snapshot.gpuRecords[0].flags |= NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED;
+		return true;
 	}
 
 	NRISpatialAbsenceConflictRecord MakeDebugRecord(
@@ -1455,9 +1797,51 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		std::memcpy(&header.payload[15], &input.probeReferencePixel, sizeof(input.probeReferencePixel));
 	}
 	mSnapshot.valid = true;
+	if (!SealSerializedSpatialAbsencePayload(mSnapshot))
+	{
+		mSnapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID;
+	}
 	mSnapshot.payloadHash = HashBytes(kHashOffset, mSnapshot.gpuRecords.data(),
 		mSnapshot.gpuRecords.size() * sizeof(NRISpatialAbsenceGpuRecord));
 	return finalizeTelemetry();
+}
+
+uint32_t ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+	bool enabled,
+	const NRISpatialAbsenceSnapshot& snapshot,
+	std::vector<nri::TopLevelInstance>& tlasInstances,
+	const std::vector<SceneInstanceData>& sceneInstances)
+{
+	if (!enabled || !snapshot.HasNegativeAuthority() ||
+		tlasInstances.size() != sceneInstances.size())
+	{
+		return 0u;
+	}
+
+	uint32_t markedInstanceCount = 0u;
+	for (size_t instanceIndex = 0; instanceIndex < sceneInstances.size(); ++instanceIndex)
+	{
+		const SceneInstanceData& sceneInstance = sceneInstances[instanceIndex];
+		if (sceneInstance.dataSource != nri_diag::SceneDataSourceStatic)
+		{
+			continue;
+		}
+
+		const uint32_t chunkIndex = sceneInstance.metadata0;
+		const size_t wordIndex = chunkIndex / 32u;
+		if (wordIndex >= snapshot.negativeChunkWords.size() ||
+			(snapshot.negativeChunkWords[wordIndex] & (1u << (chunkIndex % 32u))) == 0u)
+		{
+			continue;
+		}
+
+		tlasInstances[instanceIndex].flags = (nri::TopLevelInstanceBits)(
+			(uint32_t)tlasInstances[instanceIndex].flags |
+			(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
+		markedInstanceCount++;
+	}
+
+	return markedInstanceCount;
 }
 
 bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
@@ -1666,6 +2050,182 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	semanticSelection.boundsMin[0] = -1.0f;
 	semanticSelection.boundsMax[0] = 1.0f;
 	semanticProbe.selections.push_back(semanticSelection);
+	semanticProbe.negativeChunkWords = { 1u << 7u };
+
+	auto makeSealablePayload = []()
+	{
+		NRISpatialAbsenceSnapshot snapshot;
+		snapshot.valid = true;
+		snapshot.frameIndex = 17u;
+		snapshot.worldGeneration = 29u;
+		snapshot.certifiedCount = 1u;
+		snapshot.authorizedPairCount = 1u;
+		snapshot.footprintTriangleCount = 2u;
+		snapshot.footprintGridCellCount = 2u;
+		snapshot.footprintGridReferenceCount = 2u;
+		snapshot.negativeChunkWords = { 1u << 1u };
+		NRISpatialAbsenceSelectionRecord selection;
+		selection.negativeChunk = 1u;
+		snapshot.selections.push_back(selection);
+		snapshot.gpuRecords.resize(12u);
+
+		NRISpatialAbsenceGpuRecord& header = snapshot.gpuRecords[0];
+		header.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE;
+		header.data0 = snapshot.frameIndex;
+		header.data1 = (uint32_t)snapshot.worldGeneration;
+		header.data2 = (uint32_t)(snapshot.worldGeneration >> 32u);
+		header.payload[3] = 8.0f;
+		header.payload[4] = 2.0f;
+		header.payload[5] = 1.0f;
+		header.payload[6] = 1.0f;
+		header.payload[7] = 2.0f;
+		header.payload[8] = 2.0f;
+
+		NRISpatialAbsenceGpuRecord& negative = snapshot.gpuRecords[2];
+		negative.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+			NRI_SPATIAL_ABSENCE_GPU_CERTIFIED;
+		negative.data2 = 3u;
+		negative.payload[4] = negative.payload[5] = negative.payload[6] = 1.0f;
+		negative.payload[8] = 1.0f;
+		NRISpatialAbsenceGpuRecord& pair = snapshot.gpuRecords[3];
+		pair.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+			NRI_SPATIAL_ABSENCE_GPU_CERTIFIED | NRI_SPATIAL_ABSENCE_GPU_PAIR;
+		pair.data0 = 1u;
+		pair.data1 = 0u;
+		pair.payload[4] = pair.payload[5] = pair.payload[6] = 1.0f;
+
+		auto setFootprint = [&](uint32_t owner, uint32_t triangleIndex, uint32_t gridIndex,
+			uint32_t cellIndex, uint32_t referenceIndex)
+		{
+			NRISpatialAbsenceGpuRecord& lookup = snapshot.gpuRecords[(size_t)owner + 1u];
+			lookup.flags |= NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+				NRI_SPATIAL_ABSENCE_GPU_FOOTPRINT | NRI_SPATIAL_ABSENCE_GPU_GRID;
+			lookup.data0 = triangleIndex;
+			lookup.data1 = 1u;
+			lookup.payload[9] = (float)gridIndex;
+
+			NRISpatialAbsenceGpuRecord& triangle = snapshot.gpuRecords[triangleIndex];
+			triangle.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+				NRI_SPATIAL_ABSENCE_GPU_FOOTPRINT;
+			triangle.data0 = owner;
+			triangle.payload[0] = 0.0f; triangle.payload[1] = 0.0f;
+			triangle.payload[2] = 1.0f; triangle.payload[3] = 0.0f;
+			triangle.payload[4] = 0.0f; triangle.payload[5] = 1.0f;
+
+			NRISpatialAbsenceGpuRecord& grid = snapshot.gpuRecords[gridIndex];
+			grid.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+				NRI_SPATIAL_ABSENCE_GPU_GRID;
+			grid.data0 = owner;
+			grid.data1 = cellIndex;
+			grid.data2 = referenceIndex;
+			grid.payload[2] = grid.payload[3] = 1.0f;
+			grid.payload[4] = grid.payload[5] = grid.payload[6] = 1.0f;
+			grid.payload[7] = grid.payload[8] = 1.0f;
+
+			NRISpatialAbsenceGpuRecord& cell = snapshot.gpuRecords[cellIndex];
+			cell.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+				NRI_SPATIAL_ABSENCE_GPU_GRID | NRI_SPATIAL_ABSENCE_GPU_GRID_CELL;
+			cell.data0 = owner;
+			cell.data1 = referenceIndex;
+			cell.data2 = 1u;
+			cell.payload[1] = 1.0f;
+
+			NRISpatialAbsenceGpuRecord& reference = snapshot.gpuRecords[referenceIndex];
+			reference.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+				NRI_SPATIAL_ABSENCE_GPU_GRID | NRI_SPATIAL_ABSENCE_GPU_GRID_REFERENCE;
+			reference.data0 = 0u;
+			reference.data1 = UINT32_MAX;
+			reference.data2 = UINT32_MAX;
+			reference.payload[0] = (float)owner;
+		};
+		setFootprint(0u, 4u, 5u, 6u, 7u);
+		setFootprint(1u, 8u, 9u, 10u, 11u);
+		return snapshot;
+	};
+
+	NRISpatialAbsenceSnapshot sealablePayload = makeSealablePayload();
+	if (!SealSerializedSpatialAbsencePayload(sealablePayload) ||
+		!sealablePayload.HasNegativeAuthority())
+	{
+		return fail("complete serialized spatial-absence payload did not receive ray-query validation authority");
+	}
+	std::vector<nri::TopLevelInstance> candidateInstances(3u);
+	for (nri::TopLevelInstance& instance : candidateInstances)
+	{
+		instance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+	}
+	std::vector<SceneInstanceData> candidateSceneInstances(3u);
+	candidateSceneInstances[0].dataSource = nri_diag::SceneDataSourceStatic;
+	candidateSceneInstances[0].metadata0 = 1u;
+	candidateSceneInstances[1].dataSource = nri_diag::SceneDataSourceStatic;
+	candidateSceneInstances[1].metadata0 = 0u;
+	candidateSceneInstances[2].dataSource = nri_diag::SceneDataSourceDynamic;
+	candidateSceneInstances[2].metadata0 = 1u;
+	if (ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+		true, sealablePayload, candidateInstances, candidateSceneInstances) != 1u ||
+		((uint32_t)candidateInstances[0].flags & (uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE) == 0u ||
+		((uint32_t)candidateInstances[0].flags & (uint32_t)nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE) == 0u ||
+		((uint32_t)candidateInstances[1].flags & (uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE) != 0u ||
+		((uint32_t)candidateInstances[2].flags & (uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE) != 0u)
+	{
+		return fail("ray-query candidate flags did not select only the authorized negative static occurrence");
+	}
+	for (nri::TopLevelInstance& instance : candidateInstances)
+	{
+		instance.flags = nri::TopLevelInstanceBits::NONE;
+	}
+	if (ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+		false, sealablePayload, candidateInstances, candidateSceneInstances) != 0u ||
+		((uint32_t)candidateInstances[0].flags & (uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE) != 0u)
+	{
+		return fail("disabled ray-query candidate flagging changed a TLAS occurrence");
+	}
+	NRISpatialAbsenceSnapshot candidateFailOpenSnapshot = sealablePayload;
+	candidateFailOpenSnapshot.valid = false;
+	if (ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+		true, candidateFailOpenSnapshot, candidateInstances, candidateSceneInstances) != 0u)
+	{
+		return fail("missing negative authority did not fail open during TLAS candidate flagging");
+	}
+	std::vector<SceneInstanceData> mismatchedCandidateSceneInstances(2u);
+	if (ApplyNRISpatialAbsenceRayQueryCandidateFlags(
+		true, sealablePayload, candidateInstances, mismatchedCandidateSceneInstances) != 0u)
+	{
+		return fail("mismatched TLAS and scene-record vectors did not fail open during candidate flagging");
+	}
+	NRISpatialAbsenceSnapshot malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[0].payload[4] = 32.0f;
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("out-of-range serialized chunk table did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[2].data2 = (uint32_t)malformedPayload.gpuRecords.size();
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("out-of-range serialized pair span did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[1].data0 = (uint32_t)malformedPayload.gpuRecords.size();
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("out-of-range serialized footprint span did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[5].data2++;
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("malformed serialized grid span did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[6].data1 = (uint32_t)malformedPayload.gpuRecords.size();
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("out-of-range serialized cell reference span did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[7].data0 = 1u;
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("out-of-range serialized triangle reference did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[8].data0 = 0u;
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("serialized footprint triangle owner mismatch did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[3].data0 = 0u;
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
+		return fail("serialized pair owner mismatch did not fail open");
+
 	const uint64_t semanticHash = HashSnapshotSemantics(semanticProbe);
 	const uint64_t selectionHash = HashSnapshotSelections(semanticProbe);
 	semanticProbe.frameIndex = 99;

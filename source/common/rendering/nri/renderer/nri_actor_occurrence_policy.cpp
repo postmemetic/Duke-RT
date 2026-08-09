@@ -239,6 +239,11 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 		snapshot.rootLocalSpaceIndex = 0;
 		snapshot.reachedSectorIndices = { 0u };
 		snapshot.negativeChunkWords = { 1u << 1u };
+		// Policy tests consume an already-authorized census snapshot. The
+		// spatial owner independently tests and publishes this seal after full
+		// serialized-payload validation.
+		snapshot.gpuRecords.resize(1u);
+		snapshot.gpuRecords[0].flags = NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED;
 		NRISpatialAbsenceConflictRecord conflict;
 		conflict.decision = NRISpatialAbsenceConflictDecision::Certified;
 		conflict.positiveChunk = 0u;
