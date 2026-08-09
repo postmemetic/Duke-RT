@@ -141,24 +141,23 @@ namespace
 			{
 				continue;
 			}
-			const bool actorInside = PointInside(facts.authority.actorScenePosition, conflict);
-			const bool boundsOverlap = BoundsOverlap(facts.candidate, conflict);
-			if (!actorInside || !boundsOverlap)
-			{
-				continue;
-			}
 			matchedConflict = &conflict;
 			matchingConflictCount++;
 		}
 		if (matchingConflictCount == 0u)
-			return keep(NRIActorOccurrencePolicyReason::OutsideConflict);
+			return keep(NRIActorOccurrencePolicyReason::NoCertifiedConflict);
 		if (matchingConflictCount != 1u || matchedConflict == nullptr)
 			return keep(NRIActorOccurrencePolicyReason::AmbiguousConflict);
 
 		decision.conflictPositiveChunk = matchedConflict->positiveChunk;
 		decision.conflictNegativeChunk = matchedConflict->negativeChunk;
-		decision.boundsOverlapConflict = true;
-		decision.actorPositionInsideConflict = true;
+		// The conflict footprint proves that the two owner sectors are mutually
+		// exclusive, but it is only a geometry-overlap sample. An actor elsewhere
+		// in the same certified-negative owner can still protrude into the current
+		// root (ItemIntrusion). Preserve these facts for diagnostics, but do not
+		// make them prerequisites for whole-owner occurrence suppression.
+		decision.boundsOverlapConflict = BoundsOverlap(facts.candidate, *matchedConflict);
+		decision.actorPositionInsideConflict = PointInside(facts.authority.actorScenePosition, *matchedConflict);
 		decision.suppressedWorkloadMask = facts.candidate.requestedWorkloadMask;
 		decision.suppress = true;
 		decision.reason = NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence;
@@ -320,9 +319,26 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 
 	facts = makeFacts();
 	facts.authority.actorScenePosition[0] = 10.0f;
+	facts.candidate.boundsMin[0] = 9.0f;
+	facts.candidate.boundsMax[0] = 11.0f;
 	decision = EvaluateFacts(facts);
-	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::OutsideConflict)
-		return fail("outside occurrence did not fail open");
+	if (!decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence ||
+		decision.actorPositionInsideConflict || decision.boundsOverlapConflict)
+		return fail("certified negative owner incorrectly required actor/footprint overlap");
+
+	facts = makeFacts();
+	const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot)->conflicts.clear();
+	decision = EvaluateFacts(facts);
+	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::NoCertifiedConflict)
+		return fail("negative owner without a certified root conflict did not fail open");
+
+	facts = makeFacts();
+	auto* ambiguousSnapshot = const_cast<NRISpatialAbsenceSnapshot*>(facts.context.spatialSnapshot);
+	const NRISpatialAbsenceConflictRecord duplicateConflict = ambiguousSnapshot->conflicts.front();
+	ambiguousSnapshot->conflicts.push_back(duplicateConflict);
+	decision = EvaluateFacts(facts);
+	if (decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::AmbiguousConflict)
+		return fail("ambiguous owner conflicts did not fail open");
 
 	nri_scene::GeometryData sourceGeometry;
 	sourceGeometry.vertices.resize(4u);

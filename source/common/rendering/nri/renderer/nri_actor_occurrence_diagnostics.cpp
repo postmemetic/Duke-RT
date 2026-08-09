@@ -274,14 +274,13 @@ namespace
 			 NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_BINDING |
 			 NRI_ACTOR_OCCURRENCE_INVARIANT_STALE_PLACEMENT)) != 0u;
 		const bool wrongLocality = frame.spatialEvidenceComplete && frame.ownerChunkNegative &&
-			!frame.ownerSectorReachedBy360 && frame.boundsOverlapConflict &&
+			!frame.ownerSectorReachedBy360 &&
 			std::any_of(exact.begin(), exact.end(), [](const NRIActorOccurrence* occurrence)
 			{
 				return (occurrence->workloadMask & 1u) != 0u;
 			});
 		const bool wrongLocalitySuppressed = suppressionProof && frame.spatialEvidenceComplete &&
-			frame.ownerChunkNegative && !frame.ownerSectorReachedBy360 &&
-			frame.boundsOverlapConflict && frame.actorPositionInsideConflict;
+			frame.ownerChunkNegative && !frame.ownerSectorReachedBy360;
 		const uint32_t provenClasses = (staleLifecycle ? 1u : 0u) + (duplicate ? 1u : 0u) +
 			(stalePublication ? 1u : 0u) + (wrongLocality ? 1u : 0u) +
 			(wrongLocalitySuppressed ? 1u : 0u);
@@ -838,7 +837,6 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 	wrongLocality.spatialEvidenceComplete = true;
 	wrongLocality.ownerChunkNegative = true;
 	wrongLocality.ownerSectorReachedBy360 = false;
-	wrongLocality.boundsOverlapConflict = true;
 	wrongLocality.classification = ClassifyFrame(wrongLocality);
 	if (wrongLocality.classification != NRIActorOccurrenceClassification::WrongLocalitySingleCurrent)
 		return fail("single current negative-locality occurrence was not classified");
@@ -854,8 +852,6 @@ bool RunNRIActorOccurrenceSelfTests(std::string* failureReason)
 	suppressed.spatialEvidenceComplete = true;
 	suppressed.ownerChunkNegative = true;
 	suppressed.ownerSectorReachedBy360 = false;
-	suppressed.boundsOverlapConflict = true;
-	suppressed.actorPositionInsideConflict = true;
 	suppressed.suppressionAuthorized = true;
 	suppressed.suppressedWorkloadMask = 0xffu;
 	NRIActorOccurrenceCandidate suppressedCandidate;
