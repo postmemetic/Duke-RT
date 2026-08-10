@@ -962,7 +962,9 @@ bool TryApplyPlainMirrorPrimaryReplacement(inout HitData hit, float3 primaryRayD
 	const float3 reflectedDirection = normalize(reflect(primaryRayDirection, mirrorPlaneNormal));
 	const float3 reflectedOrigin = hit.position + mirrorPlaneNormal * 0.05;
 	float3 tracedReflectedDirection = reflectedDirection;
+	const uint rootTemporalFlags = hit.temporalFlags;
 	hit = TracePrimaryUngated(reflectedOrigin, reflectedDirection, tracedReflectedDirection);
+	hit.temporalFlags |= rootTemporalFlags;
 	visibleRayDirection = tracedReflectedDirection;
 	return true;
 }
@@ -1512,7 +1514,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);
 		}
-		const float4 motionOutput = float4(motion, currentViewZ);
+		// A primary traversal which skipped a player-census-absent actor exposes
+		// a newly visible background sample. Keep the raw wall hit, but reject
+		// application history at this pixel so the prior actor cannot be
+		// reprojected into the foreign locality for one frame.
+		const bool actorCensusHistoryInvalid =
+			(hit.temporalFlags & HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED) != 0u;
+		const float4 motionOutput = float4(motion, actorCensusHistoryInvalid ? -1.0 : currentViewZ);
 		gMotionOutput[pixelPos] = motionOutput;
 		gViewZOutput[pixelPos] = float4(currentViewZ, smokeForeground ? 1.0 : 0.0, 0.0, 1.0);
 		const float4 packedDiffuse = PackDiffuseRadiance(diffuse, diffuseHitDistance, currentViewZ);

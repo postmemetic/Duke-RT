@@ -6,6 +6,7 @@
 struct HitData
 {
 	bool hit;
+	uint temporalFlags;
 	uint dataSource;
 	uint primitiveIndex;
 	uint portalIndex;
@@ -42,6 +43,9 @@ static const uint TRACE_STATS_KIND_POINT = 3u;
 static const uint TRACE_STATS_KIND_EMISSIVE = 4u;
 static const uint TRACE_STATS_KIND_FAST_EMISSIVE = 5u;
 static const uint TRACE_STATS_KIND_COUNT = 6u;
+// Local primary-visibility history signal. It never crosses a CPU/GPU
+// structure boundary; TraceOpaque maps it onto motion.w for TAA.
+static const uint HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED = 1u << 0u;
 static const uint TRACE_STAT_CALLS = 0u;
 static const uint TRACE_STAT_PRIMARY_CALLS = 1u;
 static const uint TRACE_STAT_UNGATED_CALLS = 2u;
@@ -1707,7 +1711,7 @@ HitData TraceBootstrapGeometry(float3 origin, float3 direction)
 	return TraceBootstrapGeometry(origin, direction, false);
 }
 
-bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance, uint traceMask, bool gateVisibleChunks, bool gateSpatialAbsence, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, bool forceSpatialProbeRay, out HitData hitData)
+bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance, uint traceMask, bool gateVisibleChunks, bool gateSpatialAbsence, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, bool forceSpatialProbeRay, inout uint traversalTemporalFlags, out HitData hitData)
 {
 	hitData = MakeEmptyHitData();
 	float accumulatedDistance = 0.0;
@@ -1976,6 +1980,10 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 					TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 					TraceShaderStatAdd(TRACE_STAT_ACTOR_CENSUS_REJECT, 1u);
 					TraceShaderStatAdd(TRACE_STAT_REJECT_VOXEL, 1u);
+					if (statsKind == TRACE_STATS_KIND_PRIMARY)
+					{
+						traversalTemporalFlags |= HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED;
+					}
 					accumulatedDistance = committedDistance;
 					continue;
 				}
@@ -2147,6 +2155,7 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 	float3 origin = startOrigin;
 	float3 direction = startDirection;
 	float remainingDistance = maxDistance;
+	uint traversalTemporalFlags = 0u;
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 	uint pathFlags = 0u;
 #endif
@@ -2154,8 +2163,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 	[loop]
 	for (uint continuationStep = 0u; continuationStep < 32u; ++continuationStep)
 	{
-		if (!TraceClosestSurface(origin, direction, remainingDistance, traceMask, gateVisibleChunks, gateSpatialAbsence, ignoreNoShadowCast, allowReflectionOnlySurfaces, statsKind, forceSpatialProbeRay, hitData))
+		if (!TraceClosestSurface(origin, direction, remainingDistance, traceMask, gateVisibleChunks, gateSpatialAbsence, ignoreNoShadowCast, allowReflectionOnlySurfaces, statsKind, forceSpatialProbeRay, traversalTemporalFlags, hitData))
 		{
+			hitData.temporalFlags = traversalTemporalFlags;
 			exitDirection = direction;
 			return false;
 		}
@@ -2199,11 +2209,13 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 		hitData.pathFlags = pathFlags;
 #endif
+		hitData.temporalFlags = traversalTemporalFlags;
 		exitDirection = direction;
 		return true;
 	}
 
 	exitDirection = direction;
+	hitData.temporalFlags = traversalTemporalFlags;
 	return false;
 }
 
@@ -2308,7 +2320,8 @@ float ComputePointLightShadow(float3 position, float3 normal, float3 lightDirect
 
 bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance, out HitData hitData)
 {
-	return TraceClosestSurface(startOrigin, direction, maxDistance, NRI_TLAS_MASK_MAIN, false, true, false, false, TRACE_STATS_KIND_UNGATED, false, hitData);
+	uint traversalTemporalFlags = 0u;
+	return TraceClosestSurface(startOrigin, direction, maxDistance, NRI_TLAS_MASK_MAIN, false, true, false, false, TRACE_STATS_KIND_UNGATED, false, traversalTemporalFlags, hitData);
 }
 
 float ComputeFastPointLightShadow(float3 position, float3 normal, float3 lightDirection, float lightDistance, bool forceSpatialProbeRay)
@@ -2320,8 +2333,9 @@ float ComputeFastPointLightShadow(float3 position, float3 normal, float3 lightDi
 
 	TraceShaderStatAdd(TRACE_STAT_FAST_EMISSIVE_SHADOW_CALLS, 1u);
 	HitData shadowHit = MakeEmptyHitData();
+	uint traversalTemporalFlags = 0u;
 	const float maxDistance = max(lightDistance - 0.05, 0.001);
-	const bool blocked = TraceClosestSurface(position + normal * 0.05, lightDirection, maxDistance, NRI_TLAS_MASK_SHADOW, false, true, true, false, TRACE_STATS_KIND_FAST_EMISSIVE, forceSpatialProbeRay, shadowHit);
+	const bool blocked = TraceClosestSurface(position + normal * 0.05, lightDirection, maxDistance, NRI_TLAS_MASK_SHADOW, false, true, true, false, TRACE_STATS_KIND_FAST_EMISSIVE, forceSpatialProbeRay, traversalTemporalFlags, shadowHit);
 	return blocked ? 0.0 : 1.0;
 }
 
