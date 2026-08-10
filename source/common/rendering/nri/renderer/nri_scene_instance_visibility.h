@@ -20,7 +20,19 @@ struct NRISceneInstanceVisibilityContext
 {
 	int32_t localPlayerActorIndex = -1;
 	bool localPlayerPrimaryVisible = false;
+	const uint32_t* sectorChunkLookup = nullptr;
+	uint32_t sectorChunkLookupCount = 0;
 };
+
+inline uint32_t ResolveNRIPersistentVoxelOwnerChunk(
+	int32_t physicalSectorIndex,
+	const NRISceneInstanceVisibilityContext& context)
+{
+	return physicalSectorIndex >= 0 &&
+		(uint32_t)physicalSectorIndex < context.sectorChunkLookupCount &&
+		context.sectorChunkLookup != nullptr ?
+		context.sectorChunkLookup[(uint32_t)physicalSectorIndex] : UINT32_MAX;
+}
 
 inline bool IsNRILocalPlayerPrimaryVisibleFromViewpoint(int32_t viewpointActorIndex, int32_t localPlayerActorIndex)
 {

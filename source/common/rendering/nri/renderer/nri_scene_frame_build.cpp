@@ -742,6 +742,9 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			IsNRILocalPlayerPrimaryVisibleFromViewpoint(viewpointActorIndex, localPlayerActorIndex);
 		NRISceneInstanceVisibilityContext sceneInstanceVisibilityContext = {};
 		sceneInstanceVisibilityContext.localPlayerActorIndex = localPlayerActorIndex;
+		sceneInstanceVisibilityContext.sectorChunkLookup = mMapWorld.sectorChunkLookup.data();
+		sceneInstanceVisibilityContext.sectorChunkLookupCount =
+			(uint32_t)mMapWorld.sectorChunkLookup.size();
 		NRIActorOccurrencePolicyContext actorOccurrencePolicyContext = {};
 		NRIPersistentVoxelTlasServices persistentVoxelEligibilityServices = {};
 		persistentVoxelEligibilityServices.user = this;

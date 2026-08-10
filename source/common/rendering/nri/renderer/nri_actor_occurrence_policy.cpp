@@ -292,6 +292,7 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 		snapshot.authoritativeRootSector = 0;
 		snapshot.rootLocalSpaceIndex = 0;
 		snapshot.reachedSectorIndices = { 0u };
+		snapshot.reachedChunkWords = { 1u << 0u };
 		snapshot.negativeChunkWords = { 1u << 1u };
 		// Policy tests consume an already-authorized census snapshot. The
 		// spatial owner independently tests and publishes this seal after full

@@ -3274,7 +3274,13 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		sceneInstance.dataSource = PersistentVoxelSceneDataSource;
 		sceneInstance.materialBase = actor.materialOffset;
 		sceneInstance.materialCount = actor.materialCount;
-		sceneInstance.visibilityChunk = actor.visibilityChunkIndex;
+		// Persistent actors remain globally resident and are not ordinary
+		// visible-chunk candidates. Preserve their current physical owner here
+		// solely so the player-root 360 census can reject an actual ray hit whose
+		// owner is absent from the reached set.
+		sceneInstance.visibilityChunk = ResolveNRIPersistentVoxelOwnerChunk(
+			actor.physicalSectorIndex,
+			visibilityContext);
 		actor.worldTlasOccurrenceGeneration = (uint32_t)(
 			actor.worldTlasPublicationHash ^ (actor.worldTlasPublicationHash >> 32u));
 		sceneInstance.metadata0 = (uint32_t)(actor.identityKey & 0xffffffffu);

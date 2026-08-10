@@ -293,6 +293,7 @@ public:
 		bool resetHistory = false;
 		bool mainViewEligible = false;
 		bool spatialAbsenceAuthority = false;
+		bool spatialActorCensusAuthority = false;
 	};
 
 	struct SceneStatsSnapshot

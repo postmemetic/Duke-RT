@@ -73,6 +73,10 @@ constexpr uint32_t NRI_FLAG_PROBABILISTIC_INDIRECT = 0x1000u;
 constexpr uint32_t NRI_FLAG_INDIRECT_RADIANCE_CACHE = 0x2000u;
 constexpr uint32_t NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT = 0x4000u;
 constexpr uint32_t NRI_FLAG_SPATIAL_ABSENCE_GATE = 0x8000u;
+// Bit 23 is reserved from the packed jitter phase (current modes require at
+// most 72 phases). Keeping actor gating in TraceOpaque flags avoids reading a
+// stale spatial payload when the independently controlled actor gate is off.
+constexpr uint32_t NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE = 0x800000u;
 
 constexpr uint32_t NRI_PRESENT_FLAG_SPLIT_SHADOW_DENOISER = NRI_FLAG_SPLIT_SHADOW_DENOISER;
 constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_DISPLAY_INFO_AVAILABLE = 0x1u;
@@ -87,13 +91,18 @@ constexpr uint32_t NRI_TEMPORAL_FLAG_AUTO_EXPOSURE = 0x1000u;
 constexpr uint32_t NRI_TEMPORAL_FLAG_EXPOSURE_TEXTURE_VALID = 0x2000u;
 constexpr uint32_t NRI_TEMPORAL_FLAG_VOLUME_REACTIVE = 0x4000u;
 constexpr uint32_t NRI_JITTER_PHASE_SHIFT = 16u;
+constexpr uint32_t NRI_JITTER_PHASE_MASK = 0x7fu;
 constexpr uint32_t NRI_VOXEL_NORMAL_BLEND_SHIFT = 24u;
 constexpr uint32_t NRI_TAA_JITTER_PHASE_COUNT = 8u;
 
 constexpr uint32_t NRIPackTemporalJitterPhaseCount(uint32_t jitterPhaseCount)
 {
-	return ((jitterPhaseCount > 255u ? 255u : jitterPhaseCount) & 0xffu) << NRI_JITTER_PHASE_SHIFT;
+	return ((jitterPhaseCount > NRI_JITTER_PHASE_MASK ? NRI_JITTER_PHASE_MASK : jitterPhaseCount) &
+		NRI_JITTER_PHASE_MASK) << NRI_JITTER_PHASE_SHIFT;
 }
+
+static_assert(NRIPackTemporalJitterPhaseCount(72u) == 0x480000u);
+static_assert((NRIPackTemporalJitterPhaseCount(127u) & NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE) == 0u);
 
 constexpr uint32_t NRI_RUNTIME_LIGHT_TILE_SIZE = 64u;
 constexpr uint32_t NRI_PORTAL_FLAG_RUNTIME_BOUND = 0x1u;

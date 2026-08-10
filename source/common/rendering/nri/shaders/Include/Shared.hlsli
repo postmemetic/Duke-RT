@@ -26,6 +26,8 @@
 #define NRI_FLAG_INDIRECT_RADIANCE_CACHE 0x2000u
 #define NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT 0x4000u
 #define NRI_FLAG_SPATIAL_ABSENCE_GATE 0x8000u
+#define NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE 0x800000u
+#define NRI_JITTER_PHASE_MASK 0x7fu
 #define NRI_TAA_JITTER_PHASE_COUNT 8u
 
 struct SectorLightHeaderData
@@ -117,7 +119,7 @@ float2 GetTemporalJitterForFrame(uint frameIndex)
 		return 0.0;
 	}
 
-	const uint phaseCount = max((gTraceConstants.Flags >> NRI_JITTER_PHASE_SHIFT) & 0xffu, 1u);
+	const uint phaseCount = max((gTraceConstants.Flags >> NRI_JITTER_PHASE_SHIFT) & NRI_JITTER_PHASE_MASK, 1u);
 	const uint sampleIndex = (frameIndex % phaseCount) + 1u;
 	return float2(
 		GetTemporalHaltonSample(sampleIndex, 2u) - 0.5,

@@ -120,6 +120,7 @@ static const uint TRACE_STAT_SPATIAL_OUTSIDE_GUARD = 74u;
 static const uint TRACE_STAT_SPATIAL_LOOKUP_MISS = 75u;
 static const uint TRACE_STAT_SPATIAL_OUTSIDE_UNION = 76u;
 static const uint TRACE_STAT_SPATIAL_EXACT_MISS = 77u;
+static const uint TRACE_STAT_ACTOR_CENSUS_REJECT = 78u;
 static const uint SPATIAL_PROBE_OUTCOME_DISABLED = 0u;
 static const uint SPATIAL_PROBE_OUTCOME_SNAPSHOT_INVALID = 1u;
 static const uint SPATIAL_PROBE_OUTCOME_FRAME_MISMATCH = 2u;
@@ -158,7 +159,7 @@ static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_X = 32u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_Y = 33u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_FINAL_POSITION_Z = 34u;
 static const uint TRACE_STAT_SPATIAL_PROBE_RAY_STRIDE = 35u;
-static const uint TRACE_STAT_SPATIAL_PROBE_RAY_BASE = 78u;
+static const uint TRACE_STAT_SPATIAL_PROBE_RAY_BASE = 79u;
 static const uint TRACE_STAT_SPATIAL_PROBE_PIXEL_STRIDE = 8u;
 static const uint TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE =
 	TRACE_STAT_SPATIAL_PROBE_RAY_BASE + TRACE_STATS_KIND_COUNT * TRACE_STAT_SPATIAL_PROBE_RAY_STRIDE;
@@ -797,6 +798,7 @@ static const uint SPATIAL_ABSENCE_FLAG_GRID_REFERENCE = 1u << 7u;
 static const uint SPATIAL_ABSENCE_FLAG_PROBE = 1u << 8u;
 static const uint SPATIAL_ABSENCE_FLAG_GRID_CELL_INTERIOR = 1u << 9u;
 static const uint SPATIAL_ABSENCE_FLAG_RAY_QUERY_VALIDATED = 1u << 10u;
+static const uint SPATIAL_ABSENCE_FLAG_REACHED = 1u << 11u;
 static const uint SPATIAL_ABSENCE_GRID_MAX_DIMENSION = 32u;
 static const uint SPATIAL_ABSENCE_RECORD_STRIDE = 80u;
 static const float SPATIAL_ABSENCE_MAX_FLOAT_EXACT_INTEGER = 16777216.0;
@@ -1712,6 +1714,8 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 	TraceShaderStatCall(statsKind);
 	const bool spatialAbsenceGateActive = gateSpatialAbsence &&
 		(gTraceConstants.Flags & NRI_FLAG_SPATIAL_ABSENCE_GATE) != 0u;
+	const bool spatialActorGateActive = gateSpatialAbsence &&
+		(gTraceConstants.Flags & NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE) != 0u;
 	uint probeExpectedChunk = 0xffffffffu;
 	SpatialAbsenceRecord probeHeader;
 	float3 probeOrigin;
@@ -1723,7 +1727,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 	uint spatialCandidateChunkCount = 0u;
 	SpatialAbsenceRecord spatialCandidateHeader = (SpatialAbsenceRecord)0;
 	bool spatialCandidatePayloadValid = false;
-	if (spatialAbsenceGateActive && !spatialProbeRay)
+	if ((spatialAbsenceGateActive || spatialActorGateActive) && !spatialProbeRay)
 	{
 		gSpatialAbsenceRecords.GetDimensions(
 			spatialCandidateRecordCount,
@@ -1937,7 +1941,12 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			continue;
 		}
 
-		if (gateVisibleChunks && !reflectionOnlyPrimitive && !IsVisibleChunk(ResolveVisibilityChunk(instanceData, primitive)))
+		// Persistent actors carry their physical owner chunk for the independent
+		// 360 actor-occurrence gate below. They remain fail-open for the ordinary
+		// per-view visible-chunk gate so off-screen/occluded actor residency and
+		// indirect transport retain their original behavior.
+		if (gateVisibleChunks && instanceData.dataSource != SCENE_DATA_SOURCE_PERSISTENT_VOXEL &&
+			!reflectionOnlyPrimitive && !IsVisibleChunk(ResolveVisibilityChunk(instanceData, primitive)))
 		{
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
@@ -1949,6 +1958,29 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 
 		const float3 committedPosition = startOrigin + direction * committedDistance;
 		const uint visibilityChunk = ResolveVisibilityChunk(instanceData, primitive);
+		if (spatialActorGateActive && !spatialProbeRay && spatialCandidatePayloadValid &&
+			instanceData.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL &&
+			visibilityChunk < spatialCandidateChunkCount && all(isfinite(committedPosition)))
+		{
+			const float3 actorGateOffset = committedPosition - spatialCandidateHeader.Payload0.xyz;
+			const float actorGateRadius = spatialCandidateHeader.Payload0.w;
+			if (dot(actorGateOffset, actorGateOffset) <= actorGateRadius * actorGateRadius)
+			{
+				const SpatialAbsenceRecord ownerChunkRecord =
+					gSpatialAbsenceRecords[visibilityChunk + 1u];
+				const uint requiredReachedFlags = SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS |
+					SPATIAL_ABSENCE_FLAG_REACHED;
+				if ((ownerChunkRecord.Flags & requiredReachedFlags) != requiredReachedFlags)
+				{
+					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
+					TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
+					TraceShaderStatAdd(TRACE_STAT_ACTOR_CENSUS_REJECT, 1u);
+					TraceShaderStatAdd(TRACE_STAT_REJECT_VOXEL, 1u);
+					accumulatedDistance = committedDistance;
+					continue;
+				}
+			}
+		}
 		if (!committedSpatialOutcomeKnown && spatialAbsenceGateActive && !spatialProbeRay &&
 			spatialCandidatePayloadValid && instanceData.dataSource == SCENE_DATA_SOURCE_STATIC)
 		{

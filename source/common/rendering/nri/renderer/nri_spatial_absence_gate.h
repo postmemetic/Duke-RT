@@ -30,6 +30,9 @@ enum NRISpatialAbsenceGpuFlags : uint32_t
 	// the authorized negative selections. Shaders may use their exact
 	// membership fast path only while this header-only seal is present.
 	NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED = 1u << 10,
+	// Positive player-root census membership. This is not negative overlap
+	// authority; it is consumed only by the per-hit actor occurrence gate.
+	NRI_SPATIAL_ABSENCE_GPU_REACHED = 1u << 11,
 };
 
 // Record zero is the snapshot header. The next chunkCount records form the
@@ -180,13 +183,18 @@ struct NRISpatialAbsenceSnapshot
 	float center[3] = {};
 	float guardRadius = 0.0f;
 	std::vector<uint32_t> negativeChunkWords;
+	std::vector<uint32_t> reachedChunkWords;
 	std::vector<NRISpatialAbsenceGpuRecord> gpuRecords;
 	std::vector<NRISpatialAbsenceConflictRecord> conflicts;
 	std::vector<NRISpatialAbsenceSelectionRecord> selections;
 
-	bool HasNegativeAuthority() const
+	bool HasCensusAuthority() const
 	{
-		return valid && certifiedCount != 0 && !gpuRecords.empty() &&
+		bool hasReachedChunk = false;
+		for (uint32_t word : reachedChunkWords)
+			hasReachedChunk = hasReachedChunk || word != 0u;
+		return valid && !reachedSectorIndices.empty() && !reachedChunkWords.empty() &&
+			hasReachedChunk && !gpuRecords.empty() &&
 			(gpuRecords[0].flags & NRI_SPATIAL_ABSENCE_GPU_RAY_QUERY_VALIDATED) != 0 &&
 			(failOpenFlags & (NRI_SPATIAL_ABSENCE_FAIL_INVALID_WORLD |
 				NRI_SPATIAL_ABSENCE_FAIL_INCOMPLETE_CENSUS |
@@ -196,6 +204,11 @@ struct NRISpatialAbsenceSnapshot
 				NRI_SPATIAL_ABSENCE_FAIL_AMBIGUOUS_CONFLICT |
 				NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW |
 				NRI_SPATIAL_ABSENCE_FAIL_GPU_PAYLOAD_INVALID)) == 0;
+	}
+
+	bool HasNegativeAuthority() const
+	{
+		return certifiedCount != 0 && HasCensusAuthority();
 	}
 };
 

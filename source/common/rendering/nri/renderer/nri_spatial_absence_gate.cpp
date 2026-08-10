@@ -504,6 +504,7 @@ namespace
 
 		const size_t expectedNegativeWordCount = std::max<size_t>((chunkCount + 31u) / 32u, 1u);
 		if (snapshot.negativeChunkWords.size() != expectedNegativeWordCount ||
+			snapshot.reachedChunkWords.size() != expectedNegativeWordCount ||
 			snapshot.selections.size() != certifiedCount)
 		{
 			return false;
@@ -527,6 +528,21 @@ namespace
 		}
 		if (selectedNegativeCount != certifiedCount)
 			return false;
+
+		std::vector<uint8_t> reachedChunks(chunkCount, 0u);
+		for (size_t wordIndex = 0; wordIndex < snapshot.reachedChunkWords.size(); ++wordIndex)
+		{
+			uint32_t bits = snapshot.reachedChunkWords[wordIndex];
+			for (uint32_t bitIndex = 0; bitIndex < 32u; ++bitIndex)
+			{
+				if ((bits & (1u << bitIndex)) == 0u)
+					continue;
+				const uint64_t chunkIndex = (uint64_t)wordIndex * 32u + bitIndex;
+				if (chunkIndex >= chunkCount || selectedNegativeChunks[(size_t)chunkIndex] != 0u)
+					return false;
+				reachedChunks[(size_t)chunkIndex] = 1u;
+			}
+		}
 
 		std::vector<uint8_t> selectionSeen(chunkCount, 0u);
 		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
@@ -708,7 +724,11 @@ namespace
 		{
 			const NRISpatialAbsenceGpuRecord& chunk = records[(size_t)negativeChunk + 1u];
 			const bool selected = selectedNegativeChunks[negativeChunk] != 0u;
+			const bool reached = reachedChunks[negativeChunk] != 0u;
 			if (((chunk.flags & NRI_SPATIAL_ABSENCE_GPU_CERTIFIED) != 0u) != selected)
+				return false;
+			if (((chunk.flags & NRI_SPATIAL_ABSENCE_GPU_REACHED) != 0u) != reached ||
+				(reached && (chunk.flags & requiredBaseFlags) != requiredBaseFlags))
 				return false;
 			if (!selected)
 				continue;
@@ -1196,6 +1216,7 @@ void NRISpatialAbsenceGate::Reset(uint32_t frameIndex, bool resetStability)
 	auto reachedSectorIndices = std::move(mSnapshot.reachedSectorIndices);
 	auto reachedWallIndices = std::move(mSnapshot.reachedWallIndices);
 	auto negativeChunkWords = std::move(mSnapshot.negativeChunkWords);
+	auto reachedChunkWords = std::move(mSnapshot.reachedChunkWords);
 	auto gpuRecords = std::move(mSnapshot.gpuRecords);
 	auto conflicts = std::move(mSnapshot.conflicts);
 	auto selections = std::move(mSnapshot.selections);
@@ -1204,6 +1225,7 @@ void NRISpatialAbsenceGate::Reset(uint32_t frameIndex, bool resetStability)
 	mSnapshot.reachedSectorIndices = std::move(reachedSectorIndices);
 	mSnapshot.reachedWallIndices = std::move(reachedWallIndices);
 	mSnapshot.negativeChunkWords = std::move(negativeChunkWords);
+	mSnapshot.reachedChunkWords = std::move(reachedChunkWords);
 	mSnapshot.gpuRecords = std::move(gpuRecords);
 	mSnapshot.conflicts = std::move(conflicts);
 	mSnapshot.selections = std::move(selections);
@@ -1211,6 +1233,7 @@ void NRISpatialAbsenceGate::Reset(uint32_t frameIndex, bool resetStability)
 	mSnapshot.reachedSectorIndices.clear();
 	mSnapshot.reachedWallIndices.clear();
 	mSnapshot.negativeChunkWords.clear();
+	mSnapshot.reachedChunkWords.clear();
 	mSnapshot.gpuRecords.clear();
 	mSnapshot.conflicts.clear();
 	mSnapshot.selections.clear();
@@ -1546,6 +1569,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 
 	mSnapshot.gpuRecords.resize(mapWorld.chunks.size() + 1u);
 	mSnapshot.negativeChunkWords.resize(std::max<size_t>((mapWorld.chunks.size() + 31u) / 32u, 1u), 0u);
+	mSnapshot.reachedChunkWords.resize(std::max<size_t>((mapWorld.chunks.size() + 31u) / 32u, 1u), 0u);
 	std::vector<const std::vector<Triangle2D>*> footprints(mapWorld.chunks.size(), nullptr);
 	std::vector<const FootprintGrid*> footprintGrids(mapWorld.chunks.size(), nullptr);
 	std::vector<uint32_t> involvedChunks;
@@ -1601,6 +1625,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mSnapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_GPU_INDEX_OVERFLOW;
 		mSnapshot.gpuRecords.assign(1u, {});
 		mSnapshot.negativeChunkWords.clear();
+		mSnapshot.reachedChunkWords.clear();
 		mConflictContinuity.clear();
 		mPreviousContinuityCaptureSerial = 0;
 		mContinuityWorldGeneration = 0;
@@ -1783,6 +1808,24 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		// certified cells omit redundant references, but still represent the
 		// same complete logical candidate set.
 		mSnapshot.footprintGridReferenceCount += grid.referenceCount;
+	}
+
+	// Serialize positive census membership independently from certified-negative
+	// overlap authority. Persistent-voxel hits use this compact lookup to form
+	// the exact "ray observed AND drawlist absent" intersection without evicting
+	// off-screen or merely occluded actors from the TLAS.
+	for (uint32_t sectorIndex : reached)
+	{
+		if (sectorIndex >= mapWorld.sectorChunkLookup.size())
+			continue;
+		const uint32_t chunkIndex = mapWorld.sectorChunkLookup[sectorIndex];
+		if (chunkIndex >= mapWorld.chunks.size())
+			continue;
+		mSnapshot.reachedChunkWords[chunkIndex / 32u] |= 1u << (chunkIndex % 32u);
+		mSnapshot.gpuRecords[(size_t)chunkIndex + 1u].flags |=
+			NRI_SPATIAL_ABSENCE_GPU_VALID |
+			NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
+			NRI_SPATIAL_ABSENCE_GPU_REACHED;
 	}
 
 	NRISpatialAbsenceGpuRecord& header = mSnapshot.gpuRecords[0];
@@ -2079,6 +2122,8 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		snapshot.footprintGridCellCount = 2u;
 		snapshot.footprintGridReferenceCount = 2u;
 		snapshot.negativeChunkWords = { 1u << 1u };
+		snapshot.reachedSectorIndices = { 0u };
+		snapshot.reachedChunkWords = { 1u };
 		NRISpatialAbsenceSelectionRecord selection;
 		selection.negativeChunk = 1u;
 		snapshot.selections.push_back(selection);
@@ -2102,6 +2147,8 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		negative.data2 = 3u;
 		negative.payload[4] = negative.payload[5] = negative.payload[6] = 1.0f;
 		negative.payload[8] = 1.0f;
+		snapshot.gpuRecords[1].flags = NRI_SPATIAL_ABSENCE_GPU_VALID |
+			NRI_SPATIAL_ABSENCE_GPU_COMPLETE | NRI_SPATIAL_ABSENCE_GPU_REACHED;
 		NRISpatialAbsenceGpuRecord& pair = snapshot.gpuRecords[3];
 		pair.flags = NRI_SPATIAL_ABSENCE_GPU_VALID | NRI_SPATIAL_ABSENCE_GPU_COMPLETE |
 			NRI_SPATIAL_ABSENCE_GPU_CERTIFIED | NRI_SPATIAL_ABSENCE_GPU_PAIR;
@@ -2240,6 +2287,10 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	malformedPayload.gpuRecords[3].data0 = 0u;
 	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasNegativeAuthority())
 		return fail("serialized pair owner mismatch did not fail open");
+	malformedPayload = sealablePayload;
+	malformedPayload.gpuRecords[1].flags &= ~NRI_SPATIAL_ABSENCE_GPU_REACHED;
+	if (SealSerializedSpatialAbsencePayload(malformedPayload) || malformedPayload.HasCensusAuthority())
+		return fail("serialized reached-chunk membership mismatch did not fail open");
 
 	const uint64_t semanticHash = HashSnapshotSemantics(semanticProbe);
 	const uint64_t selectionHash = HashSnapshotSelections(semanticProbe);
@@ -2278,6 +2329,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	stableChunk.bounds.min[0] = stableChunk.bounds.min[1] = stableChunk.bounds.min[2] = -1.0f;
 	stableChunk.bounds.max[0] = stableChunk.bounds.max[1] = stableChunk.bounds.max[2] = 1.0f;
 	stableWorld.chunks.push_back(stableChunk);
+	stableWorld.sectorChunkLookup.push_back(0u);
 	NRISpatialAbsenceCensusInput stableInput;
 	stableInput.complete = true;
 	stableInput.rootStable = true;
@@ -2296,6 +2348,8 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		firstStable.censusObservationHash != 0x1234 ||
 		firstStable.previousCensusObservationHash != 0 ||
 		firstStable.failOpenFlags != NRI_SPATIAL_ABSENCE_FAIL_NONE ||
+		!firstStable.HasCensusAuthority() || firstStable.reachedChunkWords.size() != 1u ||
+		(firstStable.reachedChunkWords[0] & 1u) == 0u ||
 		firstStable.HasNegativeAuthority())
 	{
 		return fail("first complete capture did not remain pair-level fail-open");
