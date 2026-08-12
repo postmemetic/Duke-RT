@@ -1051,11 +1051,14 @@ void NotifyNRIVoxelComputePreloadRuntimeTailReleased(uint64_t buildSerial, uint3
 		return;
 	}
 	gPreloadPlanState.runtimeTailReleased = true;
-	Printf("PERF pt voxel preload runtime tail release NRI: build_serial=%llu frame=%u withheld_unique_meshes=%u probe_unique_meshes=%u\n",
-		(unsigned long long)buildSerial,
-		frameIndex,
-		(uint32_t)gPreloadPlanState.runtimeWithheldMeshes.size(),
-		(uint32_t)gPreloadPlanState.runtimeProbeMeshes.size());
+	if ((int)nri_ptvoxelcomputepreloadtrace > 0)
+	{
+		Printf("PERF pt voxel preload runtime tail release NRI: build_serial=%llu frame=%u withheld_unique_meshes=%u probe_unique_meshes=%u\n",
+			(unsigned long long)buildSerial,
+			frameIndex,
+			(uint32_t)gPreloadPlanState.runtimeWithheldMeshes.size(),
+			(uint32_t)gPreloadPlanState.runtimeProbeMeshes.size());
+	}
 }
 
 NRIVoxelComputePreloadClosureStats BuildNRIVoxelComputePreloadClosure(

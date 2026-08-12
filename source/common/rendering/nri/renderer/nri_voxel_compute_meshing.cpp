@@ -426,11 +426,6 @@ namespace
 			NRIVoxelComputeAlgorithm::SerialV1;
 	}
 
-	bool IsAdmissionTraceEnabled()
-	{
-		return (bool)nri_ptvoxelcompute && (int)nri_ptvoxelcomputemode >= 4;
-	}
-
 	bool IsBlasEnabled()
 	{
 		return (bool)nri_ptvoxelcompute && (int)nri_ptvoxelcomputemode >= 5;
@@ -901,7 +896,7 @@ namespace
 
 	void TraceAdmission(uint64_t frameNumber, const PendingReadbackJob& job, VoxelComputeAdmissionState state, const char* reason)
 	{
-		if (!IsAdmissionTraceEnabled() && !IsTraceEnabled())
+		if (!IsTraceEnabled())
 		{
 			return;
 		}
@@ -1447,7 +1442,7 @@ namespace
 
 bool ShouldTraceNRIVoxelComputeMeshing()
 {
-	return IsTraceEnabled() || (int)nri_ptvoxelcomputemode >= 1;
+	return IsTraceEnabled();
 }
 
 bool ShouldRunNRIVoxelComputeMeshing()

@@ -711,7 +711,9 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		renderer.mMapWorld.buildSerial);
 	if (closure.valid)
 	{
-		Printf("PERF pt voxel preload memory NRI: level=%s build_serial=%llu pv_scene_bytes=%llu pv_as_bytes=%llu arena_vertex_committed=%llu arena_index_committed=%llu arena_primitive_committed=%llu arena_material_committed=%llu arena_vertex_used=%llu arena_index_used=%llu arena_primitive_used=%llu arena_material_used=%llu private_vertex_bytes=%llu private_index_bytes=%llu direct_blas_bytes=%llu shared_blas_bytes=%llu material_logical_bytes=%llu admission_transient_buffer_bytes=%llu admission_transient_as_bytes=%llu admission_cpu_geometry_bytes=%llu raw_sources=%u raw_uploaded=%u raw_cpu_bytes=%llu raw_device_bytes=%llu raw_upload_bytes=%llu compute_input_device_bytes=%llu compute_input_upload_bytes=%llu compute_generated_bytes=%llu status_readback_buffer_bytes=%llu geometry_readback_buffer_bytes=%llu diagnostic_as_bytes=%llu renderer_tracked_bytes=%llu renderer_scene_texture_bytes=%llu renderer_buffer_bytes=%llu renderer_as_bytes=%llu local_usage_bytes=%llu local_budget_bytes=%llu nonlocal_usage_bytes=%llu nonlocal_budget_bytes=%llu live_usage_available=%u peak_tracked_bytes=%llu retired_voxel_attribution_available=0 texture_voxel_attribution_available=0\n",
+		if ((int)nri_ptloadingtrace >= 1)
+		{
+			Printf("PERF pt voxel preload memory NRI: level=%s build_serial=%llu pv_scene_bytes=%llu pv_as_bytes=%llu arena_vertex_committed=%llu arena_index_committed=%llu arena_primitive_committed=%llu arena_material_committed=%llu arena_vertex_used=%llu arena_index_used=%llu arena_primitive_used=%llu arena_material_used=%llu private_vertex_bytes=%llu private_index_bytes=%llu direct_blas_bytes=%llu shared_blas_bytes=%llu material_logical_bytes=%llu admission_transient_buffer_bytes=%llu admission_transient_as_bytes=%llu admission_cpu_geometry_bytes=%llu raw_sources=%u raw_uploaded=%u raw_cpu_bytes=%llu raw_device_bytes=%llu raw_upload_bytes=%llu compute_input_device_bytes=%llu compute_input_upload_bytes=%llu compute_generated_bytes=%llu status_readback_buffer_bytes=%llu geometry_readback_buffer_bytes=%llu diagnostic_as_bytes=%llu renderer_tracked_bytes=%llu renderer_scene_texture_bytes=%llu renderer_buffer_bytes=%llu renderer_as_bytes=%llu local_usage_bytes=%llu local_budget_bytes=%llu nonlocal_usage_bytes=%llu nonlocal_budget_bytes=%llu live_usage_available=%u peak_tracked_bytes=%llu retired_voxel_attribution_available=0 texture_voxel_attribution_available=0\n",
 			renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : "(none)",
 			(unsigned long long)renderer.mMapWorld.buildSerial,
 			(unsigned long long)voxelMemory.sceneBufferBytes,
@@ -753,9 +755,10 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 			(unsigned long long)adapterMemory.nonLocalBudgetBytes,
 			adapterMemory.liveUsageAvailable ? 1u : 0u,
 			(unsigned long long)gVoxelPreloadTimeline.peakTrackedBytes);
-		PrintVoxelPreloadClosure(
-			renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : nullptr,
-			closure);
+			PrintVoxelPreloadClosure(
+				renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : nullptr,
+				closure);
+		}
 		if (closure.strictRequested && std::strcmp(closure.outcome, "incomplete") == 0)
 		{
 			if ((int)nri_ptloadingtrace >= 1)
@@ -785,7 +788,9 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 			return false;
 		}
 	}
-	Printf("NRI PT loading summary: static_ready=%u startup_correction_pending=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u deferred_texture_prewarm=%u deferred_onboarding=%u material_pending=%u material_static_ready=%u material_static_pending=%u material_static_realized=%u material_static_bytes=%llu material_voxel_ready=%u material_voxel_pending=%u material_voxel_realized=%u material_voxel_bytes=%llu preload_submits=%u preload_submit_limit=%u submit_budget_hit=%u ms_budget_hit=%u frame_target_used=%u standalone_context_used=%u gpu_voxel_loading=%u static_light_refresh=%u\n",
+	if ((int)nri_ptloadingtrace >= 1)
+	{
+		Printf("NRI PT loading summary: static_ready=%u startup_correction_pending=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u deferred_texture_prewarm=%u deferred_onboarding=%u material_pending=%u material_static_ready=%u material_static_pending=%u material_static_realized=%u material_static_bytes=%llu material_voxel_ready=%u material_voxel_pending=%u material_voxel_realized=%u material_voxel_bytes=%llu preload_submits=%u preload_submit_limit=%u submit_budget_hit=%u ms_budget_hit=%u frame_target_used=%u standalone_context_used=%u gpu_voxel_loading=%u static_light_refresh=%u\n",
 		staticReady ? 1u : 0u,
 		renderer.mAllowStartupMapWorldCorrection ? 1u : 0u,
 		voxelStatus.requiredPending,
@@ -811,8 +816,8 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		context.frameTargetUsed ? 1u : 0u,
 		context.standaloneContextUsed ? 1u : 0u,
 		voxelStatus.gpuLoadingEnabled ? 1u : 0u,
-		context.staticLightRefreshReady ? 1u : 0u);
-	Printf("PERF pt preload ready NRI: level=%s build_serial=%llu preload_ms=%.3f static_chunks=%u static_tris=%u static_materials=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u mesh_resources=%u material_resources=%u admission_queue=%u active_instances=%u pv_scene_bytes=%llu pv_as_bytes=%llu pv_total_bytes=%llu material_static_bytes=%llu material_voxel_bytes=%llu preload_submits=%u submit_budget_hit=%u ms_budget_hit=%u gpu_voxel_loading=%u\n",
+			context.staticLightRefreshReady ? 1u : 0u);
+		Printf("PERF pt preload ready NRI: level=%s build_serial=%llu preload_ms=%.3f static_chunks=%u static_tris=%u static_materials=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u mesh_resources=%u material_resources=%u admission_queue=%u active_instances=%u pv_scene_bytes=%llu pv_as_bytes=%llu pv_total_bytes=%llu material_static_bytes=%llu material_voxel_bytes=%llu preload_submits=%u submit_budget_hit=%u ms_budget_hit=%u gpu_voxel_loading=%u\n",
 		renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : "(none)",
 		(unsigned long long)renderer.mMapWorld.buildSerial,
 		preloadMs,
@@ -836,13 +841,14 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		materialStatus.preloadSubmits,
 		materialStatus.submitBudgetHit ? 1u : 0u,
 		materialStatus.msBudgetHit ? 1u : 0u,
-		voxelStatus.gpuLoadingEnabled ? 1u : 0u);
-	Printf("NRI PT preload ready: level=%s build_serial=%llu chunks=%u tris=%u materials=%u\n",
-		renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : "(none)",
-		(unsigned long long)renderer.mMapWorld.buildSerial,
-		(uint32_t)renderer.mStaticMapScene.chunks.size(),
-		(uint32_t)renderer.mStaticMapScene.geometry.primitives.size(),
-		(uint32_t)renderer.mStaticMapScene.gpuMaterials.size());
+			voxelStatus.gpuLoadingEnabled ? 1u : 0u);
+		Printf("NRI PT preload ready: level=%s build_serial=%llu chunks=%u tris=%u materials=%u\n",
+			renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : "(none)",
+			(unsigned long long)renderer.mMapWorld.buildSerial,
+			(uint32_t)renderer.mStaticMapScene.chunks.size(),
+			(uint32_t)renderer.mStaticMapScene.geometry.primitives.size(),
+			(uint32_t)renderer.mStaticMapScene.gpuMaterials.size());
+	}
 	{
 		NRIPersistentVoxelSettings settings = BuildNRIPersistentVoxelSettingsFromCVars();
 		settings.admissionGraceFrames = std::max(settings.admissionGraceFrames, settings.preloadReadyGraceFrames);

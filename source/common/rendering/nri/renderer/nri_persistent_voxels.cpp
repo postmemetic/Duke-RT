@@ -3453,7 +3453,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 				meshResourceFirstPublish ? 1u : 0u,
 				meshResourceNewThisFrame ? 1u : 0u);
 		}
-		if (runtimeTailMesh && meshResourceFirstPublish)
+		if (runtimeTailMesh && meshResourceFirstPublish && (int)nri_ptvoxelcomputepreloadtrace > 0)
 		{
 			const uint32_t requestFrame = meshResourceIt->second.directComputeRequestFrame;
 			const uint32_t readyFrame = meshResourceIt->second.directComputeReadyFrame;
@@ -6311,7 +6311,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 							request.materialCount,
 							frameIndex,
 							runtimeTailRequest ? 1u : 0u);
-						if (runtimeTailRequest)
+						if (runtimeTailRequest && (int)nri_ptvoxelcomputepreloadtrace > 0)
 						{
 							Printf("PERF pt voxel runtime tail NRI: action=request build_serial=%llu frame=%u mesh_resource=0x%llx mesh_variant=0x%llx material=0x%llx probe=%u tex=%d voxel=%d primitives=%u\n",
 								(unsigned long long)residencyLastBuildSerial,

@@ -1,6 +1,7 @@
 #include "nri_pipeline_state.h"
 
 #include "nri_renderer.h"
+#include "nri_cvars.h"
 #include "nri_shader_contracts.h"
 #include "../system/nri_renderdevice.h"
 #include "printf.h"
@@ -516,7 +517,7 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 		nri::ComputePipelineDesc pipelineDesc = {};
 		pipelineDesc.pipelineLayout = layout;
 		pipelineDesc.shader = shader;
-		if (fileName != nullptr && std::strncmp(fileName, "VoxelCompute", 12) == 0)
+		if ((int)nri_ptvoxelcomputetrace > 0 && fileName != nullptr && std::strncmp(fileName, "VoxelCompute", 12) == 0)
 		{
 			Printf("NRI PT voxel pipeline create: shader=%s slot=%u event=begin\n", fileName, (unsigned)slot);
 		}
