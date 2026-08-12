@@ -31,7 +31,7 @@ Duke-RT is work in progress. The core renderer is in, with full support for mode
 
 Known high-priority issues:
 - slow perf on the start of level 1 due to large voxel objects
-- broken transport-driven non-euclidean behavior in `E5L1`
+- remaining transport-driven non-euclidean edge cases in `E5L1`
 - slow CPU-side perf on maps with lots of geometry movement like `E1L4` and `E2L7`
 - sometimes you get stuck on the level end screen rather than transitioning to the next level
 - there's an occasional crash on multiple level transitions in a session
@@ -39,7 +39,6 @@ Known high-priority issues:
 Known lower-priority issues:
 - flickering material state for the vent at the start of `E1L4`
 - the last scene panning sequence no longer appears on surveillance camera screens
-- some room-over-room geometry intrusions not on the visible list still block lights in `E1L1`
 - framegen only works with D3D12
 
 I also have a bunch of features I'd like to tackle in the future, including some renderer improvements, as well as a complete pass on the other main Duke 3D episodes.

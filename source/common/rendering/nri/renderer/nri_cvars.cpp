@@ -1632,13 +1632,13 @@ CUSTOM_CVAR(Float, nri_ptsectoremissionmaterialmax, 1.0f, CVAR_ARCHIVE | CVAR_GL
 
 CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
-// The all-ray negative lane remains opt-in until the saved intrusion fixtures
-// establish exact conflict witnesses and protected-region behavior.
-CVAR(Bool, nri_pt360absencegate, false, 0)
+// Exact player-root negative evidence suppresses co-located map occurrences for
+// primary, indirect, and shadow rays. Keep this independently reversible.
+CVAR(Bool, nri_pt360absencegate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
-// Actor occurrence omission is independently switchable for deterministic A/B
-// validation. It still consumes the same current logical-player 360 census.
-CVAR(Bool, nri_pt360actorabsencegate, false, 0)
+// Actor occurrence omission consumes the same current logical-player census and
+// remains independently switchable for diagnosis and persistent rollback.
+CVAR(Bool, nri_pt360actorabsencegate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(Bool, nri_pt360absenceprobe, false, 0)
 

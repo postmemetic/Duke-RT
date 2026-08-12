@@ -291,6 +291,11 @@ Light-debug workflow:
   Compares the authoritative static chunk against a freshly rebuilt live runtime chunk using stable PT surface keys. If no chunk is provided, it uses the last successful `nri_ptsurfaceprobe` chunk hit. The output includes matched vs unmatched surfaces, mean centroid delta, deviation counts, area/normal outliers, the worst surface mismatches, and seam-focused border-wall diagnostics with adjacent chunk replacement state.
 - `nri_ptvisiblechunkgate 0/1`
   Controls the visible-chunk gate used for camera-primary direct visibility. The default is `1`. When enabled it skips primary map hits whose owning chunk is outside the current HW-visible chunk set derived from the visible-sector snapshot, the active view-root sectors, and the accumulated wall/flat drawlists for the frame.
+- `nri_pt360absencegate 0/1`
+  Controls the default-on, exact negative-census gate for co-located map geometry. It applies the current logical-player 360 drawlist census to primary, indirect, and shadow rays while ordinary off-screen and occluded geometry remains resident. Alternate mirror and typed space-transfer ray contexts fail open instead of inheriting player-root absence evidence.
+- `nri_pt360actorabsencegate 0/1`
+  Controls the default-on actor-occurrence gate using the same current logical-player census. It suppresses live voxel actors and items rendered from a wrong overlapping locality without treating ordinary off-screen or occluded actors as absent.
+- To persistently disable the 360 policies for rollback, set both commands to `0` in the console or config. For a one-run diagnostic launch, use `+set nri_pt360absencegate false +set nri_pt360actorabsencegate false`. The mirror-only actor residency correction is independent and remains active when both gates are disabled.
 - `nri_ptscenestats 0`
   Disables scene-stat style diagnostics in the log, including `NRI PT scene: ...`, `NRI PT frame resources: ...`, startup-world-correction summaries, and static-scene trace / animated-refresh lines, without affecting `nri_ptstatus`, mutation traces, or the surface probe.
 - `nri_ptscenestats 1`
