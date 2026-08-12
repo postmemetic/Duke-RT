@@ -6713,6 +6713,24 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.modelSpritesMs);
 		CaptureModelSprites(di, di.drawlists[GLDL_MODELS], GLDL_MODELS, outView.opaqueSprites, outView.stats, voxelCaptureMode);
 	}
+	if (voxelCaptureMode == DynamicVoxelCaptureMode::Authoritative && rootVoxelCacheFrame)
+	{
+		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.modelSpritesMs);
+		VisitWallMirrorSceneChildren(di, [](HWDrawInfo& child, void*)
+		{
+			// Reflected child geometry stays out of the root scene. Only model
+			// occurrence authoring survives into the outer voxel-cache frame.
+			SceneDebugStats scratchStats = {};
+			std::vector<SurfaceRef> scratchSurfaces;
+			CaptureModelSprites(
+				child,
+				child.drawlists[GLDL_MODELS],
+				GLDL_MODELS,
+				scratchSurfaces,
+				scratchStats,
+				DynamicVoxelCaptureMode::Authoritative);
+		}, nullptr);
+	}
 	if (voxelCaptureMode == DynamicVoxelCaptureMode::Authoritative)
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.voxelFrameMs);

@@ -963,7 +963,7 @@ bool TryApplyPlainMirrorPrimaryReplacement(inout HitData hit, float3 primaryRayD
 	const float3 reflectedOrigin = hit.position + mirrorPlaneNormal * 0.05;
 	float3 tracedReflectedDirection = reflectedDirection;
 	const uint rootTemporalFlags = hit.temporalFlags;
-	hit = TracePrimaryUngated(reflectedOrigin, reflectedDirection, tracedReflectedDirection);
+	hit = TracePlainMirrorReplacement(reflectedOrigin, reflectedDirection, tracedReflectedDirection);
 	hit.temporalFlags |= rootTemporalFlags;
 	visibleRayDirection = tracedReflectedDirection;
 	return true;

@@ -2242,11 +2242,11 @@ HitData TracePrimary(float3 origin, float3 direction, out float3 exitDirection)
 	return TracePrimary(origin, direction, ShouldGatePrimaryVisibleChunks(), false, exitDirection);
 }
 
-HitData TracePrimaryUngated(float3 origin, float3 direction, out float3 exitDirection)
+HitData TracePlainMirrorReplacement(float3 origin, float3 direction, out float3 exitDirection)
 {
 	HitData hitData = MakeEmptyHitData();
 	const uint mirrorBudget = max(1u, (gTraceConstants.BounceCounts >> 4u) & 0xfu);
-	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_REFLECTION, mirrorBudget, GetPortalTraversalDepth(), false, true, false, true, TRACE_STATS_KIND_UNGATED, false, hitData, exitDirection);
+	TraceScenePath(origin, direction, 100000.0, NRI_TLAS_MASK_REFLECTION, mirrorBudget, GetPortalTraversalDepth(), false, false, false, true, TRACE_STATS_KIND_UNGATED, false, hitData, exitDirection);
 	return hitData;
 }
 

@@ -144,6 +144,11 @@ namespace
 		}
 	}
 
+	bool ShouldCaptureWallMirrorActors(HWPortal* portal)
+	{
+		return portal != nullptr && portal->GetType() == PORTAL_WALL_MIRROR;
+	}
+
 	unsigned int CountCapturablePortals(HWDrawInfo& di)
 	{
 		unsigned int count = 0;
@@ -230,5 +235,51 @@ void CapturePortalViews(HWDrawInfo& di, SceneView& outView)
 	CaptureState state = {};
 	state.renderState = screen != nullptr ? screen->RenderState() : nullptr;
 	CapturePortalsRecursive(di, outView, state);
+}
+
+uint32_t VisitWallMirrorSceneChildren(HWDrawInfo& di, WallMirrorSceneVisitor visitor, void* user)
+{
+	FRenderState* renderState = screen != nullptr ? screen->RenderState() : nullptr;
+	if (renderState == nullptr || visitor == nullptr)
+	{
+		return 0;
+	}
+
+	uint32_t visited = 0;
+	for (HWPortal* portal : di.Portals)
+	{
+		if (!ShouldCaptureWallMirrorActors(portal))
+		{
+			continue;
+		}
+
+		auto* scenePortal = static_cast<HWScenePortalBase*>(portal);
+		HWDrawInfo* child = HWDrawInfo::StartDrawInfo(&di, di.Viewpoint, &di.VPUniforms);
+		if (child == nullptr)
+		{
+			continue;
+		}
+
+		const bool setup = scenePortal->SetupForSceneCapture(child, *renderState);
+		if (!setup)
+		{
+			child->EndDrawInfo();
+			continue;
+		}
+
+		{
+			const ScopedPortalCaptureState portalCaptureState(child->Viewpoint.CameraActor, PORTAL_WALL_MIRROR);
+			child->CreateScene(false);
+		}
+
+		visitor(*child, user);
+		visited++;
+
+		scenePortal->ShutdownAfterSceneCapture(child, *renderState);
+		child->ClearOwnedPortals();
+		child->EndDrawInfo();
+	}
+
+	return visited;
 }
 }
