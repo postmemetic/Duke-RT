@@ -801,7 +801,7 @@ void HWDrawInfo::DrawScene(int drawmode, bool portal)
 	CreateScene(portal);
 	if (screen->RenderPathTracedScene(*this, drawmode, portal))
 	{
-		ClearOwnedPortals();
+		portalState.DiscardFrame(this);
 		return;
 	}
 

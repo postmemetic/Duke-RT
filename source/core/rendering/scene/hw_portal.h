@@ -207,6 +207,7 @@ struct FPortalSceneState
 	void StartFrame();
 	bool RenderFirstSkyPortal(int recursion, HWDrawInfo *outer_di, FRenderState &state);
 	void EndFrame(HWDrawInfo *outer_di, FRenderState &state);
+	void DiscardFrame(HWDrawInfo *outer_di);
 	void RenderPortal(HWPortal *p, FRenderState &state, bool usestencil, HWDrawInfo *outer_di);
 };
 

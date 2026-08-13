@@ -221,6 +221,7 @@ namespace
 			}
 
 			scenePortal->ShutdownAfterSceneCapture(child, *state.renderState);
+			portalState.DiscardFrame(child);
 			child->EndDrawInfo();
 		}
 
@@ -276,7 +277,7 @@ uint32_t VisitWallMirrorSceneChildren(HWDrawInfo& di, WallMirrorSceneVisitor vis
 		visited++;
 
 		scenePortal->ShutdownAfterSceneCapture(child, *renderState);
-		child->ClearOwnedPortals();
+		portalState.DiscardFrame(child);
 		child->EndDrawInfo();
 	}
 

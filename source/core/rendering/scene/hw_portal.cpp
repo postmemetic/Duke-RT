@@ -107,6 +107,30 @@ void FPortalSceneState::EndFrame(HWDrawInfo *di, FRenderState &state)
 	}
 }
 
+//-----------------------------------------------------------------------------
+//
+// DiscardFrame
+//
+// Closes a scene whose portal objects are not being rendered. Path-traced
+// scenes still call StartFrame() while building their hardware draw lists, so
+// their recursion state must be balanced even though raster portal rendering
+// is bypassed.
+//
+//-----------------------------------------------------------------------------
+
+void FPortalSceneState::DiscardFrame(HWDrawInfo *di)
+{
+	if (di != nullptr)
+	{
+		di->ClearOwnedPortals();
+	}
+	assert(renderdepth > 0);
+	if (renderdepth > 0)
+	{
+		renderdepth--;
+	}
+}
+
 
 //-----------------------------------------------------------------------------
 //
