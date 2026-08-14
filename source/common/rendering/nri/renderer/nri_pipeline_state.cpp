@@ -223,7 +223,9 @@ bool NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(NRIRenderer& r
 	}
 
 	const bool d3d12 = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
-	const std::string fileName = std::string("TraceOpaqueCache.cs.") + (d3d12 ? "dxil" : "spirv");
+	const char* cacheStem = renderer.mSpatialAbsenceFormat == 1u ? "TraceOpaqueTypedCache.cs." :
+		(renderer.mSpatialAbsenceFormat == 2u ? "variants/diagnostic/TraceOpaqueCompareCache.cs." : "TraceOpaqueCache.cs.");
+	const std::string fileName = std::string(cacheStem) + (d3d12 ? "dxil" : "spirv");
 	std::vector<uint8_t> shaderBlob;
 	if (!renderer.mFrameBuffer->LoadShaderBlob(fileName.c_str(), shaderBlob))
 	{
@@ -536,7 +538,9 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 	const bool d3d12 = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
 	const std::string suffix = d3d12 ? "dxil" : "spirv";
 
-	const std::string trace = "TraceOpaque.cs." + suffix;
+	const char* traceStem = renderer.mSpatialAbsenceFormat == 1u ? "TraceOpaqueTyped.cs." :
+		(renderer.mSpatialAbsenceFormat == 2u ? "variants/diagnostic/TraceOpaqueCompare.cs." : "TraceOpaque.cs.");
+	const std::string trace = traceStem + suffix;
 	const std::string composition = "Composition.cs." + suffix;
 	const std::string traceTransparent = "TraceTransparent.cs." + suffix;
 	const std::string taa = "Taa.cs." + suffix;

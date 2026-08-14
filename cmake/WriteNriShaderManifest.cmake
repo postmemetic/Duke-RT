@@ -7,8 +7,8 @@ file(GLOB _canonical RELATIVE "${SHADER_DIR}"
 list(FILTER _canonical EXCLUDE REGEX "^audit-task-")
 list(SORT _canonical)
 list(LENGTH _canonical _canonical_count)
-if(PROFILE STREQUAL "PRODUCTION" AND NOT _canonical_count EQUAL 184)
-	message(FATAL_ERROR "Production NRI shader set must contain exactly 184 canonical blobs; found ${_canonical_count}")
+if(PROFILE STREQUAL "PRODUCTION" AND NOT _canonical_count EQUAL 188)
+	message(FATAL_ERROR "Production NRI shader set must contain exactly 188 canonical blobs; found ${_canonical_count}")
 endif()
 
 set(_entries "")

@@ -413,11 +413,17 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.frame.guiCaptureActive = mGuiCaptureActive;
 	init.frame.resetHistory = mResetHistory;
 	init.frame.mainViewEligible = mainViewEligible;
+	const NRISpatialAbsenceSnapshot& rawSpatialAbsence = mSpatialAbsenceGate.GetSnapshot();
+	const bool typedSpatialCensusAuthority =
+		mSpatialAbsenceGpuSnapshot.HasCensusAuthority(rawSpatialAbsence);
+	const bool routeSpatialCensusAuthority = mSpatialAbsenceFormat == 0u ?
+		rawSpatialAbsence.HasCensusAuthority() : typedSpatialCensusAuthority;
+	const bool routeSpatialNegativeAuthority = mSpatialAbsenceFormat == 0u ?
+		rawSpatialAbsence.HasNegativeAuthority() :
+		mSpatialAbsenceGpuSnapshot.HasNegativeAuthority(rawSpatialAbsence);
 	init.frame.spatialAbsenceAuthority =
-		mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority() &&
-		mSpatialAbsenceRayQueryCandidateInstanceCount > 0u;
-	init.frame.spatialActorCensusAuthority =
-		mSpatialAbsenceGate.GetSnapshot().HasCensusAuthority();
+		routeSpatialNegativeAuthority && mSpatialAbsenceRayQueryCandidateInstanceCount > 0u;
+	init.frame.spatialActorCensusAuthority = routeSpatialCensusAuthority;
 	init.sceneStats.sceneInstanceCount = (uint32_t)mBoundSceneInstances.size();
 	init.sceneStats.staticPrimitiveCount = mBoundStaticPrimitiveCount;
 	init.sceneStats.dynamicPrimitiveCount = mBoundDynamicPrimitiveCount;

@@ -190,7 +190,7 @@ public:
 	NRIBackendCapabilities BuildBackendCapabilities() const;
 	uint32_t BeginGpuTimingScope(NRIGpuTimingScope scope);
 	void EndGpuTimingScope(uint32_t markerIndex);
-	bool UsesDiagnosticShaderVariant() const { return mDiagnosticShaderVariantEffective; }
+	bool UsesDiagnosticShaderVariant() const;
 
 private:
 	static constexpr uint32_t FrameSequenceHistorySize = NRIFrameShell::FrameSequenceHistorySize;

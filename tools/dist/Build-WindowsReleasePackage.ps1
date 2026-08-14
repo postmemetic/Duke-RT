@@ -201,8 +201,8 @@ if ([int]$nriManifest.schema -ne 1 -or [string]$nriManifest.resolvedProfile -ne 
     throw "Release packaging requires an NRI shader manifest with schema 1 and resolvedProfile PRODUCTION: $nriShaderManifestPath"
 }
 $productionEntries = @($nriManifest.entries | Where-Object { [string]$_.variant -eq "production" })
-if ($productionEntries.Count -ne 184 -or [int]$nriManifest.canonicalBlobCount -ne 184) {
-    throw "Release packaging requires exactly 184 canonical NRI shader blobs; manifest has $($productionEntries.Count)"
+if ($productionEntries.Count -ne 188 -or [int]$nriManifest.canonicalBlobCount -ne 188) {
+    throw "Release packaging requires exactly 188 canonical NRI shader blobs; manifest has $($productionEntries.Count)"
 }
 $stagedNriDir = Join-Path $PackageDir "shaders\nri"
 New-Item -ItemType Directory -Path $stagedNriDir -Force | Out-Null

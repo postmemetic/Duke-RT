@@ -244,6 +244,7 @@ void NRIRenderer::DestroySceneBuffers()
 		DestroyBufferResource(slot.visibleChunkBuffer);
 		DestroyBufferResource(slot.visibleFlatPlaneBuffer);
 		DestroyBufferResource(slot.spatialAbsenceBuffer);
+		DestroyBufferResource(slot.spatialAbsenceTypedBuffer);
 		DestroyBufferResource(slot.sceneInstanceBuffer);
 		DestroyBufferResource(slot.portalBuffer);
 		DestroyBufferResource(slot.runtimeLightBuffer);
@@ -289,6 +290,7 @@ void NRIRenderer::DestroySceneBuffers()
 	DestroyBufferResource(mVisibleChunkBuffer);
 	DestroyBufferResource(mVisibleFlatPlaneBuffer);
 	DestroyBufferResource(mSpatialAbsenceBuffer);
+	DestroyBufferResource(mSpatialAbsenceTypedBuffer);
 	mTraceShaderStats.Destroy(BuildResourceServices());
 	DestroyBufferResource(mScratchBuffer);
 	DestroyBufferResource(mResidentStaticBlasScratchBuffer);

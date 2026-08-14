@@ -13,6 +13,7 @@ struct NRISceneDataFrameSlot
 	NRIBufferResource visibleChunkBuffer;
 	NRIBufferResource visibleFlatPlaneBuffer;
 	NRIBufferResource spatialAbsenceBuffer;
+	NRIBufferResource spatialAbsenceTypedBuffer;
 	NRIBufferResource sceneInstanceBuffer;
 	NRIBufferResource portalBuffer;
 	NRIBufferResource runtimeLightBuffer;
@@ -29,6 +30,7 @@ struct NRISceneDataFrameSlot
 	SceneBufferDebugStats visibleChunkStats = { "SceneDataSlotVisibleChunk" };
 	SceneBufferDebugStats visibleFlatPlaneStats = { "SceneDataSlotVisibleFlatPlane" };
 	SceneBufferDebugStats spatialAbsenceStats = { "SceneDataSlotSpatialAbsence" };
+	SceneBufferDebugStats spatialAbsenceTypedStats = { "SceneDataSlotSpatialAbsenceTyped" };
 	SceneBufferDebugStats sceneInstanceStats = { "SceneDataSlotSceneInstance" };
 	SceneBufferDebugStats portalStats = { "SceneDataSlotPortal" };
 	SceneBufferDebugStats runtimeLightStats = { "SceneDataSlotRuntimeLight" };
@@ -67,6 +69,7 @@ struct NRISceneDataFrameSlot
 			visibleChunkBuffer.usedSize +
 			visibleFlatPlaneBuffer.usedSize +
 			spatialAbsenceBuffer.usedSize +
+			spatialAbsenceTypedBuffer.usedSize +
 			sceneInstanceBuffer.usedSize +
 			portalBuffer.usedSize +
 			runtimeLightBuffer.usedSize +
@@ -87,6 +90,7 @@ struct NRISceneDataFrameSlot
 			visibleChunkBuffer.size +
 			visibleFlatPlaneBuffer.size +
 			spatialAbsenceBuffer.size +
+			spatialAbsenceTypedBuffer.size +
 			sceneInstanceBuffer.size +
 			portalBuffer.size +
 			runtimeLightBuffer.size +
@@ -107,6 +111,7 @@ struct NRISceneDataFrameSlot
 			visibleChunkStats.growEventsLastFrame +
 			visibleFlatPlaneStats.growEventsLastFrame +
 			spatialAbsenceStats.growEventsLastFrame +
+			spatialAbsenceTypedStats.growEventsLastFrame +
 			sceneInstanceStats.growEventsLastFrame +
 			portalStats.growEventsLastFrame +
 			runtimeLightStats.growEventsLastFrame +

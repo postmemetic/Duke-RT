@@ -258,6 +258,24 @@ namespace
 		Printf("%s\n", line.str().c_str());
 	}
 
+	static void EmitSpatialAbsenceCompareTrace(
+		uint64_t frameNumber,
+		const NRIRenderer::PerfTraceShaderStats& shader)
+	{
+		if ((int)nri_pt360absenceformat != 2 || !shader.valid)
+		{
+			return;
+		}
+		const auto& counters = shader.counters;
+		Printf("NRI PT 360 absence compare: frame=%llu comparisons=%u typed_unavailable=%u outcome_mismatch=%u positive_mismatch=%u probe_mismatch=%u raw_authoritative=1\n",
+			(unsigned long long)frameNumber,
+			counters[NRI_TRACE_SHADER_SPATIAL_COMPARE_TOTAL],
+			counters[NRI_TRACE_SHADER_SPATIAL_COMPARE_TYPED_UNAVAILABLE],
+			counters[NRI_TRACE_SHADER_SPATIAL_COMPARE_OUTCOME_MISMATCH],
+			counters[NRI_TRACE_SHADER_SPATIAL_COMPARE_POSITIVE_MISMATCH],
+			counters[NRI_TRACE_SHADER_SPATIAL_COMPARE_PROBE_MISMATCH]);
+	}
+
 	static bool ShouldEmitProgressiveSlowdownTrace(uint64_t presentationGeneration)
 	{
 		if (!nri_ptslowdowntrace)
@@ -4798,6 +4816,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[64], c[65], c[66], c[67], c[68], c[69], c[70], c[71],
 				c[72], c[73], c[74], c[75], c[76], c[77], c[78]);
 			EmitSpatialAbsenceProbeTrace(mLastFrameBoundaryStats.frameNumber, shader);
+			EmitSpatialAbsenceCompareTrace(mLastFrameBoundaryStats.frameNumber, shader);
 			for (uint32_t hotIndex = 0; hotIndex < shader.hotInstanceCount; ++hotIndex)
 			{
 				const auto& hot = shader.hotInstances[hotIndex];
@@ -9577,7 +9596,6 @@ void NRIRenderDevice::DestroyQueuedFrames()
 
 bool NRIRenderDevice::CreateRenderResources()
 {
-	mDiagnosticShaderVariantEffective = false;
 	mShaderVariantWarningEmitted = false;
 	mShaderVariantSelectionEmitted = false;
 	if (!LoadShaderBlob(GetSelectedAPI() == nri::GraphicsAPI::D3D12 ? "Nri2D.vs.dxil" : "Nri2D.vs.spirv", mVertexShaderBlob) ||
@@ -10986,6 +11004,9 @@ bool NRIRenderDevice::SnapshotTextureToCanvas(FCanvasTexture* tex, NRITextureRes
 
 bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>& outBlob)
 {
+	const char* diagnosticPrefix = "variants/diagnostic/";
+	const bool explicitDiagnosticPath = std::strncmp(
+		fileName, diagnosticPrefix, std::strlen(diagnosticPrefix)) == 0;
 	const bool diagnosticRequested = FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
 	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
@@ -10995,7 +11016,16 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.spirv") == 0;
 	FString shaderPath = progdir;
 	shaderPath << "shaders/nri/";
-	if (diagnosticRequested && diagnosticCandidate)
+	if (explicitDiagnosticPath)
+	{
+		mDiagnosticShaderVariantEffective = true;
+		if (!mShaderVariantSelectionEmitted)
+		{
+			Printf("NRI shader variant: diagnostic (explicit comparison route).\n");
+			mShaderVariantSelectionEmitted = true;
+		}
+	}
+	else if (diagnosticRequested && diagnosticCandidate)
 	{
 		FString manifestPath = shaderPath;
 		manifestPath << "nri-shaders.json";
@@ -11050,6 +11080,17 @@ const void* NRIRenderDevice::GetPixelShaderBytecode(size_t& size) const
 nri::GraphicsAPI NRIRenderDevice::GetSelectedAPI() const
 {
 	return FString(V_GetStartupNriAPI()).CompareNoCase("d3d12") == 0 ? nri::GraphicsAPI::D3D12 : nri::GraphicsAPI::VK;
+}
+
+bool NRIRenderDevice::UsesDiagnosticShaderVariant() const
+{
+	if (mDiagnosticShaderVariantEffective)
+	{
+		return true;
+	}
+	const char* format = V_GetStartupSetOverride("nri_pt360absenceformat");
+	return format != nullptr && strtol(format, nullptr, 0) == 2 &&
+		GetSelectedAPI() == nri::GraphicsAPI::D3D12;
 }
 
 nri::GraphicsAPI NRIRenderDevice::GetLiveAPI() const

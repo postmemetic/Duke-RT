@@ -40,6 +40,7 @@
 #include "hw_sections.h"
 #include "lightoverlay.h"
 #include "mapinfo.h"
+#include "v_video.h"
 #include "printf.h"
 #include "gamestruct.h"
 #include "hw_portal.h"
@@ -1723,6 +1724,23 @@ bool NRIRenderer::Initialize()
 	{
 		return true;
 	}
+	int requestedSpatialAbsenceFormat = (int)nri_pt360absenceformat;
+	if (const char* override = V_GetStartupSetOverride("nri_pt360absenceformat"))
+	{
+		requestedSpatialAbsenceFormat = (int)strtol(override, nullptr, 0);
+	}
+	mSpatialAbsenceFormat = (uint32_t)std::clamp(requestedSpatialAbsenceFormat, 0, 2);
+	if (mSpatialAbsenceFormat == 2u &&
+		mFrameBuffer->GetSelectedAPI() != nri::GraphicsAPI::D3D12)
+	{
+		Printf(TEXTCOLOR_ORANGE "NRI spatial absence compare is D3D12-only; falling back to raw.\n");
+		mSpatialAbsenceFormat = 0u;
+	}
+	nri_pt360absenceformat = (int)mSpatialAbsenceFormat;
+	Printf("NRI spatial absence GPU format: requested=%d effective=%u name=%s (restart required to change).\n",
+		requestedSpatialAbsenceFormat,
+		mSpatialAbsenceFormat,
+		mSpatialAbsenceFormat == 1u ? "typed" : (mSpatialAbsenceFormat == 2u ? "compare-raw-authoritative" : "raw"));
 
 	const bool rendererReady =
 		NRIPipelineStateManager::CreatePipelineLayout(*this) &&
@@ -2608,12 +2626,14 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 	accumulateBuffer(mVisibleChunkBuffer, telemetry.sceneBufferBytes);
 	accumulateBuffer(mVisibleFlatPlaneBuffer, telemetry.sceneBufferBytes);
 	accumulateBuffer(mSpatialAbsenceBuffer, telemetry.sceneBufferBytes);
+	accumulateBuffer(mSpatialAbsenceTypedBuffer, telemetry.sceneBufferBytes);
 	for (const SceneDataFrameSlot& slot : mSceneDataFrameRing)
 	{
 		accumulateBuffer(slot.reprojectionBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.visibleChunkBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.visibleFlatPlaneBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.spatialAbsenceBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.spatialAbsenceTypedBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.sceneInstanceBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.portalBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.runtimeLightBuffer, telemetry.sceneBufferBytes);

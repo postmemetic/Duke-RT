@@ -3,6 +3,14 @@
 
 #include "Shared.hlsli"
 
+#ifndef NRI_SPATIAL_ABSENCE_FORMAT
+#define NRI_SPATIAL_ABSENCE_FORMAT 0
+#endif
+
+#if NRI_SPATIAL_ABSENCE_FORMAT < 0 || NRI_SPATIAL_ABSENCE_FORMAT > 2
+#error NRI_SPATIAL_ABSENCE_FORMAT must be 0 (raw), 1 (typed), or 2 (compare)
+#endif
+
 struct HitData
 {
 	bool hit;
@@ -170,9 +178,17 @@ static const uint TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE =
 static const uint TRACE_STAT_SPATIAL_PROBE_TARGET_PIXEL_BASE = TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE;
 static const uint TRACE_STAT_SPATIAL_PROBE_REFERENCE_PIXEL_BASE =
 	TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE + TRACE_STAT_SPATIAL_PROBE_PIXEL_STRIDE;
+static const uint TRACE_STAT_SPATIAL_COMPARE_BASE =
+	TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE + 2u * TRACE_STAT_SPATIAL_PROBE_PIXEL_STRIDE;
+static const uint TRACE_STAT_SPATIAL_COMPARE_COUNT = 5u;
+static const uint TRACE_STAT_SPATIAL_COMPARE_TOTAL = TRACE_STAT_SPATIAL_COMPARE_BASE + 0u;
+static const uint TRACE_STAT_SPATIAL_COMPARE_TYPED_UNAVAILABLE = TRACE_STAT_SPATIAL_COMPARE_BASE + 1u;
+static const uint TRACE_STAT_SPATIAL_COMPARE_OUTCOME_MISMATCH = TRACE_STAT_SPATIAL_COMPARE_BASE + 2u;
+static const uint TRACE_STAT_SPATIAL_COMPARE_POSITIVE_MISMATCH = TRACE_STAT_SPATIAL_COMPARE_BASE + 3u;
+static const uint TRACE_STAT_SPATIAL_COMPARE_PROBE_MISMATCH = TRACE_STAT_SPATIAL_COMPARE_BASE + 4u;
 static const uint TRACE_STAT_INSTANCE_BUCKET_COUNT = 1024u;
 static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE =
-	TRACE_STAT_SPATIAL_PROBE_PIXEL_BASE + 2u * TRACE_STAT_SPATIAL_PROBE_PIXEL_STRIDE;
+	TRACE_STAT_SPATIAL_COMPARE_BASE + TRACE_STAT_SPATIAL_COMPARE_COUNT;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 
@@ -1169,7 +1185,7 @@ bool IsSpatialAbsenceProbeTargetPixel(uint2 pixelPosition)
 	return all(pixelPosition == targetPixel);
 }
 
-uint EvaluateSpatialAbsence(
+uint EvaluateRawSpatialAbsence(
 	uint chunkIndex,
 	float3 worldPosition,
 	uint statsKind,
@@ -1357,6 +1373,57 @@ uint EvaluateSpatialAbsence(
 	return pairBoundsMatched ?
 		SPATIAL_PROBE_OUTCOME_POSITIVE_FOOTPRINT_MISS :
 		SPATIAL_PROBE_OUTCOME_PAIR_BOUNDS_MISS;
+}
+
+#if NRI_SPATIAL_ABSENCE_FORMAT != 0
+#include "SpatialAbsenceGpuSnapshot.hlsli"
+#endif
+
+uint EvaluateSpatialAbsence(
+	uint chunkIndex,
+	float3 worldPosition,
+	uint statsKind,
+	bool evaluationEnabled,
+	bool exactNegativeSurfaceMembership,
+	bool collectProbeDetails,
+	bool headerPrevalidated,
+	bool structurePrevalidated,
+	uint prevalidatedRecordCount,
+	uint prevalidatedChunkCount,
+	SpatialAbsenceRecord prevalidatedHeader,
+	out uint matchedPositiveChunk,
+	out SpatialFootprintProbeDetails footprintProbeDetails)
+{
+#if NRI_SPATIAL_ABSENCE_FORMAT == 0
+	return EvaluateRawSpatialAbsence(
+		chunkIndex, worldPosition, statsKind, evaluationEnabled,
+		exactNegativeSurfaceMembership, collectProbeDetails,
+		headerPrevalidated, structurePrevalidated,
+		prevalidatedRecordCount, prevalidatedChunkCount, prevalidatedHeader,
+		matchedPositiveChunk, footprintProbeDetails);
+#elif NRI_SPATIAL_ABSENCE_FORMAT == 1
+	return EvaluateTypedSpatialAbsence(
+		chunkIndex, worldPosition, statsKind, evaluationEnabled,
+		exactNegativeSurfaceMembership, collectProbeDetails, true,
+		matchedPositiveChunk, footprintProbeDetails);
+#else
+	uint typedPositiveChunk = 0xffffffffu;
+	SpatialFootprintProbeDetails typedProbeDetails = EmptySpatialFootprintProbeDetails();
+	const uint typedOutcome = EvaluateTypedSpatialAbsence(
+		chunkIndex, worldPosition, statsKind, evaluationEnabled,
+		exactNegativeSurfaceMembership, collectProbeDetails, false,
+		typedPositiveChunk, typedProbeDetails);
+	const uint rawOutcome = EvaluateRawSpatialAbsence(
+		chunkIndex, worldPosition, statsKind, evaluationEnabled,
+		exactNegativeSurfaceMembership, collectProbeDetails,
+		headerPrevalidated, structurePrevalidated,
+		prevalidatedRecordCount, prevalidatedChunkCount, prevalidatedHeader,
+		matchedPositiveChunk, footprintProbeDetails);
+	RecordSpatialAbsenceGpuComparison(
+		rawOutcome, typedOutcome, matchedPositiveChunk, typedPositiveChunk,
+		footprintProbeDetails, typedProbeDetails);
+	return rawOutcome;
+#endif
 }
 
 bool ShouldRejectSpatialAbsence(uint chunkIndex, float3 worldPosition, uint statsKind)
@@ -1734,9 +1801,26 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 	uint spatialCandidateRecordStride = 0u;
 	uint spatialCandidateChunkCount = 0u;
 	SpatialAbsenceRecord spatialCandidateHeader = (SpatialAbsenceRecord)0;
+	float3 spatialCandidateCenter = 0.0;
+	float spatialCandidateRadius = 0.0;
+	#if NRI_SPATIAL_ABSENCE_FORMAT == 1
+	SpatialAbsenceGpuView spatialTypedCandidateView = (SpatialAbsenceGpuView)0;
+	#endif
 	bool spatialCandidatePayloadValid = false;
 	if ((spatialAbsenceGateActive || spatialActorGateActive) && !spatialProbeRay)
 	{
+	#if NRI_SPATIAL_ABSENCE_FORMAT == 1
+		uint typedFailureOutcome = SPATIAL_PROBE_OUTCOME_SNAPSHOT_INVALID;
+		spatialCandidatePayloadValid = LoadSpatialAbsenceGpuView(
+			spatialTypedCandidateView,
+			typedFailureOutcome);
+		if (spatialCandidatePayloadValid)
+		{
+			spatialCandidateChunkCount = spatialTypedCandidateView.chunkCount;
+			spatialCandidateCenter = spatialTypedCandidateView.center;
+			spatialCandidateRadius = spatialTypedCandidateView.radius;
+		}
+	#else
 		gSpatialAbsenceRecords.GetDimensions(
 			spatialCandidateRecordCount,
 			spatialCandidateRecordStride);
@@ -1755,7 +1839,13 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				spatialCandidateChunkCount + 1u <= spatialCandidateRecordCount &&
 				all(isfinite(spatialCandidateHeader.Payload0)) &&
 				spatialCandidateHeader.Payload0.w > 0.0;
+			if (spatialCandidatePayloadValid)
+			{
+				spatialCandidateCenter = spatialCandidateHeader.Payload0.xyz;
+				spatialCandidateRadius = spatialCandidateHeader.Payload0.w;
+			}
 		}
+	#endif
 	}
 	bool spatialProbeOwnsRecord = false;
 	uint spatialProbeRecordBase = 0u;
@@ -1839,10 +1929,19 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 					rayQuery.CommitNonOpaqueTriangleHit();
 					continue;
 				}
+				bool candidateChunkCertified = false;
+			#if NRI_SPATIAL_ABSENCE_FORMAT == 1
+				candidateChunkCertified = SpatialAbsenceGpuChunkIsCertified(
+					spatialTypedCandidateView,
+					candidateVisibilityChunk);
+			#else
 				const SpatialAbsenceRecord candidateChunkRecord =
 					gSpatialAbsenceRecords[candidateVisibilityChunk + 1u];
-				if ((candidateChunkRecord.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) !=
-					SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS)
+				candidateChunkCertified =
+					(candidateChunkRecord.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) ==
+						SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS;
+			#endif
+				if (!candidateChunkCertified)
 				{
 					rayQuery.CommitNonOpaqueTriangleHit();
 					continue;
@@ -1856,6 +1955,19 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 					(candidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
 				uint candidatePositiveChunk = 0xffffffffu;
 				SpatialFootprintProbeDetails candidateFootprint = EmptySpatialFootprintProbeDetails();
+			#if NRI_SPATIAL_ABSENCE_FORMAT == 1
+				const uint candidateSpatialOutcome = EvaluateTypedSpatialAbsencePrevalidated(
+					spatialTypedCandidateView,
+					candidateVisibilityChunk,
+					candidatePosition,
+					statsKind,
+					true,
+					exactNegativeSurfaceMembership,
+					false,
+					true,
+					candidatePositiveChunk,
+					candidateFootprint);
+			#else
 				const uint candidateSpatialOutcome = EvaluateSpatialAbsence(
 					candidateVisibilityChunk,
 					candidatePosition,
@@ -1870,6 +1982,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 					spatialCandidateHeader,
 					candidatePositiveChunk,
 					candidateFootprint);
+			#endif
 				if (candidateSpatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
 				{
 					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
@@ -1970,15 +2083,24 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			instanceData.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL &&
 			visibilityChunk < spatialCandidateChunkCount && all(isfinite(committedPosition)))
 		{
-			const float3 actorGateOffset = committedPosition - spatialCandidateHeader.Payload0.xyz;
-			const float actorGateRadius = spatialCandidateHeader.Payload0.w;
+			const float3 actorGateOffset = committedPosition - spatialCandidateCenter;
+			const float actorGateRadius = spatialCandidateRadius;
 			if (dot(actorGateOffset, actorGateOffset) <= actorGateRadius * actorGateRadius)
 			{
+				bool ownerChunkReached = false;
+			#if NRI_SPATIAL_ABSENCE_FORMAT == 1
+				ownerChunkReached = SpatialAbsenceGpuChunkWasReached(
+					spatialTypedCandidateView,
+					visibilityChunk);
+			#else
 				const SpatialAbsenceRecord ownerChunkRecord =
 					gSpatialAbsenceRecords[visibilityChunk + 1u];
 				const uint requiredReachedFlags = SPATIAL_ABSENCE_REQUIRED_HEADER_FLAGS |
 					SPATIAL_ABSENCE_FLAG_REACHED;
-				if ((ownerChunkRecord.Flags & requiredReachedFlags) != requiredReachedFlags)
+				ownerChunkReached =
+					(ownerChunkRecord.Flags & requiredReachedFlags) == requiredReachedFlags;
+			#endif
+				if (!ownerChunkReached)
 				{
 					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 					TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
@@ -1999,11 +2121,17 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			bool certifiedNegativeChunk = false;
 			if (visibilityChunk < spatialCandidateChunkCount)
 			{
+			#if NRI_SPATIAL_ABSENCE_FORMAT == 1
+				certifiedNegativeChunk = SpatialAbsenceGpuChunkIsCertified(
+					spatialTypedCandidateView,
+					visibilityChunk);
+			#else
 				const SpatialAbsenceRecord visibilityChunkRecord =
 					gSpatialAbsenceRecords[visibilityChunk + 1u];
 				certifiedNegativeChunk =
 					(visibilityChunkRecord.Flags & SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS) ==
 						SPATIAL_ABSENCE_REQUIRED_CHUNK_FLAGS;
+			#endif
 			}
 			// Most fixed-opaque hits are ordinary positive or unrelated chunks.
 			// Avoid the full exact predicate for them, but retain a fail-open

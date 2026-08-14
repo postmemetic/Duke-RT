@@ -138,7 +138,7 @@ CUSTOM_CVAR(String, nri_api, "d3d12", CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NO
 	}
 }
 
-static const char* GetStartupSetOverride(const char* name)
+const char* V_GetStartupSetOverride(const char* name)
 {
 	if (Args == nullptr || name == nullptr || *name == '\0')
 	{
@@ -176,7 +176,7 @@ int V_GetBackend()
 	return 4;
 #else
 	int v = vid_preferbackend;
-	if (const char* override = GetStartupSetOverride("vid_preferbackend"))
+	if (const char* override = V_GetStartupSetOverride("vid_preferbackend"))
 	{
 		v = (int)strtol(override, nullptr, 0);
 	}
@@ -188,7 +188,7 @@ int V_GetBackend()
 
 const char* V_GetStartupNriAPI()
 {
-	const char* api = GetStartupSetOverride("nri_api");
+	const char* api = V_GetStartupSetOverride("nri_api");
 	return StartupRecovery_GetStartupNriAPI((api != nullptr && *api != '\0') ? api : (const char*)nri_api);
 }
 

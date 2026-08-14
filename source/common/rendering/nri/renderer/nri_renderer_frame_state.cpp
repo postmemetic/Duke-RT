@@ -336,6 +336,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 	FillMatrix(mCurrentWorldToView, di.VPUniforms.mViewMatrix);
 	const bool spatialAbsenceRequested = (bool)nri_pt360absencegate || (bool)nri_pt360actorabsencegate ||
 		(bool)nri_pt360absenceprobe || (int)nri_pt360absencetrace > 0;
+	const bool spatialAbsenceTraceRequested = (int)nri_pt360absencetrace > 0;
 	if (spatialAbsenceRequested && logicalMainView && mMapWorld.valid && mMapWorld.buildSerial != 0)
 	{
 		di.Capture360Census(mMapWorld.buildSerial, 0, true);
@@ -396,7 +397,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 			}
 		}
 		const NRISpatialAbsenceSnapshot& absence = mSpatialAbsenceGate.Build(mMapWorld, input);
-		if ((int)nri_pt360absencetrace > 0)
+		if (spatialAbsenceTraceRequested)
 		{
 			float centerDelta[3] = {};
 			if (mHasPreviousCameraState)
@@ -525,6 +526,30 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 		// authority, but do not interrupt stability between logical main frames.
 		// Disabling the feature or missing a main-view world starts a fresh audit.
 		mSpatialAbsenceGate.Reset(mFrameIndex, !spatialAbsenceRequested || logicalMainView);
+	}
+	if (mSpatialAbsenceFormat != 0u)
+	{
+		BuildNRISpatialAbsenceGpuSnapshot(
+			mSpatialAbsenceGate.GetSnapshot(),
+			mSpatialAbsenceGpuSnapshot);
+		if (spatialAbsenceTraceRequested)
+		{
+			Printf("NRI PT 360 absence typed: frame=%u format=%u valid=%u authority=%u fail_open=0x%x blocks=%u bytes=%llu source_hash=0x%016llx payload_hash=0x%016llx build_elapsed_ms=%.3f\n",
+				mFrameIndex,
+				mSpatialAbsenceFormat,
+				mSpatialAbsenceGpuSnapshot.valid ? 1u : 0u,
+				mSpatialAbsenceGpuSnapshot.HasNegativeAuthority(mSpatialAbsenceGate.GetSnapshot()) ? 1u : 0u,
+				mSpatialAbsenceGpuSnapshot.failOpenFlags,
+				(uint32_t)mSpatialAbsenceGpuSnapshot.blocks.size(),
+				(unsigned long long)mSpatialAbsenceGpuSnapshot.blocks.size() * sizeof(NRISpatialAbsenceGpuBlock),
+				(unsigned long long)mSpatialAbsenceGpuSnapshot.sourcePayloadHash,
+				(unsigned long long)mSpatialAbsenceGpuSnapshot.payloadHash,
+				mSpatialAbsenceGpuSnapshot.buildElapsedMilliseconds);
+		}
+	}
+	else
+	{
+		mSpatialAbsenceGpuSnapshot = {};
 	}
 	const BitArray& visibleSectors = di.GetVisibleSectors();
 	const size_t visibleChunkWordCount = std::max<size_t>((mMapWorld.chunks.size() + 31u) / 32u, 1u);

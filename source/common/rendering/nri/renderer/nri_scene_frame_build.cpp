@@ -1280,8 +1280,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectStaticInstancesMs);
 				BuildStaticMapInstances(instances, sceneInstances);
 				mMapMoverRigidRoute.PatchStaticInstances(instances, sceneInstances);
+				const bool spatialCandidateRouteReady = mSpatialAbsenceFormat == 0u ?
+					mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority() :
+					mSpatialAbsenceGpuSnapshot.HasNegativeAuthority(mSpatialAbsenceGate.GetSnapshot());
 				mSpatialAbsenceRayQueryCandidateInstanceCount = ApplyNRISpatialAbsenceRayQueryCandidateFlags(
-					(bool)nri_pt360absencegate,
+					(bool)nri_pt360absencegate && spatialCandidateRouteReady,
 					mSpatialAbsenceGate.GetSnapshot(),
 					instances,
 					sceneInstances);

@@ -245,6 +245,7 @@ namespace
 		uint64_t visibleChunkSize,
 		uint64_t visibleFlatPlaneSize,
 		uint64_t spatialAbsenceSize,
+		uint64_t spatialAbsenceTypedSize,
 		uint64_t sceneInstanceSize,
 		uint64_t runtimeLightSize,
 		uint64_t runtimeLightTileHeaderSize,
@@ -257,6 +258,7 @@ namespace
 			EstimateSceneDataFrameResourceCapacity(slot.visibleChunkBuffer, visibleChunkSize, sizeof(uint32_t)) +
 			EstimateSceneDataFrameResourceCapacity(slot.visibleFlatPlaneBuffer, visibleFlatPlaneSize, sizeof(uint32_t)) +
 			EstimateSceneDataFrameResourceCapacity(slot.spatialAbsenceBuffer, spatialAbsenceSize, sizeof(NRISpatialAbsenceGpuRecord)) +
+			EstimateSceneDataFrameResourceCapacity(slot.spatialAbsenceTypedBuffer, spatialAbsenceTypedSize, sizeof(NRISpatialAbsenceGpuBlock)) +
 			EstimateSceneDataFrameResourceCapacity(slot.sceneInstanceBuffer, sceneInstanceSize, sizeof(SceneInstanceData)) +
 			EstimateSceneDataFrameResourceCapacity(slot.runtimeLightBuffer, runtimeLightSize, sizeof(NRIRuntimePointLightGpuData)) +
 			EstimateSceneDataFrameResourceCapacity(slot.runtimeLightTileHeaderBuffer, runtimeLightTileHeaderSize, sizeof(NRIRuntimeLightTileHeaderGpuData)) +
@@ -320,12 +322,14 @@ void NRIRenderer::ResetSceneBufferFrameStats()
 	resetStats(mSceneInstanceBufferStats);
 	resetStats(mPortalBufferStats);
 	resetStats(mSpatialAbsenceBufferStats);
+	resetStats(mSpatialAbsenceTypedBufferStats);
 	for (SceneDataFrameSlot& slot : mSceneDataFrameRing)
 	{
 		resetStats(slot.reprojectionStats);
 		resetStats(slot.visibleChunkStats);
 		resetStats(slot.visibleFlatPlaneStats);
 		resetStats(slot.spatialAbsenceStats);
+		resetStats(slot.spatialAbsenceTypedStats);
 		resetStats(slot.sceneInstanceStats);
 		resetStats(slot.portalStats);
 		resetStats(slot.runtimeLightStats);
@@ -858,14 +862,21 @@ bool NRISceneUploadManager::UpdateVisibleFlatPlaneBuffer(NRIRenderer& renderer, 
 bool NRISceneUploadManager::UpdateSpatialAbsenceBuffer(NRIRenderer& renderer, bool* ioWaitedForWrites, bool allowSceneDataRing)
 {
 	static const NRISpatialAbsenceGpuRecord defaultFailOpenRecord = {};
+	static const NRISpatialAbsenceGpuBlock defaultFailOpenTypedBlock = {};
 	const std::vector<NRISpatialAbsenceGpuRecord>& records = renderer.mSpatialAbsenceGate.GetSnapshot().gpuRecords;
 	const void* data = records.empty() ? (const void*)&defaultFailOpenRecord : records.data();
 	const size_t size = records.empty() ? sizeof(defaultFailOpenRecord) : records.size() * sizeof(NRISpatialAbsenceGpuRecord);
+	const std::vector<NRISpatialAbsenceGpuBlock>& typedBlocks = renderer.mSpatialAbsenceGpuSnapshot.blocks;
+	const void* typedData = typedBlocks.empty() ? (const void*)&defaultFailOpenTypedBlock : typedBlocks.data();
+	const size_t typedSize = typedBlocks.empty() ? sizeof(defaultFailOpenTypedBlock) :
+		typedBlocks.size() * sizeof(NRISpatialAbsenceGpuBlock);
 
 	NRISceneDataFrameSlot* sceneDataSlot =
 		allowSceneDataRing && renderer.ShouldUseSceneDataFrameRing() ? &renderer.GetCurrentSceneDataFrameSlot() : nullptr;
 	NRIBufferResource& buffer = sceneDataSlot != nullptr ? sceneDataSlot->spatialAbsenceBuffer : renderer.mSpatialAbsenceBuffer;
 	SceneBufferDebugStats& stats = sceneDataSlot != nullptr ? sceneDataSlot->spatialAbsenceStats : renderer.mSpatialAbsenceBufferStats;
+	NRIBufferResource& typedBuffer = sceneDataSlot != nullptr ? sceneDataSlot->spatialAbsenceTypedBuffer : renderer.mSpatialAbsenceTypedBuffer;
+	SceneBufferDebugStats& typedStats = sceneDataSlot != nullptr ? sceneDataSlot->spatialAbsenceTypedStats : renderer.mSpatialAbsenceTypedBufferStats;
 
 	WaitIfStructuredUpdateNeedsIt(renderer, buffer, data, size, sizeof(NRISpatialAbsenceGpuRecord), sceneDataSlot != nullptr ? nullptr : ioWaitedForWrites);
 	if (!renderer.EnsureStructuredBuffer(
@@ -882,7 +893,26 @@ bool NRISceneUploadManager::UpdateSpatialAbsenceBuffer(NRIRenderer& renderer, bo
 		return false;
 	}
 
-	return UpdateSceneDataDescriptorSlot(renderer, 26, buffer.shaderView, "spatial_absence_refresh");
+	WaitIfStructuredUpdateNeedsIt(renderer, typedBuffer, typedData, typedSize, sizeof(NRISpatialAbsenceGpuBlock),
+		sceneDataSlot != nullptr ? nullptr : ioWaitedForWrites);
+	if (!renderer.EnsureStructuredBuffer(
+		typedBuffer,
+		typedStats,
+		typedData,
+		typedSize,
+		sizeof(NRISpatialAbsenceGpuBlock),
+		nri::BufferUsageBits::SHADER_RESOURCE,
+		NRIResourceComputeShaderResourceAccess(),
+		sceneDataSlot != nullptr || (ioWaitedForWrites != nullptr && *ioWaitedForWrites),
+		"scene_data_upload"))
+	{
+		return false;
+	}
+
+	return UpdateSceneDataDescriptorSlot(renderer, NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT,
+		buffer.shaderView, "spatial_absence_refresh") &&
+		UpdateSceneDataDescriptorSlot(renderer, NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT,
+			typedBuffer.shaderView, "spatial_absence_typed_refresh");
 }
 
 bool NRIRenderer::UploadSceneBuffers(
@@ -2586,6 +2616,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 	const uint64_t visibleFlatPlaneSize = renderer.mCurrentVisibleFlatPlaneWords.empty() ? sizeof(defaultVisibleFlatPlaneWord) : renderer.mCurrentVisibleFlatPlaneWords.size() * sizeof(uint32_t);
 	const uint64_t spatialAbsenceSize = std::max<size_t>(
 		renderer.mSpatialAbsenceGate.GetSnapshot().gpuRecords.size(), 1u) * sizeof(NRISpatialAbsenceGpuRecord);
+	const uint64_t spatialAbsenceTypedSize = std::max<size_t>(
+		renderer.mSpatialAbsenceGpuSnapshot.blocks.size(), 1u) * sizeof(NRISpatialAbsenceGpuBlock);
 	const uint64_t sceneInstanceSize = sceneInstances.size() * sizeof(SceneInstanceData);
 	const uint64_t portalSize = scenePortals.size() * sizeof(ScenePortalData);
 	const uint64_t portalHash = HashSceneDataPayload(scenePortals.empty() ? nullptr : scenePortals.data(), portalSize, scenePortals.size());
@@ -2637,6 +2669,7 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 				visibleChunkSize,
 				visibleFlatPlaneSize,
 				spatialAbsenceSize,
+				spatialAbsenceTypedSize,
 				0u,
 				estimatedRuntimeLightSize,
 				estimatedRuntimeLightTileHeaderSize,
@@ -3190,6 +3223,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->visibleFlatPlaneBuffer : renderer.mVisibleFlatPlaneBuffer;
 	const NRIBufferResource& spatialAbsenceDescriptorBuffer =
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->spatialAbsenceBuffer : renderer.mSpatialAbsenceBuffer;
+	const NRIBufferResource& spatialAbsenceTypedDescriptorBuffer =
+		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->spatialAbsenceTypedBuffer : renderer.mSpatialAbsenceTypedBuffer;
 	const NRIBufferResource& runtimeLightDescriptorBuffer =
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->runtimeLightBuffer : renderer.mRuntimeLightBuffer;
 	const NRIBufferResource& runtimeLightTileHeaderDescriptorBuffer =
@@ -3233,7 +3268,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSceneDataDescriptors[23] = persistentVoxelDescriptors.primitive;
 		renderer.mSceneDataDescriptors[24] = persistentVoxelDescriptors.material;
 		renderer.mSceneDataDescriptors[25] = renderer.mEmissiveMaterialResponseBuffer.shaderView;
-		renderer.mSceneDataDescriptors[26] = spatialAbsenceDescriptorBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT] = spatialAbsenceDescriptorBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT] = spatialAbsenceTypedDescriptorBuffer.shaderView;
 	}
 
 	{
@@ -3748,6 +3784,7 @@ bool NRIRenderer::PreGrowLevelSceneResourcesForLoading()
 	const uint64_t estimatedSpatialAbsenceBytes =
 		(1u + (uint64_t)mMapWorld.chunks.size() + std::min<uint64_t>((uint64_t)mMapWorld.chunks.size() * 16u, 4096u)) *
 		sizeof(NRISpatialAbsenceGpuRecord);
+	const uint64_t estimatedSpatialAbsenceTypedBytes = estimatedSpatialAbsenceBytes;
 
 	const bool ready =
 		ensureCapacity(mSceneInstanceBuffer, mSceneInstanceBufferStats, (uint64_t)estimatedInstanceCount * sizeof(SceneInstanceData), sizeof(SceneInstanceData)) &&
@@ -3764,7 +3801,8 @@ bool NRIRenderer::PreGrowLevelSceneResourcesForLoading()
 		ensureCapacity(mReprojectionBuffer, mReprojectionBufferStats, sizeof(NRIReprojectionData), sizeof(NRIReprojectionData)) &&
 		ensureCapacity(mVisibleChunkBuffer, mVisibleChunkBufferStats, estimatedVisibleChunkBytes, sizeof(uint32_t)) &&
 		ensureCapacity(mVisibleFlatPlaneBuffer, mVisibleFlatPlaneBufferStats, estimatedVisibleFlatPlaneBytes, sizeof(uint32_t)) &&
-		ensureCapacity(mSpatialAbsenceBuffer, mSpatialAbsenceBufferStats, estimatedSpatialAbsenceBytes, sizeof(NRISpatialAbsenceGpuRecord));
+		ensureCapacity(mSpatialAbsenceBuffer, mSpatialAbsenceBufferStats, estimatedSpatialAbsenceBytes, sizeof(NRISpatialAbsenceGpuRecord)) &&
+		ensureCapacity(mSpatialAbsenceTypedBuffer, mSpatialAbsenceTypedBufferStats, estimatedSpatialAbsenceTypedBytes, sizeof(NRISpatialAbsenceGpuBlock));
 
 	if ((int)nri_ptloadingtrace >= 1)
 	{

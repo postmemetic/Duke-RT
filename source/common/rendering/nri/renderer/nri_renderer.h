@@ -29,6 +29,7 @@
 #include "nri_shader_contracts.h"
 #include "nri_sky_environment.h"
 #include "nri_spatial_absence_gate.h"
+#include "nri_spatial_absence_gpu_snapshot.h"
 #include "nri_scene_lights.h"
 #include "nri_surface_probe.h"
 #include "nri_material_policy.h"
@@ -2734,6 +2735,7 @@ private:
 	NRIBufferResource mVisibleChunkBuffer;
 	NRIBufferResource mVisibleFlatPlaneBuffer;
 	NRIBufferResource mSpatialAbsenceBuffer;
+	NRIBufferResource mSpatialAbsenceTypedBuffer;
 	NRITraceShaderStats mTraceShaderStats;
 	NRIIndirectRadianceCache mIndirectRadianceCache;
 	NRIIndirectRadianceCacheTelemetrySnapshot mLastIndirectRadianceCacheTelemetry = {};
@@ -2797,6 +2799,7 @@ private:
 	SceneBufferDebugStats mVisibleChunkBufferStats = { "VisibleChunk" };
 	SceneBufferDebugStats mVisibleFlatPlaneBufferStats = { "VisibleFlatPlane" };
 	SceneBufferDebugStats mSpatialAbsenceBufferStats = { "SpatialAbsence" };
+	SceneBufferDebugStats mSpatialAbsenceTypedBufferStats = { "SpatialAbsenceTyped" };
 	PerfShellTraceStats mLastPerfShellTraceStats = {};
 	PerfResourceTraceStats mLastPerfResourceTraceStats = {};
 	PerfTraceShaderStats mLastPerfTraceShaderStats = {};
@@ -2815,6 +2818,8 @@ private:
 	NRIMapMoverSystem mMapMovers;
 	NRIMapMoverShadow mMapMoverShadow;
 	NRISpatialAbsenceGate mSpatialAbsenceGate;
+	NRISpatialAbsenceGpuSnapshot mSpatialAbsenceGpuSnapshot;
+	uint32_t mSpatialAbsenceFormat = 0;
 	uint32_t mSpatialAbsenceRayQueryCandidateInstanceCount = 0;
 	NRIMapMoverRigidRoute mMapMoverRigidRoute;
 	NRISE29FloorDeformerRoute mSE29FloorDeformerRoute;

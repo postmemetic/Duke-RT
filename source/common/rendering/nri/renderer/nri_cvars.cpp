@@ -1635,6 +1635,7 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.
 CVAR(Bool, nri_pt360absencegate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Int, nri_pt360absenceformat, 0, 0)
 
 // Actor occurrence omission consumes the same current logical-player census and
 // remains independently switchable for diagnosis and persistent rollback.
