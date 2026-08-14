@@ -182,28 +182,34 @@ float3 SmokeGridLightMean(SmokeGridLightRecord record, uint lobe)
 
 float3 SmokeGridLightSecondMoment(SmokeGridLightRecord record, uint lobe)
 {
-	const uint base = 18u + min(lobe, 5u) * 3u;
-	return float3(SmokeGridLightLoadHalf(record, base), SmokeGridLightLoadHalf(record, base + 1u), SmokeGridLightLoadHalf(record, base + 2u));
+	const uint base = min(lobe, 5u) * 3u;
+	const uint word = 12u + (base >> 1u);
+	const float2 first = SmokeGridLightUnpackHalf2(record.Words[word]);
+	const float2 second = SmokeGridLightUnpackHalf2(record.Words[12u + ((base + 2u) >> 1u)]);
+	return (base & 1u) == 0u ? float3(first.x, first.y, second.x) : float3(first.y, second.x, second.y);
 }
 
 void SmokeGridLightStoreLobe(inout SmokeGridLightRecord record, uint lobe, float3 mean, float3 secondMoment)
 {
 	const uint meanBase = min(lobe, 5u) * 3u;
-	const uint momentBase = 18u + meanBase;
 	[unroll]
 	for (uint channel = 0u; channel < 3u; ++channel)
 	{
 		SmokeGridLightStoreHalf(record, meanBase + channel, mean[channel]);
-		SmokeGridLightStoreHalf(record, momentBase + channel, secondMoment[channel]);
+		const uint momentHalf = meanBase + channel;
+		const uint momentWord = 12u + (momentHalf >> 1u);
+		float2 pair = SmokeGridLightUnpackHalf2(record.Words[momentWord]);
+		if ((momentHalf & 1u) == 0u) pair.x = secondMoment[channel]; else pair.y = secondMoment[channel];
+		record.Words[momentWord] = SmokeGridLightPackHalf2(pair);
 	}
 }
 
-uint SmokeGridLightBrickGeneration(SmokeGridLightRecord record) { return record.Words[18]; }
-uint SmokeGridLightSimulationEpoch(SmokeGridLightRecord record) { return record.Words[19]; }
-uint SmokeGridLightSampleCount(SmokeGridLightRecord record) { return record.Words[20] & 0xffu; }
-uint SmokeGridLightSequence(SmokeGridLightRecord record) { return (record.Words[20] >> 8u) & 0xffu; }
-float SmokeGridLightConfidence(SmokeGridLightRecord record) { return (float)((record.Words[20] >> 16u) & 0xffu) / 255.0; }
-uint SmokeGridLightEvidence(SmokeGridLightRecord record) { return (record.Words[20] >> 24u) & 0xffu; }
+uint SmokeGridLightBrickGeneration(SmokeGridLightRecord record) { return record.Words[9]; }
+uint SmokeGridLightSimulationEpoch(SmokeGridLightRecord record) { return record.Words[10]; }
+uint SmokeGridLightSampleCount(SmokeGridLightRecord record) { return record.Words[11] & 0xffu; }
+uint SmokeGridLightSequence(SmokeGridLightRecord record) { return (record.Words[11] >> 8u) & 0xffu; }
+float SmokeGridLightConfidence(SmokeGridLightRecord record) { return (float)((record.Words[11] >> 16u) & 0xffu) / 255.0; }
+uint SmokeGridLightEvidence(SmokeGridLightRecord record) { return (record.Words[11] >> 24u) & 0xffu; }
 uint SmokeGridLightLastUpdate(SmokeGridLightRecord record) { return record.Words[21] & 0xffffu; }
 uint SmokeGridLightAge(SmokeGridLightRecord record) { return record.Words[21] >> 16u; }
 uint SmokeGridLightSelfShadowBlock(SmokeGridLightRecord record) { return record.Words[22]; }
@@ -218,9 +224,9 @@ void SmokeGridLightSetSelfShadowEvidence(inout SmokeGridLightRecord record, uint
 void SmokeGridLightSetMetadata(inout SmokeGridLightRecord record, uint generation, uint epoch,
 	uint sampleCount, uint sequence, float confidence, uint evidence, uint frameIndex, uint age)
 {
-	record.Words[18] = generation;
-	record.Words[19] = epoch;
-	record.Words[20] = min(sampleCount, 255u) | (min(sequence, 255u) << 8u) |
+	record.Words[9] = generation;
+	record.Words[10] = epoch;
+	record.Words[11] = min(sampleCount, 255u) | (min(sequence, 255u) << 8u) |
 		((uint)round(saturate(confidence) * 255.0) << 16u) | ((evidence & 0xffu) << 24u);
 	record.Words[21] = (frameIndex & 0xffffu) | (min(age, 65535u) << 16u);
 	record.Words[22] = 0u;

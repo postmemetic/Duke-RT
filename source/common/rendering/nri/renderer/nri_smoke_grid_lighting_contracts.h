@@ -33,8 +33,9 @@ enum class NRISmokeEmissiveBackend : uint32_t
 	Compare,
 };
 
-// Six RGB means and six RGB second moments occupy 36 fp16 values (18 words).
-// The remaining words carry generation-safe temporal evidence and padding.
+// The hot prefix is six RGB means (9 words) plus generation/epoch/evidence
+// metadata (3 words). The cold suffix carries second moments, age, and
+// optional self-shadow evidence. The complete record remains exactly 96 bytes.
 struct NRISmokeGridLightRecordGpu
 {
 	uint32_t data[NRI_SMOKE_GRID_LIGHT_RECORD_WORDS] = {};
