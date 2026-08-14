@@ -14,7 +14,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const uint froxelCount = gSmokeConstants.FroxelWidth * gSmokeConstants.FroxelHeight * gSmokeConstants.FroxelDepth;
 	const uint expectedWideCellCount = NRI_SMOKE_WIDE_CELL_COUNT * gSmokeConstants.FroxelDepth;
 	uint controlCount, particleCount, fineCellCount, wideCellCount;
-	uint globalDepthCount, mediumFroxelCount, integratedFroxelCount, phaseFroxelCount, sourceFroxelCount;
+	uint globalDepthCount, mediumFroxelCount, phaseFroxelCount, sourceFroxelCount;
 	uint indirectHistoryCount, indirectScratchCount, emissiveCurrentCount, emissiveTemporalCount, emissiveHistoryCount;
 	uint directCurrentCount, directHistoryCount, ignoredStride;
 	gSmokeControl.GetDimensions(controlCount, ignoredStride);
@@ -23,7 +23,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gSmokeWideCells.GetDimensions(wideCellCount, ignoredStride);
 	gSmokeGlobalDepthCells.GetDimensions(globalDepthCount, ignoredStride);
 	gSmokeFroxelMedium.GetDimensions(mediumFroxelCount, ignoredStride);
-	gSmokeFroxelIntegrated.GetDimensions(integratedFroxelCount, ignoredStride);
 	gSmokeFroxelPhase.GetDimensions(phaseFroxelCount, ignoredStride);
 	gSmokeFroxelSource.GetDimensions(sourceFroxelCount, ignoredStride);
 	gSmokeIndirectHistory.GetDimensions(indirectHistoryCount, ignoredStride);
@@ -252,10 +251,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		gSmokeWideCells[index] = SmokeEmptyCell();
 	if (particleResourcesAvailable && index < min(gSmokeConstants.FroxelDepth, globalDepthCount))
 		gSmokeGlobalDepthCells[index] = SmokeEmptyCell();
-	if (index < min(froxelCount, min(mediumFroxelCount, min(integratedFroxelCount, min(phaseFroxelCount, sourceFroxelCount)))))
+	if (index < min(froxelCount, min(mediumFroxelCount, min(phaseFroxelCount, sourceFroxelCount))))
 	{
 		gSmokeFroxelMedium[index] = 0.0;
-		gSmokeFroxelIntegrated[index] = float4(0.0, 0.0, 0.0, 1.0);
 		gSmokeFroxelPhase[index] = 0.0;
 		gSmokeFroxelSource[index] = 0.0;
 	}
