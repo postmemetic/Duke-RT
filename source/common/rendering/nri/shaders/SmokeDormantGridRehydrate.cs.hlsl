@@ -5,6 +5,7 @@ groupshared uint sFineIndex;
 groupshared uint sFineHashSlot;
 groupshared uint sFineGeneration;
 groupshared uint sValid;
+groupshared uint sOpticalContent;
 
 void RetainCoarse(uint resultIndex, SmokeDormantGridWork work, uint outcome)
 {
@@ -31,6 +32,7 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 		sArchiveIndex = sFineIndex = sFineHashSlot = 0xffffffffu;
 		sFineGeneration = 0u;
 		sValid = 0u;
+		sOpticalContent = 0u;
 		if (workIndex == 0u) gDormantControl[0].FrameIndex = gDormantConstants.FrameIndex;
 		InterlockedAdd(gDormantControl[0].RehydrateAttempts, 1u);
 		InterlockedAdd(gDormantControl[0].RehydrateWorkExecuted, 1u);
@@ -146,6 +148,8 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 		const float4 velocity = gDormantVelocity[archiveCell];
 		const float4 optical = gDormantOptical[archiveCell];
 		const float4 dynamics = gDormantDynamics[archiveCell];
+		if (any(abs(optical) > 0.0))
+			InterlockedOr(sOpticalContent, 1u);
 		DormantStoreFineFields(0u, fineCell, scalar, velocity, optical, dynamics);
 		DormantStoreFineFields(1u, fineCell, scalar, velocity, optical, dynamics);
 		gDormantFineDeposit0[fineCell] = 0;
@@ -156,6 +160,8 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	GroupMemoryBarrierWithGroupSync();
 	if (groupThreadId.x == 0u)
 	{
+		if (sOpticalContent != 0u)
+			InterlockedOr(gDormantFineBricks[sFineIndex].Flags, NRI_SMOKE_GRID_BRICK_OPTICAL_CONTENT);
 		uint activeDestination;
 		if (gDormantConstants.ActivePing == 0u)
 			InterlockedAdd(gDormantFineControl[0].ActiveCountA, 1u, activeDestination);

@@ -51,6 +51,8 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	SmokeGridStoreVelocity(fieldPing, cellIndex, velocity);
 	SmokeGridStoreOptical(fieldPing, cellIndex, optical);
 	SmokeGridStoreDynamics(fieldPing, cellIndex, dynamics);
+	if (any(abs(optical) > 0.0))
+		InterlockedOr(gSmokeGridBricks[brickIndex].Flags, NRI_SMOKE_GRID_BRICK_OPTICAL_CONTENT);
 	gSmokeGridDeposit0[cellIndex] = 0;
 	gSmokeGridDeposit1[cellIndex] = 0;
 	gSmokeGridDeposit2[cellIndex] = 0;

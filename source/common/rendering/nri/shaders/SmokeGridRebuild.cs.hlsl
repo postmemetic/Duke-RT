@@ -55,8 +55,10 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	const float4 optical = SmokeGridLoadOptical(outputPing, cellIndex);
 	const float4 dynamics = SmokeGridLoadDynamics(outputPing, cellIndex);
 	const float threshold = max(gSmokeGridConstants.ActiveThreshold, 0.0);
+	const bool opticalOccupied = any(abs(optical) > 0.0);
 	gSmokeGridOccupied[localIndex] =
-		(max(scalar.z, max(optical.x, max(optical.y, optical.z))) > threshold) ? 1u : 0u;
+		(max(scalar.z, max(optical.x, max(optical.y, optical.z))) > threshold ? 1u : 0u) |
+		(opticalOccupied ? 2u : 0u);
 	SmokeGridCellFieldHash(SmokeGridCellCoordinate(brick.Coordinate, groupThreadId), scalar,
 		velocity, optical, dynamics, gSmokeGridHashLo[localIndex], gSmokeGridHashHi[localIndex]);
 	GroupMemoryBarrierWithGroupSync();
@@ -80,10 +82,13 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 		gSmokeGridReclaimDecision = 0u;
 		SmokeGridBrick updated = brick;
 		const uint retainedPolicyFlags = updated.Flags & NRI_SMOKE_GRID_BRICK_BORROWED_FIRST_USE;
-		if (gSmokeGridOccupied[0] != 0u)
+		const uint opticalFlags = (gSmokeGridOccupied[0] & 2u) != 0u ?
+			NRI_SMOKE_GRID_BRICK_OPTICAL_CONTENT : 0u;
+		if ((gSmokeGridOccupied[0] & 1u) != 0u)
 		{
 			updated.IdleFrames = 0u;
-			updated.Flags = retainedPolicyFlags | NRI_SMOKE_GRID_BRICK_CONTENT;
+			updated.Flags = retainedPolicyFlags | NRI_SMOKE_GRID_BRICK_CONTENT |
+				opticalFlags;
 			gSmokeGridBricks[brickIndex] = updated;
 			if (!SmokeGridAppendNextActive(brickIndex))
 				InterlockedAdd(gSmokeGridControl[0].AllocationFailures, 1u);
@@ -92,7 +97,7 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 		else
 		{
 			updated.IdleFrames = min(updated.IdleFrames + 1u, 0xfffffffeu);
-			updated.Flags = retainedPolicyFlags | NRI_SMOKE_GRID_BRICK_HALO;
+			updated.Flags = retainedPolicyFlags | NRI_SMOKE_GRID_BRICK_HALO | opticalFlags;
 			InterlockedAdd(gSmokeGridControl[0].EmptyBricks, 1u);
 			const bool graceExpired = updated.IdleFrames >= gSmokeGridConstants.ReclaimGrace;
 			// Empty topology is a cache, not source data. Under pressure, release it

@@ -504,10 +504,12 @@ void NRISmokeViewWork::ConsumeReadback(const NRISmokeGridServices& services, uin
 			mStatus.gpu = next;
 			mStatus.gpuRendererFrame = slot.rendererFrame;
 			mStatus.gpuStatsValid = true;
-			Printf("PERF pt smoke view work NRI: renderer_frame=%llu frame=%u epoch=%u route=%u dispatched=%u selected=%u skipped=%u dense_contributing=%u unique_froxels=%u unique_columns=%u compact_count=%u prefix_columns=%u scatter_writes=%u compact_capacity=%u false_negatives=%u false_positives=%u output_hash=%08x%08x boundary_false_negatives=%u overflow=%u compact=1\n",
+			Printf("PERF pt smoke view work NRI: renderer_frame=%llu frame=%u epoch=%u route=%u dispatched=%u selected=%u skipped=%u brick_tile_tests=%u resident_brick_tile_tests=%u optical_cell_tests=%u contributing_brick_tile_pairs=%u empty_brick_tile_pairs=%u dense_contributing=%u unique_froxels=%u unique_columns=%u compact_count=%u prefix_columns=%u scatter_writes=%u compact_capacity=%u false_negatives=%u false_positives=%u output_hash=%08x%08x boundary_false_negatives=%u overflow=%u compact=1\n",
 				(unsigned long long)mStatus.gpuRendererFrame, next.frameStamp, next.simulationEpoch,
 				next.evaluationRoute, next.evaluationDispatched, next.evaluationSelected,
-				next.evaluationSkipped, next.denseContributing, next.uniqueFroxels,
+				next.evaluationSkipped, next.brickTileTests, next.residentBrickTileTests,
+				next.opticalCellTests, next.contributingBrickTilePairs, next.emptyBrickTilePairs,
+				next.denseContributing, next.uniqueFroxels,
 				next.uniqueColumns, next.compactCount, next.prefixColumns, next.scatterWrites,
 				next.compactCapacity, next.falseNegatives, next.falsePositives,
 				next.outputHashHi, next.outputHashLo, next.boundaryFalseNegatives, next.overflow);
@@ -551,7 +553,7 @@ void NRISmokeViewWork::RecordReadback(const NRISmokeGridServices& services)
 void NRISmokeViewWork::PrintStatus(bool compareRequested, uint32_t routeRequested) const
 {
 	const auto& g = mStatus.gpu;
-	Printf("NRI PT smoke view work: requested=%s compare=%s route_requested=%u route_effective=%u authority=smoke-evaluate-grid comparator_output_mutation=no initialized=%s resources=%s gpu_stats=%s renderer_frame=%llu frame=%u epoch=%u tiles=%u columns=%u brick_tile_bound=%llu optical_cell_bound=%llu dispatched=%u selected=%u skipped=%u dense_contributing=%u unique_froxels=%u unique_columns=%u compact_count=%u prefix_columns=%u scatter_writes=%u compact_capacity=%u false_negatives=%u false_positives=%u output_hash=%08x%08x tau_error_max=%.9g opacity_error_max=%.9g radiance_error_max=%.9g boundary_false_negatives=%u near_plane_spans=%u camera_inside_spans=%u overflow=%u reason=%s\n",
+	Printf("NRI PT smoke view work: requested=%s compare=%s route_requested=%u route_effective=%u authority=smoke-evaluate-grid comparator_output_mutation=no initialized=%s resources=%s gpu_stats=%s renderer_frame=%llu frame=%u epoch=%u tiles=%u columns=%u brick_tile_bound=%llu optical_cell_bound=%llu dispatched=%u selected=%u skipped=%u brick_tile_tests=%u resident_brick_tile_tests=%u optical_cell_tests=%u contributing_brick_tile_pairs=%u empty_brick_tile_pairs=%u dense_contributing=%u unique_froxels=%u unique_columns=%u compact_count=%u prefix_columns=%u scatter_writes=%u compact_capacity=%u false_negatives=%u false_positives=%u output_hash=%08x%08x tau_error_max=%.9g opacity_error_max=%.9g radiance_error_max=%.9g boundary_false_negatives=%u near_plane_spans=%u camera_inside_spans=%u overflow=%u reason=%s\n",
 		(compareRequested || routeRequested != 0u) ? "yes" : "no", compareRequested ? "yes" : "no",
 		routeRequested, g.evaluationRoute, mStatus.initialized ? "yes" : "no",
 		mStatus.resourcesReady ? "ready" : "unavailable", mStatus.gpuStatsValid ? "valid" : "disabled",
@@ -559,7 +561,9 @@ void NRISmokeViewWork::PrintStatus(bool compareRequested, uint32_t routeRequeste
 		mStatus.layout.tileCount, mStatus.layout.columnCount,
 		(unsigned long long)mStatus.layout.brickTilePairBound,
 		(unsigned long long)mStatus.layout.opticalCellTestBound,
-		g.evaluationDispatched, g.evaluationSelected, g.evaluationSkipped, g.denseContributing,
+		g.evaluationDispatched, g.evaluationSelected, g.evaluationSkipped, g.brickTileTests,
+		g.residentBrickTileTests, g.opticalCellTests, g.contributingBrickTilePairs,
+		g.emptyBrickTilePairs, g.denseContributing,
 		g.uniqueFroxels, g.uniqueColumns, g.compactCount, g.prefixColumns, g.scatterWrites,
 		g.compactCapacity, g.falseNegatives, g.falsePositives,
 		g.outputHashHi, g.outputHashLo,

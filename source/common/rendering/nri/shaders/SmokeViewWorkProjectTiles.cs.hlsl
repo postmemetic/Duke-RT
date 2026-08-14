@@ -1,6 +1,9 @@
 #include "Include/SmokeViewWorkResources.hlsli"
 
-groupshared uint gBrickContributes;
+#ifndef NRI_SHADER_DIAGNOSTICS
+#define NRI_SHADER_DIAGNOSTICS 0
+#endif
+
 groupshared uint2 gTileMask;
 
 uint SmokeViewDepthSlice(float viewDepth)
@@ -19,11 +22,15 @@ void SmokeViewProjectSphere(float3 center, float radius, uint2 tile,
 	const float viewZ = dot(relative, gViewConstants.CameraForward);
 	if (viewZ + radius <= 0.0)
 	{
+#if NRI_SHADER_DIAGNOSTICS
 		InterlockedAdd(gViewWorkControl[0].BehindCameraRejects, 1u);
+#endif
 		return;
 	}
 
+#if NRI_SHADER_DIAGNOSTICS
 	InterlockedAdd(gViewWorkControl[0].ProjectedSpheres, 1u);
+#endif
 	const bool cameraInside = dot(relative, relative) <= radius * radius;
 	const bool crossesNear = viewZ <= radius;
 	float2 minimumUv = 0.0;
@@ -39,14 +46,18 @@ void SmokeViewProjectSphere(float3 center, float radius, uint2 tile,
 		maximumUv = float2(maxNdcX * 0.5 + 0.5, 0.5 - minNdcY * 0.5);
 		if (maximumUv.x < 0.0 || minimumUv.x > 1.0 || maximumUv.y < 0.0 || minimumUv.y > 1.0)
 		{
+#if NRI_SHADER_DIAGNOSTICS
 			InterlockedAdd(gViewWorkControl[0].OffscreenRejects, 1u);
+#endif
 			return;
 		}
 	}
+#if NRI_SHADER_DIAGNOSTICS
 	else if (cameraInside)
 		InterlockedAdd(gViewWorkControl[0].CameraInsideSpans, 1u);
 	else
 		InterlockedAdd(gViewWorkControl[0].NearPlaneSpans, 1u);
+#endif
 
 	const float2 tileMinimum = float2(tile * NRI_SMOKE_VIEW_TILE_AXIS) /
 		float2(gViewConstants.FroxelWidth, gViewConstants.FroxelHeight);
@@ -64,12 +75,16 @@ void SmokeViewProjectSphere(float3 center, float radius, uint2 tile,
 	const uint firstSlice = SmokeViewDepthSlice(minimumDepth);
 	const uint lastSlice = SmokeViewDepthSlice(maximumDepth);
 	const uint2 span = SmokeViewDepthMask(firstSlice, lastSlice);
+#if NRI_SHADER_DIAGNOSTICS
 	const uint2 overlap = mask & span;
 	const uint spanBits = SmokeViewMaskCountBits(span);
 	attempted += spanBits;
 	duplicates += SmokeViewMaskCountBits(overlap);
+#endif
 	mask |= span;
+#if NRI_SHADER_DIAGNOSTICS
 	InterlockedAdd(gViewWorkControl[0].ProjectedSpans, 1u);
+#endif
 }
 
 [numthreads(64, 1, 1)]
@@ -89,31 +104,18 @@ void main(uint3 groupId : SV_GroupID, uint lane : SV_GroupIndex)
 	[loop]
 	for (uint brickIndex = 0u; brickIndex < gViewConstants.BrickCapacity; ++brickIndex)
 	{
-		if (lane == 0u)
-			gBrickContributes = 0u;
-		GroupMemoryBarrierWithGroupSync();
 		const SmokeGridBrick brick = gViewGridBricks[brickIndex];
 		const bool resident = brick.State == NRI_SMOKE_GRID_RESIDENT;
-		if (resident)
-		{
-			[loop]
-			for (uint cellOffset = lane; cellOffset < NRI_SMOKE_GRID_CELLS_PER_BRICK; cellOffset += 64u)
-			{
-				const uint cellIndex = brickIndex * NRI_SMOKE_GRID_CELLS_PER_BRICK + cellOffset;
-				const float4 optical = gViewConstants.FieldPing != 0u ?
-					gViewGridOpticalB[cellIndex] : gViewGridOpticalA[cellIndex];
-				if (any(abs(optical) > gViewConstants.OpticalThreshold))
-					InterlockedOr(gBrickContributes, 1u);
-			}
-		}
-		GroupMemoryBarrierWithGroupSync();
 		if (lane == 0u && resident)
 		{
+#if NRI_SHADER_DIAGNOSTICS
 			InterlockedAdd(gViewWorkControl[0].ResidentBrickTileTests, 1u);
-			InterlockedAdd(gViewWorkControl[0].OpticalCellTests, NRI_SMOKE_GRID_CELLS_PER_BRICK);
-			if (gBrickContributes != 0u)
+#endif
+			if ((brick.Flags & NRI_SMOKE_GRID_BRICK_OPTICAL_CONTENT) != 0u)
 			{
+#if NRI_SHADER_DIAGNOSTICS
 				InterlockedAdd(gViewWorkControl[0].ContributingBrickTilePairs, 1u);
+#endif
 				const float3 center = ((float3)brick.Coordinate * NRI_SMOKE_GRID_BRICK_AXIS +
 					(NRI_SMOKE_GRID_BRICK_AXIS * 0.5)) * gViewConstants.CellSize;
 				// One full cell of support on every side conservatively covers the
@@ -122,15 +124,18 @@ void main(uint3 groupId : SV_GroupID, uint lane : SV_GroupIndex)
 					gViewConstants.CellSize;
 				SmokeViewProjectSphere(center, radius, tile, gTileMask, attempted, duplicates);
 			}
+#if NRI_SHADER_DIAGNOSTICS
 			else
 				InterlockedAdd(gViewWorkControl[0].EmptyBrickTilePairs, 1u);
+#endif
 		}
-		GroupMemoryBarrierWithGroupSync();
 	}
 	if (lane == 0u)
 	{
 		gViewTileMasks[tileIndex].Words = gTileMask;
+#if NRI_SHADER_DIAGNOSTICS
 		InterlockedAdd(gViewWorkControl[0].AttemptedMarks, attempted);
 		InterlockedAdd(gViewWorkControl[0].DuplicateMerges, duplicates);
+#endif
 	}
 }
