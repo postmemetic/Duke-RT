@@ -146,6 +146,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 			mEmissiveSamplingPayloadCacheValid && mEmissiveSamplingPayloadHash == payloadHash;
 	NRIEmissivePrimitiveHeaderGpuData emissiveHeader = {};
 	std::vector<NRIEmissivePrimitiveGpuData> emissivePrimitives;
+	std::vector<NRIEmissivePrimitiveShaderData> emissiveShaderPrimitives;
 	std::vector<float> emissiveCdf;
 	std::vector<NRIEmissiveMaterialResponseGpuData> emissiveMaterialResponses;
 	std::vector<NRIEmissivePrimitiveDebugRecord> emissiveDebugRecords;
@@ -323,6 +324,11 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	{
 		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
 	}
+	emissiveShaderPrimitives.reserve(emissivePrimitives.size());
+	for (const NRIEmissivePrimitiveGpuData& primitive : emissivePrimitives)
+	{
+		emissiveShaderPrimitives.push_back(PackNRIEmissivePrimitiveShaderData(primitive));
+	}
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceStatic = emissiveStats.surfaceStatic;
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceCaptured = emissiveStats.surfaceCaptured;
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceRuntimeMutation = emissiveStats.surfaceRuntimeMutation;
@@ -344,12 +350,12 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	}
 
 	const uint64_t headerBytes = sizeof(emissiveHeader);
-	const uint64_t primitiveBytes = emissivePrimitives.size() * sizeof(NRIEmissivePrimitiveGpuData);
+	const uint64_t primitiveBytes = emissiveShaderPrimitives.size() * sizeof(NRIEmissivePrimitiveShaderData);
 	const uint64_t cdfBytes = emissiveCdf.size() * sizeof(float);
 	const uint64_t materialResponseBytes = emissiveMaterialResponses.size() * sizeof(NRIEmissiveMaterialResponseGpuData);
 	const NRIEmissiveSamplingUploadResourceInput uploadInputs[] = {
 		BuildUploadResourceInput(emissivePrimitiveHeaderBuffer, headerBytes, sizeof(NRIEmissivePrimitiveHeaderGpuData)),
-		BuildUploadResourceInput(emissivePrimitiveBuffer, primitiveBytes, sizeof(NRIEmissivePrimitiveGpuData)),
+		BuildUploadResourceInput(emissivePrimitiveBuffer, primitiveBytes, sizeof(NRIEmissivePrimitiveShaderData)),
 		BuildUploadResourceInput(emissivePrimitiveCdfBuffer, cdfBytes, sizeof(float)),
 		BuildUploadResourceInput(emissiveMaterialResponseBuffer, materialResponseBytes, sizeof(NRIEmissiveMaterialResponseGpuData)),
 	};
@@ -391,9 +397,9 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	if (!ensureStructuredBufferBatched(
 		emissivePrimitiveBuffer,
 		emissivePrimitiveStats,
-		emissivePrimitives.empty() ? nullptr : emissivePrimitives.data(),
-		emissivePrimitives.empty() ? 0u : emissivePrimitives.size() * sizeof(NRIEmissivePrimitiveGpuData),
-		sizeof(NRIEmissivePrimitiveGpuData),
+		emissiveShaderPrimitives.empty() ? nullptr : emissiveShaderPrimitives.data(),
+		emissiveShaderPrimitives.empty() ? 0u : emissiveShaderPrimitives.size() * sizeof(NRIEmissivePrimitiveShaderData),
+		sizeof(NRIEmissivePrimitiveShaderData),
 		nri::BufferUsageBits::SHADER_RESOURCE,
 		NRIResourceComputeShaderResourceAccess()))
 	{

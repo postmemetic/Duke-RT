@@ -20,11 +20,7 @@ struct EmissivePrimitiveData
 {
 	uint dataSource;
 	uint primitiveIndex;
-	uint sourceFlags;
-	uint textureId;
 	float primitiveArea;
-	float powerEstimate;
-	float selectionWeight;
 	float selectionPdf;
 	float emissionScale;
 	uint stableKeyLo;
@@ -37,7 +33,6 @@ struct EmissivePrimitiveData
 	float3 boundsCenter;
 	float boundsRadius;
 	float materialResponseScale;
-	uint3 reserved;
 };
 
 struct EmissiveMaterialResponseData

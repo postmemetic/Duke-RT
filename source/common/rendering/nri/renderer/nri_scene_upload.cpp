@@ -3026,12 +3026,18 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mLastPerfShellTraceStats.sceneDataSetEmissiveUploads++;
 		NRIEmissivePrimitiveHeaderGpuData emissiveHeader = {};
 		std::vector<NRIEmissivePrimitiveGpuData> emissivePrimitives;
+		std::vector<NRIEmissivePrimitiveShaderData> emissiveShaderPrimitives;
 		std::vector<float> emissiveCdf;
 		std::vector<NRIEmissiveMaterialResponseGpuData> emissiveMaterialResponses;
 		std::vector<NRIEmissivePrimitiveDebugRecord> ignoredEmissiveDebugRecords;
 		{
 			ScopedPtPerfTimer emissiveTimer(renderer.mLastPerfShellTraceStats.sceneDataSetEmissiveMs);
 			renderer.mSceneLights.BuildEmissiveSamplingUpload({}, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, ignoredEmissiveDebugRecords);
+		}
+		emissiveShaderPrimitives.reserve(emissivePrimitives.size());
+		for (const NRIEmissivePrimitiveGpuData& primitive : emissivePrimitives)
+		{
+			emissiveShaderPrimitives.push_back(PackNRIEmissivePrimitiveShaderData(primitive));
 		}
 		if (!ensureSceneDataBatched(
 			renderer.mEmissivePrimitiveHeaderBuffer,
@@ -3054,9 +3060,9 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 			renderer.mEmissivePrimitiveBuffer,
 			renderer.mEmissivePrimitiveBufferStats,
 			"emissive_primitives",
-			emissivePrimitives.empty() ? nullptr : emissivePrimitives.data(),
-			emissivePrimitives.empty() ? 0u : emissivePrimitives.size() * sizeof(NRIEmissivePrimitiveGpuData),
-			sizeof(NRIEmissivePrimitiveGpuData),
+			emissiveShaderPrimitives.empty() ? nullptr : emissiveShaderPrimitives.data(),
+			emissiveShaderPrimitives.empty() ? 0u : emissiveShaderPrimitives.size() * sizeof(NRIEmissivePrimitiveShaderData),
+			sizeof(NRIEmissivePrimitiveShaderData),
 			nri::BufferUsageBits::SHADER_RESOURCE,
 			NRIResourceComputeShaderResourceAccess(),
 			renderer.mLastPerfShellTraceStats.sceneDataSetEmissiveMs,
@@ -3793,7 +3799,7 @@ bool NRIRenderer::PreGrowLevelSceneResourcesForLoading()
 		ensureCapacity(mRuntimeLightTileHeaderBuffer, mRuntimeLightTileHeaderBufferStats, runtimeLightTileHeaders.size() * sizeof(NRIRuntimeLightTileHeaderGpuData), sizeof(NRIRuntimeLightTileHeaderGpuData)) &&
 		ensureCapacity(mRuntimeLightTileIndexBuffer, mRuntimeLightTileIndexBufferStats, runtimeLightTileIndices.size() * sizeof(uint32_t), sizeof(uint32_t)) &&
 		ensureCapacity(mEmissivePrimitiveHeaderBuffer, mEmissivePrimitiveHeaderBufferStats, sizeof(emissiveHeader), sizeof(NRIEmissivePrimitiveHeaderGpuData)) &&
-		ensureCapacity(mEmissivePrimitiveBuffer, mEmissivePrimitiveBufferStats, emissivePrimitives.size() * sizeof(NRIEmissivePrimitiveGpuData), sizeof(NRIEmissivePrimitiveGpuData)) &&
+		ensureCapacity(mEmissivePrimitiveBuffer, mEmissivePrimitiveBufferStats, emissivePrimitives.size() * sizeof(NRIEmissivePrimitiveShaderData), sizeof(NRIEmissivePrimitiveShaderData)) &&
 		ensureCapacity(mEmissivePrimitiveCdfBuffer, mEmissivePrimitiveCdfBufferStats, emissiveCdf.size() * sizeof(float), sizeof(float)) &&
 		ensureCapacity(mEmissiveMaterialResponseBuffer, mEmissiveMaterialResponseBufferStats, emissiveMaterialResponses.size() * sizeof(NRIEmissiveMaterialResponseGpuData), sizeof(NRIEmissiveMaterialResponseGpuData)) &&
 		ensureCapacity(mSectorLightHeaderBuffer, mSectorLightHeaderBufferStats, sizeof(sectorLightHeader), sizeof(NRISectorLightHeaderGpuData)) &&

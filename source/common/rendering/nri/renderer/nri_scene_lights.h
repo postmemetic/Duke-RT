@@ -161,6 +161,58 @@ struct NRIEmissivePrimitiveGpuData
 
 static_assert(sizeof(NRIEmissivePrimitiveGpuData) == 96);
 
+// Hot shader record. Sampling-distribution and diagnostic-only fields remain in
+// NRIEmissivePrimitiveGpuData on the CPU and are not uploaded per candidate.
+struct NRIEmissivePrimitiveShaderData
+{
+	uint32_t dataSource = 0;
+	uint32_t primitiveIndex = UINT32_MAX;
+	float primitiveArea = 0.0f;
+	float selectionPdf = 0.0f;
+	float emissionScale = 1.0f;
+	uint32_t stableKeyLo = 0;
+	uint32_t stableKeyHi = 0;
+	uint32_t sceneInstanceIndex = UINT32_MAX;
+	uint32_t primitiveCount = 1;
+	uint32_t occurrenceKeyLo = 0;
+	uint32_t occurrenceKeyHi = 0;
+	uint32_t occurrenceGeneration = 0;
+	float boundsCenter[3] = {};
+	float boundsRadius = 0.0f;
+	float materialResponseScale = 1.0f;
+};
+
+static_assert(sizeof(NRIEmissivePrimitiveShaderData) == 68);
+static_assert(offsetof(NRIEmissivePrimitiveShaderData, primitiveArea) == 8);
+static_assert(offsetof(NRIEmissivePrimitiveShaderData, emissionScale) == 16);
+static_assert(offsetof(NRIEmissivePrimitiveShaderData, sceneInstanceIndex) == 28);
+static_assert(offsetof(NRIEmissivePrimitiveShaderData, boundsCenter) == 48);
+static_assert(offsetof(NRIEmissivePrimitiveShaderData, materialResponseScale) == 64);
+
+inline NRIEmissivePrimitiveShaderData PackNRIEmissivePrimitiveShaderData(
+	const NRIEmissivePrimitiveGpuData& source)
+{
+	NRIEmissivePrimitiveShaderData target = {};
+	target.dataSource = source.dataSource;
+	target.primitiveIndex = source.primitiveIndex;
+	target.primitiveArea = source.primitiveArea;
+	target.selectionPdf = source.selectionPdf;
+	target.emissionScale = source.emissionScale;
+	target.stableKeyLo = source.stableKeyLo;
+	target.stableKeyHi = source.stableKeyHi;
+	target.sceneInstanceIndex = source.sceneInstanceIndex;
+	target.primitiveCount = source.primitiveCount;
+	target.occurrenceKeyLo = source.occurrenceKeyLo;
+	target.occurrenceKeyHi = source.occurrenceKeyHi;
+	target.occurrenceGeneration = source.occurrenceGeneration;
+	target.boundsCenter[0] = source.boundsCenter[0];
+	target.boundsCenter[1] = source.boundsCenter[1];
+	target.boundsCenter[2] = source.boundsCenter[2];
+	target.boundsRadius = source.boundsRadius;
+	target.materialResponseScale = source.materialResponseScale;
+	return target;
+}
+
 struct NRIEmissiveMaterialResponseGpuData
 {
 	uint32_t dataSource = 0;
