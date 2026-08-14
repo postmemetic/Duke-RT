@@ -1,5 +1,30 @@
 #include "Include/SmokeGridResources.hlsli"
 
+groupshared float4 gSmokeVelocityTile[896];
+
+uint SmokeGridVelocityCoreIndex(uint3 local)
+{
+	return local.x + local.y * 8u + local.z * 64u;
+}
+
+uint SmokeGridVelocityFaceIndex(uint face, uint3 local)
+{
+	if (face < 2u) return local.y + local.z * 8u;
+	if (face < 4u) return local.x + local.z * 8u;
+	return local.x + local.y * 8u;
+}
+
+float3 SmokeGridStagedVelocity(uint3 local, uint face)
+{
+	if (face == 0u && local.x > 0u) return gSmokeVelocityTile[SmokeGridVelocityCoreIndex(local - uint3(1, 0, 0))].xyz;
+	if (face == 1u && local.x < 7u) return gSmokeVelocityTile[SmokeGridVelocityCoreIndex(local + uint3(1, 0, 0))].xyz;
+	if (face == 2u && local.y > 0u) return gSmokeVelocityTile[SmokeGridVelocityCoreIndex(local - uint3(0, 1, 0))].xyz;
+	if (face == 3u && local.y < 7u) return gSmokeVelocityTile[SmokeGridVelocityCoreIndex(local + uint3(0, 1, 0))].xyz;
+	if (face == 4u && local.z > 0u) return gSmokeVelocityTile[SmokeGridVelocityCoreIndex(local - uint3(0, 0, 1))].xyz;
+	if (face == 5u && local.z < 7u) return gSmokeVelocityTile[SmokeGridVelocityCoreIndex(local + uint3(0, 0, 1))].xyz;
+	return gSmokeVelocityTile[512u + face * 64u + SmokeGridVelocityFaceIndex(face, local)].xyz;
+}
+
 [numthreads(8, 8, 8)]
 void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 {
@@ -19,6 +44,23 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	const float3 worldPosition = SmokeGridCellCenter(brick.Coordinate, groupThreadId,
 		max(gSmokeGridConstants.CellSize, 0.0001));
 	const float deltaTime = max(gSmokeGridConstants.DeltaTime * gSmokeGridConstants.TimeScale, 0.0);
+	const uint groupThreadIndex = SmokeGridVelocityCoreIndex(groupThreadId);
+	gSmokeVelocityTile[groupThreadIndex] = SmokeGridLoadVelocity(inputPing, cellIndex);
+	if (groupThreadIndex < 384u)
+	{
+		const uint face = groupThreadIndex >> 6u;
+		const uint faceLane = groupThreadIndex & 63u;
+		int3 neighborLocal;
+		if (face < 2u)
+			neighborLocal = int3(face == 0u ? -1 : 8, (int)(faceLane & 7u), (int)(faceLane >> 3u));
+		else if (face < 4u)
+			neighborLocal = int3((int)(faceLane & 7u), face == 2u ? -1 : 8, (int)(faceLane >> 3u));
+		else
+			neighborLocal = int3((int)(faceLane & 7u), (int)(faceLane >> 3u), face == 4u ? -1 : 8);
+		const int3 neighborCell = brick.Coordinate * (int)NRI_SMOKE_GRID_BRICK_AXIS + neighborLocal;
+		gSmokeVelocityTile[512u + groupThreadIndex] = float4(SmokeGridLoadCellVelocity(neighborCell, inputPing), 0.0);
+	}
+	GroupMemoryBarrierWithGroupSync();
 
 	float4 localScalar, localVelocity, localOptical, localDynamics;
 	SmokeGridSampleFields(worldPosition, inputPing, localScalar, localVelocity, localOptical, localDynamics);
@@ -64,13 +106,12 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	float4 vorticity = 0.0;
 	if (gSmokeGridConstants.VorticityConfinement > 0.0)
 	{
-		const int3 cell = SmokeGridCellCoordinate(brick.Coordinate, groupThreadId);
-		const float3 velocityX0 = SmokeGridLoadCellVelocity(cell - int3(1, 0, 0), inputPing);
-		const float3 velocityX1 = SmokeGridLoadCellVelocity(cell + int3(1, 0, 0), inputPing);
-		const float3 velocityY0 = SmokeGridLoadCellVelocity(cell - int3(0, 1, 0), inputPing);
-		const float3 velocityY1 = SmokeGridLoadCellVelocity(cell + int3(0, 1, 0), inputPing);
-		const float3 velocityZ0 = SmokeGridLoadCellVelocity(cell - int3(0, 0, 1), inputPing);
-		const float3 velocityZ1 = SmokeGridLoadCellVelocity(cell + int3(0, 0, 1), inputPing);
+		const float3 velocityX0 = SmokeGridStagedVelocity(groupThreadId, 0u);
+		const float3 velocityX1 = SmokeGridStagedVelocity(groupThreadId, 1u);
+		const float3 velocityY0 = SmokeGridStagedVelocity(groupThreadId, 2u);
+		const float3 velocityY1 = SmokeGridStagedVelocity(groupThreadId, 3u);
+		const float3 velocityZ0 = SmokeGridStagedVelocity(groupThreadId, 4u);
+		const float3 velocityZ1 = SmokeGridStagedVelocity(groupThreadId, 5u);
 		const float inverseDiameter = 0.5 / max(gSmokeGridConstants.CellSize, 0.0001);
 		const float3 omega = float3(
 			velocityY1.z - velocityY0.z - velocityZ1.y + velocityZ0.y,
