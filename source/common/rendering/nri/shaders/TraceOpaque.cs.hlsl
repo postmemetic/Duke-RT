@@ -505,6 +505,59 @@ bool SamplePointOnEmissiveCandidate(
 	return true;
 }
 
+bool ResolveSampledEmissiveTransportGeometry(
+	float3 position,
+	MaterialData receiverMaterial,
+	float3 normal,
+	float3 lightPosition,
+	float3 lightNormal,
+	out float outLightDistanceSq,
+	out float outLightDistance,
+	out float3 outLightDir,
+	out float3 outReceiverLightNormal,
+	out float outLambert,
+	out float outEmitterLambert)
+{
+	outLightDistanceSq = 0.0;
+	outLightDistance = 0.0;
+	outLightDir = 0.0;
+	outReceiverLightNormal = 0.0;
+	outLambert = 0.0;
+	outEmitterLambert = 0.0;
+	const float3 toLight = lightPosition - position;
+	const float lightDistanceSq = dot(toLight, toLight);
+	if (lightDistanceSq <= 0.0001)
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_DISTANCE_REJECT, 1u);
+		return false;
+	}
+
+	const float lightDistance = sqrt(lightDistanceSq);
+	const float3 lightDir = toLight / lightDistance;
+	const float3 receiverLightNormal = ResolveLightFacingShadingNormal(receiverMaterial, normal, lightDir);
+	const float lambert = max(dot(receiverLightNormal, lightDir), 0.0);
+	if (lambert <= 0.0)
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_RECEIVER_LAMBERT_REJECT, 1u);
+		return false;
+	}
+
+	const float emitterLambert = max(dot(lightNormal, -lightDir), 0.0);
+	if (emitterLambert <= 0.0)
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_EMITTER_LAMBERT_REJECT, 1u);
+		return false;
+	}
+
+	outLightDistanceSq = lightDistanceSq;
+	outLightDistance = lightDistance;
+	outLightDir = lightDir;
+	outReceiverLightNormal = receiverLightNormal;
+	outLambert = lambert;
+	outEmitterLambert = emitterLambert;
+	return true;
+}
+
 void EvaluateSampledEmissiveLighting(
 	float3 position,
 	MaterialData receiverMaterial,
@@ -517,19 +570,11 @@ void EvaluateSampledEmissiveLighting(
 	bool forceSpatialProbeRay,
 	out float3 outDiffuse,
 	out float3 outSpecular,
-	out uint outPrimitiveIndex,
-	out uint outDataSource,
-	out bool outOccluded,
-	out float2 outEmitterUv,
-	out float3 outEmitterRadiance)
+	out bool outOccluded)
 {
 	outDiffuse = 0.0;
 	outSpecular = 0.0;
-	outPrimitiveIndex = 0xffffffffu;
-	outDataSource = 0u;
 	outOccluded = false;
-	outEmitterUv = 0.0;
-	outEmitterRadiance = 0.0;
 
 	const uint candidateIndex = SampleEmissivePrimitiveIndex(rngState);
 	if (candidateIndex == 0xffffffffu)
@@ -539,50 +584,46 @@ void EvaluateSampledEmissiveLighting(
 	}
 
 	const EmissivePrimitiveData candidate = gEmissivePrimitives[candidateIndex];
-	outDataSource = candidate.dataSource;
+	uint primitiveIndex = 0xffffffffu;
+	uint materialIndex = 0xffffffffu;
+	float3 lightPosition = 0.0;
 	float2 lightUv = 0.0;
 	float3 lightNormal = 0.0;
-	float3 lightPosition = 0.0;
 	float effectiveArea = 0.0;
-	uint materialIndex = 0xffffffffu;
-	if (!SamplePointOnEmissiveCandidate(candidate, rngState, outPrimitiveIndex, materialIndex, lightPosition, lightUv, lightNormal, effectiveArea))
+	if (!SamplePointOnEmissiveCandidate(candidate, rngState, primitiveIndex, materialIndex, lightPosition, lightUv, lightNormal, effectiveArea))
 	{
 		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_CANDIDATE_NONE, 1u);
 		return;
 	}
-	outEmitterUv = lightUv;
+
+	float lightDistanceSq = 0.0;
+	float lightDistance = 0.0;
+	float3 lightDir = 0.0;
+	float3 receiverLightNormal = 0.0;
+	float lambert = 0.0;
+	float emitterLambert = 0.0;
+	if (!ResolveSampledEmissiveTransportGeometry(
+		position,
+		receiverMaterial,
+		normal,
+		lightPosition,
+		lightNormal,
+		lightDistanceSq,
+		lightDistance,
+		lightDir,
+		receiverLightNormal,
+		lambert,
+		emitterLambert))
+	{
+		return;
+	}
+
 	const MaterialData lightMaterial = GetMaterialData(materialIndex, candidate.dataSource);
 	const float3 lightColor = SampleMaterialEmissionSource(materialIndex, candidate.dataSource, lightUv) * lightMaterial.emissiveIntensity * max(candidate.emissionScale, 0.0);
 	const float falloffScale = max(lightMaterial.emissiveMaskScale, 0.25);
-	outEmitterRadiance = lightColor;
 	if (all(lightColor <= 0.0))
 	{
 		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_LIGHT_ZERO, 1u);
-		return;
-	}
-
-	const float3 toLight = lightPosition - position;
-	const float lightDistanceSq = dot(toLight, toLight);
-	if (lightDistanceSq <= 0.0001)
-	{
-		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_DISTANCE_REJECT, 1u);
-		return;
-	}
-
-	const float lightDistance = sqrt(lightDistanceSq);
-	const float3 lightDir = toLight / lightDistance;
-	const float3 receiverLightNormal = ResolveLightFacingShadingNormal(receiverMaterial, normal, lightDir);
-	const float lambert = max(dot(receiverLightNormal, lightDir), 0.0);
-	if (lambert <= 0.0)
-	{
-		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_RECEIVER_LAMBERT_REJECT, 1u);
-		return;
-	}
-
-	const float emitterLambert = max(dot(lightNormal, -lightDir), 0.0);
-	if (emitterLambert <= 0.0)
-	{
-		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_EMITTER_LAMBERT_REJECT, 1u);
 		return;
 	}
 
@@ -612,6 +653,91 @@ void EvaluateSampledEmissiveLighting(
 	const float sampleWeight = min(solidAngleEstimate / pdf, 16.0);
 	outDiffuse = GetSurfaceDiffuseColor(albedo, metalness) * (lambert * 0.80) * lightColor * sampleWeight;
 	outSpecular = EvaluateSunSpecular(albedo, metalness, receiverLightNormal, viewDir, lightDir, 1.0) * lightColor * sampleWeight;
+	TraceShaderStatAdd(TRACE_STAT_EMISSIVE_CONTRIBUTED, 1u);
+}
+
+void EvaluateSampledEmissiveMirrorRadiance(
+	float3 position,
+	MaterialData receiverMaterial,
+	float3 normal,
+	inout uint rngState,
+	bool traceVisibility,
+	out bool outOccluded,
+	out float3 outEmitterRadiance)
+{
+	outOccluded = false;
+	outEmitterRadiance = 0.0;
+
+	const uint candidateIndex = SampleEmissivePrimitiveIndex(rngState);
+	if (candidateIndex == 0xffffffffu)
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_CANDIDATE_NONE, 1u);
+		return;
+	}
+
+	const EmissivePrimitiveData candidate = gEmissivePrimitives[candidateIndex];
+	uint primitiveIndex = 0xffffffffu;
+	uint materialIndex = 0xffffffffu;
+	float3 lightPosition = 0.0;
+	float2 lightUv = 0.0;
+	float3 lightNormal = 0.0;
+	float effectiveArea = 0.0;
+	if (!SamplePointOnEmissiveCandidate(candidate, rngState, primitiveIndex, materialIndex, lightPosition, lightUv, lightNormal, effectiveArea))
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_CANDIDATE_NONE, 1u);
+		return;
+	}
+
+	const MaterialData lightMaterial = GetMaterialData(materialIndex, candidate.dataSource);
+	const float3 lightColor = SampleMaterialEmissionSource(materialIndex, candidate.dataSource, lightUv) * lightMaterial.emissiveIntensity * max(candidate.emissionScale, 0.0);
+	outEmitterRadiance = lightColor;
+	if (all(lightColor <= 0.0))
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_LIGHT_ZERO, 1u);
+		return;
+	}
+
+	float lightDistanceSq = 0.0;
+	float lightDistance = 0.0;
+	float3 lightDir = 0.0;
+	float3 receiverLightNormal = 0.0;
+	float lambert = 0.0;
+	float emitterLambert = 0.0;
+	if (!ResolveSampledEmissiveTransportGeometry(
+		position,
+		receiverMaterial,
+		normal,
+		lightPosition,
+		lightNormal,
+		lightDistanceSq,
+		lightDistance,
+		lightDir,
+		receiverLightNormal,
+		lambert,
+		emitterLambert))
+	{
+		return;
+	}
+
+	if (traceVisibility)
+	{
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_SHADOW_RAYS, 1u);
+		if (!UseFastEmissiveShadow())
+		{
+			TraceShaderStatAdd(TRACE_STAT_TRACED_EMISSIVE_SHADOW_CALLS, 1u);
+		}
+		const float visibility = UseFastEmissiveShadow() ?
+			ComputeFastPointLightShadow(position, receiverLightNormal, lightDir, lightDistance, false) :
+			ComputePointLightShadowTagged(position, receiverLightNormal, lightDir, lightDistance, TRACE_STATS_KIND_EMISSIVE, false);
+		if (visibility <= 0.0)
+		{
+			TraceShaderStatAdd(TRACE_STAT_EMISSIVE_VISIBILITY_OCCLUDED, 1u);
+			outOccluded = true;
+			return;
+		}
+		TraceShaderStatAdd(TRACE_STAT_EMISSIVE_VISIBILITY_VISIBLE, 1u);
+	}
+
 	TraceShaderStatAdd(TRACE_STAT_EMISSIVE_CONTRIBUTED, 1u);
 }
 
@@ -730,11 +856,7 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 		indirectRadiance += throughput * EvaluateSectorLighting(bounceMaterial, bounceShadingNormal, bounceDiffuseColor);
 		float3 bounceEmissiveDiffuse = 0.0;
 		float3 bounceEmissiveSpecular = 0.0;
-		uint bounceEmissivePrimitiveIndex = 0xffffffffu;
-		uint bounceEmissiveDataSource = 0u;
 		bool bounceEmissiveOccluded = false;
-		float2 bounceEmissiveUv = 0.0;
-		float3 bounceEmissiveRadiance = 0.0;
 		EvaluateSampledEmissiveLighting(
 			bounceHit.position,
 			bounceMaterial,
@@ -747,11 +869,7 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 			false,
 			bounceEmissiveDiffuse,
 			bounceEmissiveSpecular,
-			bounceEmissivePrimitiveIndex,
-			bounceEmissiveDataSource,
-			bounceEmissiveOccluded,
-			bounceEmissiveUv,
-			bounceEmissiveRadiance);
+			bounceEmissiveOccluded);
 		indirectRadiance += throughput * (bounceEmissiveDiffuse + bounceEmissiveSpecular);
 
 		if (UseDirectionalPlaceholderLight())
@@ -876,11 +994,7 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 		indirectRadiance += throughput * EvaluateSectorLighting(bounceMaterial, bounceShadingNormal, bounceDiffuseColor);
 		float3 bounceEmissiveDiffuse = 0.0;
 		float3 bounceEmissiveSpecular = 0.0;
-		uint bounceEmissivePrimitiveIndex = 0xffffffffu;
-		uint bounceEmissiveDataSource = 0u;
 		bool bounceEmissiveOccluded = false;
-		float2 bounceEmissiveUv = 0.0;
-		float3 bounceEmissiveRadiance = 0.0;
 		EvaluateSampledEmissiveLighting(
 			bounceHit.position,
 			bounceMaterial,
@@ -893,11 +1007,7 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 			false,
 			bounceEmissiveDiffuse,
 			bounceEmissiveSpecular,
-			bounceEmissivePrimitiveIndex,
-			bounceEmissiveDataSource,
-			bounceEmissiveOccluded,
-			bounceEmissiveUv,
-			bounceEmissiveRadiance);
+			bounceEmissiveOccluded);
 		indirectRadiance += throughput * (bounceEmissiveDiffuse + bounceEmissiveSpecular);
 
 		if (UseDirectionalPlaceholderLight())
@@ -1034,30 +1144,16 @@ float3 EvaluatePlainMirrorSurfaceGlint(HitData mirrorHit, float3 mirrorPlaneNorm
 		sourceRadiance += runtimeLight.color * attenuation * (0.35 + 0.65 * lightFacing) * runtimeShadow;
 	}
 
-	float3 emissiveSampleDiffuse = 0.0;
-	float3 emissiveSampleSpecular = 0.0;
-	uint emissiveSamplePrimitiveIndex = 0xffffffffu;
-	uint emissiveSampleDataSource = 0u;
 	bool emissiveSampleOccluded = false;
-	float2 emissiveSampleUv = 0.0;
 	float3 emissiveSampleRadiance = 0.0;
 	uint emissiveSampleRng = pixelPos.x ^ (pixelPos.y << 16u) ^ (gTraceConstants.FrameIndex + 1u) * 0x51ed270bu;
-	EvaluateSampledEmissiveLighting(
+	EvaluateSampledEmissiveMirrorRadiance(
 		mirrorHit.position,
 		mirrorMaterial,
 		mirrorPlaneNormal,
-		mirrorViewDir,
-		mirrorAlbedo.rgb,
-		mirrorMetalness,
 		emissiveSampleRng,
 		receivesShadow,
-		false,
-		emissiveSampleDiffuse,
-		emissiveSampleSpecular,
-		emissiveSamplePrimitiveIndex,
-		emissiveSampleDataSource,
 		emissiveSampleOccluded,
-		emissiveSampleUv,
 		emissiveSampleRadiance);
 	if (!emissiveSampleOccluded)
 	{
@@ -1417,11 +1513,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					TraceShaderStatAdd(TRACE_STAT_EMISSIVE_SAMPLES, 1u);
 					float3 sampleDiffuse = 0.0;
 					float3 sampleSpecular = 0.0;
-					uint samplePrimitiveIndex = 0xffffffffu;
-					uint sampleDataSource = 0u;
 					bool sampleOccluded = false;
-					float2 sampleUv = 0.0;
-					float3 sampleRadiance = 0.0;
 					EvaluateSampledEmissiveLighting(
 						hit.position,
 						material,
@@ -1434,11 +1526,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 						spatialProbeTargetPixel,
 						sampleDiffuse,
 						sampleSpecular,
-						samplePrimitiveIndex,
-						sampleDataSource,
-						sampleOccluded,
-						sampleUv,
-						sampleRadiance);
+						sampleOccluded);
 
 					const bool sampleContributed = any((sampleDiffuse + sampleSpecular) > 0.0);
 					if (sampleOccluded)
