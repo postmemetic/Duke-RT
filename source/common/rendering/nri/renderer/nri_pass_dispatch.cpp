@@ -38,9 +38,10 @@ namespace
 		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
 	}
 
-	static bool ShouldCollectTraceShaderStats()
+	static bool ShouldCollectTraceShaderStats(const NRIRenderDevice* device)
 	{
-		return (bool)nri_pt360absenceprobe || (!!nri_ptshaderstats && ShouldTracePtPerf());
+		return device != nullptr && device->UsesDiagnosticShaderVariant() &&
+			((bool)nri_pt360absenceprobe || (!!nri_ptshaderstats && ShouldTracePtPerf()));
 	}
 
 	static NRITraceShaderStatsFenceServices BuildTraceShaderStatsFenceServices(NRIRenderDevice* device)
@@ -413,7 +414,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		ScopedPtPerfTimer perfTimer(context.mLastPerfShellTraceStats.traceOpaqueReadbackMs);
 		context.mTraceShaderStats.Readback(
 			context.mResources.BuildResourceServices(),
-			ShouldCollectTraceShaderStats(),
+			ShouldCollectTraceShaderStats(context.mResources.frameBuffer),
 			BuildTraceShaderStatsFenceServices(context.mResources.frameBuffer),
 			context.mLastPerfTraceShaderStats);
 		context.mExposureService.ReadbackAutoExposureStats();
@@ -518,7 +519,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		(context.mDirectionalLightState.enabled && context.mDirectionalLightState.shadow ? NRI_FLAG_DIRECTIONAL_LIGHT_SHADOW : 0u) |
 		(nri_ptemissivefastshadow ? NRI_FLAG_FAST_EMISSIVE_SHADOW : 0u) |
 		(nri_ptvisiblechunkgate ? NRI_FLAG_GATE_PRIMARY_VISIBLE_CHUNKS : 0u) |
-		(ShouldCollectTraceShaderStats() ? NRI_FLAG_TRACE_SHADER_STATS : 0u) |
+		(ShouldCollectTraceShaderStats(context.mResources.frameBuffer) ? NRI_FLAG_TRACE_SHADER_STATS : 0u) |
 		(context.mActiveIndirectSamplingMode != 0u ? NRI_FLAG_PROBABILISTIC_INDIRECT : 0u) |
 		(indirectRadianceCacheActive ? NRI_FLAG_INDIRECT_RADIANCE_CACHE : 0u) |
 		(indirectRadianceCacheAccept ? NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT : 0u) |
@@ -680,7 +681,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	tracePerf.traceWorkloadKey = AppendTraceWorkloadHash(workloadKey, emissivePowerBits);
 	{
 		ScopedPtPerfTimer perfTimer(context.mLastPerfShellTraceStats.traceOpaqueCommandMs);
-		context.mTraceShaderStats.ResetBuffer(context.mResources.BuildResourceServices(), ShouldCollectTraceShaderStats());
+		context.mTraceShaderStats.ResetBuffer(context.mResources.BuildResourceServices(), ShouldCollectTraceShaderStats(context.mResources.frameBuffer));
 		context.mCommands.core->CmdBeginAnnotation(*context.mCommands.commandBuffer, "Raze.TraceOpaque.Dispatch", nri::BGRA_UNUSED);
 		context.mCommands.SetPipeline(context.mPipelines.Get(
 			indirectRadianceCacheActive ? NRIRenderer::PipelineSlot::TraceOpaqueCache : NRIRenderer::PipelineSlot::TraceOpaque));
@@ -693,7 +694,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	{
 		ScopedPtPerfTimer perfTimer(context.mLastPerfShellTraceStats.traceOpaqueStatsCopyMs);
 		NRITraceShaderStatsCopyInput input = {};
-		input.enabled = ShouldCollectTraceShaderStats();
+		input.enabled = ShouldCollectTraceShaderStats(context.mResources.frameBuffer);
 		input.frameNumber = (uint64_t)context.mFrame.frameIndex;
 		input.fences = BuildTraceShaderStatsFenceServices(context.mResources.frameBuffer);
 		input.boundSceneInstances = &context.mBoundSceneInstances;

@@ -1845,6 +1845,7 @@ CUSTOM_CVAR(Float, nri_ptruntimemutationneardistance, 1024.0f, 0)
 // Moved from source/common/rendering/nri/renderer/nri_settings_profiles.cpp
 
 CVAR(String, nri_settingsprofilewarning, "Warning: Ray reconstruction is recommended due to visual bugs with other upscalers/denoisers", CVAR_GLOBALCONFIG)
+CVAR(String, nri_shadervariant, "production", 0)
 
 CUSTOM_CVAR(Int, nri_settingsprofile, NRI_SETTINGS_PROFILE_SAFE, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {

@@ -160,6 +160,10 @@ $requiredBuildFiles = @(
     (Join-Path $RazeBuildDir "zmusiclite.dll")
 )
 
+$nriShaderDir = Join-Path $RazeBuildDir "shaders\nri"
+$nriShaderManifestPath = Join-Path $nriShaderDir "nri-shaders.json"
+$requiredBuildFiles += $nriShaderManifestPath
+
 foreach ($requiredFile in $requiredBuildFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile)) {
         throw "Required Release build output was not found: $requiredFile"
@@ -192,8 +196,44 @@ foreach ($runtimeDll in $runtimeDlls) {
 }
 
 Copy-OptionalDirectory -SourcePath (Join-Path $RazeBuildDir "AgilitySDK") -DestinationPath (Join-Path $PackageDir "AgilitySDK")
-Copy-OptionalDirectory -SourcePath (Join-Path $RazeBuildDir "shaders") -DestinationPath (Join-Path $PackageDir "shaders")
-Copy-OptionalDirectory -SourcePath (Join-Path $RazeBuildDir "nri_shaders") -DestinationPath (Join-Path $PackageDir "nri_shaders")
+$nriManifest = Get-Content -LiteralPath $nriShaderManifestPath -Raw | ConvertFrom-Json
+if ([int]$nriManifest.schema -ne 1 -or [string]$nriManifest.resolvedProfile -ne "PRODUCTION") {
+    throw "Release packaging requires an NRI shader manifest with schema 1 and resolvedProfile PRODUCTION: $nriShaderManifestPath"
+}
+$productionEntries = @($nriManifest.entries | Where-Object { [string]$_.variant -eq "production" })
+if ($productionEntries.Count -ne 184 -or [int]$nriManifest.canonicalBlobCount -ne 184) {
+    throw "Release packaging requires exactly 184 canonical NRI shader blobs; manifest has $($productionEntries.Count)"
+}
+$stagedNriDir = Join-Path $PackageDir "shaders\nri"
+New-Item -ItemType Directory -Path $stagedNriDir -Force | Out-Null
+$expectedStagedNri = @("nri-shaders.json")
+foreach ($entry in $productionEntries) {
+    $relative = [string]$entry.path
+    if ([string]::IsNullOrWhiteSpace($relative) -or [System.IO.Path]::IsPathRooted($relative) -or
+        $relative.Contains("..") -or $relative.Contains("/") -or $relative.Contains("\")) {
+        throw "Invalid canonical NRI shader manifest path: $relative"
+    }
+    if ([string]$entry.backend -notin @("dxil", "spirv")) {
+        throw "Invalid NRI shader backend for $relative"
+    }
+    $source = Join-Path $nriShaderDir $relative
+    if (-not (Test-Path -LiteralPath $source)) {
+        throw "Manifest-listed NRI shader was not found: $source"
+    }
+    $actualHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne ([string]$entry.sha256).ToLowerInvariant()) {
+        throw "NRI shader hash mismatch: $relative"
+    }
+    Copy-RequiredFile -SourcePath $source -DestinationPath (Join-Path $stagedNriDir $relative)
+    $expectedStagedNri += $relative
+}
+Copy-RequiredFile -SourcePath $nriShaderManifestPath -DestinationPath (Join-Path $stagedNriDir "nri-shaders.json")
+$actualStagedNri = @(Get-ChildItem -LiteralPath $stagedNriDir -Recurse -File |
+    ForEach-Object { $_.FullName.Substring($stagedNriDir.Length + 1) } | Sort-Object)
+$expectedStagedNri = @($expectedStagedNri | Sort-Object)
+if (($actualStagedNri -join "`n") -ne ($expectedStagedNri -join "`n")) {
+    throw "Staged NRI shader files do not exactly match the production manifest"
+}
 Copy-OptionalDirectory -SourcePath (Join-Path $RazeBuildDir "soundfonts") -DestinationPath (Join-Path $PackageDir "soundfonts")
 
 Write-Info "Copying release launcher assets and overlay"

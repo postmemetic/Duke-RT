@@ -46,6 +46,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -9576,6 +9577,9 @@ void NRIRenderDevice::DestroyQueuedFrames()
 
 bool NRIRenderDevice::CreateRenderResources()
 {
+	mDiagnosticShaderVariantEffective = false;
+	mShaderVariantWarningEmitted = false;
+	mShaderVariantSelectionEmitted = false;
 	if (!LoadShaderBlob(GetSelectedAPI() == nri::GraphicsAPI::D3D12 ? "Nri2D.vs.dxil" : "Nri2D.vs.spirv", mVertexShaderBlob) ||
 		!LoadShaderBlob(GetSelectedAPI() == nri::GraphicsAPI::D3D12 ? "Nri2D.ps.dxil" : "Nri2D.ps.spirv", mPixelShaderBlob))
 	{
@@ -10982,8 +10986,41 @@ bool NRIRenderDevice::SnapshotTextureToCanvas(FCanvasTexture* tex, NRITextureRes
 
 bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>& outBlob)
 {
+	const bool diagnosticRequested = FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
+	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueCache.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueCache.cs.spirv") == 0 ||
+		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.dxil") == 0 ||
+		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.spirv") == 0;
 	FString shaderPath = progdir;
-	shaderPath << "shaders/nri/" << fileName;
+	shaderPath << "shaders/nri/";
+	if (diagnosticRequested && diagnosticCandidate)
+	{
+		FString manifestPath = shaderPath;
+		manifestPath << "nri-shaders.json";
+		std::ifstream manifestFile(manifestPath.GetChars(), std::ios::binary);
+		const std::string manifest((std::istreambuf_iterator<char>(manifestFile)),
+			std::istreambuf_iterator<char>());
+		const std::string declaredPath = std::string("\"path\": \"variants/diagnostic/") + fileName + "\"";
+		if (manifest.find("\"resolvedProfile\": \"DEVELOPER\"") != std::string::npos &&
+			manifest.find(declaredPath) != std::string::npos)
+		{
+			shaderPath << "variants/diagnostic/";
+			mDiagnosticShaderVariantEffective = true;
+			if (!mShaderVariantSelectionEmitted)
+			{
+				Printf("NRI shader variant: diagnostic (developer manifest).\n");
+				mShaderVariantSelectionEmitted = true;
+			}
+		}
+		else if (!mShaderVariantWarningEmitted)
+		{
+			Printf(TEXTCOLOR_ORANGE "NRI diagnostic shader variant is unavailable; using production shaders.\n");
+			mShaderVariantWarningEmitted = true;
+		}
+	}
+	shaderPath << fileName;
 
 	std::ifstream file(shaderPath.GetChars(), std::ios::binary | std::ios::ate);
 	if (!file.is_open())

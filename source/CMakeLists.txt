@@ -1527,6 +1527,7 @@ if (HAVE_NRI)
 	set(RAZE_NRI_COMMON_SHADER_ARGS
 		-HV 2021
 		-Wno-for-redefinition
+		-DNRI_SHADER_DIAGNOSTICS=0
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders"
 		-I "${CMAKE_SOURCE_DIR}/libraries/NRD/Shaders"
 		-I "${CMAKE_SOURCE_DIR}/libraries/NRIFramework/External/NRI/Include")
@@ -2199,6 +2200,49 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.spirv"
 		SOURCES ${NRI_SHADER_FILES}
+		VERBATIM)
+	if(RAZE_NRI_SHADER_PROFILE_RESOLVED STREQUAL "DEVELOPER")
+		set(RAZE_NRI_DIAGNOSTIC_SHADER_DIR "${RAZE_NRI_SHADER_OUTPUT_DIR}/variants/diagnostic")
+		set(RAZE_NRI_DIAGNOSTIC_SHADER_ARGS ${RAZE_NRI_COMMON_SHADER_ARGS})
+		list(REMOVE_ITEM RAZE_NRI_DIAGNOSTIC_SHADER_ARGS -DNRI_SHADER_DIAGNOSTICS=0)
+		list(APPEND RAZE_NRI_DIAGNOSTIC_SHADER_ARGS -DNRI_SHADER_DIAGNOSTICS=1)
+		add_custom_command(
+			OUTPUT
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.dxil"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.spirv"
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
+			DEPENDS
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
+				${NRI_SHADER_FILES}
+			VERBATIM)
+		add_custom_target(raze_nri_diagnostic_shaders DEPENDS
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.dxil"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.spirv")
+		add_dependencies(raze_nri_shaders raze_nri_diagnostic_shaders)
+		set_target_properties(raze_nri_diagnostic_shaders PROPERTIES FOLDER "Shaders")
+	endif()
+	add_custom_command(TARGET raze_nri_shaders POST_BUILD
+		COMMAND ${CMAKE_COMMAND}
+			"-DSHADER_DIR=${RAZE_NRI_SHADER_OUTPUT_DIR}"
+			"-DREQUESTED_PROFILE=${RAZE_NRI_SHADER_PROFILE}"
+			"-DPROFILE=${RAZE_NRI_SHADER_PROFILE_RESOLVED}"
+			-P "${CMAKE_SOURCE_DIR}/cmake/WriteNriShaderManifest.cmake"
+		COMMENT "Writing NRI shader manifest (${RAZE_NRI_SHADER_PROFILE_RESOLVED})"
 		VERBATIM)
 	set_target_properties(raze_nri_shaders PROPERTIES FOLDER "Shaders")
 	add_dependencies(${PROJECT_NAME} raze_nri_shaders)

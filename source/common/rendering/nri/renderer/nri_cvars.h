@@ -447,6 +447,7 @@ EXTERN_CVAR(Int, nri_upscaler)
 EXTERN_CVAR(Int, nri_upscalermode)
 
 EXTERN_CVAR(String, nri_settingsprofilewarning)
+EXTERN_CVAR(String, nri_shadervariant)
 
 // External engine CVars used by NRI implementation code.
 EXTERN_CVAR(Bool, r_voxels)

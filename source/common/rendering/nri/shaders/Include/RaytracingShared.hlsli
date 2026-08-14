@@ -178,7 +178,11 @@ static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_
 
 bool TraceShaderStatsEnabled()
 {
+#if NRI_SHADER_DIAGNOSTICS
 	return (gTraceConstants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u;
+#else
+	return false;
+#endif
 }
 
 void TraceShaderStatAdd(uint index, uint value)

@@ -190,6 +190,7 @@ public:
 	NRIBackendCapabilities BuildBackendCapabilities() const;
 	uint32_t BeginGpuTimingScope(NRIGpuTimingScope scope);
 	void EndGpuTimingScope(uint32_t markerIndex);
+	bool UsesDiagnosticShaderVariant() const { return mDiagnosticShaderVariantEffective; }
 
 private:
 	static constexpr uint32_t FrameSequenceHistorySize = NRIFrameShell::FrameSequenceHistorySize;
@@ -421,6 +422,9 @@ private:
 
 	std::vector<uint8_t> mVertexShaderBlob;
 	std::vector<uint8_t> mPixelShaderBlob;
+	bool mDiagnosticShaderVariantEffective = false;
+	bool mShaderVariantWarningEmitted = false;
+	bool mShaderVariantSelectionEmitted = false;
 	FString mDeviceName = "NRI";
 	nri::GraphicsAPI mCreatedDeviceApi = nri::GraphicsAPI::VK;
 	nri::SwapChainBits mSwapChainFlags = nri::SwapChainBits::NONE;
