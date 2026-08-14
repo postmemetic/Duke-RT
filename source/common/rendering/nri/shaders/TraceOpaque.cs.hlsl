@@ -1221,7 +1221,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gViewZOutput[pixelPos] = float4(1.0, 0.0, 0.0, 1.0);
 			gNormalRoughnessOutput[pixelPos] = 0.0;
 			gBaseColorOutput[pixelPos] = float4(sentinel, 1.0);
-			gGuideDiffuseOutput[pixelPos] = float4(sentinel, 1.0);
 			gGuideSpecularOutput[pixelPos] = float4(0.0, 0.0, 0.0, 1.0);
 			gGuideSpecHitOutput[pixelPos] = float4(0.0, 0.0, 0.0, 1.0);
 			gShadowPenumbraOutput[pixelPos] = float4(SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize()), 1.0, 0.0, 1.0);
@@ -1249,7 +1248,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gNormalRoughnessOutput[pixelPos] = 0.0;
 			gBaseColorOutput[pixelPos] = float4(missColor, 0.0);
 			// Keep sky misses out of NRD's ordinary noisy radiance inputs and composite them via direct emission.
-			gGuideDiffuseOutput[pixelPos] = 0.0;
 			gGuideSpecularOutput[pixelPos] = 0.0;
 			gGuideSpecHitOutput[pixelPos] = 0.0;
 			gShadowPenumbraOutput[pixelPos] = float4(SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize()), 1.0, 0.0, 1.0);
@@ -1618,7 +1616,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, 1.0, 0.0);
 			gBaseColorOutput[pixelPos] = float4(diffuse, 0.0);
 		}
-		gGuideDiffuseOutput[pixelPos] = packedDiffuse;
 		gGuideSpecularOutput[pixelPos] = packedSpecular;
 		gGuideSpecHitOutput[pixelPos] = float4(specular, packedSpecular.w);
 		gShadowPenumbraOutput[pixelPos] = float4(shadowPenumbra, shadowVisibility, 0.0, 1.0);
