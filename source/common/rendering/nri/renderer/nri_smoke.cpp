@@ -2129,6 +2129,9 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	NRITextureResource& volumeHistoryWrite = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeHistoryPing : NRIRenderer::FrameTextureSlot::SmokeVolumeHistoryPong);
 	NRITextureResource& volumeMetaRead = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing);
 	NRITextureResource& volumeMetaWrite = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong);
+	const bool fieldDiagnostics = mSettings.debugMode >= 12u;
+	const bool volumeHistoryAllowed = mSettings.volumeHistory && !fieldDiagnostics;
+	const bool bypassVolumeTemporal = !volumeHistoryAllowed && mSettings.debugMode != 6u;
 	if (input.shaderView == nullptr || depth.shaderView == nullptr || output.storageView == nullptr ||
 		volumeCurrent.shaderView == nullptr || volumeCurrent.storageView == nullptr ||
 		volumeCurrentMeta.shaderView == nullptr || volumeCurrentMeta.storageView == nullptr ||
@@ -2160,14 +2163,22 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	renderer.mFrameBuffer->TransitionTexture(input, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
 	renderer.mFrameBuffer->TransitionTexture(depth, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
 	renderer.mFrameBuffer->TransitionTexture(output, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
-	renderer.mFrameBuffer->TransitionTexture(volumeHistoryRead, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
-	renderer.mFrameBuffer->TransitionTexture(volumeMetaRead, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
+	if (!bypassVolumeTemporal)
+	{
+		renderer.mFrameBuffer->TransitionTexture(volumeHistoryRead, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
+		renderer.mFrameBuffer->TransitionTexture(volumeMetaRead, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
+	}
 	renderer.mFrameBuffer->TransitionTexture(volumeCurrent, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
 	renderer.mFrameBuffer->TransitionTexture(volumeCurrentMeta, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
-	renderer.mFrameBuffer->TransitionTexture(volumeHistoryWrite, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
-	renderer.mFrameBuffer->TransitionTexture(volumeMetaWrite, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
+	if (!bypassVolumeTemporal)
+	{
+		renderer.mFrameBuffer->TransitionTexture(volumeHistoryWrite, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
+		renderer.mFrameBuffer->TransitionTexture(volumeMetaWrite, { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER });
+	}
 	const nri::Descriptor* textures[] = { input.shaderView, depth.shaderView, volumeHistoryRead.shaderView, volumeMetaRead.shaderView,
-		volumeHistoryWrite.shaderView, volumeMetaWrite.shaderView, volumeCurrent.shaderView, volumeCurrentMeta.shaderView };
+		bypassVolumeTemporal ? volumeCurrent.shaderView : volumeHistoryWrite.shaderView,
+		bypassVolumeTemporal ? volumeCurrentMeta.shaderView : volumeMetaWrite.shaderView,
+		volumeCurrent.shaderView, volumeCurrentMeta.shaderView };
 	const nri::Descriptor* outputTextures[] = { output.storageView, volumeCurrent.storageView, volumeCurrentMeta.storageView,
 		volumeHistoryWrite.storageView, volumeMetaWrite.storageView };
 	const nri::Descriptor* lightBuffers[] = {
@@ -2292,7 +2303,6 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	constants.directionalAngularSize = std::clamp(renderer.mDirectionalLightState.angularSize, 0.001f, 1.2f);
 	std::copy(renderer.mCurrentJitter, renderer.mCurrentJitter + 2, constants.currentJitter);
 	NRIPopulateSmokeVisualConstants(mSettings.visuals, constants);
-	const bool fieldDiagnostics = mSettings.debugMode >= 12u;
 	uint64_t visualHistoryHash = NRIHashSmokeVisualSettings(mSettings.visuals);
 	visualHistoryHash = HashCombine64(visualHistoryHash, mSettings.debugMode);
 	const float scatterScale = mSettings.multipleScatter ? mSettings.multipleScatterScale : 0.0f;
@@ -2463,7 +2473,6 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	volumeLightingHash = HashCombine64(volumeLightingHash,
 		worldEmissiveRequested ? effectiveEmissiveEstimatorKey : 0u);
 	volumeLightingHash = HashCombine64(volumeLightingHash, visualHistoryHash);
-	const bool volumeHistoryAllowed = mSettings.volumeHistory && !fieldDiagnostics;
 	const bool volumeHistoryCompatible = volumeHistoryAllowed && mVolumeHistoryValid && mLastVolumeHistoryEnabled &&
 		!renderer.mResetHistory && mLastVolumeFrame + 1u == renderer.mFrameIndex &&
 		mLastVolumeWidth == route.width && mLastVolumeHeight == route.height &&
@@ -2477,8 +2486,10 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	mStatus.volumeHistoryEffective = volumeHistoryAllowed && reprojectionResourcesReady;
 	mStatus.volumeHistoryValid = volumeHistoryCompatible;
 	mStatus.volumeHistoryAge = volumeHistoryCompatible ? std::min(mStatus.volumeHistoryAge + 1u, 255u) : 0u;
-	mStatus.volumeResolvedSlot = (uint32_t)(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeHistoryPing : NRIRenderer::FrameTextureSlot::SmokeVolumeHistoryPong);
-	mStatus.volumeMetaSlot = (uint32_t)(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong);
+	mStatus.volumeResolvedSlot = (uint32_t)(bypassVolumeTemporal ? NRIRenderer::FrameTextureSlot::SmokeVolumeCurrent :
+		(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeHistoryPing : NRIRenderer::FrameTextureSlot::SmokeVolumeHistoryPong));
+	mStatus.volumeMetaSlot = (uint32_t)(bypassVolumeTemporal ? NRIRenderer::FrameTextureSlot::SmokeVolumeCurrentMeta :
+		(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong));
 	mStatus.volumeHistoryBytes = volumeCurrent.memorySize + volumeCurrentMeta.memorySize + volumeHistoryRead.memorySize +
 		volumeHistoryWrite.memorySize + volumeMetaRead.memorySize + volumeMetaWrite.memorySize;
 	if (volumeHistoryCompatible)
@@ -2886,12 +2897,15 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		dispatch(NRISmokePass::ResolveVolume, (route.width + 7) / 8, (route.height + 7) / 8, 1);
 		renderer.mFrameBuffer->TransitionTexture(volumeCurrent, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
 		renderer.mFrameBuffer->TransitionTexture(volumeCurrentMeta, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
-		dispatch(NRISmokePass::TemporalVolume, (route.width + 7) / 8, (route.height + 7) / 8, 1);
-		renderer.mFrameBuffer->TransitionTexture(volumeHistoryWrite, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
-		renderer.mFrameBuffer->TransitionTexture(volumeMetaWrite, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
+		if (!bypassVolumeTemporal)
+		{
+			dispatch(NRISmokePass::TemporalVolume, (route.width + 7) / 8, (route.height + 7) / 8, 1);
+			renderer.mFrameBuffer->TransitionTexture(volumeHistoryWrite, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
+			renderer.mFrameBuffer->TransitionTexture(volumeMetaWrite, { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER });
+		}
 		dispatch(NRISmokePass::Composite, (route.width + 7) / 8, (route.height + 7) / 8, 1);
 	}
-	mVolumeHistoryValid = true;
+	mVolumeHistoryValid = volumeHistoryAllowed;
 	mLastVolumeFrame = renderer.mFrameIndex;
 	mLastVolumeWidth = route.width;
 	mLastVolumeHeight = route.height;
