@@ -2024,8 +2024,6 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 		return true;
 	}
 
-	constexpr uint64_t kMaterialUploadCoalesceMaxGapBytes = 4ull * 1024ull;
-	constexpr uint64_t kMaterialUploadCoalesceMaxByteExpansion = 2ull;
 	std::sort(
 		dirtyMaterialRanges.begin(),
 		dirtyMaterialRanges.end(),
@@ -2047,18 +2045,13 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 		RuntimeMutationResidentUploadRange& tail = coalescedRanges.back();
 		const uint64_t tailEnd = tail.byteOffset + tail.size;
 		const uint64_t rangeEnd = range.byteOffset + range.size;
-		const uint64_t gapBytes = range.byteOffset > tailEnd ? range.byteOffset - tailEnd : 0;
-		const uint64_t candidateSize = rangeEnd > tailEnd ? rangeEnd - tail.byteOffset : tail.size;
-		const uint64_t candidateDirtySize = tail.dirtySize + range.size;
-		const bool acceptableByteExpansion =
-			candidateDirtySize > UINT64_MAX / kMaterialUploadCoalesceMaxByteExpansion ||
-			candidateSize <= candidateDirtySize * kMaterialUploadCoalesceMaxByteExpansion;
-		if (gapBytes <= kMaterialUploadCoalesceMaxGapBytes && acceptableByteExpansion)
+		// The frame bridge only contains active voxel resources. Arena gaps therefore
+		// hold placeholder rows, not mirrors of retained GPU material data. Uploading
+		// across a gap would corrupt an inactive animation frame while leaving its
+		// cached upload hash unchanged, so only merge physically adjacent ranges.
+		if (range.byteOffset == tailEnd)
 		{
-			if (rangeEnd > tailEnd)
-			{
-				tail.size = rangeEnd - tail.byteOffset;
-			}
+			tail.size = rangeEnd - tail.byteOffset;
 			tail.dirtySize += range.size;
 			continue;
 		}
