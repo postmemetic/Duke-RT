@@ -20,7 +20,7 @@ float4 main(PSInput input) : SV_Target0
 
 	if ((gNri2DConstants.Flags & NRI2D_FLAG_ALPHA_FROM_RED) != 0)
 	{
-		float alpha = max(texel.a, texel.r);
+		float alpha = dot(texel.rgb, float3(0.3, 0.56, 0.14)) * texel.a;
 		texel = float4(1.0, 1.0, 1.0, alpha);
 	}
 
