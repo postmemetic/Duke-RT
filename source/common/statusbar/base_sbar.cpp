@@ -127,6 +127,58 @@ void ST_UnloadCrosshair()
 //
 //---------------------------------------------------------------------------
 
+bool ST_GetCrosshairHealthColor(int phealth, uint32_t& color)
+{
+	if (crosshairhealth == 1)
+	{
+		// "Standard" crosshair health (green-red)
+		int health = phealth;
+
+		if (health >= 85)
+		{
+			color = 0x00ff00;
+		}
+		else
+		{
+			int red, green;
+			health -= 25;
+			if (health < 0)
+			{
+				health = 0;
+			}
+			if (health < 30)
+			{
+				red = 255;
+				green = health * 255 / 30;
+			}
+			else
+			{
+				red = (60 - health) * 255 / 30;
+				green = 255;
+			}
+			color = (red << 16) | (green << 8);
+		}
+		return true;
+	}
+	else if (crosshairhealth == 2)
+	{
+		// "Enhanced" crosshair health (blue-green-yellow-red)
+		int health = clamp(phealth, 0, 200);
+		float rr, gg, bb;
+
+		float saturation = health < 150 ? 1.f : 1.f - (health - 150) / 100.f;
+
+		HSVtoRGB(&rr, &gg, &bb, health * 1.2f, saturation, 1);
+		int red = int(rr * 255);
+		int green = int(gg * 255);
+		int blue = int(bb * 255);
+
+		color = (red << 16) | (green << 8) | blue;
+		return true;
+	}
+	return false;
+}
+
 void ST_DrawCrosshair(int phealth, double xpos, double ypos, double scale, DAngle angle)
 {
 	struct Perf2DSnapshot
@@ -177,52 +229,7 @@ void ST_DrawCrosshair(int phealth, double xpos, double ypos, double scale, DAngl
 	w = int(CrosshairImage->GetDisplayWidth() * size);
 	h = int(CrosshairImage->GetDisplayHeight() * size);
 
-	if (crosshairhealth == 1)
-	{
-		// "Standard" crosshair health (green-red)
-		int health = phealth;
-
-		if (health >= 85)
-		{
-			color = 0x00ff00;
-		}
-		else
-		{
-			int red, green;
-			health -= 25;
-			if (health < 0)
-			{
-				health = 0;
-			}
-			if (health < 30)
-			{
-				red = 255;
-				green = health * 255 / 30;
-			}
-			else
-			{
-				red = (60 - health) * 255 / 30;
-				green = 255;
-			}
-			color = (red << 16) | (green << 8);
-		}
-	}
-	else if (crosshairhealth == 2)
-	{
-		// "Enhanced" crosshair health (blue-green-yellow-red)
-		int health = clamp(phealth, 0, 200);
-		float rr, gg, bb;
-
-		float saturation = health < 150 ? 1.f : 1.f - (health - 150) / 100.f;
-
-		HSVtoRGB(&rr, &gg, &bb, health * 1.2f, saturation, 1);
-		int red = int(rr * 255);
-		int green = int(gg * 255);
-		int blue = int(bb * 255);
-
-		color = (red << 16) | (green << 8) | blue;
-	}
-	else
+	if (!ST_GetCrosshairHealthColor(phealth, color))
 	{
 		color = crosshaircolor;
 	}

@@ -1,4 +1,4 @@
-0 "$OPTVAL_YES_STANDARD"
+0 "$OPTVAL_DEFAULT"
 1 "Cross 1"
 2 "Cross 2"
 3 "X"

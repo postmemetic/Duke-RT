@@ -1449,7 +1449,10 @@ void DrawCrosshair(int health, double xdelta, double ydelta, double scale, DAngl
 			if (tex && tex->isValid())
 			{
 				double crosshair_scale = crosshairscale > 0.0f ? crosshairscale * scale : 1.;
-				DrawTexture(twod, tex, 160 + xdelta, 100 + ydelta, DTA_Color, color, DTA_Rotate, angle.Degrees(),
+				uint32_t healthColor;
+				auto colorTag = ST_GetCrosshairHealthColor(health, healthColor) ? DTA_FillColor : DTA_Color;
+				auto drawColor = colorTag == DTA_FillColor ? healthColor & 0xFFFFFF : uint32_t(color);
+				DrawTexture(twod, tex, 160 + xdelta, 100 + ydelta, colorTag, drawColor, DTA_Rotate, angle.Degrees(),
 					DTA_FullscreenScale, FSMode_Fit320x200, DTA_ScaleX, crosshair_scale, DTA_ScaleY, crosshair_scale, DTA_CenterOffsetRel, true,
 					DTA_ViewportX, viewport3d.Left(), DTA_ViewportY, viewport3d.Top(), DTA_ViewportWidth, viewport3d.Width(), DTA_ViewportHeight, viewport3d.Height(), TAG_DONE);
 

@@ -508,7 +508,7 @@ static void InitCrosshairsList()
 
 	FOptionValues::Pair *pair = &(*opt)->mValues[(*opt)->mValues.Reserve(1)];
 	pair->Value = 0;
-	pair->Text = "None";
+	pair->Text = "$OPTVAL_DEFAULT";
 
 	while ((lump = fileSystem.FindLump("XHAIRS", &lastlump)) != -1)
 	{

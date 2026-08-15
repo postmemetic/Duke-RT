@@ -10,6 +10,7 @@ class FFont;
 extern FGameTexture* CrosshairImage;
 void ST_LoadCrosshair(int num, bool alwaysload);
 void ST_UnloadCrosshair();
+bool ST_GetCrosshairHealthColor(int phealth, uint32_t& color);
 void ST_DrawCrosshair(int phealth, double xpos, double ypos, double scale, DAngle angle = nullAngle);
 
 
