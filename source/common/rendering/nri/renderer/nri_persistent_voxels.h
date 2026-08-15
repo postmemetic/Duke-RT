@@ -5,6 +5,7 @@
 #include "nri_persistent_voxel_admission_index.h"
 #include "nri_persistent_voxel_material_closure.h"
 #include "nri_persistent_voxel_material_range_allocator.h"
+#include "nri_persistent_voxel_material_upload.h"
 #include "nri_frame_resources.h"
 #include "nri_persistent_voxel_shared_blas.h"
 #include "nri_persistent_voxel_shadow_proxy.h"
@@ -1232,6 +1233,7 @@ public:
 	uint32_t arenaIndexCursor = 0;
 	uint32_t arenaPrimitiveCursor = 0;
 	NRIPersistentVoxelMaterialRangeAllocator materialRangeAllocator;
+	NRIPersistentVoxelMaterialUploadMirror materialUploadMirror;
 	uint64_t arenaPresizeBuildSerial = 0;
 	uint64_t blasPolicyTraceBuildSerial = 0;
 	uint64_t materialResourceGeneration = 1;

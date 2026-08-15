@@ -1945,7 +1945,7 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 		uint64_t materialHash = 0;
 	};
 
-	std::vector<RuntimeMutationResidentUploadRange> dirtyMaterialRanges;
+	std::vector<NRIPersistentVoxelMaterialUploadRange> dirtyMaterialRanges;
 	std::vector<PendingMaterialUpload> pendingMaterialUploads;
 	dirtyMaterialRanges.reserve(dirtyMaterialResourceKeys.size());
 	pendingMaterialUploads.reserve(dirtyMaterialResourceKeys.size());
@@ -1989,7 +1989,6 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 			outStats.uploads++;
 			outStats.dirtyBytes += materialSize;
 			dirtyMaterialRanges.push_back({
-				ResidentUploadKind_Material,
 				(uint64_t)resource.materialOffset * sizeof(nri_scene::MaterialData),
 				materialSize,
 				materialSize });
@@ -2024,41 +2023,31 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 		return true;
 	}
 
-	std::sort(
-		dirtyMaterialRanges.begin(),
-		dirtyMaterialRanges.end(),
-		[](const RuntimeMutationResidentUploadRange& a, const RuntimeMutationResidentUploadRange& b)
-		{
-			return a.byteOffset < b.byteOffset;
-		});
+	const uint64_t materialArenaSize = materials.size() * sizeof(nri_scene::MaterialData);
+	const uint64_t materialMirrorSize =
+		materialRangeAllocator.Stats().cursorRows * sizeof(nri_scene::MaterialData);
+	NRIPersistentVoxelMaterialUploadPlan uploadPlan;
+	if (!materialUploadMirror.Prepare(
+		materialMirrorSize,
+		reinterpret_cast<const uint8_t*>(materials.data()),
+		materialArenaSize,
+		dirtyMaterialRanges,
+		uploadPlan))
+	{
+		return false;
+	}
 
 	std::vector<RuntimeMutationResidentUploadRange> coalescedRanges;
-	coalescedRanges.reserve(dirtyMaterialRanges.size());
-	for (const RuntimeMutationResidentUploadRange& range : dirtyMaterialRanges)
+	coalescedRanges.reserve(uploadPlan.ranges.size());
+	for (const NRIPersistentVoxelMaterialUploadRange& range : uploadPlan.ranges)
 	{
-		if (coalescedRanges.empty())
-		{
-			coalescedRanges.push_back(range);
-			continue;
-		}
-
-		RuntimeMutationResidentUploadRange& tail = coalescedRanges.back();
-		const uint64_t tailEnd = tail.byteOffset + tail.size;
-		const uint64_t rangeEnd = range.byteOffset + range.size;
-		// The frame bridge only contains active voxel resources. Arena gaps therefore
-		// hold placeholder rows, not mirrors of retained GPU material data. Uploading
-		// across a gap would corrupt an inactive animation frame while leaving its
-		// cached upload hash unchanged, so only merge physically adjacent ranges.
-		if (range.byteOffset == tailEnd)
-		{
-			tail.size = rangeEnd - tail.byteOffset;
-			tail.dirtySize += range.size;
-			continue;
-		}
-
-		outStats.batchRejects++;
-		coalescedRanges.push_back(range);
+		coalescedRanges.push_back({
+			ResidentUploadKind_Material,
+			range.byteOffset,
+			range.size,
+			range.dirtySize });
 	}
+	outStats.batchRejects += uploadPlan.rejectedMerges;
 
 	uint64_t uploadedBytes = 0;
 	for (const RuntimeMutationResidentUploadRange& range : coalescedRanges)
@@ -2075,15 +2064,16 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 	outStats.domainUploadedBytes += uploadedBytes;
 	outStats.domainMaterialUploadedBytes += uploadedBytes;
 
-	const uint64_t materialArenaSize = materials.size() * sizeof(nri_scene::MaterialData);
 	if (!services.StageMaterialRanges(
 		materialBuffer,
 		coalescedRanges,
-		reinterpret_cast<const uint8_t*>(materials.data()),
-		materialArenaSize))
+		materialUploadMirror.Data(),
+		materialUploadMirror.Size()))
 	{
+		materialUploadMirror.Rollback();
 		return false;
 	}
+	materialUploadMirror.Commit();
 
 	for (const PendingMaterialUpload& upload : pendingMaterialUploads)
 	{
@@ -3787,6 +3777,14 @@ void NRIPersistentVoxelResidency::DestroyArenaBuffers(const NRIPersistentVoxelDe
 	services.DestroyBuffer(indexBuffer);
 	services.DestroyBuffer(primitiveBuffer);
 	services.DestroyBuffer(materialBuffer);
+	materialUploadMirror.Reset();
+	for (auto& pair : materialVariantResources)
+	{
+		pair.second.materialUploadHash = 0;
+		dirtyMaterialResourceKeys.insert(pair.first);
+	}
+	uploadedMaterialResourceGeneration = 0;
+	uploadedMaterialPublicationGeneration = 0;
 }
 
 NRIPersistentVoxelLightAppendStats NRIPersistentVoxelResidency::AppendSceneLights(
@@ -9545,6 +9543,7 @@ void NRIPersistentVoxelResidency::Reset(
 	arenaIndexCursor = 0;
 	arenaPrimitiveCursor = 0;
 	materialRangeAllocator.Reset();
+	materialUploadMirror.Reset();
 	materialRangeCompactions = 0;
 	materialRangeCompactedRows = 0;
 	arenaPresizeBuildSerial = 0;
@@ -9711,6 +9710,7 @@ bool NRIPersistentVoxelResidency::CompactMaterialRangesForQuiescentLevelTransiti
 		publishedMaterialKeys.insert(resource->materialKeyHash);
 	}
 
+	materialUploadMirror.Reset();
 	materialResourceGeneration++;
 	RebuildBatchMaterialBridge(batch);
 	materialRangeCompactions++;

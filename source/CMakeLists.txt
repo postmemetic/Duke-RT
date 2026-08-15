@@ -958,6 +958,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_nrd.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_closure.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_range_allocator.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_material_upload.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_index.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_blas_compaction.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_geometry_arena_policy.cpp
