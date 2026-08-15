@@ -339,8 +339,7 @@ CVAR(Bool, nri_ptvoxelcompute, true, 0)
 
 CVAR(Int, nri_ptvoxelcomputemode, 6, 0)
 
-// Keep parallel V3 opt-in until its animated-voxel color publication matches the serial emitter.
-CVAR(Int, nri_ptvoxelcomputealgorithm, 0, 0)
+CVAR(Int, nri_ptvoxelcomputealgorithm, 3, 0)
 
 CVAR(Int, nri_ptvoxelcomputemaxjobs, 4, 0)
 
