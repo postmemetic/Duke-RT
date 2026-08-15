@@ -1632,6 +1632,11 @@ CUSTOM_CVAR(Float, nri_ptsectoremissionmaterialmax, 1.0f, CVAR_ARCHIVE | CVAR_GL
 
 CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
+// Allows exact per-domain BLAS certificates to move reflection-only rejection
+// into the existing inline ray query. Session-only and independently
+// reversible for focused diagnosis; production uses the validated route.
+CVAR(Bool, nri_ptfilterquery, true, 0)
+
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.
 CVAR(Bool, nri_pt360absencegate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

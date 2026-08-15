@@ -174,7 +174,7 @@ bool UseRelaxDenoiser()
 
 uint GetEmissiveDirectSampleCount()
 {
-	return clamp((gTraceConstants.ReservedTrace1 >> 8u) & 0xffu, 1u, 4u);
+	return clamp((gTraceConstants.ReservedTrace1 >> 8u) & 0x7fu, 1u, 4u);
 }
 
 bool UseProbabilisticIndirectSampling()

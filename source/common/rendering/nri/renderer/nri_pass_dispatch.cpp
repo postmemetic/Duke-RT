@@ -198,7 +198,7 @@ namespace
 	{
 		return
 			(denoiserMode & 0xffu) |
-			((emissiveSampleCount & 0xffu) << 8u) |
+			((emissiveSampleCount & 0x7fu) << 8u) |
 			(PackDirectionalAngularSize16(directionalAngularSize) << 16u);
 	}
 
@@ -546,7 +546,8 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	constants.ReservedTrace1 = PackTraceAux1(
 		(uint32_t)denoiserSettings.denoiserMode,
 		traceSettings.emissiveSampleCount,
-		context.mDirectionalLightState.angularSize);
+		context.mDirectionalLightState.angularSize) |
+		(nri_ptfilterquery ? NRI_TRACE_AUX_FILTER_QUERY : 0u);
 	Copy3(context.mFrame.skyColor.data(), constants.SkyColor);
 	Copy3(context.mFrame.groundColor.data(), constants.GroundColor);
 	ApplyDirectionalLightStateToConstants(context.mDirectionalLightState, constants);

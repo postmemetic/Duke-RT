@@ -1383,6 +1383,13 @@ public:
 		uint32_t dynamicOverlayBlasBuildBudget = 0;
 		bool dynamicOverlayBlasBuildEnabled = false;
 		bool dynamicOverlayBlasRouteEnabled = false;
+		uint32_t filterCandidateOccurrences = 0;
+		uint32_t filterCandidateCertifiedOccurrences = 0;
+		uint32_t filterCandidateCertifiedPrimitives = 0;
+		uint32_t filterCandidateRejectEmpty = 0;
+		uint32_t filterCandidateRejectRange = 0;
+		uint32_t filterCandidateRejectMixed = 0;
+		bool filterCandidateEnabled = false;
 		uint32_t persistentVoxelAsCalls = 0;
 		uint32_t persistentVoxelAsBuilds = 0;
 		uint32_t persistentVoxelAsUniqueMeshBuilds = 0;
@@ -2250,9 +2257,22 @@ private:
 
 	struct DynamicOverlayBlasRoute
 	{
-		const NRIAccelerationStructureResource* accelerationStructure = nullptr;
-		SceneBufferUploadDomainSpan span = {};
+		struct Occurrence
+		{
+			const NRIAccelerationStructureResource* accelerationStructure = nullptr;
+			SceneBufferUploadDomainSpan span = {};
+		};
+
+		std::vector<Occurrence> occurrences;
 		bool routeAllOverlay = false;
+	};
+
+	struct SelectedDynamicOverlayBlasOccurrence
+	{
+		const NRIAccelerationStructureResource* accelerationStructure = nullptr;
+		uint32_t sceneInstanceIndex = UINT32_MAX;
+		uint32_t primitiveOffset = 0;
+		uint32_t primitiveCount = 0;
 	};
 
 	using SceneUploadDirtyRange = ::SceneUploadDirtyRange;
@@ -2774,6 +2794,7 @@ private:
 	std::vector<SceneUploadDirtyRange> mSceneUploadVertexDirtyRangeScratch;
 	std::vector<SceneUploadDirtyRange> mSceneUploadIndexDirtyRangeScratch;
 	std::vector<DynamicOverlayBlasAsset> mDynamicOverlayBlasAssets;
+	std::vector<SelectedDynamicOverlayBlasOccurrence> mSelectedDynamicOverlayBlasOccurrences;
 	std::vector<nri_scene::SceneVertex> mDynamicOverlayBlasVertexScratch;
 	std::vector<uint32_t> mDynamicOverlayBlasIndexScratch;
 	std::array<ResidentUploadScratchFrame, 3> mResidentUploadScratchFrames = {};

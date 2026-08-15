@@ -4601,6 +4601,16 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			shell.dynamicOverlayBlasRoutedInstances,
 			shell.dynamicOverlayBlasMonolithicRefs);
 		Printf(
+			"PERF pt filter candidate certificate NRI: frame=%llu enabled=%u occurrences=%u certified=%u certified_prims=%u reject_empty=%u reject_range=%u reject_mixed=%u\n",
+			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+			shell.filterCandidateEnabled ? 1u : 0u,
+			shell.filterCandidateOccurrences,
+			shell.filterCandidateCertifiedOccurrences,
+			shell.filterCandidateCertifiedPrimitives,
+			shell.filterCandidateRejectEmpty,
+			shell.filterCandidateRejectRange,
+			shell.filterCandidateRejectMixed);
+		Printf(
 			"PERF pt world tlas detail NRI: frame=%llu total=%.3f retire=%.3f instance_upload=%.3f create=%.3f memory=%.3f scratch=%.3f descriptor=%.3f build=%.3f update=%.3f barrier=%.3f calls=%u exact_reuses=%u updates=%u update_reason_mask=0x%08x update_dirty_ranges=%u update_dirty_instances=%u update_dirty_bytes=%llu blas_override_updates=%u full_builds=%u full_reason_mask=0x%08x full_change_mask=0x%08x full_update_reject_mask=0x%08x full_update_gate_mask=0x%08x full_destination_reuses=%u full_destination_creates=%u full_growths=%u full_growth_mask=0x%08x full_reuse_reject_mask=0x%08x full_reuse_runtime_fallbacks=%u same_command_rotations=%u blas_generation=%llu instances=%u creates=%u scratch_queries=%u scratch_grows=%u scratch_requested=%llu build_scratch_requested=%llu update_scratch_requested=%llu scratch_allocated=%llu memory_bytes=%llu descriptor_creates=%u barriers=%u\n",
 			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 			shell.worldTlasMs,
@@ -4817,6 +4827,16 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[72], c[73], c[74], c[75], c[76], c[77], c[78]);
 			EmitSpatialAbsenceProbeTrace(mLastFrameBoundaryStats.frameNumber, shader);
 			EmitSpatialAbsenceCompareTrace(mLastFrameBoundaryStats.frameNumber, shader);
+			Printf(
+				"PERF pt shader filter query NRI: frame=%llu stats_frame=%llu query_inits=%u candidates=%u reflection_ignores=%u candidate_commits=%u unexpected_commits=%u postcommit_restarts=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_FILTER_QUERY_INITS],
+				c[NRI_TRACE_SHADER_FILTER_CANDIDATES],
+				c[NRI_TRACE_SHADER_FILTER_REFLECTION_IGNORES],
+				c[NRI_TRACE_SHADER_FILTER_CANDIDATE_COMMITS],
+				c[NRI_TRACE_SHADER_FILTER_UNEXPECTED_COMMITS],
+				c[NRI_TRACE_SHADER_FILTER_POSTCOMMIT_RESTARTS]);
 			for (uint32_t hotIndex = 0; hotIndex < shader.hotInstanceCount; ++hotIndex)
 			{
 				const auto& hot = shader.hotInstances[hotIndex];

@@ -5,6 +5,7 @@
 #include "nri_acceleration.h"
 #include "nri_diagnostic_names.h"
 #include "nri_frame_resources.h"
+#include "nri_filter_candidate_policy.h"
 #include "nri_material_policy.h"
 #include "nri_pass_dispatch.h"
 #include "nri_persistent_voxel_services.h"
@@ -57,6 +58,44 @@
 
 namespace
 {
+	static bool ApplyReflectionFilterCandidateCertificate(
+		const nri_scene::GeometryData& geometry,
+		uint32_t primitiveOffset,
+		uint32_t primitiveCount,
+		nri::TopLevelInstance& instance,
+		NRIRenderer::PerfShellTraceStats& stats)
+	{
+		stats.filterCandidateEnabled = (bool)nri_ptfilterquery;
+		stats.filterCandidateOccurrences++;
+		const NRIFilterCandidateCertificate certificate =
+			ClassifyReflectionOnlyFilterCandidateSpan(geometry, primitiveOffset, primitiveCount);
+		switch (certificate.outcome)
+		{
+		case NRIFilterCandidateCertificateOutcome::Certified:
+			stats.filterCandidateCertifiedOccurrences++;
+			stats.filterCandidateCertifiedPrimitives += certificate.primitiveCount;
+			if ((bool)nri_ptfilterquery)
+			{
+				instance.flags = (nri::TopLevelInstanceBits)(
+					(uint32_t)instance.flags |
+					(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
+				return true;
+			}
+			break;
+		case NRIFilterCandidateCertificateOutcome::Empty:
+			stats.filterCandidateRejectEmpty++;
+			break;
+		case NRIFilterCandidateCertificateOutcome::OutOfBounds:
+			stats.filterCandidateRejectRange++;
+			break;
+		case NRIFilterCandidateCertificateOutcome::MixedPolicy:
+			stats.filterCandidateRejectMixed++;
+			break;
+		}
+
+		return false;
+	}
+
 	static uint32_t GetBootstrapMode()
 	{
 		return (uint32_t)std::max(0, std::min((int)nri_ptbootstrapmode, 13));
@@ -519,6 +558,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	mSelectSceneInstanceScratch.clear();
 	mSelectCapturedTopLevelInstanceScratch.clear();
 	mSelectCapturedSceneInstanceScratch.clear();
+	mSelectedDynamicOverlayBlasOccurrences.clear();
+	std::vector<SelectedDynamicOverlayBlasOccurrence> selectedDynamicOverlayBlasOccurrences;
 	const nri_scene::SceneView*& activeSceneView = frame.activeSceneView;
 	const nri_scene::GeometryData*& activeGeometry = frame.activeGeometry;
 	const std::vector<nri_scene::MaterialData>*& activeGpuMaterials = frame.activeGpuMaterials;
@@ -1451,8 +1492,15 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					}
 					useDynamicOverlayBlasRoute =
 						dynamicOverlayBlasRoute.routeAllOverlay &&
-						dynamicOverlayBlasRoute.accelerationStructure != nullptr &&
-						dynamicOverlayBlasRoute.accelerationStructure->accelerationStructure != nullptr;
+						!dynamicOverlayBlasRoute.occurrences.empty() &&
+						std::all_of(
+							dynamicOverlayBlasRoute.occurrences.begin(),
+							dynamicOverlayBlasRoute.occurrences.end(),
+							[](const DynamicOverlayBlasRoute::Occurrence& occurrence)
+							{
+								return occurrence.accelerationStructure != nullptr &&
+									occurrence.accelerationStructure->accelerationStructure != nullptr;
+							});
 					if (liveOverlayPrimitiveCount > 0 && !useDynamicOverlayBlasRoute)
 					{
 						mLastPerfShellTraceStats.dynamicAsRuntimeSpaceLinkPrimitives = mLastPerfShellTraceStats.overlayRuntimeSpaceLinkAppend.primitiveCount;
@@ -1552,24 +1600,46 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					if (useDynamicOverlayBlasRoute)
 					{
 						ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectInstanceHandlesMs);
-						nri::TopLevelInstance dynamicInstance = {};
-						dynamicInstance.transform[0][0] = 1.0f;
-						dynamicInstance.transform[1][1] = 1.0f;
-						dynamicInstance.transform[2][2] = 1.0f;
-						dynamicInstance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
-						dynamicInstance.shaderBindingTableLocalOffset = 0;
-						dynamicInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-						dynamicInstance.accelerationStructureHandle =
-							mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicOverlayBlasRoute.accelerationStructure->accelerationStructure);
 						NRIRaySceneBuilder builder(instances, sceneInstances);
-						SceneInstanceData sceneRecord = {};
-						sceneRecord.primitiveBase = dynamicOverlayBlasRoute.span.primitiveOffset;
-						sceneRecord.dataSource = nri_diag::SceneDataSourceDynamic;
-						sceneRecord.materialBase = dynamicOverlayBlasRoute.span.materialOffset;
-						sceneRecord.materialCount = dynamicOverlayBlasRoute.span.materialCount;
-						sceneRecord.visibilityChunk = UINT32_MAX;
-						actorDynamicTlasInstanceIndex = builder.AddInstance(dynamicInstance, sceneRecord);
-						actorDynamicTlasMask = dynamicInstance.mask;
+						for (const DynamicOverlayBlasRoute::Occurrence& occurrence : dynamicOverlayBlasRoute.occurrences)
+						{
+							nri::TopLevelInstance dynamicInstance = {};
+							dynamicInstance.transform[0][0] = 1.0f;
+							dynamicInstance.transform[1][1] = 1.0f;
+							dynamicInstance.transform[2][2] = 1.0f;
+							dynamicInstance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
+							dynamicInstance.shaderBindingTableLocalOffset = 0;
+							dynamicInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+							ApplyReflectionFilterCandidateCertificate(
+								overlayGeometry,
+								occurrence.span.primitiveOffset,
+								occurrence.span.primitiveCount,
+								dynamicInstance,
+								mLastPerfShellTraceStats);
+							dynamicInstance.accelerationStructureHandle =
+								mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*occurrence.accelerationStructure->accelerationStructure);
+							SceneInstanceData sceneRecord = {};
+							sceneRecord.primitiveBase = occurrence.span.primitiveOffset;
+							sceneRecord.dataSource = nri_diag::SceneDataSourceDynamic;
+							// Overlay primitive records already contain global material
+							// indices. Partitioning changes AS ownership, not the GPU
+							// primitive/material buffer contract.
+							sceneRecord.materialBase = 0u;
+							sceneRecord.materialCount = (uint32_t)dynamicGpuMaterials.size();
+							sceneRecord.visibilityChunk = UINT32_MAX;
+							const uint32_t instanceIndex = builder.AddInstance(dynamicInstance, sceneRecord);
+							SelectedDynamicOverlayBlasOccurrence selectedOccurrence = {};
+							selectedOccurrence.accelerationStructure = occurrence.accelerationStructure;
+							selectedOccurrence.sceneInstanceIndex = instanceIndex;
+							selectedOccurrence.primitiveOffset = occurrence.span.primitiveOffset;
+							selectedOccurrence.primitiveCount = occurrence.span.primitiveCount;
+							selectedDynamicOverlayBlasOccurrences.push_back(selectedOccurrence);
+							if (occurrence.span.domain == SceneBufferUploadDomain::Dynamic)
+							{
+								actorDynamicTlasInstanceIndex = instanceIndex;
+								actorDynamicTlasMask = dynamicInstance.mask;
+							}
+						}
 					}
 					else if (liveOverlayPrimitiveCount > 0 && dynamicBottomLevelAS.accelerationStructure != nullptr)
 					{
@@ -1581,6 +1651,12 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						dynamicInstance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
 						dynamicInstance.shaderBindingTableLocalOffset = 0;
 						dynamicInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+						ApplyReflectionFilterCandidateCertificate(
+							overlayGeometry,
+							0u,
+							liveOverlayPrimitiveCount,
+							dynamicInstance,
+							mLastPerfShellTraceStats);
 						dynamicInstance.accelerationStructureHandle = mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicBottomLevelAS.accelerationStructure);
 						NRIRaySceneBuilder builder(instances, sceneInstances);
 						SceneInstanceData sceneRecord = {};
@@ -1804,6 +1880,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					mLastStateCommitDomainGenerations = generationResult.current;
 					mHasLastStateCommitDomainGenerations = true;
 				}
+				mSelectedDynamicOverlayBlasOccurrences = std::move(selectedDynamicOverlayBlasOccurrences);
 			}
 			else
 			{
@@ -1985,6 +2062,12 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				instance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
 				instance.shaderBindingTableLocalOffset = 0;
 				instance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+				ApplyReflectionFilterCandidateCertificate(
+					capturedGeometry,
+					0u,
+					(uint32_t)capturedGeometry.primitives.size(),
+					instance,
+					mLastPerfShellTraceStats);
 				instance.accelerationStructureHandle = mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicBottomLevelAS.accelerationStructure);
 
 				auto& instances = mSelectCapturedTopLevelInstanceScratch;

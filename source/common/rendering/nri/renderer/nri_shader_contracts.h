@@ -79,6 +79,9 @@ constexpr uint32_t NRI_FLAG_SPATIAL_ABSENCE_GATE = 0x8000u;
 // most 72 phases). Keeping actor gating in TraceOpaque flags avoids reading a
 // stale spatial payload when the independently controlled actor gate is off.
 constexpr uint32_t NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE = 0x800000u;
+// ReservedTrace1 bits 8..14 carry the emissive sample count. Bit 15 toggles
+// the generalized filter-candidate query without consuming packed Flags bits.
+constexpr uint32_t NRI_TRACE_AUX_FILTER_QUERY = 0x8000u;
 
 constexpr uint32_t NRI_PRESENT_FLAG_SPLIT_SHADOW_DENOISER = NRI_FLAG_SPLIT_SHADOW_DENOISER;
 constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_DISPLAY_INFO_AVAILABLE = 0x1u;

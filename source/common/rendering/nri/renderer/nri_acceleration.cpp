@@ -354,6 +354,7 @@ bool NRIAccelerationStructureManager::BuildEmissiveTopLevel(NRIRenderer& rendere
 
 	std::unordered_map<uint32_t, uint32_t> staticSceneInstanceByPrimitiveOffset;
 	staticSceneInstanceByPrimitiveOffset.reserve(renderer.mBoundSceneInstances.size());
+	const bool dynamicPartitionRouteActive = !renderer.mSelectedDynamicOverlayBlasOccurrences.empty();
 	uint32_t dynamicSceneInstanceIndex = UINT32_MAX;
 	for (uint32_t sceneInstanceIndex = 0; sceneInstanceIndex < (uint32_t)renderer.mBoundSceneInstances.size(); ++sceneInstanceIndex)
 	{
@@ -362,7 +363,9 @@ bool NRIAccelerationStructureManager::BuildEmissiveTopLevel(NRIRenderer& rendere
 		{
 			staticSceneInstanceByPrimitiveOffset.emplace(sceneInstance.primitiveBase, sceneInstanceIndex);
 		}
-		else if (sceneInstance.dataSource == nri_diag::SceneDataSourceDynamic && dynamicSceneInstanceIndex == UINT32_MAX)
+		else if (!dynamicPartitionRouteActive &&
+			sceneInstance.dataSource == nri_diag::SceneDataSourceDynamic &&
+			dynamicSceneInstanceIndex == UINT32_MAX)
 		{
 			dynamicSceneInstanceIndex = sceneInstanceIndex;
 		}
@@ -370,6 +373,10 @@ bool NRIAccelerationStructureManager::BuildEmissiveTopLevel(NRIRenderer& rendere
 
 	std::vector<uint8_t> emissiveStaticChunks(renderer.mStaticMapScene.chunks.size(), 0u);
 	bool includeDynamicInstance = false;
+	std::vector<uint8_t> emissiveDynamicPartitions(
+		renderer.mSelectedDynamicOverlayBlasOccurrences.size(),
+		0u);
+	bool unmatchedDynamicPartitionRecord = false;
 	const NRIAccelerationStructureResource* dynamicBottomLevelAS = &renderer.GetCurrentDynamicBottomLevelAS();
 	const auto findStaticChunkIndexForPrimitive = [&](uint32_t primitiveIndex) -> int32_t
 	{
@@ -406,13 +413,40 @@ bool NRIAccelerationStructureManager::BuildEmissiveTopLevel(NRIRenderer& rendere
 				renderer.mLastPerfShellTraceStats.emissiveAsStaticRecordUnmatchedChunks++;
 			}
 		}
-		else if (record.dataSource == nri_diag::SceneDataSourceDynamic &&
-			dynamicSceneInstanceIndex != UINT32_MAX &&
-			dynamicBottomLevelAS != nullptr &&
-			dynamicBottomLevelAS->accelerationStructure != nullptr)
+		else if (record.dataSource == nri_diag::SceneDataSourceDynamic)
 		{
 			renderer.mLastPerfShellTraceStats.emissiveAsDynamicRecordCount++;
-			includeDynamicInstance = true;
+			if (dynamicPartitionRouteActive)
+			{
+				bool matchedPartition = false;
+				if (record.primitiveIndex != UINT32_MAX && record.primitiveCount != 0)
+				{
+					const uint64_t recordBegin = record.primitiveIndex;
+					const uint64_t recordEnd = recordBegin + record.primitiveCount;
+					for (size_t partitionIndex = 0;
+						partitionIndex < renderer.mSelectedDynamicOverlayBlasOccurrences.size();
+						++partitionIndex)
+					{
+						const NRIRenderer::SelectedDynamicOverlayBlasOccurrence& occurrence =
+							renderer.mSelectedDynamicOverlayBlasOccurrences[partitionIndex];
+						const uint64_t partitionBegin = occurrence.primitiveOffset;
+						const uint64_t partitionEnd = partitionBegin + occurrence.primitiveCount;
+						if (recordBegin >= partitionBegin && recordEnd <= partitionEnd)
+						{
+							emissiveDynamicPartitions[partitionIndex] = 1u;
+							matchedPartition = true;
+							break;
+						}
+					}
+				}
+				unmatchedDynamicPartitionRecord |= !matchedPartition;
+			}
+			else if (dynamicSceneInstanceIndex != UINT32_MAX &&
+				dynamicBottomLevelAS != nullptr &&
+				dynamicBottomLevelAS->accelerationStructure != nullptr)
+			{
+				includeDynamicInstance = true;
+			}
 		}
 		else if (record.dataSource == nri_diag::SceneDataSourcePersistentVoxel)
 		{
@@ -420,8 +454,15 @@ bool NRIAccelerationStructureManager::BuildEmissiveTopLevel(NRIRenderer& rendere
 		}
 	}
 
+	if (unmatchedDynamicPartitionRecord)
+	{
+		std::fill(emissiveDynamicPartitions.begin(), emissiveDynamicPartitions.end(), 1u);
+	}
+
 	std::vector<nri::TopLevelInstance> instances;
-	instances.reserve(renderer.mStaticMapScene.chunks.size() + (includeDynamicInstance ? 1u : 0u));
+	instances.reserve(
+		renderer.mStaticMapScene.chunks.size() +
+		(dynamicPartitionRouteActive ? emissiveDynamicPartitions.size() : (includeDynamicInstance ? 1u : 0u)));
 	for (size_t chunkIndex = 0; chunkIndex < renderer.mStaticMapScene.chunks.size(); ++chunkIndex)
 	{
 		if (emissiveStaticChunks[chunkIndex] == 0u)
@@ -484,6 +525,48 @@ bool NRIAccelerationStructureManager::BuildEmissiveTopLevel(NRIRenderer& rendere
 		else
 		{
 			renderer.mLastPerfShellTraceStats.emissiveAsMaskOtherRefs++;
+		}
+	}
+	else if (dynamicPartitionRouteActive)
+	{
+		for (size_t partitionIndex = 0; partitionIndex < emissiveDynamicPartitions.size(); ++partitionIndex)
+		{
+			if (emissiveDynamicPartitions[partitionIndex] == 0u)
+			{
+				continue;
+			}
+
+			const NRIRenderer::SelectedDynamicOverlayBlasOccurrence& occurrence =
+				renderer.mSelectedDynamicOverlayBlasOccurrences[partitionIndex];
+			if (occurrence.accelerationStructure == nullptr ||
+				occurrence.accelerationStructure->accelerationStructure == nullptr ||
+				occurrence.sceneInstanceIndex >= renderer.mBoundSceneInstances.size() ||
+				renderer.mBoundSceneInstances[occurrence.sceneInstanceIndex].dataSource != nri_diag::SceneDataSourceDynamic)
+			{
+				continue;
+			}
+
+			nri::TopLevelInstance instance = {};
+			instance.transform[0][0] = 1.0f;
+			instance.transform[1][1] = 1.0f;
+			instance.transform[2][2] = 1.0f;
+			instance.instanceId = occurrence.sceneInstanceIndex;
+			instance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
+			instance.shaderBindingTableLocalOffset = 0;
+			instance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+			instance.accelerationStructureHandle = renderer.mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(
+				*occurrence.accelerationStructure->accelerationStructure);
+			instances.push_back(instance);
+			renderer.mEmissiveTlasDynamicInstanceCount++;
+			renderer.mLastPerfShellTraceStats.emissiveAsDynamicAggregateRefs++;
+			if (instance.mask == NRI_TLAS_MASK_ALL_WORKLOADS)
+			{
+				renderer.mLastPerfShellTraceStats.emissiveAsMaskAllWorkloadsRefs++;
+			}
+			else
+			{
+				renderer.mLastPerfShellTraceStats.emissiveAsMaskOtherRefs++;
+			}
 		}
 	}
 

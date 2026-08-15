@@ -1007,6 +1007,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_mirrors.cpp
 	common/rendering/nri/renderer/nri_scene_frame_overlay.cpp
 	common/rendering/nri/renderer/nri_scene_frame_selection.cpp
+	common/rendering/nri/renderer/nri_filter_candidate_policy.cpp
 	common/rendering/nri/renderer/nri_scene_frame_build.cpp
 	common/rendering/nri/renderer/nri_scene_frame_state.cpp
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp

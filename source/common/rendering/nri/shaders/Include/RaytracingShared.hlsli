@@ -186,9 +186,17 @@ static const uint TRACE_STAT_SPATIAL_COMPARE_TYPED_UNAVAILABLE = TRACE_STAT_SPAT
 static const uint TRACE_STAT_SPATIAL_COMPARE_OUTCOME_MISMATCH = TRACE_STAT_SPATIAL_COMPARE_BASE + 2u;
 static const uint TRACE_STAT_SPATIAL_COMPARE_POSITIVE_MISMATCH = TRACE_STAT_SPATIAL_COMPARE_BASE + 3u;
 static const uint TRACE_STAT_SPATIAL_COMPARE_PROBE_MISMATCH = TRACE_STAT_SPATIAL_COMPARE_BASE + 4u;
+static const uint TRACE_STAT_FILTER_QUERY_BASE = TRACE_STAT_SPATIAL_COMPARE_BASE + TRACE_STAT_SPATIAL_COMPARE_COUNT;
+static const uint TRACE_STAT_FILTER_QUERY_COUNT = 6u;
+static const uint TRACE_STAT_FILTER_QUERY_INITS = TRACE_STAT_FILTER_QUERY_BASE + 0u;
+static const uint TRACE_STAT_FILTER_CANDIDATES = TRACE_STAT_FILTER_QUERY_BASE + 1u;
+static const uint TRACE_STAT_FILTER_REFLECTION_IGNORES = TRACE_STAT_FILTER_QUERY_BASE + 2u;
+static const uint TRACE_STAT_FILTER_CANDIDATE_COMMITS = TRACE_STAT_FILTER_QUERY_BASE + 3u;
+static const uint TRACE_STAT_FILTER_UNEXPECTED_COMMITS = TRACE_STAT_FILTER_QUERY_BASE + 4u;
+static const uint TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS = TRACE_STAT_FILTER_QUERY_BASE + 5u;
 static const uint TRACE_STAT_INSTANCE_BUCKET_COUNT = 1024u;
 static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE =
-	TRACE_STAT_SPATIAL_COMPARE_BASE + TRACE_STAT_SPATIAL_COMPARE_COUNT;
+	TRACE_STAT_FILTER_QUERY_BASE + TRACE_STAT_FILTER_QUERY_COUNT;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 
@@ -1879,12 +1887,17 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 		float2 committedBarycentrics = 0.0;
 		bool committedSpatialOutcomeKnown = false;
 		uint committedSpatialOutcome = SPATIAL_PROBE_OUTCOME_DISABLED;
-		if (spatialAbsenceGateActive && !spatialProbeRay && spatialCandidatePayloadValid)
+		const bool filterCandidateQueryEnabled =
+			(gTraceConstants.ReservedTrace1 & NRI_TRACE_AUX_FILTER_QUERY) != 0u;
+		if (!spatialProbeRay &&
+			(filterCandidateQueryEnabled ||
+				(spatialAbsenceGateActive && spatialCandidatePayloadValid)))
 		{
-			// The CPU marks only currently authorized census-negative static
-			// instances non-opaque. Ignore certified candidates in one hardware
-			// traversal; all other scene occurrences remain fixed-function opaque.
+			// CPU policy certificates expose only exact, fail-open non-opaque
+			// occurrences. Spatial-negative static instances and whole-BLAS
+			// reflection-only dynamic instances share one candidate traversal.
 			RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> rayQuery;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_QUERY_INITS, 1u);
 			rayQuery.TraceRayInline(
 				gWorldTlas,
 				RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES,
@@ -1899,14 +1912,10 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				{
 					continue;
 				}
+				TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATES, 1u);
 
 				const uint candidateInstanceId = rayQuery.CandidateInstanceID();
 				const SceneInstanceData candidateInstance = GetSceneInstanceData(candidateInstanceId);
-				if (candidateInstance.dataSource != SCENE_DATA_SOURCE_STATIC)
-				{
-					rayQuery.CommitNonOpaqueTriangleHit();
-					continue;
-				}
 				const uint candidatePrimitiveQueryIndex = rayQuery.CandidatePrimitiveIndex();
 				const uint candidatePrimitiveIndex = ResolvePrimitiveIndex(
 					candidateInstance,
@@ -1914,6 +1923,31 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				const PrimitiveData candidatePrimitive = GetPrimitiveData(
 					candidateInstance.dataSource,
 					candidatePrimitiveIndex);
+				if (candidateInstance.dataSource == SCENE_DATA_SOURCE_DYNAMIC)
+				{
+					if (IsReflectionOnlyPrimitive(candidatePrimitive) && !allowReflectionOnlySurfaces)
+					{
+						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
+						TraceShaderStatAdd(TRACE_STAT_REJECT_REFLECTION, 1u);
+						TraceShaderStatAdd(TRACE_STAT_REJECT_DYNAMIC, 1u);
+						TraceShaderStatAdd(TRACE_STAT_FILTER_REFLECTION_IGNORES, 1u);
+						continue;
+					}
+					if (!IsReflectionOnlyPrimitive(candidatePrimitive))
+					{
+						TraceShaderStatAdd(TRACE_STAT_FILTER_UNEXPECTED_COMMITS, 1u);
+					}
+					rayQuery.CommitNonOpaqueTriangleHit();
+					TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
+					continue;
+				}
+				if (candidateInstance.dataSource != SCENE_DATA_SOURCE_STATIC ||
+					!spatialAbsenceGateActive || !spatialCandidatePayloadValid)
+				{
+					rayQuery.CommitNonOpaqueTriangleHit();
+					TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
+					continue;
+				}
 				const uint candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
 					candidateInstance,
 					candidatePrimitive);
@@ -1927,6 +1961,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				if (candidateVisibilityChunk >= spatialCandidateChunkCount)
 				{
 					rayQuery.CommitNonOpaqueTriangleHit();
+					TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
 					continue;
 				}
 				bool candidateChunkCertified = false;
@@ -1944,6 +1979,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				if (!candidateChunkCertified)
 				{
 					rayQuery.CommitNonOpaqueTriangleHit();
+					TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
 					continue;
 				}
 				const float candidateDistance = rayQuery.CandidateTriangleRayT();
@@ -1995,6 +2031,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 				}
 
 				rayQuery.CommitNonOpaqueTriangleHit();
+				TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
 				lastCandidateInstanceId = candidateInstanceId;
 				lastCandidatePrimitiveQueryIndex = candidatePrimitiveQueryIndex;
 				lastCandidateSpatialOutcome = candidateSpatialOutcome;
@@ -2059,6 +2096,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_REJECT_REFLECTION, 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
@@ -2074,6 +2112,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_REJECT_VISIBLE, 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
@@ -2111,6 +2150,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 						traversalTemporalFlags |= HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED;
 					}
 					accumulatedDistance = committedDistance;
+					TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 					continue;
 				}
 			}
@@ -2200,6 +2240,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
@@ -2210,6 +2251,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_REJECT_HIDDEN_FLAT, 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
@@ -2221,6 +2263,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_REJECT_ONEWAY, 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
@@ -2233,6 +2276,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_REJECT_NO_SHADOW, 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
@@ -2246,6 +2290,7 @@ bool TraceClosestSurface(float3 startOrigin, float3 direction, float maxDistance
 			TraceShaderStatAdd(TRACE_STAT_REJECT_TRANSPARENT, 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
+			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
 			continue;
 		}
 
