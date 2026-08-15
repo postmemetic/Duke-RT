@@ -2,6 +2,7 @@
 #include "nri_acceleration.h"
 #include "nri_cvars.h"
 #include "nri_frame_resources.h"
+#include "nri_filter_candidate_policy.h"
 #include "nri_upload_hash.h"
 
 #include <algorithm>
@@ -9,8 +10,14 @@
 
 namespace
 {
-	static constexpr size_t MaxDynamicOverlayBlasAssets = 64;
-	static constexpr uint32_t MaxFilterCandidateBlasBuildsPerFrame = 6;
+	static constexpr size_t MaxDynamicOverlayBlasAssets = 128;
+	static constexpr uint32_t MaxFilterCandidateRunsPerFrame = 32;
+
+	struct PlannedDynamicOverlaySpan
+	{
+		NRIRenderer::SceneBufferUploadDomainSpan span = {};
+		uint32_t filterPolicyMask = NRIFilterCandidatePolicy_None;
+	};
 
 	static bool IsNonEmptyPrimitiveSpan(const NRIRenderer::SceneBufferUploadDomainSpan& span)
 	{
@@ -19,6 +26,7 @@ namespace
 
 	static uint64_t BuildDynamicOverlayBlasKey(
 		const NRIRenderer::SceneBufferUploadDomainSpan& span,
+		uint32_t filterPolicyMask,
 		const std::vector<nri_scene::SceneVertex>& vertices,
 		const std::vector<uint32_t>& indices)
 	{
@@ -27,6 +35,7 @@ namespace
 		key = NRIHashCombine64(key, (uint64_t)span.vertexCount);
 		key = NRIHashCombine64(key, (uint64_t)span.indexCount);
 		key = NRIHashCombine64(key, (uint64_t)span.primitiveCount);
+		key = NRIHashCombine64(key, (uint64_t)filterPolicyMask);
 		// A BLAS depends only on geometry build input. Producer stamps also
 		// cover primitive/material publication and can conservatively advance
 		// every frame (notably for local-player reflection capture), which would
@@ -54,6 +63,7 @@ void NRIRenderer::ResetDynamicOverlayBlasCache()
 
 bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 	const nri_scene::GeometryData& geometry,
+	const std::vector<nri_scene::MaterialData>& materials,
 	const std::vector<SceneBufferUploadDomainSpan>& uploadSpans,
 	DynamicOverlayBlasRoute& outRoute)
 {
@@ -69,7 +79,8 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 		return true;
 	}
 
-	std::vector<const SceneBufferUploadDomainSpan*> selectedSpans;
+	std::vector<PlannedDynamicOverlaySpan> selectedSpans;
+	std::vector<NRIFilterCandidateRun> filterRuns;
 	for (const SceneBufferUploadDomainSpan& span : uploadSpans)
 	{
 		if (!IsNonEmptyPrimitiveSpan(span))
@@ -84,7 +95,40 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 		{
 			return true;
 		}
-		selectedSpans.push_back(&span);
+		if (filterPartitionEnabled)
+		{
+			const uint32_t remainingRunCapacity = MaxFilterCandidateRunsPerFrame - (uint32_t)selectedSpans.size();
+			if (!BuildFilterCandidateRuns(
+				geometry,
+				materials,
+				span.primitiveOffset,
+				span.primitiveCount,
+				span.indexOffset,
+				span.indexCount,
+				(uint32_t)std::max(0, (int)nri_ptfilterpolicymask),
+				remainingRunCapacity,
+				filterRuns))
+			{
+				return true;
+			}
+			for (const NRIFilterCandidateRun& run : filterRuns)
+			{
+				PlannedDynamicOverlaySpan planned = {};
+				planned.span = span;
+				planned.span.primitiveOffset = run.primitiveOffset;
+				planned.span.primitiveCount = run.primitiveCount;
+				planned.span.indexOffset = run.indexOffset;
+				planned.span.indexCount = run.indexCount;
+				planned.filterPolicyMask = run.policyMask;
+				selectedSpans.push_back(planned);
+			}
+		}
+		else
+		{
+			PlannedDynamicOverlaySpan planned = {};
+			planned.span = span;
+			selectedSpans.push_back(planned);
+		}
 	}
 
 	if (selectedSpans.empty() || (!filterPartitionEnabled && selectedSpans.size() != 1))
@@ -93,11 +137,9 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 	}
 	if (filterPartitionEnabled)
 	{
-		// The filter route is atomic: a residual monolithic BLAS is not part of
-		// this bounded slice. Cover the six known overlay producer domains in
-		// one warm-up frame or fail open, rather than spending the legacy
-		// one-build experiment budget forever without ever publishing a route.
-		if (selectedSpans.size() > MaxFilterCandidateBlasBuildsPerFrame)
+		// The filter route is atomic. Fragmentation beyond the bounded run cap
+		// fails open to the monolithic legacy BLAS instead of publishing gaps.
+		if (selectedSpans.size() > MaxFilterCandidateRunsPerFrame)
 		{
 			return true;
 		}
@@ -114,9 +156,9 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 
 	std::vector<uint64_t> selectedKeys;
 	selectedKeys.reserve(selectedSpans.size());
-	for (const SceneBufferUploadDomainSpan* spanPtr : selectedSpans)
+	for (const PlannedDynamicOverlaySpan& planned : selectedSpans)
 	{
-		const SceneBufferUploadDomainSpan& span = *spanPtr;
+		const SceneBufferUploadDomainSpan& span = planned.span;
 		if (span.vertexCount == 0 || span.indexCount == 0 || span.primitiveCount == 0)
 		{
 			outRoute = {};
@@ -149,7 +191,7 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 			mDynamicOverlayBlasIndexScratch.push_back(index - span.vertexOffset);
 		}
 
-		const uint64_t key = BuildDynamicOverlayBlasKey(span, mDynamicOverlayBlasVertexScratch, mDynamicOverlayBlasIndexScratch);
+		const uint64_t key = BuildDynamicOverlayBlasKey(span, planned.filterPolicyMask, mDynamicOverlayBlasVertexScratch, mDynamicOverlayBlasIndexScratch);
 		auto found = std::find_if(mDynamicOverlayBlasAssets.begin(), mDynamicOverlayBlasAssets.end(),
 			[key](const DynamicOverlayBlasAsset& asset)
 			{
@@ -269,7 +311,8 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 		}
 		DynamicOverlayBlasRoute::Occurrence occurrence = {};
 		occurrence.accelerationStructure = &found->accelerationStructure;
-		occurrence.span = *selectedSpans[selectedIndex];
+		occurrence.span = selectedSpans[selectedIndex].span;
+		occurrence.filterPolicyMask = selectedSpans[selectedIndex].filterPolicyMask;
 		outRoute.occurrences.push_back(occurrence);
 	}
 

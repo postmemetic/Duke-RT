@@ -4364,7 +4364,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			mRenderer->GetLastPerfResourceTraceStats(),
 			mRenderer->GetLastPerfTraceShaderStats());
 	}
-	if (rendered && (PerfLoopTraceActive() || (bool)nri_pt360absenceprobe))
+	if (rendered && (PerfLoopTraceActive() || (bool)nri_pt360absenceprobe || (bool)nri_ptfiltercompare))
 	{
 		const auto& shell = mRenderer->GetLastPerfShellTraceStats();
 		const auto& resource = mRenderer->GetLastPerfResourceTraceStats();
@@ -4837,6 +4837,20 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[NRI_TRACE_SHADER_FILTER_CANDIDATE_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_UNEXPECTED_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_POSTCOMMIT_RESTARTS]);
+			Printf(
+				"PERF pt shader filter compare NRI: frame=%llu stats_frame=%llu total=%u excluded_probe=%u match=%u hit_miss=%u identity=%u distance=%u surface=%u portal=%u temporal=%u skip_limit=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_TOTAL],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_EXCLUDED_PROBE],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_MATCH],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_HIT_MISS],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_IDENTITY],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_DISTANCE],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_SURFACE],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_PORTAL],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_TEMPORAL],
+				c[NRI_TRACE_SHADER_FILTER_COMPARE_SKIP_LIMIT]);
 			for (uint32_t hotIndex = 0; hotIndex < shader.hotInstanceCount; ++hotIndex)
 			{
 				const auto& hot = shader.hotInstances[hotIndex];
@@ -11027,11 +11041,18 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 	const char* diagnosticPrefix = "variants/diagnostic/";
 	const bool explicitDiagnosticPath = std::strncmp(
 		fileName, diagnosticPrefix, std::strlen(diagnosticPrefix)) == 0;
-	const bool diagnosticRequested = FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
+	const char* startupShaderVariant = V_GetStartupSetOverride("nri_shadervariant");
+	const bool diagnosticRequested = startupShaderVariant != nullptr ?
+		FString(startupShaderVariant).CompareNoCase("diagnostic") == 0 :
+		FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
 	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.spirv") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueTyped.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueTyped.cs.spirv") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueTypedCache.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueTypedCache.cs.spirv") == 0 ||
 		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.dxil") == 0 ||
 		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.spirv") == 0;
 	FString shaderPath = progdir;
@@ -11041,7 +11062,7 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 		mDiagnosticShaderVariantEffective = true;
 		if (!mShaderVariantSelectionEmitted)
 		{
-			Printf("NRI shader variant: diagnostic (explicit comparison route).\n");
+			Printf("NRI shader variant: diagnostic (explicit comparison route, first=%s).\n", fileName);
 			mShaderVariantSelectionEmitted = true;
 		}
 	}
@@ -11060,7 +11081,7 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 			mDiagnosticShaderVariantEffective = true;
 			if (!mShaderVariantSelectionEmitted)
 			{
-				Printf("NRI shader variant: diagnostic (developer manifest).\n");
+				Printf("NRI shader variant: diagnostic (developer manifest, first=%s).\n", fileName);
 				mShaderVariantSelectionEmitted = true;
 			}
 		}

@@ -1636,6 +1636,10 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // into the existing inline ray query. Session-only and independently
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
+CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
+// Developer-shader oracle: runs legacy and candidate traversal for the same
+// segment, returns the legacy result, and records exact mismatch categories.
+CVAR(Bool, nri_ptfiltercompare, false, 0)
 
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.

@@ -96,6 +96,137 @@ namespace
 		return false;
 	}
 
+	static bool ApplyFilterCandidatePolicy(
+		uint32_t policyMask,
+		uint32_t primitiveCount,
+		nri::TopLevelInstance& instance,
+		NRIRenderer::PerfShellTraceStats& stats)
+	{
+		stats.filterCandidateEnabled = (bool)nri_ptfilterquery;
+		stats.filterCandidateOccurrences++;
+		if (policyMask == NRIFilterCandidatePolicy_None || primitiveCount == 0u)
+		{
+			stats.filterCandidateRejectMixed++;
+			return false;
+		}
+
+		stats.filterCandidateCertifiedOccurrences++;
+		stats.filterCandidateCertifiedPrimitives += primitiveCount;
+		if (!(bool)nri_ptfilterquery)
+		{
+			return false;
+		}
+		instance.flags = (nri::TopLevelInstanceBits)(
+			(uint32_t)instance.flags |
+			(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
+		return true;
+	}
+
+	static uint32_t ResolveStaticFilterPrimitiveCount(
+		const StaticMapSceneCache& staticScene,
+		const ResidentMapChunkRegistry& registry,
+		uint32_t chunkIndex,
+		uint32_t primitiveOffset)
+	{
+		if (registry.valid && chunkIndex < registry.entries.size())
+		{
+			const ResidentMapChunkRegistry::Entry& entry = registry.entries[chunkIndex];
+			if (entry.valid && entry.chunkIndex == chunkIndex &&
+				entry.primitiveOffset == primitiveOffset)
+			{
+				return entry.primitiveCount;
+			}
+		}
+		if (registry.valid)
+		{
+			for (const ResidentMapChunkRegistry::Entry& entry : registry.entries)
+			{
+				if (entry.valid && entry.chunkIndex == chunkIndex &&
+					entry.primitiveOffset == primitiveOffset)
+				{
+					return entry.primitiveCount;
+				}
+			}
+		}
+		for (const StaticMapSceneCache::ChunkCache& chunk : staticScene.chunks)
+		{
+			if (chunk.active && chunk.chunkIndex == chunkIndex &&
+				chunk.primitiveOffset == primitiveOffset)
+			{
+				return chunk.primitiveCount;
+			}
+		}
+		return 0u;
+	}
+
+	static void ApplyStaticFilterCandidateFlags(
+		const StaticMapSceneCache& staticScene,
+		const ResidentMapChunkRegistry& registry,
+		const std::vector<uint32_t>& visibleChunkWords,
+		std::vector<nri::TopLevelInstance>& instances,
+		const std::vector<SceneInstanceData>& sceneInstances)
+	{
+		if (!(bool)nri_ptfilterquery || instances.size() != sceneInstances.size())
+		{
+			return;
+		}
+		const uint32_t enabledPolicyMask = (uint32_t)std::max(0, (int)nri_ptfilterpolicymask);
+		for (size_t instanceIndex = 0; instanceIndex < sceneInstances.size(); ++instanceIndex)
+		{
+			const SceneInstanceData& sceneInstance = sceneInstances[instanceIndex];
+			if (sceneInstance.dataSource != nri_diag::SceneDataSourceStatic)
+			{
+				continue;
+			}
+			const uint32_t primitiveCount = ResolveStaticFilterPrimitiveCount(
+				staticScene,
+				registry,
+				sceneInstance.metadata0,
+				sceneInstance.primitiveBase);
+			if (primitiveCount == 0u ||
+				(uint64_t)sceneInstance.primitiveBase + primitiveCount > staticScene.geometry.primitives.size())
+			{
+				continue;
+			}
+
+			const uint32_t chunkIndex = sceneInstance.metadata0;
+			const uint32_t visibleWordIndex = chunkIndex >> 5u;
+			const bool chunkVisible = visibleWordIndex < visibleChunkWords.size() &&
+				(visibleChunkWords[visibleWordIndex] & (1u << (chunkIndex & 31u))) != 0u;
+			bool requiresCandidateTraversal =
+				(enabledPolicyMask & NRIFilterCandidatePolicy_Visibility) != 0u &&
+				(bool)nri_ptvisiblechunkgate && !chunkVisible;
+			for (uint32_t localPrimitive = 0u; localPrimitive < primitiveCount; ++localPrimitive)
+			{
+				const nri_scene::PrimitiveData& primitive =
+					staticScene.geometry.primitives[sceneInstance.primitiveBase + localPrimitive];
+				if (primitive.materialIndex >= staticScene.gpuMaterials.size())
+				{
+					continue;
+				}
+				const nri_scene::MaterialData& material = staticScene.gpuMaterials[primitive.materialIndex];
+				if (((enabledPolicyMask & NRIFilterCandidatePolicy_ReflectionOnly) != 0u &&
+						(primitive.flags & nri_scene::PrimitiveFlag_ReflectionOnly) != 0u) ||
+					((enabledPolicyMask & NRIFilterCandidatePolicy_OneWay) != 0u &&
+						(material.flags & nri_scene::MaterialFlag_OneWay) != 0u) ||
+					((enabledPolicyMask & NRIFilterCandidatePolicy_NoShadow) != 0u &&
+						(material.lightingFlags & nri_scene::MaterialLightingFlag_NoShadowCast) != 0u) ||
+					((enabledPolicyMask & NRIFilterCandidatePolicy_Alpha) != 0u &&
+						((material.flags & nri_scene::MaterialFlag_AlphaClip) != 0u || material.alpha < 0.999f)))
+				{
+					requiresCandidateTraversal = true;
+					break;
+				}
+			}
+			if (requiresCandidateTraversal)
+			{
+				instances[instanceIndex].flags = (nri::TopLevelInstanceBits)(
+					(uint32_t)instances[instanceIndex].flags |
+					(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
+			}
+		}
+	}
+
 	static uint32_t GetBootstrapMode()
 	{
 		return (uint32_t)std::max(0, std::min((int)nri_ptbootstrapmode, 13));
@@ -1321,6 +1452,12 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectStaticInstancesMs);
 				BuildStaticMapInstances(instances, sceneInstances);
 				mMapMoverRigidRoute.PatchStaticInstances(instances, sceneInstances);
+				ApplyStaticFilterCandidateFlags(
+					mStaticMapScene,
+					mStaticSceneResidency.Registry(),
+					mCurrentVisibleChunkWords,
+					instances,
+					sceneInstances);
 				const bool spatialCandidateRouteReady = mSpatialAbsenceFormat == 0u ?
 					mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority() :
 					mSpatialAbsenceGpuSnapshot.HasNegativeAuthority(mSpatialAbsenceGate.GetSnapshot());
@@ -1471,7 +1608,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				{
 					RecordDynamicOverlayBlasModelStats(mLastPerfShellTraceStats, sceneUploadDomainSpans);
 					const bool dynamicOverlayBlasRouteReady =
-						BuildDynamicOverlayBlasRoute(overlayGeometry, sceneUploadDomainSpans, dynamicOverlayBlasRoute);
+						BuildDynamicOverlayBlasRoute(overlayGeometry, dynamicGpuMaterials, sceneUploadDomainSpans, dynamicOverlayBlasRoute);
 					bool persistentVoxelAsReady = true;
 					bool dynamicAsReady = dynamicOverlayBlasRouteReady;
 					if (hasPersistentVoxelOverlay)
@@ -1562,6 +1699,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						persistentVoxelTlasServices.occurrenceTrace.spatialSnapshot =
 							&mSpatialAbsenceGate.GetSnapshot();
 						persistentVoxelTlasServices.occurrencePolicy = actorOccurrencePolicyContext;
+						persistentVoxelTlasServices.gpuMaterials = &persistentVoxelGpuMaterials;
 						persistentVoxelTlasServices.getAccelerationStructureHandle = [](void* user, const NRIAccelerationStructureResource& resource) -> uint64_t
 						{
 							NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
@@ -1610,9 +1748,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 							dynamicInstance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
 							dynamicInstance.shaderBindingTableLocalOffset = 0;
 							dynamicInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-							ApplyReflectionFilterCandidateCertificate(
-								overlayGeometry,
-								occurrence.span.primitiveOffset,
+							ApplyFilterCandidatePolicy(
+								occurrence.filterPolicyMask,
 								occurrence.span.primitiveCount,
 								dynamicInstance,
 								mLastPerfShellTraceStats);

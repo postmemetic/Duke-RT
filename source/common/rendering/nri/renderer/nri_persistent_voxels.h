@@ -933,6 +933,7 @@ struct NRIPersistentVoxelTlasServices
 	EvaluateRepresentationFn evaluateRepresentation = nullptr;
 	NRIActorOccurrenceTraceConfig occurrenceTrace;
 	NRIActorOccurrencePolicyContext occurrencePolicy;
+	const std::vector<nri_scene::MaterialData>* gpuMaterials = nullptr;
 
 	uint64_t GetAccelerationStructureHandle(const NRIAccelerationStructureResource& resource) const;
 	NRIVoxelRepresentationDecision EvaluateRepresentation(const NRIVoxelRepresentationFacts& facts) const;

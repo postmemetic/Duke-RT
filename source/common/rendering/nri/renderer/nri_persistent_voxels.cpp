@@ -5,6 +5,7 @@
 
 #include "../scene/nri_hash.h"
 #include "nri_cvars.h"
+#include "nri_filter_candidate_policy.h"
 #include "nri_ray_scene_builder.h"
 #include "nri_shader_contracts.h"
 #include "nri_upload_hash.h"
@@ -22,6 +23,33 @@
 
 namespace
 {
+	bool PersistentVoxelRangeNeedsFilterCandidateTraversal(
+		uint32_t materialOffset,
+		uint32_t materialCount,
+		const std::vector<nri_scene::MaterialData>* materials)
+	{
+		if (materials == nullptr || materialCount == 0u ||
+			(uint64_t)materialOffset + materialCount > materials->size())
+		{
+			return false;
+		}
+		for (uint32_t i = 0u; i < materialCount; ++i)
+		{
+			const nri_scene::MaterialData& material = (*materials)[materialOffset + i];
+			const uint32_t enabledMask = (uint32_t)std::max(0, (int)nri_ptfilterpolicymask);
+			if (((enabledMask & NRIFilterCandidatePolicy_OneWay) != 0u &&
+					(material.flags & nri_scene::MaterialFlag_OneWay) != 0u) ||
+				((enabledMask & NRIFilterCandidatePolicy_NoShadow) != 0u &&
+					(material.lightingFlags & nri_scene::MaterialLightingFlag_NoShadowCast) != 0u) ||
+				((enabledMask & NRIFilterCandidatePolicy_Alpha) != 0u &&
+					((material.flags & nri_scene::MaterialFlag_AlphaClip) != 0u || material.alpha < 0.999f)))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	bool IsPersistentVoxelCacheEntryPublicationCurrent(
 		const nri_scene::PersistentVoxelCacheEntryView& entry)
 	{
@@ -3097,6 +3125,15 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		persistentVoxelInstance.mask = instanceVisibility.tlasMask;
 		persistentVoxelInstance.shaderBindingTableLocalOffset = 0;
 		persistentVoxelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+		if ((bool)nri_ptfilterquery && PersistentVoxelRangeNeedsFilterCandidateTraversal(
+			actor.materialOffset,
+			actor.materialCount,
+			services.gpuMaterials))
+		{
+			persistentVoxelInstance.flags = (nri::TopLevelInstanceBits)(
+				(uint32_t)persistentVoxelInstance.flags |
+				(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
+		}
 		const NRIAccelerationStructureResource* selectedAccelerationStructure = &meshResourceIt->second.accelerationStructure;
 		bool routedThroughSharedBlas = false;
 		const char* sharedRouteFallbackReason = nullptr;

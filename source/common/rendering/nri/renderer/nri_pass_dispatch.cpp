@@ -41,7 +41,8 @@ namespace
 	static bool ShouldCollectTraceShaderStats(const NRIRenderDevice* device)
 	{
 		return device != nullptr && device->UsesDiagnosticShaderVariant() &&
-			((bool)nri_pt360absenceprobe || (!!nri_ptshaderstats && ShouldTracePtPerf()));
+			((bool)nri_pt360absenceprobe || (bool)nri_ptfiltercompare ||
+				(!!nri_ptshaderstats && ShouldTracePtPerf()));
 	}
 
 	static NRITraceShaderStatsFenceServices BuildTraceShaderStatsFenceServices(NRIRenderDevice* device)
@@ -198,7 +199,7 @@ namespace
 	{
 		return
 			(denoiserMode & 0xffu) |
-			((emissiveSampleCount & 0x7fu) << 8u) |
+			((emissiveSampleCount & 0x3fu) << 8u) |
 			(PackDirectionalAngularSize16(directionalAngularSize) << 16u);
 	}
 
@@ -547,6 +548,9 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		(uint32_t)denoiserSettings.denoiserMode,
 		traceSettings.emissiveSampleCount,
 		context.mDirectionalLightState.angularSize) |
+		(nri_ptfiltercompare && context.mResources.frameBuffer->UsesDiagnosticShaderVariant() &&
+			context.mResources.frameBuffer->BuildBackendCapabilities().d3d12 ?
+			NRI_TRACE_AUX_FILTER_COMPARE : 0u) |
 		(nri_ptfilterquery ? NRI_TRACE_AUX_FILTER_QUERY : 0u);
 	Copy3(context.mFrame.skyColor.data(), constants.SkyColor);
 	Copy3(context.mFrame.groundColor.data(), constants.GroundColor);

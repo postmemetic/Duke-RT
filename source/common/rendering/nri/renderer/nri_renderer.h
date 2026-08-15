@@ -2261,6 +2261,7 @@ private:
 		{
 			const NRIAccelerationStructureResource* accelerationStructure = nullptr;
 			SceneBufferUploadDomainSpan span = {};
+			uint32_t filterPolicyMask = 0;
 		};
 
 		std::vector<Occurrence> occurrences;
@@ -2469,6 +2470,7 @@ private:
 		bool updateDynamicPerfStats);
 	bool BuildDynamicOverlayBlasRoute(
 		const nri_scene::GeometryData& geometry,
+		const std::vector<nri_scene::MaterialData>& materials,
 		const std::vector<SceneBufferUploadDomainSpan>& uploadSpans,
 		DynamicOverlayBlasRoute& outRoute);
 	void ResetDynamicOverlayBlasCache();
