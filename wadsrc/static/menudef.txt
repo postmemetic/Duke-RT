@@ -1609,6 +1609,7 @@ OptionValue CropAspect
 OptionValue MaxFps
 {
 	0, "$OPTVAL_UNLIMITED"
+	30, "$OPTVAL_30FPS"
 	60, "$OPTVAL_60FPS"
 	75, "$OPTVAL_75FPS"
 	90, "$OPTVAL_90FPS"

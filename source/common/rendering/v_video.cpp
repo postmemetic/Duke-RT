@@ -85,7 +85,8 @@ CUSTOM_CVAR(Int, gl_pipeline_depth, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 
 CUSTOM_CVAR(Int, vid_maxfps, 500, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
-	if (self < GameTicRate && self != 0)
+	// 30 is an explicit menu cap and may be below a game's simulation tic rate.
+	if (self < GameTicRate && self != 0 && self != 30)
 	{
 		self = GameTicRate;
 	}

@@ -10090,6 +10090,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 	stageStartMs = I_msTimeF();
 	mStreamer.EndStreamerFrame(*mStreamerInstance);
 	streamerEndMs = I_msTimeF() - stageStartMs;
+	FPSLimit();
 	nri::Result presentResult = nri::Result::FAILURE;
 	mFrameGeneration.OnPresentStart(*this);
 	{
