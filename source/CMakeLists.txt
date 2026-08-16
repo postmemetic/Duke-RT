@@ -925,6 +925,7 @@ set (NRI_SOURCES
 	common/rendering/nri/system/nri_hwbuffer.cpp
 	common/rendering/nri/system/nri_hwtexture.cpp
 	common/rendering/nri/framegen/nri_framegen.cpp
+	common/rendering/nri/framegen/nri_framegen_present_dx12.cpp
 	common/rendering/nri/renderer/nri_acceleration.cpp
 	common/rendering/nri/renderer/nri_actor_sprite_diagnostics.cpp
 	common/rendering/nri/renderer/nri_bloom.cpp

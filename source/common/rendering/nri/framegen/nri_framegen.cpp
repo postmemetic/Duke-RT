@@ -166,53 +166,6 @@ namespace
 		destination[destinationSize - 1u] = '\0';
 	}
 
-	static bool IsDxgiTearingSupported(IDXGIFactory* factory)
-	{
-		if (factory == nullptr)
-		{
-			return false;
-		}
-
-		IDXGIFactory5* factory5 = nullptr;
-		if (FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory5))) || factory5 == nullptr)
-		{
-			return false;
-		}
-
-		BOOL allowTearing = FALSE;
-		const HRESULT hr = factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing));
-		factory5->Release();
-		return SUCCEEDED(hr) && allowTearing == TRUE;
-	}
-
-	static HRESULT CreateDxgiFactoryForFrameGeneration(IDXGIFactory7** factory)
-	{
-		if (factory == nullptr)
-		{
-			return E_POINTER;
-		}
-
-		*factory = nullptr;
-		HMODULE dxgiModule = GetModuleHandleA("dxgi.dll");
-		if (dxgiModule == nullptr)
-		{
-			dxgiModule = LoadLibraryA("dxgi.dll");
-			if (dxgiModule == nullptr)
-			{
-				return HRESULT_FROM_WIN32(GetLastError());
-			}
-		}
-
-		using PfnCreateDXGIFactory2 = HRESULT (WINAPI*)(UINT flags, REFIID riid, void** factory);
-		auto createFactory2 = reinterpret_cast<PfnCreateDXGIFactory2>(GetProcAddress(dxgiModule, "CreateDXGIFactory2"));
-		if (createFactory2 == nullptr)
-		{
-			return E_NOINTERFACE;
-		}
-
-		return createFactory2(0u, IID_PPV_ARGS(factory));
-	}
-
 	static nri::Result GetNriPresentResult(HRESULT hr)
 	{
 		if (SUCCEEDED(hr))
@@ -519,11 +472,7 @@ NRIFrameGenerationSettings NRIFrameGenerationContext::CaptureSettings()
 
 bool NRIFrameGenerationContext::IsPresentBridgeActive() const
 {
-#ifdef _WIN32
-	return mFfxSwapChainContext != nullptr && mFfxSwapChain != nullptr;
-#else
-	return false;
-#endif
+	return mPresentBridge.IsActive();
 }
 
 bool NRIFrameGenerationContext::ShouldUsePresentBridge() const
@@ -539,7 +488,7 @@ bool NRIFrameGenerationContext::ShouldUsePresentBridge() const
 #ifdef _WIN32
 IDXGISwapChain4* NRIFrameGenerationContext::GetPresentSwapChain() const
 {
-	return mFfxSwapChain;
+	return mPresentBridge.GetSwapChain();
 }
 #endif
 
@@ -952,14 +901,12 @@ bool NRIFrameGenerationContext::Present(const NRIRenderDevice& frameBuffer, bool
 #ifndef _WIN32
 	return false;
 #else
-	if (!ShouldUsePresentBridge() || mFfxSwapChain == nullptr)
+	if (!ShouldUsePresentBridge())
 	{
 		return false;
 	}
 
-	const UINT syncInterval = vsync ? 1u : 0u;
-	const UINT presentFlags = (!vsync && allowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0u;
-	const HRESULT hr = mFfxSwapChain->Present(syncInterval, presentFlags);
+	const HRESULT hr = static_cast<HRESULT>(mPresentBridge.Present(vsync, allowTearing));
 	outResult = GetNriPresentResult(hr);
 	mProviderState.lastPresentResult = outResult;
 	mProviderState.presentUsedBridgeThisFrame = true;
@@ -1176,29 +1123,7 @@ void NRIFrameGenerationContext::ResetProviderState()
 void NRIFrameGenerationContext::DestroyProviderPresentBridge()
 {
 #ifdef _WIN32
-	assert(mFfxSwapChainContext != nullptr || mFfxSwapChain == nullptr);
-	const auto dispatch = reinterpret_cast<PfnFfxDispatch>(mFfxDispatchFn);
-	const auto destroyContext = reinterpret_cast<PfnFfxDestroyContext>(mFfxDestroyContextFn);
-	const auto allocationCallbacks = reinterpret_cast<ffxAllocationCallbacks*>(mFfxAllocCallbacks);
-	if (dispatch != nullptr && mFfxSwapChainContext != nullptr)
-	{
-		ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12 waitDesc = {};
-		NriFfxInitHeader(waitDesc.header, NRI_FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12);
-		dispatch(reinterpret_cast<ffxContext*>(&mFfxSwapChainContext), &waitDesc.header);
-	}
-
-	if (mFfxSwapChain != nullptr)
-	{
-		mFfxSwapChain->Release();
-		mFfxSwapChain = nullptr;
-	}
-
-	if (mFfxSwapChainContext != nullptr && destroyContext != nullptr)
-	{
-		ffxContext context = mFfxSwapChainContext;
-		destroyContext(&context, allocationCallbacks);
-		mFfxSwapChainContext = nullptr;
-	}
+	mPresentBridge.Destroy(mFfxDispatchFn, mFfxDestroyContextFn, mFfxAllocCallbacks);
 #endif
 
 	mProviderState.swapChainContextCreated = false;
@@ -1399,76 +1324,36 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 		return true;
 	}
 
-	const auto createContext = reinterpret_cast<PfnFfxCreateContext>(mFfxCreateContextFn);
-	const auto query = reinterpret_cast<PfnFfxQuery>(mFfxQueryFn);
-	const auto allocationCallbacks = reinterpret_cast<ffxAllocationCallbacks*>(mFfxAllocCallbacks);
-	if (createContext == nullptr)
+	if (mFfxCreateContextFn == nullptr)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "runtime-symbol-missing", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
 		return false;
 	}
 
-	IDXGIFactory7* factory = nullptr;
-	const HRESULT factoryResult = CreateDxgiFactoryForFrameGeneration(&factory);
-	if (FAILED(factoryResult) || factory == nullptr)
-	{
-		std::strncpy(mProviderState.lastStatusReason, "dxgi-factory-create-failed", std::size(mProviderState.lastStatusReason) - 1u);
-		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
-		return false;
-	}
-
-	DXGI_SWAP_CHAIN_DESC1 desc1 = {};
 	auto& mutableFrameBuffer = const_cast<NRIRenderDevice&>(frameBuffer);
-	desc1.Width = (UINT)(std::max)(mutableFrameBuffer.GetClientWidth(), 1);
-	desc1.Height = (UINT)(std::max)(mutableFrameBuffer.GetClientHeight(), 1);
-	desc1.Format = (DXGI_FORMAT)presentContract.resolvedDxgiFormat;
-	desc1.Stereo = FALSE;
-	desc1.SampleDesc.Count = 1;
-	desc1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
-	desc1.BufferCount = (UINT)(std::max<uint32_t>)(frameBuffer.mSwapChainTextureCount != 0u ? frameBuffer.mSwapChainTextureCount : 3u, 2u);
-	desc1.Scaling = DXGI_SCALING_STRETCH;
-	desc1.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	desc1.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-	desc1.Flags = IsDxgiTearingSupported(factory) ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u;
-
-	DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreenDesc = {};
-	fullscreenDesc.Windowed = TRUE;
-
-	ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 createDesc = {};
-	NriFfxInitHeader(createDesc.header, NRI_FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12);
-	createDesc.swapchain = &mFfxSwapChain;
-	createDesc.hwnd = mainwindow.GetHandle();
-	createDesc.desc = &desc1;
-	createDesc.fullscreenDesc = &fullscreenDesc;
-	createDesc.dxgiFactory = factory;
+	NRIFsr3Dx12PresentBridgeCreateDesc createDesc = {};
+	createDesc.windowHandle = mainwindow.GetHandle();
 	createDesc.gameQueue = frameBuffer.GetNativeD3D12GraphicsQueue();
-
-	ffxContext context = nullptr;
-	mProviderState.lastSwapChainCreateResult = createContext(&context, &createDesc.header, allocationCallbacks);
-	if (mProviderState.lastSwapChainCreateResult == NRI_FFX_API_RETURN_OK)
+	createDesc.createContextFn = mFfxCreateContextFn;
+	createDesc.queryFn = mFfxQueryFn;
+	createDesc.allocationCallbacks = mFfxAllocCallbacks;
+	createDesc.width = (uint32_t)(std::max)(mutableFrameBuffer.GetClientWidth(), 1);
+	createDesc.height = (uint32_t)(std::max)(mutableFrameBuffer.GetClientHeight(), 1);
+	createDesc.format = presentContract.resolvedDxgiFormat;
+	createDesc.bufferCount = (std::max<uint32_t>)(frameBuffer.mSwapChainTextureCount != 0u ? frameBuffer.mSwapChainTextureCount : 3u, 2u);
+	const bool created = mPresentBridge.Create(createDesc);
+	const NRIFsr3Dx12PresentBridgeSnapshot& snapshot = mPresentBridge.GetSnapshot();
+	mProviderState.lastSwapChainCreateResult = snapshot.lastCreateResult;
+	mProviderState.lastSwapChainQueryResult = snapshot.lastQueryResult;
+	mProviderState.swapChainMemoryUsageValid = snapshot.memoryUsageValid;
+	mProviderState.swapChainTotalUsageBytes = snapshot.totalUsageBytes;
+	mProviderState.swapChainAliasableUsageBytes = snapshot.aliasableUsageBytes;
+	if (created)
 	{
-		mFfxSwapChainContext = context;
-		mProviderState.swapChainContextCreated = true;
-		mProviderState.presentBridgeReady = mFfxSwapChain != nullptr;
-		if (mFfxSwapChain != nullptr)
-		{
-			factory->MakeWindowAssociation(mainwindow.GetHandle(), DXGI_MWA_NO_WINDOW_CHANGES);
-		}
-
-		FfxApiEffectMemoryUsage memoryUsage = {};
-		ffxQueryFrameGenerationSwapChainGetGPUMemoryUsageDX12 memoryQuery = {};
-		NriFfxInitHeader(memoryQuery.header, NRI_FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12);
-		memoryQuery.gpuMemoryUsageFrameGenerationSwapchain = &memoryUsage;
-		mProviderState.lastSwapChainQueryResult = query(reinterpret_cast<ffxContext*>(&mFfxSwapChainContext), &memoryQuery.header);
-		if (mProviderState.lastSwapChainQueryResult == NRI_FFX_API_RETURN_OK)
-		{
-			mProviderState.swapChainMemoryUsageValid = true;
-			mProviderState.swapChainTotalUsageBytes = memoryUsage.totalUsageInBytes;
-			mProviderState.swapChainAliasableUsageBytes = memoryUsage.aliasableUsageInBytes;
-		}
-
-		std::strncpy(mProviderState.lastStatusReason, mProviderState.presentBridgeReady ? "present-bridge-ready" : "present-bridge-missing-swapchain", std::size(mProviderState.lastStatusReason) - 1u);
+		mProviderState.swapChainContextCreated = snapshot.contextCreated;
+		mProviderState.presentBridgeReady = snapshot.swapChainCreated;
+		std::strncpy(mProviderState.lastStatusReason, "present-bridge-ready", std::size(mProviderState.lastStatusReason) - 1u);
 	}
 	else
 	{
@@ -1478,7 +1363,6 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 	}
 
 	mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
-	factory->Release();
 	return mProviderState.presentBridgeReady;
 #endif
 }
@@ -1714,7 +1598,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 
 	ffxConfigureDescFrameGeneration configureDesc = {};
 	NriFfxInitHeader(configureDesc.header, NRI_FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
-	configureDesc.swapChain = usePresentBridge ? mFfxSwapChain : nullptr;
+	configureDesc.swapChain = usePresentBridge ? mPresentBridge.GetSwapChain() : nullptr;
 	configureDesc.presentCallback = nullptr;
 	configureDesc.presentCallbackUserContext = nullptr;
 	configureDesc.frameGenerationCallback = nullptr;
@@ -1745,7 +1629,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	++mProviderState.configureCount;
 	mProviderState.noSwapChainNotify = !usePresentBridge;
 
-	if (usePresentBridge && mFfxSwapChainContext != nullptr)
+	if (usePresentBridge && mPresentBridge.GetContext() != nullptr)
 	{
 		assert(desc.uiTexture != nullptr || mPolicy.resolvedUiMode != NRIFrameGenerationUiMode::UiTexture);
 		if (desc.uiTexture == nullptr && mPolicy.resolvedUiMode == NRIFrameGenerationUiMode::UiTexture)
@@ -1758,7 +1642,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 		NriFfxInitHeader(uiConfig.header, NRI_FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12);
 		uiConfig.uiResource = GetFfxTextureResource(frameBuffer.mCore, desc.uiTexture);
 		uiConfig.flags = desc.uiTexture != nullptr ? NRI_FFX_FRAMEGENERATION_UI_COMPOSITION_FLAG_ENABLE_INTERNAL_UI_DOUBLE_BUFFERING : 0u;
-		mProviderState.lastSwapChainConfigureResult = configure(reinterpret_cast<ffxContext*>(&mFfxSwapChainContext), &uiConfig.header);
+		mProviderState.lastSwapChainConfigureResult = configure(reinterpret_cast<ffxContext*>(mPresentBridge.GetContextAddress()), &uiConfig.header);
 		mProviderState.uiResourceRegisteredThisFrame = mProviderState.lastSwapChainConfigureResult == NRI_FFX_API_RETURN_OK && desc.uiTexture != nullptr;
 		if (mProviderState.lastSwapChainConfigureResult != NRI_FFX_API_RETURN_OK)
 		{
@@ -1806,7 +1690,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	mProviderState.lastPreparedFrameId = desc.frameId;
 	++mProviderState.prepareCount;
 
-	if (!usePresentBridge || !configureDesc.frameGenerationEnabled || frameBuffer.mCurrentPresentTarget == nullptr || mFfxSwapChainContext == nullptr)
+	if (!usePresentBridge || !configureDesc.frameGenerationEnabled || frameBuffer.mCurrentPresentTarget == nullptr || mPresentBridge.GetContext() == nullptr)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "prepare-dispatched", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
@@ -1817,7 +1701,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 commandListQuery = {};
 	NriFfxInitHeader(commandListQuery.header, NRI_FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12);
 	commandListQuery.pOutCommandList = &interpolationCommandList;
-	mProviderState.lastSwapChainQueryResult = query(reinterpret_cast<ffxContext*>(&mFfxSwapChainContext), &commandListQuery.header);
+	mProviderState.lastSwapChainQueryResult = query(reinterpret_cast<ffxContext*>(mPresentBridge.GetContextAddress()), &commandListQuery.header);
 	if (mProviderState.lastSwapChainQueryResult != NRI_FFX_API_RETURN_OK || interpolationCommandList == nullptr)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "interpolation-commandlist-unavailable", std::size(mProviderState.lastStatusReason) - 1u);
@@ -1829,7 +1713,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 textureQuery = {};
 	NriFfxInitHeader(textureQuery.header, NRI_FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12);
 	textureQuery.pOutTexture = &interpolationOutput;
-	mProviderState.lastSwapChainQueryResult = query(reinterpret_cast<ffxContext*>(&mFfxSwapChainContext), &textureQuery.header);
+	mProviderState.lastSwapChainQueryResult = query(reinterpret_cast<ffxContext*>(mPresentBridge.GetContextAddress()), &textureQuery.header);
 	if (mProviderState.lastSwapChainQueryResult != NRI_FFX_API_RETURN_OK || interpolationOutput.resource == nullptr)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "interpolation-output-unavailable", std::size(mProviderState.lastStatusReason) - 1u);

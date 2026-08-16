@@ -3,13 +3,11 @@
 #include "../nri_output.h"
 #include "../renderer/nri_resources.h"
 #include "../system/nri_local.h"
+#include "nri_framegen_present_dx12.h"
 
 #include <cstdint>
 
 class NRIRenderDevice;
-#ifdef _WIN32
-struct IDXGISwapChain4;
-#endif
 
 enum class NRIFrameGenerationProvider : uint32_t
 {
@@ -363,14 +361,11 @@ private:
 
 	void* mFfxModule = nullptr;
 	void* mFfxContext = nullptr;
-	void* mFfxSwapChainContext = nullptr;
 	void* mFfxCreateContextFn = nullptr;
 	void* mFfxDestroyContextFn = nullptr;
 	void* mFfxConfigureFn = nullptr;
 	void* mFfxQueryFn = nullptr;
 	void* mFfxDispatchFn = nullptr;
 	void* mFfxAllocCallbacks = nullptr;
-#ifdef _WIN32
-	IDXGISwapChain4* mFfxSwapChain = nullptr;
-#endif
+	NRIFsr3Dx12PresentBridge mPresentBridge = {};
 };
