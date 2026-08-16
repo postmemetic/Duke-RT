@@ -2825,6 +2825,21 @@ void NRIRenderDevice::InitializeState()
 	mInitialized = true;
 }
 
+void NRIRenderDevice::ToggleFullscreen(bool yes)
+{
+	const NRIWindowPresentationMode previousMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+	Super::ToggleFullscreen(yes);
+	const NRIWindowPresentationMode currentMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+	if (previousMode == currentMode || !mInitialized)
+		return;
+
+	if (!mWindowModeTransitionPending)
+		mWindowModeTransitionFrom = previousMode;
+	mWindowModeTransitionPending = true;
+	++mWindowModeTransitionSerial;
+	RequestSwapChainRefresh("window-mode-change", true);
+}
+
 bool NRIRenderDevice::CompileNextShader()
 {
 	return true;
@@ -3247,9 +3262,26 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 		return true;
 	}
 
-	mFrameGeneration.NoteReset(reason.GetChars());
+	mFrameGeneration.RequestHistoryReset(reason.GetChars());
 	WaitForCommands(true);
-	if (!CreateSwapChain())
+	const bool createSucceeded = CreateSwapChain();
+	if (mWindowModeTransitionPending)
+	{
+		const auto& provider = mFrameGeneration.GetProviderState();
+		const NRIWindowPresentationMode currentMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+		Printf("NRI framegen window transition: serial=%llu from=%s to=%s reason=window-mode-change coalesced_requests=%u recreates=1 present_drain=%s drain_count=%llu owner=%s dxgi_state=%s result=%s\n",
+			(unsigned long long)mWindowModeTransitionSerial,
+			NRIFrameGenerationContext::GetWindowModeName(mWindowModeTransitionFrom),
+			NRIFrameGenerationContext::GetWindowModeName(currentMode),
+			requestCount,
+			NRIFrameGenerationContext::GetProviderReturnCodeName(provider.lastBridgeDrainResult),
+			(unsigned long long)provider.bridgeDrainCount,
+			provider.presentBridgeReady ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
+			NRIFrameGenerationContext::GetDxgiFullscreenStateName(provider.dxgiFullscreenKnown, provider.dxgiFullscreen),
+			createSucceeded ? "success" : "failure");
+		mWindowModeTransitionPending = false;
+	}
+	if (!createSucceeded)
 	{
 		Printf(TEXTCOLOR_RED "NRI failed to apply deferred swapchain refresh '%s'.\n", reason.GetChars());
 		return false;
@@ -9379,6 +9411,8 @@ bool NRIRenderDevice::CreateSwapChain()
 			{
 				mFrameGeneration.OnSwapChainCreated(*this);
 				assert(mSwapChain == nullptr && mFrameGeneration.IsPresentBridgeActive());
+				mCreatedWindowPresentationMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+				mCreatedWindowPresentationModeValid = true;
 				mSwapChainTextureCount = (uint8_t)(std::min<size_t>)(mFrameGenerationPresentImages.size(), 255u);
 				mSwapChainAcquireCounts.assign(mFrameGenerationPresentImages.size(), 0);
 				mSwapChainPresentCounts.assign(mFrameGenerationPresentImages.size(), 0);
@@ -9534,6 +9568,8 @@ bool NRIRenderDevice::CreateSwapChain()
 			mRenderer->PrintSwapChainRenderConfig();
 		}
 		SyncPathTracingOutputModeCVarWithSwapChainState();
+		mCreatedWindowPresentationMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+		mCreatedWindowPresentationModeValid = true;
 
 		return true;
 	}
@@ -9566,6 +9602,7 @@ bool NRIRenderDevice::CreateQueuedFrames()
 
 void NRIRenderDevice::DestroySwapChain()
 {
+	mFrameGeneration.DrainPresentBridge();
 	DestroyFrameGenerationPresentTargets();
 	RefreshNativeFrameGenerationSwapChain();
 	ResetFrameTracking();
@@ -9573,6 +9610,7 @@ void NRIRenderDevice::DestroySwapChain()
 	mRequestedSwapChainFormat = nri::SwapChainFormat::BT709_G22_8BIT;
 	mCreatedSwapChainFormat = nri::SwapChainFormat::BT709_G22_8BIT;
 	mResolvedSwapChainTextureFormat = nri::Format::UNKNOWN;
+	mCreatedWindowPresentationModeValid = false;
 	mSwapChainDisplayDesc = {};
 	mSwapChainDisplayDescResult = nri::Result::FAILURE;
 	mSwapChainQueuedFrameNum = 0;
@@ -9877,6 +9915,7 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 	const char* outputResolveReason = "requested-sdr";
 	ResolvePathTracingSwapChainOutput(requestedOutputFormat, resolvedOutputFormat, outputResolveReason);
 	SyncPathTracingOutputModeCVarWithSwapChainState(outputResolveReason);
+	const NRIWindowPresentationMode desiredWindowMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 
 	if (mSwapChain == nullptr)
 	{
@@ -9889,15 +9928,19 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 				mFrameGenerationPresentImages[0].width == width &&
 				mFrameGenerationPresentImages[0].height == height &&
 				mSwapChainFlags == requestedFlags &&
-				mCreatedSwapChainFormat == resolvedOutputFormat)
+				mCreatedSwapChainFormat == resolvedOutputFormat &&
+				mCreatedWindowPresentationModeValid &&
+				mCreatedWindowPresentationMode == desiredWindowMode)
 			{
 				return true;
 			}
 
-			mFrameGeneration.NoteReset(
-				(mFrameGenerationPresentImages[0].width != width || mFrameGenerationPresentImages[0].height != height) ?
+			mFrameGeneration.RequestHistoryReset(
+				(mCreatedWindowPresentationModeValid && mCreatedWindowPresentationMode != desiredWindowMode) ?
+					"window-mode-change" :
+				((mFrameGenerationPresentImages[0].width != width || mFrameGenerationPresentImages[0].height != height) ?
 					"swapchain-resize" :
-					(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" : "swapchain-format-change"));
+					(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" : "swapchain-format-change")));
 			if (mCreatedSwapChainFormat != resolvedOutputFormat)
 			{
 				Printf("NRI swapchain policy change: requested_mode=%s requested_format=%s created_format=%s desired_format=%s reason=%s\n",
@@ -9921,7 +9964,9 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 		mSwapChainImages[0].target.height == height &&
 		mSwapChainFlags == requestedFlags &&
 		mSwapChainTextureCount == requestedTextureCount &&
-		mCreatedSwapChainFormat == resolvedOutputFormat)
+		mCreatedSwapChainFormat == resolvedOutputFormat &&
+		mCreatedWindowPresentationModeValid &&
+		mCreatedWindowPresentationMode == desiredWindowMode)
 	{
 		return true;
 	}
@@ -9936,11 +9981,13 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 			outputResolveReason);
 	}
 
-	mFrameGeneration.NoteReset(
-		(!mSwapChainImages.empty() && (mSwapChainImages[0].target.width != width || mSwapChainImages[0].target.height != height)) ?
+	mFrameGeneration.RequestHistoryReset(
+		(mCreatedWindowPresentationModeValid && mCreatedWindowPresentationMode != desiredWindowMode) ?
+			"window-mode-change" :
+		((!mSwapChainImages.empty() && (mSwapChainImages[0].target.width != width || mSwapChainImages[0].target.height != height)) ?
 			"swapchain-resize" :
 			(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" :
-				(mSwapChainTextureCount != requestedTextureCount ? "swapchain-texture-count-change" : "swapchain-format-change")));
+				(mSwapChainTextureCount != requestedTextureCount ? "swapchain-texture-count-change" : "swapchain-format-change"))));
 	WaitForCommands(true);
 	return CreateSwapChain();
 }

@@ -148,7 +148,7 @@ uint32_t NRIFsr3Dx12PresentBridge::Drain(void* dispatchFn)
 	ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12 waitDesc = {};
 	NriFfxInitHeader(waitDesc.header, NRI_FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12);
 	mSnapshot.lastDrainResult = reinterpret_cast<PfnFfxDispatch>(dispatchFn)(reinterpret_cast<ffxContext*>(&mContext), &waitDesc.header);
-	mDrainRequired = false;
+	mDrainRequired = mSnapshot.lastDrainResult != NRI_FFX_API_RETURN_OK;
 	++mSnapshot.drainCount;
 	return mSnapshot.lastDrainResult;
 #endif

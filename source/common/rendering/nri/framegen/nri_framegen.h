@@ -317,6 +317,8 @@ public:
 	void ConfigureAndDispatchFrame(const NRIRenderDevice& frameBuffer);
 	bool Present(const NRIRenderDevice& frameBuffer, bool vsync, bool allowTearing, nri::Result& outResult);
 	void NoteReset(const char* reason);
+	void RequestHistoryReset(const char* reason);
+	bool DrainPresentBridge();
 	void RequestNativeFallback(const char* reason);
 	bool ConsumeNativeFallbackRequest();
 
@@ -374,6 +376,8 @@ private:
 	bool mSwapChainReady = false;
 	bool mHasFrameDesc = false;
 	bool mHasLoggedPolicy = false;
+	bool mResetNextFrame = false;
+	char mPendingResetReason[96] = "none";
 	NRIFrameGenerationPolicy mPolicy = {};
 	NRIFrameGenerationPresentContract mPresentContract = {};
 	NRIFrameGenerationFrameDesc mLastFrameDesc = {};

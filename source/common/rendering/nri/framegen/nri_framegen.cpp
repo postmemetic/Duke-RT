@@ -551,6 +551,8 @@ void NRIFrameGenerationContext::Shutdown()
 	mPresentContract = {};
 	mLastFrameDesc = {};
 	mLastInputAudit = {};
+	mResetNextFrame = false;
+	CopyString(mPendingResetReason, std::size(mPendingResetReason), "none");
 	ResetLowLatencyState();
 	ResetProviderState();
 }
@@ -906,9 +908,17 @@ void NRIFrameGenerationContext::SetFrameDesc(const NRIRenderDevice& frameBuffer,
 {
 	(void)frameBuffer;
 	mLastFrameDesc = desc;
-	mLastInputAudit = BuildInputAudit(desc);
+	const bool forcedReset = mResetNextFrame;
+	if (forcedReset)
+	{
+		mLastFrameDesc.resetHistory = true;
+		CopyString(mLastFrameDesc.resetReason, std::size(mLastFrameDesc.resetReason), mPendingResetReason);
+		mResetNextFrame = false;
+		CopyString(mPendingResetReason, std::size(mPendingResetReason), "none");
+	}
+	mLastInputAudit = BuildInputAudit(mLastFrameDesc);
 	mHasFrameDesc = true;
-	if (desc.resetHistory)
+	if (desc.resetHistory && !forcedReset)
 	{
 		NoteReset(desc.resetReason);
 	}
@@ -967,6 +977,26 @@ void NRIFrameGenerationContext::NoteReset(const char* reason)
 {
 	CopyString(mProviderState.lastResetReason, std::size(mProviderState.lastResetReason), GetSafeResetReason(reason));
 	++mProviderState.resetCount;
+}
+
+void NRIFrameGenerationContext::RequestHistoryReset(const char* reason)
+{
+	NoteReset(reason);
+	mResetNextFrame = true;
+	CopyString(mPendingResetReason, std::size(mPendingResetReason), GetSafeResetReason(reason));
+}
+
+bool NRIFrameGenerationContext::DrainPresentBridge()
+{
+	if (!IsPresentBridgeActive())
+		return true;
+	const uint32_t result = mPresentBridge.Drain(mFfxDispatchFn);
+	RefreshPresentBridgeSnapshot();
+#ifdef _WIN32
+	return result == NRI_FFX_API_RETURN_OK;
+#else
+	return false;
+#endif
 }
 
 void NRIFrameGenerationContext::RequestNativeFallback(const char* reason)

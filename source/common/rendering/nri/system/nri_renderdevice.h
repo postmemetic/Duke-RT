@@ -74,6 +74,7 @@ public:
 	~NRIRenderDevice();
 
 	void Update() override;
+	void ToggleFullscreen(bool yes) override;
 	void InitializeState() override;
 	bool CompileNextShader() override;
 	int GetShaderCount() override;
@@ -431,6 +432,8 @@ private:
 	nri::SwapChainFormat mRequestedSwapChainFormat = nri::SwapChainFormat::BT709_G22_8BIT;
 	nri::SwapChainFormat mCreatedSwapChainFormat = nri::SwapChainFormat::BT709_G22_8BIT;
 	nri::Format mResolvedSwapChainTextureFormat = nri::Format::UNKNOWN;
+	NRIWindowPresentationMode mCreatedWindowPresentationMode = NRIWindowPresentationMode::Windowed;
+	bool mCreatedWindowPresentationModeValid = false;
 	nri::DisplayDesc mSwapChainDisplayDesc = {};
 	nri::Result mSwapChainDisplayDescResult = nri::Result::FAILURE;
 	uint8_t mSwapChainQueuedFrameNum = 0;
@@ -456,6 +459,9 @@ private:
 	bool mSwapChainRefreshForceRecreate = false;
 	uint32_t mSwapChainRefreshRequestCount = 0;
 	FString mSwapChainRefreshReason = "none";
+	bool mWindowModeTransitionPending = false;
+	NRIWindowPresentationMode mWindowModeTransitionFrom = NRIWindowPresentationMode::Windowed;
+	uint64_t mWindowModeTransitionSerial = 0;
 	bool mUsingSaveTarget = false;
 	bool mStandaloneSavePicFrame = false;
 	bool mPreloadCommandContextActive = false;
