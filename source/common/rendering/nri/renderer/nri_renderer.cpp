@@ -1791,7 +1791,6 @@ void NRIRenderer::Shutdown()
 	mPendingFrameGenerationTimestamp = {};
 	mSceneTextures.LimitLogPrinted() = false;
 	mLastFrameGenerationRequestedEnabled = false;
-	mLastFrameGenerationRequestedProvider = NRIFrameGenerationProvider::Off;
 	mLastFrameGenerationResolvedUiMode = NRIFrameGenerationUiMode::Auto;
 
 	for (nri::Pipeline*& pipeline : mPipelines)

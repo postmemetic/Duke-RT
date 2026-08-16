@@ -178,7 +178,6 @@ void NRIRenderer::UpdateFrameGenerationHistoryPolicy(int debugMode, const NRIFra
 	{
 		mHasFrameGenerationConfigState = true;
 		mLastFrameGenerationRequestedEnabled = frameGenPolicy.requestedEnabled;
-		mLastFrameGenerationRequestedProvider = frameGenPolicy.requestedProvider;
 		mLastFrameGenerationResolvedUiMode = frameGenPolicy.resolvedUiMode;
 		return;
 	}
@@ -188,10 +187,6 @@ void NRIRenderer::UpdateFrameGenerationHistoryPolicy(int debugMode, const NRIFra
 	{
 		frameGenResetReason = "framegen-toggle";
 	}
-	else if (frameGenPolicy.requestedProvider != mLastFrameGenerationRequestedProvider)
-	{
-		frameGenResetReason = "framegen-provider-change";
-	}
 	else if (frameGenPolicy.resolvedUiMode != mLastFrameGenerationResolvedUiMode)
 	{
 		frameGenResetReason = "framegen-ui-mode-change";
@@ -199,23 +194,20 @@ void NRIRenderer::UpdateFrameGenerationHistoryPolicy(int debugMode, const NRIFra
 
 	if (frameGenResetReason != nullptr)
 	{
-		RequestHistoryReset(frameGenResetReason);
+		mFrameBuffer->mFrameGeneration.RequestHistoryReset(frameGenResetReason);
 		if (ShouldEmitRendererTemporalTraceLogs())
 		{
-			Printf("NRI PT temporal reset: reason=%s frame=%u requested=%s->%s provider=%s->%s ui=%s->%s\n",
+			Printf("NRI PT frame generation reset: reason=%s frame=%u requested=%s->%s ui=%s->%s\n",
 				frameGenResetReason,
 				mFrameIndex,
 				mLastFrameGenerationRequestedEnabled ? "on" : "off",
 				frameGenPolicy.requestedEnabled ? "on" : "off",
-				NRIFrameGenerationContext::GetProviderName(mLastFrameGenerationRequestedProvider),
-				NRIFrameGenerationContext::GetProviderName(frameGenPolicy.requestedProvider),
 				NRIFrameGenerationContext::GetUiModeName(mLastFrameGenerationResolvedUiMode),
 				NRIFrameGenerationContext::GetUiModeName(frameGenPolicy.resolvedUiMode));
 		}
 	}
 
 	mLastFrameGenerationRequestedEnabled = frameGenPolicy.requestedEnabled;
-	mLastFrameGenerationRequestedProvider = frameGenPolicy.requestedProvider;
 	mLastFrameGenerationResolvedUiMode = frameGenPolicy.resolvedUiMode;
 }
 

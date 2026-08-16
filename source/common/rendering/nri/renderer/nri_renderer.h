@@ -2949,7 +2949,6 @@ private:
 	std::chrono::steady_clock::time_point mLastFrameGenerationTimestamp = {};
 	std::chrono::steady_clock::time_point mPendingFrameGenerationTimestamp = {};
 	bool mLastFrameGenerationRequestedEnabled = false;
-	NRIFrameGenerationProvider mLastFrameGenerationRequestedProvider = NRIFrameGenerationProvider::Off;
 	NRIFrameGenerationUiMode mLastFrameGenerationResolvedUiMode = NRIFrameGenerationUiMode::Auto;
 	bool mUseUpscaledInFinal = false;
 	bool mLastTemporalAppTaaEnabled = false;

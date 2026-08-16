@@ -55,7 +55,6 @@ constexpr const char* kRecoverableSettings[] = {
 	"nri_apivalidation",
 	"nri_dred",
 	"nri_framegen",
-	"nri_framegenprovider",
 	"nri_framegenui",
 	"nri_framegenlatency",
 	"nri_framegenasync",

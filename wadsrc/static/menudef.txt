@@ -1136,14 +1136,10 @@ OptionMenu "NRIOptions" protected
 	Option "Main Upscaler",						"nri_upscaler",					"NRIMainUpscaler"
 	Option "Post Sharpen",						"nri_postsharpen",				"NRIPostSharpen"
 	Option "Upscaler Mode",						"nri_upscalermode",				"NRIUpscalerMode"
-	Option "Frame Generation",					"nri_framegen",					"OnOff"
-	Option "Frame Gen Provider",				"nri_framegenprovider",			"NRIFrameGenProvider"
-	Option "Frame Gen UI",						"nri_framegenui",				"NRIFrameGenUI"
-	Option "Frame Gen Low Latency",				"nri_framegenlatency",			"OnOff"
-	Option "Frame Gen Async",					"nri_framegenasync",			"OnOff"
+	Option "FSR3 Frame Generation",				"nri_framegen",					"OnOff"
 	Slider "Render Scale",						"nri_renderscale",				0.33, 1.0, 0.01, 2
 	Slider "Sharpness",							"nri_sharpness",				0.0, 1.0, 0.05, 2
-	StaticText "Frame generation requires D3D12 SDR output (windowed or borderless)."
+	StaticText "FSR3 frame generation supports D3D12 SDR and HDR (windowed or borderless)."
 	StaticText "----------------"
 	StaticText "Bloom"
 	Option "Bloom",								"nri_ptbloom",					"OnOff"
@@ -1664,20 +1660,6 @@ OptionValue NRIUpscalerMode
 	3, "Balanced"
 	4, "Performance"
 	5, "Ultra Performance"
-}
-
-OptionValue NRIFrameGenProvider
-{
-	0, "$OPTVAL_OFF"
-	1, "FSR3"
-}
-
-OptionValue NRIFrameGenUI
-{
-	0, "Auto"
-	1, "HUD-less"
-	2, "UI Texture"
-	3, "Present Callback"
 }
 
 OptionValue NRIPTOutputMode

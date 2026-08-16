@@ -184,7 +184,6 @@ namespace
 		nri_dred = false;
 
 		nri_framegen = false;
-		nri_framegenprovider = 0;
 
 		Printf(PRINT_NOTIFY, "Applied settings profile: %s\n", preset.name);
 		if (preset.warning != nullptr && preset.warning[0] != '\0')
@@ -1279,16 +1278,11 @@ CUSTOM_CVAR(Int, nri_ptspherelats, 128, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Int, nri_framegenprovider, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
-	if (self < 0)
-	{
-		self = 0;
-	}
-	else if (self > 1)
+	if (self != 1)
 	{
 		self = 1;
+		return;
 	}
-
-	RequestActiveFrameGenerationSwapChainRefresh();
 }
 
 CUSTOM_CVAR(Int, nri_framegenui, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

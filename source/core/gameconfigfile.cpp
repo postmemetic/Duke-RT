@@ -45,7 +45,7 @@
 #include "gamecontrol.h"
 #include "version.h"
 
-#define LASTRUNVERSION "9"
+#define LASTRUNVERSION "10"
 
 #if !defined _MSC_VER && !defined __APPLE__
 #include "i_system.h"  // for SHARE_DIR
@@ -464,6 +464,15 @@ void FGameConfigFile::DoGlobalSetup ()
 				if (auto var = FindCVar("nri_ptsmoke", nullptr))
 				{
 					var->SetGenericRep(true, CVAR_Bool);
+				}
+			}
+			if (last < 10)
+			{
+				if (auto var = FindCVar("nri_framegenprovider", nullptr))
+				{
+					UCVarValue value;
+					value.Int = 1;
+					var->SetGenericRep(value, CVAR_Int);
 				}
 			}
 		}
