@@ -10094,12 +10094,8 @@ bool NRIRenderDevice::RefreshSwapChainDisplayDesc(bool logChanges)
 
 	nri::DisplayDesc refreshedDesc = {};
 	nri::Result refreshResult = nri::Result::FAILURE;
-	if (mSwapChain != nullptr)
-	{
-		refreshResult = mSwapChainInterface.GetDisplayDesc(*mSwapChain, refreshedDesc);
-	}
 #ifdef _WIN32
-	else if (GetLiveAPI() == nri::GraphicsAPI::D3D12 && mainwindow.GetHandle() != nullptr)
+	if (GetLiveAPI() == nri::GraphicsAPI::D3D12 && mainwindow.GetHandle() != nullptr)
 	{
 		NRIFsr3Dx12DisplayDesc proxyDisplayDesc = {};
 		if (mFrameGeneration.QueryDisplayDesc(mainwindow.GetHandle(), proxyDisplayDesc))
@@ -10117,6 +10113,10 @@ bool NRIRenderDevice::RefreshSwapChainDisplayDesc(bool logChanges)
 		}
 	}
 #endif
+	if (refreshResult != nri::Result::SUCCESS && mSwapChain != nullptr)
+	{
+		refreshResult = mSwapChainInterface.GetDisplayDesc(*mSwapChain, refreshedDesc);
+	}
 	mSwapChainDisplayDescResult = refreshResult;
 
 	if (refreshResult == nri::Result::SUCCESS)
