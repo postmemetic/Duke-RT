@@ -15,6 +15,12 @@ enum class NRIFrameGenerationProvider : uint32_t
 	FSR3 = 1,
 };
 
+enum class NRIWindowPresentationMode : uint32_t
+{
+	Windowed = 0,
+	BorderlessFullscreen = 1,
+};
+
 enum class NRIFrameGenerationUiMode : uint32_t
 {
 	Auto = 0,
@@ -98,8 +104,11 @@ struct NRIFrameGenerationPolicy
 	bool shaderModelSupported = false;
 	bool providerRuntimeSupported = false;
 	bool swapChainReady = false;
-	bool fullscreenActive = false;
+	NRIWindowPresentationMode windowPresentationMode = NRIWindowPresentationMode::Windowed;
 	bool windowModeSupported = false;
+	bool dxgiFullscreenKnown = false;
+	bool dxgiFullscreen = false;
+	bool ffxProxyPacing = false;
 	bool lowLatencyAvailable = false;
 	bool lowLatencyInterfaceAvailable = false;
 	bool lowLatencySwapChainEnabled = false;
@@ -246,6 +255,9 @@ struct NRIFrameGenerationProviderState
 	bool memoryUsageValid = false;
 	bool swapChainMemoryUsageValid = false;
 	bool contextDimensionsValid = false;
+	bool dxgiFullscreenKnown = false;
+	bool dxgiFullscreen = false;
+	bool tearingSupported = false;
 	uint32_t contextDisplayWidth = 0;
 	uint32_t contextDisplayHeight = 0;
 	uint32_t contextRenderWidth = 0;
@@ -257,6 +269,8 @@ struct NRIFrameGenerationProviderState
 	uint64_t dispatchCount = 0;
 	uint64_t resetCount = 0;
 	uint64_t presentCount = 0;
+	uint64_t bridgeCreateGeneration = 0;
+	uint64_t bridgeDrainCount = 0;
 	uint64_t totalUsageBytes = 0;
 	uint64_t aliasableUsageBytes = 0;
 	uint64_t swapChainTotalUsageBytes = 0;
@@ -270,6 +284,10 @@ struct NRIFrameGenerationProviderState
 	uint32_t lastDispatchResult = 0;
 	uint32_t lastQueryResult = 0;
 	uint32_t lastSwapChainQueryResult = 0;
+	uint32_t lastBridgeDrainResult = 0;
+	uint32_t lastPresentSyncInterval = 0;
+	uint32_t lastPresentFlags = 0;
+	int64_t lastPresentHresult = 0;
 	nri::Result lastPresentResult = nri::Result::FAILURE;
 	char runtimeLibrary[64] = "unloaded";
 	char providerVersion[64] = "unknown";
@@ -326,7 +344,9 @@ public:
 	static const char* GetSwapChainFormatName(nri::SwapChainFormat format);
 	static const char* GetNriFormatName(nri::Format format);
 	static const char* GetDxgiFormatName(uint32_t format);
-	static const char* GetWindowModeName(bool fullscreen);
+	static const char* GetWindowModeName(NRIWindowPresentationMode mode);
+	static const char* GetDxgiFullscreenStateName(bool known, bool fullscreen);
+	static const char* GetPacingModeName(const NRIFrameGenerationPolicy& policy);
 	static const char* GetAvailabilityName(bool available);
 	static const char* GetProviderReturnCodeName(uint32_t result);
 	static const char* GetPresentResultName(nri::Result result);
@@ -341,6 +361,7 @@ private:
 	void SetLowLatencyMarker(const NRIRenderDevice& frameBuffer, nri::LatencyMarker marker, nri::Result& resultSlot);
 	void ResetLowLatencyState();
 	void ResetProviderState();
+	void RefreshPresentBridgeSnapshot();
 	void DestroyProviderPresentBridge();
 	void ShutdownProvider();
 	bool EnsureProviderRuntime(const NRIRenderDevice& frameBuffer);

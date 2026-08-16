@@ -248,8 +248,11 @@ namespace
 			a.shaderModelSupported == b.shaderModelSupported &&
 			a.providerRuntimeSupported == b.providerRuntimeSupported &&
 			a.swapChainReady == b.swapChainReady &&
-			a.fullscreenActive == b.fullscreenActive &&
+			a.windowPresentationMode == b.windowPresentationMode &&
 			a.windowModeSupported == b.windowModeSupported &&
+			a.dxgiFullscreenKnown == b.dxgiFullscreenKnown &&
+			a.dxgiFullscreen == b.dxgiFullscreen &&
+			a.ffxProxyPacing == b.ffxProxyPacing &&
 			a.lowLatencyAvailable == b.lowLatencyAvailable &&
 			a.lowLatencyInterfaceAvailable == b.lowLatencyInterfaceAvailable &&
 			a.lowLatencySwapChainEnabled == b.lowLatencySwapChainEnabled &&
@@ -423,9 +426,25 @@ const char* NRIFrameGenerationContext::GetDxgiFormatName(uint32_t format)
 #endif
 }
 
-const char* NRIFrameGenerationContext::GetWindowModeName(bool fullscreen)
+const char* NRIFrameGenerationContext::GetWindowModeName(NRIWindowPresentationMode mode)
 {
+	return mode == NRIWindowPresentationMode::BorderlessFullscreen ? "borderless" : "windowed";
+}
+
+const char* NRIFrameGenerationContext::GetDxgiFullscreenStateName(bool known, bool fullscreen)
+{
+	if (!known)
+		return "unavailable";
 	return fullscreen ? "fullscreen" : "windowed";
+}
+
+const char* NRIFrameGenerationContext::GetPacingModeName(const NRIFrameGenerationPolicy& policy)
+{
+	if (policy.ffxProxyPacing)
+		return "ffx-proxy";
+	if (policy.resolvedLowLatency)
+		return "nri-native";
+	return "none";
 }
 
 const char* NRIFrameGenerationContext::GetAvailabilityName(bool available)
@@ -531,7 +550,7 @@ void NRIFrameGenerationContext::RefreshPolicy(const NRIRenderDevice& frameBuffer
 
 	if (logChanges && (!mHasLoggedPolicy || changed))
 	{
-		Printf("NRI frame generation policy: requested=%s provider=%s resolved=%s output=%s->%s contract=%s scope=%s api=%s shader_model=%u.%u window=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s) async=%s->%s(avail=%s) ui=%s->%s swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
+		Printf("NRI frame generation policy: requested=%s provider=%s resolved=%s output=%s->%s contract=%s scope=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
 			mPolicy.requestedEnabled ? "on" : "off",
 			GetProviderName(mPolicy.requestedProvider),
 			GetProviderName(mPolicy.resolvedProvider),
@@ -542,12 +561,15 @@ void NRIFrameGenerationContext::RefreshPolicy(const NRIRenderDevice& frameBuffer
 			mPolicy.selectedApiName,
 			mPolicy.shaderModel / 10u,
 			mPolicy.shaderModel % 10u,
-			GetWindowModeName(mPolicy.fullscreenActive),
+			GetWindowModeName(mPolicy.windowPresentationMode),
+			GetDxgiFullscreenStateName(mPolicy.dxgiFullscreenKnown, mPolicy.dxgiFullscreen),
+			GetAvailabilityName(mPolicy.windowModeSupported),
 			mPolicy.requestedLowLatency ? "on" : "off",
 			mPolicy.resolvedLowLatency ? "on" : "off",
 			GetAvailabilityName(mPolicy.lowLatencyAvailable),
 			GetAvailabilityName(mPolicy.lowLatencyInterfaceAvailable),
 			GetAvailabilityName(mPolicy.lowLatencySwapChainEnabled),
+			GetPacingModeName(mPolicy),
 			mPolicy.requestedAsync ? "on" : "off",
 			mPolicy.resolvedAsync ? "on" : "off",
 			GetAvailabilityName(mPolicy.asyncWorkloadAvailable),
@@ -578,10 +600,14 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 	policy.resolvedUiMode = ResolveUiMode(policy.requestedUiMode);
 	policy.requestedOutputMode = presentContract.requestedOutputMode;
 	policy.resolvedOutputMode = presentContract.resolvedOutputMode;
-	policy.outputContractScope = "d3d12-windowed-sdr";
+	policy.outputContractScope = "d3d12-windowed-or-borderless-sdr";
 	policy.swapChainReady = mSwapChainReady;
-	policy.fullscreenActive = frameBuffer.IsFullscreenModeActive();
-	policy.windowModeSupported = !policy.fullscreenActive;
+	policy.windowPresentationMode = frameBuffer.IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+	policy.windowModeSupported = policy.windowPresentationMode == NRIWindowPresentationMode::Windowed;
+	const NRIFsr3Dx12PresentBridgeSnapshot& presentSnapshot = mPresentBridge.GetSnapshot();
+	policy.dxgiFullscreenKnown = presentSnapshot.dxgiFullscreenKnown;
+	policy.dxgiFullscreen = presentSnapshot.dxgiFullscreen;
+	policy.ffxProxyPacing = mPresentBridge.IsActive();
 
 	const NRIBackendCapabilities backendCapabilities = frameBuffer.BuildBackendCapabilities();
 	policy.selectedApiName = GetApiName(backendCapabilities.liveApi);
@@ -647,7 +673,7 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 	if (!policy.windowModeSupported)
 	{
 		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
-		policy.resolvedReason = "fullscreen-not-supported";
+		policy.resolvedReason = "borderless-not-enabled";
 		return policy;
 	}
 
@@ -695,7 +721,7 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 
 	policy.resolvedEnabled = true;
 	policy.resolvedAsync = policy.requestedAsync && policy.asyncWorkloadAvailable;
-	policy.resolvedLowLatency = policy.requestedLowLatency && policy.lowLatencyAvailable;
+	policy.resolvedLowLatency = policy.requestedLowLatency && policy.lowLatencyAvailable && policy.lowLatencySwapChainEnabled;
 	policy.resolvedProvider = policy.requestedProvider;
 	policy.resolvedReason = "enabled";
 	return policy;
@@ -907,6 +933,7 @@ bool NRIFrameGenerationContext::Present(const NRIRenderDevice& frameBuffer, bool
 	}
 
 	const HRESULT hr = static_cast<HRESULT>(mPresentBridge.Present(vsync, allowTearing));
+	RefreshPresentBridgeSnapshot();
 	outResult = GetNriPresentResult(hr);
 	mProviderState.lastPresentResult = outResult;
 	mProviderState.presentUsedBridgeThisFrame = true;
@@ -1120,10 +1147,25 @@ void NRIFrameGenerationContext::ResetProviderState()
 	mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
 }
 
+void NRIFrameGenerationContext::RefreshPresentBridgeSnapshot()
+{
+	const NRIFsr3Dx12PresentBridgeSnapshot& snapshot = mPresentBridge.GetSnapshot();
+	mProviderState.dxgiFullscreenKnown = snapshot.dxgiFullscreenKnown;
+	mProviderState.dxgiFullscreen = snapshot.dxgiFullscreen;
+	mProviderState.tearingSupported = snapshot.tearingSupported;
+	mProviderState.bridgeCreateGeneration = snapshot.createGeneration;
+	mProviderState.bridgeDrainCount = snapshot.drainCount;
+	mProviderState.lastBridgeDrainResult = snapshot.lastDrainResult;
+	mProviderState.lastPresentHresult = snapshot.lastPresentHresult;
+	mProviderState.lastPresentSyncInterval = snapshot.lastPresentSyncInterval;
+	mProviderState.lastPresentFlags = snapshot.lastPresentFlags;
+}
+
 void NRIFrameGenerationContext::DestroyProviderPresentBridge()
 {
 #ifdef _WIN32
 	mPresentBridge.Destroy(mFfxDispatchFn, mFfxDestroyContextFn, mFfxAllocCallbacks);
+	RefreshPresentBridgeSnapshot();
 #endif
 
 	mProviderState.swapChainContextCreated = false;
@@ -1291,7 +1333,7 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 
 	if (frameBuffer.IsFullscreenModeActive())
 	{
-		std::strncpy(mProviderState.lastStatusReason, "fullscreen-not-supported", std::size(mProviderState.lastStatusReason) - 1u);
+		std::strncpy(mProviderState.lastStatusReason, "borderless-not-enabled", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
 		return false;
 	}
@@ -1343,6 +1385,7 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 	createDesc.format = presentContract.resolvedDxgiFormat;
 	createDesc.bufferCount = (std::max<uint32_t>)(frameBuffer.mSwapChainTextureCount != 0u ? frameBuffer.mSwapChainTextureCount : 3u, 2u);
 	const bool created = mPresentBridge.Create(createDesc);
+	RefreshPresentBridgeSnapshot();
 	const NRIFsr3Dx12PresentBridgeSnapshot& snapshot = mPresentBridge.GetSnapshot();
 	mProviderState.lastSwapChainCreateResult = snapshot.lastCreateResult;
 	mProviderState.lastSwapChainQueryResult = snapshot.lastQueryResult;
