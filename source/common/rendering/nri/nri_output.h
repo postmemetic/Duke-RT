@@ -30,6 +30,7 @@ struct NRIPTOutputPolicy
 	float shoulder = 1.0f;
 	float toe = 1.0f;
 	float paperWhiteNits = 200.0f;
+	float displayMinLuminance = 0.0f;
 	float displayMaxLuminance = 80.0f;
 	float displaySdrLuminance = 80.0f;
 	bool displayInfoAvailable = false;

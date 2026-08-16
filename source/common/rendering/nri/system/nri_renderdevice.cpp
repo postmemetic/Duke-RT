@@ -1840,8 +1840,10 @@ namespace
 	{
 		return
 			previousDesc.isHDR != currentDesc.isHDR ||
+			DisplayLuminanceChanged(previousDesc.minLuminance, currentDesc.minLuminance) ||
 			DisplayLuminanceChanged(previousDesc.sdrLuminance, currentDesc.sdrLuminance) ||
-			DisplayLuminanceChanged(previousDesc.maxLuminance, currentDesc.maxLuminance);
+			DisplayLuminanceChanged(previousDesc.maxLuminance, currentDesc.maxLuminance) ||
+			DisplayLuminanceChanged(previousDesc.maxFullFrameLuminance, currentDesc.maxFullFrameLuminance);
 	}
 
 	static FString DescribeSwapChainImageMask(uint64_t mask, uint32_t textureCount)
@@ -1919,11 +1921,6 @@ namespace
 		default:
 			return vid_vsync ? nri::SwapChainBits::VSYNC : nri::SwapChainBits::ALLOW_TEARING;
 		}
-	}
-
-	static bool HasRequestedFrameGenerationProvider()
-	{
-		return (int)nri_framegenprovider != 0;
 	}
 
 	static const char* DescribeSwapChainFlagOverride()
@@ -3328,7 +3325,7 @@ void NRIRenderDevice::SetVSync(bool vsync)
 
 bool NRIRenderDevice::ShouldRequestFrameGenerationLowLatencySwapChain() const
 {
-	if (!nri_framegen || !nri_framegenlatency || !HasRequestedFrameGenerationProvider())
+	if (!nri_framegen || !nri_framegenlatency)
 	{
 		return false;
 	}
@@ -3376,7 +3373,7 @@ bool NRIRenderDevice::ShouldUseFrameGenerationUiTarget() const
 	const auto& policy = mFrameGeneration.GetPolicy();
 	return
 		policy.requestedEnabled &&
-		policy.requestedProvider != NRIFrameGenerationProvider::Off &&
+		IsFrameGenerationPresentPathActive() &&
 		policy.resolvedUiMode == NRIFrameGenerationUiMode::UiTexture;
 }
 
@@ -3401,7 +3398,7 @@ const char* NRIRenderDevice::GetFrameGenerationUiRouteName() const
 		mInitialized &&
 		!mUsingSaveTarget &&
 		policy.requestedEnabled &&
-		policy.requestedProvider != NRIFrameGenerationProvider::Off &&
+		IsFrameGenerationPresentPathActive() &&
 		policy.resolvedUiMode == NRIFrameGenerationUiMode::UiTexture;
 	if (!uiTextureRouteRequested)
 	{
@@ -3436,7 +3433,7 @@ uint32_t NRIRenderDevice::GetFrameGenerationSceneBlendPrefixCount() const
 	return count;
 }
 
-bool NRIRenderDevice::EnsureFrameGenerationUiTexture(uint32_t width, uint32_t height)
+bool NRIRenderDevice::EnsureFrameGenerationUiTexture(uint32_t width, uint32_t height, nri::Format format)
 {
 	if (width == 0 || height == 0)
 	{
@@ -3471,7 +3468,19 @@ bool NRIRenderDevice::EnsureFrameGenerationUiTexture(uint32_t width, uint32_t he
 		return false;
 	}
 
-	hwTex->EnsureCanvas(wrapper);
+	if (hwTex->GetResource().texture != nullptr && hwTex->GetResource().format != format)
+	{
+		delete mFrameGenerationUiTexture;
+		mFrameGenerationUiTexture = MakeGameTexture(new FWrapperTexture((int)width, (int)height, 1), nullptr, ETextureType::SWCanvas);
+		wrapper = mFrameGenerationUiTexture != nullptr ? static_cast<FWrapperTexture*>(mFrameGenerationUiTexture->GetTexture()) : nullptr;
+		if (wrapper == nullptr)
+			return false;
+		hwTex = static_cast<NRIHardwareTexture*>(wrapper->GetSystemTexture());
+		if (hwTex == nullptr)
+			return false;
+	}
+
+	hwTex->EnsureCanvas(wrapper, format);
 	return hwTex->GetResource().texture != nullptr && hwTex->GetResource().colorAttachmentView != nullptr;
 }
 
@@ -3600,7 +3609,7 @@ void NRIRenderDevice::BeginFrameGenerationUiTarget()
 		return;
 	}
 
-	if (!EnsureFrameGenerationUiTexture(mCurrentPresentTarget->width, mCurrentPresentTarget->height))
+	if (!EnsureFrameGenerationUiTexture(mCurrentPresentTarget->width, mCurrentPresentTarget->height, mCurrentPresentTarget->format))
 	{
 		return;
 	}
@@ -7358,9 +7367,20 @@ bool NRIRenderDevice::RefreshFrameGenerationPresentTargets()
 	{
 		return false;
 	}
+	const NRIFrameGenerationPresentContract& presentContract = mFrameGeneration.GetPresentContract();
+	if (!presentContract.resolvedDxgiFormatValid || swapChainDesc.Format != static_cast<DXGI_FORMAT>(presentContract.resolvedDxgiFormat))
+	{
+		return false;
+	}
+	const nri::Format expectedProxyFormat =
+		presentContract.createdSwapChainFormat == nri::SwapChainFormat::BT709_G10_16BIT ? nri::Format::RGBA16_SFLOAT :
+		presentContract.createdSwapChainFormat == nri::SwapChainFormat::BT709_G22_8BIT ? nri::Format::RGBA8_UNORM : nri::Format::UNKNOWN;
+	if (expectedProxyFormat == nri::Format::UNKNOWN)
+		return false;
 
 	mFrameGenerationPresentAllowsTearing = (swapChainDesc.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
 	mFrameGenerationPresentImages.resize(swapChainDesc.BufferCount);
+	nri::Format resolvedProxyFormat = nri::Format::UNKNOWN;
 	for (UINT i = 0; i < swapChainDesc.BufferCount; ++i)
 	{
 		ID3D12Resource* nativeResource = nullptr;
@@ -7392,6 +7412,18 @@ bool NRIRenderDevice::RefreshFrameGenerationPresentTargets()
 		target.type = wrappedDesc.type;
 		target.shaderViewType = nri::TextureView::TEXTURE;
 		target.state = {};
+		if (target.format != expectedProxyFormat)
+		{
+			DestroyFrameGenerationPresentTargets();
+			return false;
+		}
+		if (resolvedProxyFormat == nri::Format::UNKNOWN)
+			resolvedProxyFormat = target.format;
+		else if (resolvedProxyFormat != target.format)
+		{
+			DestroyFrameGenerationPresentTargets();
+			return false;
+		}
 
 		if (!CreateTextureViews(target))
 		{
@@ -7399,8 +7431,9 @@ bool NRIRenderDevice::RefreshFrameGenerationPresentTargets()
 			return false;
 		}
 	}
+	mResolvedSwapChainTextureFormat = resolvedProxyFormat;
 
-	return true;
+	return resolvedProxyFormat != nri::Format::UNKNOWN;
 #endif
 }
 
@@ -7440,10 +7473,11 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		(int)nri_ptportaldepth);
 	const auto& frameGenPolicy = mFrameGeneration.GetPolicy();
 	const auto& frameGenPresentContract = mFrameGeneration.GetPresentContract();
-	Printf("NRI PT framegen caps: requested=%s provider=%s resolved=%s output=%s->%s contract=%s scope=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s(route=%s) swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
+	Printf("NRI PT framegen caps: request=%s provider=%s operational=%s owner=%s output=%s->%s contract=%s scope=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s(route=%s) swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
 		frameGenPolicy.requestedEnabled ? "on" : "off",
-		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.requestedProvider),
-		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.resolvedProvider),
+		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.provider),
+		frameGenPolicy.operational ? "yes" : "no",
+		frameGenPolicy.ffxProxyPacing ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
 		GetNRIPTOutputModeName(frameGenPolicy.requestedOutputMode),
 		GetNRIPTOutputModeName(frameGenPolicy.resolvedOutputMode),
 		NRIFrameGenerationContext::GetOutputContractName(frameGenPolicy.resolvedOutputContract),
@@ -7473,19 +7507,28 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		NRIFrameGenerationContext::GetAvailabilityName(frameGenPolicy.waitableSwapChainAvailable),
 		NRIFrameGenerationContext::GetAvailabilityName(frameGenPolicy.providerRuntimeSupported),
 		frameGenPolicy.resolvedReason);
-	Printf("NRI PT framegen present contract: output=%s->%s proxy=%s hdr_swapchain=%s swapchain=%s texture=%s active=%s dxgi=%s active_dxgi=%s transfer=%s luminance=%.3f..%.3f hdr_scale=%.3f reason=%s\n",
+	Printf("NRI PT framegen state: provider=%s enabled=%s operational=%s owner=%s reason=%s\n",
+		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.provider),
+		frameGenPolicy.requestedEnabled ? "yes" : "no",
+		frameGenPolicy.operational ? "yes" : "no",
+		frameGenPolicy.ffxProxyPacing ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
+		frameGenPolicy.resolvedReason);
+	Printf("NRI PT framegen present contract: output=%s->%s proxy=%s hdr_swapchain=%s hdr_context=%s swapchain=%s texture=%s active=%s dxgi=%s active_dxgi=%s requested_color_space=%s observed_color_space=%s transfer=%s min_nits=%.3f max_nits=%.3f hdr_scale=%.3f reason=%s\n",
 		GetNRIPTOutputModeName(frameGenPresentContract.requestedOutputMode),
 		GetNRIPTOutputModeName(frameGenPresentContract.resolvedOutputMode),
 		NRIFrameGenerationContext::GetAvailabilityName(frameGenPresentContract.proxyAllowed),
 		NRIFrameGenerationContext::GetAvailabilityName(frameGenPresentContract.usesHdrSwapChain),
+		NRIFrameGenerationContext::GetAvailabilityName(frameGenPresentContract.hdrContext),
 		NRIFrameGenerationContext::GetSwapChainFormatName(frameGenPresentContract.createdSwapChainFormat),
 		NRIFrameGenerationContext::GetNriFormatName(frameGenPresentContract.resolvedTextureFormat),
 		NRIFrameGenerationContext::GetNriFormatName(frameGenPresentContract.activePresentTargetFormat),
 		frameGenPresentContract.resolvedDxgiFormatValid ? NRIFrameGenerationContext::GetDxgiFormatName(frameGenPresentContract.resolvedDxgiFormat) : "unknown",
 		frameGenPresentContract.activePresentTargetDxgiFormatValid ? NRIFrameGenerationContext::GetDxgiFormatName(frameGenPresentContract.activePresentTargetDxgiFormat) : "unknown",
+		frameGenPresentContract.requestedDxgiColorSpaceValid ? NRIFrameGenerationContext::GetDxgiColorSpaceName(frameGenPresentContract.requestedDxgiColorSpace) : "unknown",
+		frameGenPresentContract.observedDxgiColorSpaceValid ? NRIFrameGenerationContext::GetDxgiColorSpaceName(frameGenPresentContract.observedDxgiColorSpace) : "unknown",
 		NRIFrameGenerationContext::GetPresentTransferFunctionName(frameGenPresentContract.transferFunction),
-		frameGenPresentContract.minLuminance,
-		frameGenPresentContract.maxLuminance,
+		frameGenPresentContract.minLuminanceNits,
+		frameGenPresentContract.maxLuminanceNits,
 		frameGenPresentContract.hdrPaperWhiteScale,
 		frameGenPresentContract.resolvedReason);
 	Printf("NRI PT framegen native: device=%s queue=%s swapchain=%s path=%s\n",
@@ -7494,6 +7537,16 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		mNativeD3D12SwapChain != nullptr ? "ok" : "missing",
 		GetLiveAPI() == nri::GraphicsAPI::D3D12 ? "nri-public-device-queue-only" : "unsupported-api");
 	const auto& frameGenProvider = mFrameGeneration.GetProviderState();
+	Printf("NRI PT framegen context: generation=%llu created=%s hdr=%s transfer=%s backbuffer=%s hudless=%s create_flags=0x%X luminance_units=nits min_nits=%.3f max_nits=%.3f\n",
+		(unsigned long long)frameGenProvider.contextGeneration,
+		frameGenProvider.contextCreated ? "yes" : "no",
+		frameGenProvider.contextHdr ? "yes" : "no",
+		NRIFrameGenerationContext::GetPresentTransferFunctionName(frameGenProvider.contextTransferFunction),
+		NRIFrameGenerationContext::GetFfxSurfaceFormatName(frameGenProvider.contextBackBufferFormat),
+		NRIFrameGenerationContext::GetFfxSurfaceFormatName(frameGenProvider.contextHudlessFormat),
+		frameGenProvider.contextCreateFlags,
+		frameGenPresentContract.minLuminanceNits,
+		frameGenPresentContract.maxLuminanceNits);
 	Printf("NRI PT framegen provider: runtime=%s funcs=%s context=%s swapctx=%s bridge=%s debug=%s no_swapchain_notify=%s cfg=%s prepare=%s fg_dispatch=%s ui_reg=%s camera=%s lib=%s version=%s dims=render:%ux%u display:%ux%u counts=cfg:%llu prep:%llu fg:%llu frames=%llu/%llu query=%s/%s create=%s/%s config=%s/%s prepare=%s dispatch=%s vram=fg:%s:%llu/%llu sc:%s:%llu/%llu resets=%llu last_reset=%s present=%s/%s count=%llu reason=%s\n",
 		frameGenProvider.runtimeLoaded ? "yes" : "no",
 		frameGenProvider.runtimeFunctionsLoaded ? "yes" : "no",
@@ -7546,13 +7599,20 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		frameGenProvider.nativeFallbackRequested ? "yes" : "no",
 		frameGenProvider.lastPresentMode,
 		NRIFrameGenerationContext::GetPresentResultName(frameGenProvider.lastPresentResult));
-	Printf("NRI PT framegen bridge: window=%s dxgi_state=%s owner=%s active=%s tearing_supported=%s detached=%s create_attempt_count=%llu create_generation=%llu drain_count=%llu drain_result=%s waitable=%s pacing_wait_count=%llu pacing_timeout_count=%llu pacing_wait_result=0x%X sync_interval=%u present_flags=0x%X present_hr=0x%08llX configure_count=%llu prepare_count=%llu dispatch_count=%llu proxy_present_count=%llu fallback_pending=%s\n",
+	const auto& frameGenBridge = mFrameGeneration.GetPresentBridgeSnapshot();
+	Printf("NRI PT framegen bridge: window=%s dxgi_state=%s owner=%s active=%s tearing_supported=%s detached=%s requested_color_space=%s observed_color_space=%s color_support=0x%X color_check_hr=0x%08llX color_set_hr=0x%08llX color_set=%s create_attempt_count=%llu create_generation=%llu drain_count=%llu drain_result=%s waitable=%s pacing_wait_count=%llu pacing_timeout_count=%llu pacing_wait_result=0x%X sync_interval=%u present_flags=0x%X present_hr=0x%08llX configure_count=%llu prepare_count=%llu dispatch_count=%llu proxy_present_count=%llu fallback_pending=%s\n",
 		NRIFrameGenerationContext::GetWindowModeName(frameGenPolicy.windowPresentationMode),
 		NRIFrameGenerationContext::GetDxgiFullscreenStateName(frameGenProvider.dxgiFullscreenKnown, frameGenProvider.dxgiFullscreen),
 		frameGenProvider.presentBridgeReady ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
 		frameGenProvider.presentBridgeReady ? "yes" : "no",
 		frameGenProvider.tearingSupported ? "yes" : "no",
 		frameGenProvider.presentBridgeDetached ? "yes" : "no",
+		NRIFrameGenerationContext::GetDxgiColorSpaceName(frameGenBridge.requestedColorSpace),
+		frameGenBridge.observedColorSpaceValid ? NRIFrameGenerationContext::GetDxgiColorSpaceName(frameGenBridge.observedColorSpace) : "unknown",
+		frameGenBridge.colorSpaceSupport,
+		(unsigned long long)frameGenBridge.colorSpaceCheckHresult,
+		(unsigned long long)frameGenBridge.colorSpaceSetHresult,
+		frameGenBridge.colorSpaceSet ? "yes" : "no",
 		(unsigned long long)frameGenProvider.bridgeCreateAttemptCount,
 		(unsigned long long)frameGenProvider.bridgeCreateGeneration,
 		(unsigned long long)frameGenProvider.bridgeDrainCount,
@@ -7710,6 +7770,7 @@ NRIPTOutputPolicy NRIRenderDevice::GetPathTracingOutputPolicy() const
 	policy.shoulder = GetRequestedPathTracingShoulder(hdrControlsActive);
 	policy.toe = GetRequestedPathTracingToe(hdrControlsActive);
 	policy.paperWhiteNits = (float)nri_ptpaperwhite;
+	policy.displayMinLuminance = mHasSwapChainDisplayDesc ? mSwapChainDisplayDesc.minLuminance : 0.0f;
 	policy.displayInfoAvailable = mHasSwapChainDisplayDesc;
 	policy.displayHdrSupported = mHasSwapChainDisplayDesc && mSwapChainDisplayDesc.isHDR;
 	policy.displayMaxLuminance = mHasSwapChainDisplayDesc ? mSwapChainDisplayDesc.maxLuminance : 80.0f;
@@ -8957,10 +9018,11 @@ void NRIRenderDevice::LogStartup()
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLSR) ? "yes" : "no",
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLRR) ? "yes" : "no");
 	const auto& frameGenPolicy = mFrameGeneration.GetPolicy();
-	Printf("Frame generation policy: requested=%s provider=%s resolved=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s(route=%s) swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
+	Printf("FSR3 frame generation policy: request=%s provider=%s operational=%s owner=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s(route=%s) swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
 		frameGenPolicy.requestedEnabled ? "on" : "off",
-		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.requestedProvider),
-		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.resolvedProvider),
+		NRIFrameGenerationContext::GetProviderName(frameGenPolicy.provider),
+		frameGenPolicy.operational ? "yes" : "no",
+		frameGenPolicy.ffxProxyPacing ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
 		frameGenPolicy.selectedApiName,
 		frameGenPolicy.shaderModel / 10u,
 		frameGenPolicy.shaderModel % 10u,
@@ -9386,6 +9448,7 @@ bool NRIRenderDevice::CreateSwapChain()
 	{
 		return false;
 	}
+	RefreshSwapChainDisplayDesc(false);
 	const NRIPTOutputMode requestedOutputMode = GetRequestedPathTracingOutputMode();
 	nri::SwapChainFormat requestedOutputFormat = nri::SwapChainFormat::BT709_G22_8BIT;
 	nri::SwapChainFormat resolvedOutputFormat = nri::SwapChainFormat::BT709_G22_8BIT;
@@ -9409,8 +9472,6 @@ bool NRIRenderDevice::CreateSwapChain()
 
 	const bool tryFrameGenPresentBridge =
 		nri_framegen &&
-		requestedOutputMode == NRIPTOutputMode::SDR &&
-		HasRequestedFrameGenerationProvider() &&
 		GetLiveAPI() == nri::GraphicsAPI::D3D12 &&
 		!mFrameGeneration.ConsumeNativeFallbackRequest();
 
@@ -9419,9 +9480,7 @@ bool NRIRenderDevice::CreateSwapChain()
 		mRequestedSwapChainFormat = requestedOutputFormat;
 		mCreatedSwapChainFormat = createdFormat;
 		mResolvedSwapChainTextureFormat = nri::Format::UNKNOWN;
-		mSwapChainDisplayDesc = {};
-		mSwapChainDisplayDescResult = nri::Result::FAILURE;
-		mHasSwapChainDisplayDesc = false;
+		mCreatedSwapChainDisplayGeneration = mSwapChainDisplayGeneration;
 		mSwapChainOutputResolveReason = reason;
 		mSwapChainFlags = swapChainDesc.flags;
 		mSwapChainQueuedFrameNum = swapChainDesc.queuedFrameNum;
@@ -9648,8 +9707,7 @@ void NRIRenderDevice::DestroySwapChain()
 	mCreatedSwapChainFormat = nri::SwapChainFormat::BT709_G22_8BIT;
 	mResolvedSwapChainTextureFormat = nri::Format::UNKNOWN;
 	mCreatedWindowPresentationModeValid = false;
-	mSwapChainDisplayDesc = {};
-	mSwapChainDisplayDescResult = nri::Result::FAILURE;
+	mCreatedSwapChainDisplayGeneration = 0;
 	mSwapChainQueuedFrameNum = 0;
 	mSwapChainTextureCount = 0;
 	mObservedSwapChainAcquireMask = 0;
@@ -9658,7 +9716,6 @@ void NRIRenderDevice::DestroySwapChain()
 	mSwapChainPresentCounts.clear();
 	mSwapChainAbandonCounts.clear();
 	mHasPresentedSwapChainFrame = false;
-	mHasSwapChainDisplayDesc = false;
 	mSwapChainOutputResolveReason = "requested-sdr";
 	mFrameGeneration.OnSwapChainDestroyed(*this);
 
@@ -9941,10 +9998,7 @@ bool NRIRenderDevice::BeginCommandList(const char* reason, bool waitForSlotReuse
 
 bool NRIRenderDevice::EnsureSwapChainSize()
 {
-	if (mSwapChain != nullptr)
-	{
-		RefreshSwapChainDisplayDesc(true);
-	}
+	RefreshSwapChainDisplayDesc(true);
 
 	const NRIPTOutputMode requestedOutputMode = GetRequestedPathTracingOutputMode();
 	nri::SwapChainFormat requestedOutputFormat = nri::SwapChainFormat::BT709_G22_8BIT;
@@ -9961,13 +10015,13 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 			const uint32_t width = (uint32_t)(std::max)(GetClientWidth(), 1);
 			const uint32_t height = (uint32_t)(std::max)(GetClientHeight(), 1);
 			const nri::SwapChainBits requestedFlags = GetEffectiveRequestedSwapChainFlags();
-			if (requestedOutputMode == NRIPTOutputMode::SDR &&
-				mFrameGenerationPresentImages[0].width == width &&
+			if (mFrameGenerationPresentImages[0].width == width &&
 				mFrameGenerationPresentImages[0].height == height &&
 				mSwapChainFlags == requestedFlags &&
 				mCreatedSwapChainFormat == resolvedOutputFormat &&
 				mCreatedWindowPresentationModeValid &&
-				mCreatedWindowPresentationMode == desiredWindowMode)
+				mCreatedWindowPresentationMode == desiredWindowMode &&
+				mCreatedSwapChainDisplayGeneration == mSwapChainDisplayGeneration)
 			{
 				return true;
 			}
@@ -9977,7 +10031,8 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 					"window-mode-change" :
 				((mFrameGenerationPresentImages[0].width != width || mFrameGenerationPresentImages[0].height != height) ?
 					"swapchain-resize" :
-					(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" : "swapchain-format-change")));
+					(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" :
+						(mCreatedSwapChainDisplayGeneration != mSwapChainDisplayGeneration ? "display-contract-change" : "swapchain-format-change"))));
 			if (mCreatedSwapChainFormat != resolvedOutputFormat)
 			{
 				Printf("NRI swapchain policy change: requested_mode=%s requested_format=%s created_format=%s desired_format=%s reason=%s\n",
@@ -10003,7 +10058,8 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 		mSwapChainTextureCount == requestedTextureCount &&
 		mCreatedSwapChainFormat == resolvedOutputFormat &&
 		mCreatedWindowPresentationModeValid &&
-		mCreatedWindowPresentationMode == desiredWindowMode)
+		mCreatedWindowPresentationMode == desiredWindowMode &&
+		mCreatedSwapChainDisplayGeneration == mSwapChainDisplayGeneration)
 	{
 		return true;
 	}
@@ -10024,24 +10080,43 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 		((!mSwapChainImages.empty() && (mSwapChainImages[0].target.width != width || mSwapChainImages[0].target.height != height)) ?
 			"swapchain-resize" :
 			(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" :
-				(mSwapChainTextureCount != requestedTextureCount ? "swapchain-texture-count-change" : "swapchain-format-change"))));
+				(mSwapChainTextureCount != requestedTextureCount ? "swapchain-texture-count-change" :
+					(mCreatedSwapChainDisplayGeneration != mSwapChainDisplayGeneration ? "display-contract-change" : "swapchain-format-change")))));
 	WaitForCommands(true);
 	return CreateSwapChain();
 }
 
 bool NRIRenderDevice::RefreshSwapChainDisplayDesc(bool logChanges)
 {
-	if (mSwapChain == nullptr)
-	{
-		return false;
-	}
-
 	const nri::Result previousResult = mSwapChainDisplayDescResult;
 	const bool hadDisplayDesc = mHasSwapChainDisplayDesc;
 	const nri::DisplayDesc previousDesc = mSwapChainDisplayDesc;
 
 	nri::DisplayDesc refreshedDesc = {};
-	const nri::Result refreshResult = mSwapChainInterface.GetDisplayDesc(*mSwapChain, refreshedDesc);
+	nri::Result refreshResult = nri::Result::FAILURE;
+	if (mSwapChain != nullptr)
+	{
+		refreshResult = mSwapChainInterface.GetDisplayDesc(*mSwapChain, refreshedDesc);
+	}
+#ifdef _WIN32
+	else if (GetLiveAPI() == nri::GraphicsAPI::D3D12 && mainwindow.GetHandle() != nullptr)
+	{
+		NRIFsr3Dx12DisplayDesc proxyDisplayDesc = {};
+		if (mFrameGeneration.QueryDisplayDesc(mainwindow.GetHandle(), proxyDisplayDesc))
+		{
+			refreshedDesc.redPrimary = { proxyDisplayDesc.redPrimary[0], proxyDisplayDesc.redPrimary[1] };
+			refreshedDesc.greenPrimary = { proxyDisplayDesc.greenPrimary[0], proxyDisplayDesc.greenPrimary[1] };
+			refreshedDesc.bluePrimary = { proxyDisplayDesc.bluePrimary[0], proxyDisplayDesc.bluePrimary[1] };
+			refreshedDesc.whitePoint = { proxyDisplayDesc.whitePoint[0], proxyDisplayDesc.whitePoint[1] };
+			refreshedDesc.minLuminance = proxyDisplayDesc.minLuminance;
+			refreshedDesc.maxLuminance = proxyDisplayDesc.maxLuminance;
+			refreshedDesc.maxFullFrameLuminance = proxyDisplayDesc.maxFullFrameLuminance;
+			refreshedDesc.sdrLuminance = proxyDisplayDesc.sdrLuminance;
+			refreshedDesc.isHDR = proxyDisplayDesc.isHdr;
+			refreshResult = nri::Result::SUCCESS;
+		}
+	}
+#endif
 	mSwapChainDisplayDescResult = refreshResult;
 
 	if (refreshResult == nri::Result::SUCCESS)
@@ -10049,6 +10124,8 @@ bool NRIRenderDevice::RefreshSwapChainDisplayDesc(bool logChanges)
 		const bool descChanged = !hadDisplayDesc || HasDisplayDescChanged(previousDesc, refreshedDesc);
 		mSwapChainDisplayDesc = refreshedDesc;
 		mHasSwapChainDisplayDesc = true;
+		if (descChanged)
+			++mSwapChainDisplayGeneration;
 
 		if (logChanges && (previousResult != nri::Result::SUCCESS || descChanged))
 		{

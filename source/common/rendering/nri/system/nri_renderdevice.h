@@ -334,7 +334,7 @@ private:
 	bool ShouldUseFrameGenerationUiLocalCompositeFallback() const;
 	const char* GetFrameGenerationUiRouteName() const;
 	uint32_t GetFrameGenerationSceneBlendPrefixCount() const;
-	bool EnsureFrameGenerationUiTexture(uint32_t width, uint32_t height);
+	bool EnsureFrameGenerationUiTexture(uint32_t width, uint32_t height, nri::Format format);
 	NRITextureResource* GetFrameGenerationUiTargetResource() const;
 	bool EnsureViewSnapshotTexture(uint32_t width, uint32_t height, nri::Format format);
 	NRITextureResource* GetViewSnapshotTargetResource() const;
@@ -436,6 +436,8 @@ private:
 	bool mCreatedWindowPresentationModeValid = false;
 	nri::DisplayDesc mSwapChainDisplayDesc = {};
 	nri::Result mSwapChainDisplayDescResult = nri::Result::FAILURE;
+	uint64_t mSwapChainDisplayGeneration = 0;
+	uint64_t mCreatedSwapChainDisplayGeneration = 0;
 	uint8_t mSwapChainQueuedFrameNum = 0;
 	uint8_t mSwapChainTextureCount = 0;
 	uint64_t mObservedSwapChainAcquireMask = 0;

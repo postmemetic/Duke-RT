@@ -4,6 +4,8 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <dxgi1_6.h>
+#include <vector>
+
 
 namespace
 {
@@ -40,8 +42,160 @@ namespace
 		auto createFactory2 = reinterpret_cast<PfnCreateDXGIFactory2>(GetProcAddress(dxgiModule, "CreateDXGIFactory2"));
 		return createFactory2 != nullptr ? createFactory2(0u, IID_PPV_ARGS(factory)) : E_NOINTERFACE;
 	}
+
+	struct NriDisplayConfigPathSourceInfo
+	{
+		LUID adapterId;
+		UINT32 id;
+		UINT32 modeInfoIdx;
+		UINT32 statusFlags;
+	};
+
+	struct NriDisplayConfigRational
+	{
+		UINT32 numerator;
+		UINT32 denominator;
+	};
+
+	struct NriDisplayConfigPathTargetInfo
+	{
+		LUID adapterId;
+		UINT32 id;
+		UINT32 modeInfoIdx;
+		UINT32 outputTechnology;
+		UINT32 rotation;
+		UINT32 scaling;
+		NriDisplayConfigRational refreshRate;
+		UINT32 scanLineOrdering;
+		BOOL targetAvailable;
+		UINT32 statusFlags;
+	};
+
+	struct NriDisplayConfigPathInfo
+	{
+		NriDisplayConfigPathSourceInfo sourceInfo;
+		NriDisplayConfigPathTargetInfo targetInfo;
+		UINT32 flags;
+	};
+
+	struct alignas(8) NriDisplayConfigModeInfo
+	{
+		uint8_t bytes[64];
+	};
+
+	struct NriDisplayConfigDeviceInfoHeader
+	{
+		UINT32 type;
+		UINT32 size;
+		LUID adapterId;
+		UINT32 id;
+	};
+
+	struct NriDisplayConfigSourceDeviceName
+	{
+		NriDisplayConfigDeviceInfoHeader header;
+		WCHAR viewGdiDeviceName[CCHDEVICENAME];
+	};
+
+	struct NriDisplayConfigSdrWhiteLevel
+	{
+		NriDisplayConfigDeviceInfoHeader header;
+		ULONG sdrWhiteLevel;
+	};
+
+	static_assert(sizeof(NriDisplayConfigPathSourceInfo) == 20);
+	static_assert(sizeof(NriDisplayConfigPathTargetInfo) == 48);
+	static_assert(sizeof(NriDisplayConfigPathInfo) == 72);
+	static_assert(sizeof(NriDisplayConfigModeInfo) == 64);
+	static_assert(sizeof(NriDisplayConfigSourceDeviceName) == 84);
+	static_assert(sizeof(NriDisplayConfigSdrWhiteLevel) == 24);
+
+	bool IsInternalOutputTechnology(UINT32 outputTechnology)
+	{
+		return outputTechnology == 0x80000000u || outputTechnology == 11u || outputTechnology == 13u;
+	}
+
+	float GetSdrLuminanceForMonitor(HMONITOR monitor)
+	{
+		constexpr UINT32 QueryOnlyActivePaths = 0x00000002u;
+		constexpr UINT32 GetSourceName = 1u;
+		constexpr UINT32 GetSdrWhiteLevel = 11u;
+		float nits = 80.0f;
+
+		MONITORINFOEXW monitorInfo = {};
+		monitorInfo.cbSize = sizeof(monitorInfo);
+		if (monitor == nullptr || !GetMonitorInfoW(monitor, &monitorInfo))
+			return nits;
+
+		HMODULE user32Module = GetModuleHandleW(L"user32.dll");
+		if (user32Module == nullptr)
+			return nits;
+
+		using PfnGetDisplayConfigBufferSizes = LONG (WINAPI*)(UINT32, UINT32*, UINT32*);
+		using PfnQueryDisplayConfig = LONG (WINAPI*)(UINT32, UINT32*, void*, UINT32*, void*, void*);
+		using PfnDisplayConfigGetDeviceInfo = LONG (WINAPI*)(void*);
+		const auto getBufferSizes = reinterpret_cast<PfnGetDisplayConfigBufferSizes>(GetProcAddress(user32Module, "GetDisplayConfigBufferSizes"));
+		const auto queryDisplayConfig = reinterpret_cast<PfnQueryDisplayConfig>(GetProcAddress(user32Module, "QueryDisplayConfig"));
+		const auto getDeviceInfo = reinterpret_cast<PfnDisplayConfigGetDeviceInfo>(GetProcAddress(user32Module, "DisplayConfigGetDeviceInfo"));
+		if (getBufferSizes == nullptr || queryDisplayConfig == nullptr || getDeviceInfo == nullptr)
+			return nits;
+
+		std::vector<NriDisplayConfigPathInfo> paths;
+		std::vector<NriDisplayConfigModeInfo> modes;
+		LONG queryResult = ERROR_INSUFFICIENT_BUFFER;
+		UINT32 pathCount = 0;
+		UINT32 modeCount = 0;
+		for (uint32_t attempt = 0; attempt < 3u && queryResult == ERROR_INSUFFICIENT_BUFFER; ++attempt)
+		{
+			if (getBufferSizes(QueryOnlyActivePaths, &pathCount, &modeCount) != ERROR_SUCCESS)
+				return nits;
+
+			paths.resize(pathCount);
+			modes.resize(modeCount);
+			queryResult = queryDisplayConfig(QueryOnlyActivePaths, &pathCount, paths.data(), &modeCount, modes.data(), nullptr);
+		}
+		if (queryResult != ERROR_SUCCESS)
+			return nits;
+
+		const NriDisplayConfigPathTargetInfo* selectedTarget = nullptr;
+		for (UINT32 pathIndex = 0; pathIndex < pathCount; ++pathIndex)
+		{
+			NriDisplayConfigSourceDeviceName sourceName = {};
+			sourceName.header.type = GetSourceName;
+			sourceName.header.size = sizeof(sourceName);
+			sourceName.header.adapterId = paths[pathIndex].sourceInfo.adapterId;
+			sourceName.header.id = paths[pathIndex].sourceInfo.id;
+			if (getDeviceInfo(&sourceName.header) != ERROR_SUCCESS ||
+				wcscmp(monitorInfo.szDevice, sourceName.viewGdiDeviceName) != 0)
+			{
+				continue;
+			}
+
+			if (selectedTarget == nullptr || IsInternalOutputTechnology(paths[pathIndex].targetInfo.outputTechnology))
+				selectedTarget = &paths[pathIndex].targetInfo;
+		}
+		if (selectedTarget == nullptr)
+			return nits;
+
+		NriDisplayConfigSdrWhiteLevel whiteLevel = {};
+		whiteLevel.header.type = GetSdrWhiteLevel;
+		whiteLevel.header.size = sizeof(whiteLevel);
+		whiteLevel.header.adapterId = selectedTarget->adapterId;
+		whiteLevel.header.id = selectedTarget->id;
+		if (getDeviceInfo(&whiteLevel.header) == ERROR_SUCCESS && whiteLevel.sdrWhiteLevel != 0u)
+			nits = (static_cast<float>(whiteLevel.sdrWhiteLevel) * 80.0f) / 1000.0f;
+
+		return nits;
+	}
 }
 #endif
+
+NRIFsr3Dx12PresentBridge::~NRIFsr3Dx12PresentBridge()
+{
+#ifdef _WIN32
+	ReleaseDisplayQueryCache();
+#endif
+}
 
 bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& desc)
 {
@@ -62,10 +216,18 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 	mSnapshot.dxgiFullscreen = false;
 	mSnapshot.memoryUsageValid = false;
 	mSnapshot.waitableObjectAvailable = false;
+	mSnapshot.colorSpaceSupportValid = false;
+	mSnapshot.colorSpaceSet = false;
+	mSnapshot.observedColorSpaceValid = false;
 	mSnapshot.lastCreateResult = 0;
 	mSnapshot.lastQueryResult = 0;
 	mSnapshot.totalUsageBytes = 0;
 	mSnapshot.aliasableUsageBytes = 0;
+	mSnapshot.requestedColorSpace = desc.colorSpace;
+	mSnapshot.observedColorSpace = 0;
+	mSnapshot.colorSpaceSupport = 0;
+	mSnapshot.colorSpaceCheckHresult = 0;
+	mSnapshot.colorSpaceSetHresult = 0;
 
 	IDXGIFactory7* factory = nullptr;
 	if (FAILED(CreateDxgiFactoryForFrameGeneration(&factory)) || factory == nullptr)
@@ -106,9 +268,27 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 	if (mSnapshot.lastCreateResult == NRI_FFX_API_RETURN_OK)
 	{
 		mDrainRequired = IsActive();
-		++mSnapshot.createGeneration;
 		if (mSwapChain != nullptr)
 		{
+			UINT colorSpaceSupport = 0;
+			const DXGI_COLOR_SPACE_TYPE requestedColorSpace = static_cast<DXGI_COLOR_SPACE_TYPE>(desc.colorSpace);
+			const HRESULT colorSpaceCheckResult = mSwapChain->CheckColorSpaceSupport(requestedColorSpace, &colorSpaceSupport);
+			mSnapshot.colorSpaceCheckHresult = static_cast<int64_t>(colorSpaceCheckResult);
+			mSnapshot.colorSpaceSupport = colorSpaceSupport;
+			mSnapshot.colorSpaceSupportValid = SUCCEEDED(colorSpaceCheckResult);
+			if (SUCCEEDED(colorSpaceCheckResult) && (colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) != 0u)
+			{
+				const HRESULT colorSpaceSetResult = mSwapChain->SetColorSpace1(requestedColorSpace);
+				mSnapshot.colorSpaceSetHresult = static_cast<int64_t>(colorSpaceSetResult);
+				mSnapshot.colorSpaceSet = SUCCEEDED(colorSpaceSetResult);
+			}
+			else
+			{
+				mSnapshot.colorSpaceSetHresult = static_cast<int64_t>(E_FAIL);
+			}
+			mSnapshot.observedColorSpace = desc.colorSpace;
+			mSnapshot.observedColorSpaceValid = mSnapshot.colorSpaceSet;
+
 			const HRESULT associationResult = factory->MakeWindowAssociation(static_cast<HWND>(desc.windowHandle), DXGI_MWA_NO_WINDOW_CHANGES);
 			mSnapshot.windowAssociationKnown = true;
 			mSnapshot.windowAssociationSucceeded = SUCCEEDED(associationResult);
@@ -134,10 +314,130 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 		}
 	}
 
+	const bool success = IsActive() && mSnapshot.colorSpaceSet &&
+		mSnapshot.observedColorSpaceValid && mSnapshot.observedColorSpace == mSnapshot.requestedColorSpace;
+	if (success)
+		++mSnapshot.createGeneration;
 	factory->Release();
-	return IsActive();
+	return success;
 #endif
 }
+
+bool NRIFsr3Dx12PresentBridge::QueryDisplayDesc(void* windowHandle, NRIFsr3Dx12DisplayDesc& outDesc)
+{
+	outDesc = {};
+#ifndef _WIN32
+	(void)windowHandle;
+	return false;
+#else
+	if (windowHandle == nullptr)
+		return false;
+
+	const HMONITOR monitor = MonitorFromWindow(static_cast<HWND>(windowHandle), MONITOR_DEFAULTTONEAREST);
+	if (monitor == nullptr || !EnsureDisplayOutput(monitor))
+		return false;
+
+	bool success = false;
+	if (mDisplayOutput != nullptr)
+	{
+		DXGI_OUTPUT_DESC1 desc = {};
+		if (SUCCEEDED(mDisplayOutput->GetDesc1(&desc)))
+		{
+			outDesc.redPrimary[0] = desc.RedPrimary[0];
+			outDesc.redPrimary[1] = desc.RedPrimary[1];
+			outDesc.greenPrimary[0] = desc.GreenPrimary[0];
+			outDesc.greenPrimary[1] = desc.GreenPrimary[1];
+			outDesc.bluePrimary[0] = desc.BluePrimary[0];
+			outDesc.bluePrimary[1] = desc.BluePrimary[1];
+			outDesc.whitePoint[0] = desc.WhitePoint[0];
+			outDesc.whitePoint[1] = desc.WhitePoint[1];
+			outDesc.minLuminance = desc.MinLuminance;
+			outDesc.maxLuminance = desc.MaxLuminance;
+			outDesc.maxFullFrameLuminance = desc.MaxFullFrameLuminance;
+			const uint64_t queryTick = GetTickCount64();
+			if (!mCachedSdrLuminanceValid || queryTick - mSdrLuminanceQueryTick >= 1000u)
+			{
+				mCachedSdrLuminance = GetSdrLuminanceForMonitor(desc.Monitor);
+				mCachedSdrLuminanceValid = true;
+				mSdrLuminanceQueryTick = queryTick;
+			}
+			outDesc.sdrLuminance = mCachedSdrLuminance;
+			outDesc.isHdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+			success = true;
+		}
+	}
+	return success;
+#endif
+}
+
+#ifdef _WIN32
+void NRIFsr3Dx12PresentBridge::ReleaseDisplayQueryCache()
+{
+	if (mDisplayOutput != nullptr)
+	{
+		mDisplayOutput->Release();
+		mDisplayOutput = nullptr;
+	}
+	if (mDisplayFactory != nullptr)
+	{
+		mDisplayFactory->Release();
+		mDisplayFactory = nullptr;
+	}
+	mDisplayMonitor = nullptr;
+	mCachedSdrLuminanceValid = false;
+	mSdrLuminanceQueryTick = 0;
+}
+
+bool NRIFsr3Dx12PresentBridge::EnsureDisplayOutput(void* monitorHandle)
+{
+	const HMONITOR monitor = static_cast<HMONITOR>(monitorHandle);
+	if (mDisplayFactory != nullptr && (!mDisplayFactory->IsCurrent() || mDisplayMonitor != monitor))
+		ReleaseDisplayQueryCache();
+	if (mDisplayOutput != nullptr)
+		return true;
+
+	if (mDisplayFactory == nullptr &&
+		(FAILED(CreateDxgiFactoryForFrameGeneration(&mDisplayFactory)) || mDisplayFactory == nullptr))
+	{
+		return false;
+	}
+
+	for (UINT adapterIndex = 0; mDisplayOutput == nullptr; ++adapterIndex)
+	{
+		IDXGIAdapter1* adapter = nullptr;
+		const HRESULT adapterResult = mDisplayFactory->EnumAdapters1(adapterIndex, &adapter);
+		if (adapterResult == DXGI_ERROR_NOT_FOUND)
+			break;
+		if (FAILED(adapterResult) || adapter == nullptr)
+			continue;
+
+		for (UINT outputIndex = 0; mDisplayOutput == nullptr; ++outputIndex)
+		{
+			IDXGIOutput* output = nullptr;
+			const HRESULT outputResult = adapter->EnumOutputs(outputIndex, &output);
+			if (outputResult == DXGI_ERROR_NOT_FOUND)
+				break;
+			if (FAILED(outputResult) || output == nullptr)
+				continue;
+
+			DXGI_OUTPUT_DESC outputDesc = {};
+			if (SUCCEEDED(output->GetDesc(&outputDesc)) && outputDesc.Monitor == monitor)
+				output->QueryInterface(IID_PPV_ARGS(&mDisplayOutput));
+			output->Release();
+		}
+		adapter->Release();
+	}
+
+	if (mDisplayOutput == nullptr)
+	{
+		ReleaseDisplayQueryCache();
+		return false;
+	}
+
+	mDisplayMonitor = monitor;
+	return true;
+}
+#endif
 
 uint32_t NRIFsr3Dx12PresentBridge::Drain(void* dispatchFn)
 {

@@ -32,7 +32,6 @@ enum class NRIFrameGenerationUiMode : uint32_t
 struct NRIFrameGenerationSettings
 {
 	bool enabled = false;
-	NRIFrameGenerationProvider provider = NRIFrameGenerationProvider::Off;
 	NRIFrameGenerationUiMode uiMode = NRIFrameGenerationUiMode::Auto;
 	bool async = false;
 	bool lowLatency = false;
@@ -76,7 +75,8 @@ enum class NRIFrameGenerationOutputContract : uint32_t
 {
 	None = 0,
 	SDRDisplayReady = 1,
-	Unsupported = 2,
+	ScRGBDisplayReady = 2,
+	Unsupported = 3,
 };
 
 enum class NRIFrameGenerationPresentTransferFunction : uint32_t
@@ -99,7 +99,7 @@ struct NRIFrameGenerationPolicy
 {
 	bool initialized = false;
 	bool requestedEnabled = false;
-	bool resolvedEnabled = false;
+	bool operational = false;
 	bool apiSupported = false;
 	bool shaderModelSupported = false;
 	bool providerRuntimeSupported = false;
@@ -121,8 +121,7 @@ struct NRIFrameGenerationPolicy
 	const char* selectedApiName = "unknown";
 	const char* outputContractScope = "unknown";
 	const char* resolvedReason = "not-initialized";
-	NRIFrameGenerationProvider requestedProvider = NRIFrameGenerationProvider::Off;
-	NRIFrameGenerationProvider resolvedProvider = NRIFrameGenerationProvider::Off;
+	NRIFrameGenerationProvider provider = NRIFrameGenerationProvider::FSR3;
 	NRIFrameGenerationUiMode requestedUiMode = NRIFrameGenerationUiMode::Auto;
 	NRIFrameGenerationUiMode resolvedUiMode = NRIFrameGenerationUiMode::Auto;
 	NRIPTOutputMode requestedOutputMode = NRIPTOutputMode::SDR;
@@ -139,8 +138,11 @@ struct NRIFrameGenerationPresentContract
 	bool initialized = false;
 	bool proxyAllowed = false;
 	bool usesHdrSwapChain = false;
+	bool hdrContext = false;
 	bool resolvedDxgiFormatValid = false;
 	bool activePresentTargetDxgiFormatValid = false;
+	bool requestedDxgiColorSpaceValid = false;
+	bool observedDxgiColorSpaceValid = false;
 	NRIPTOutputMode requestedOutputMode = NRIPTOutputMode::SDR;
 	NRIPTOutputMode resolvedOutputMode = NRIPTOutputMode::SDR;
 	nri::SwapChainFormat createdSwapChainFormat = nri::SwapChainFormat::BT709_G22_8BIT;
@@ -148,9 +150,11 @@ struct NRIFrameGenerationPresentContract
 	nri::Format activePresentTargetFormat = nri::Format::UNKNOWN;
 	uint32_t resolvedDxgiFormat = 0;
 	uint32_t activePresentTargetDxgiFormat = 0;
+	uint32_t requestedDxgiColorSpace = 0;
+	uint32_t observedDxgiColorSpace = 0;
 	NRIFrameGenerationPresentTransferFunction transferFunction = NRIFrameGenerationPresentTransferFunction::Unknown;
-	float minLuminance = 0.0f;
-	float maxLuminance = 1.0f;
+	float minLuminanceNits = 0.0f;
+	float maxLuminanceNits = 80.0f;
 	float hdrPaperWhiteScale = 1.0f;
 	const char* resolvedReason = "not-initialized";
 };
@@ -264,6 +268,13 @@ struct NRIFrameGenerationProviderState
 	uint32_t contextDisplayHeight = 0;
 	uint32_t contextRenderWidth = 0;
 	uint32_t contextRenderHeight = 0;
+	uint32_t contextBackBufferFormat = 0;
+	uint32_t contextHudlessFormat = 0;
+	uint32_t contextCreateFlags = 0;
+	NRIFrameGenerationPresentTransferFunction contextTransferFunction = NRIFrameGenerationPresentTransferFunction::Unknown;
+	bool contextHdr = false;
+	uint64_t contextDisplayGeneration = 0;
+	uint64_t contextGeneration = 0;
 	uint64_t lastConfiguredFrameId = 0;
 	uint64_t lastPreparedFrameId = 0;
 	uint64_t configureCount = 0;
@@ -338,6 +349,8 @@ public:
 	bool HasFrameDesc() const { return mHasFrameDesc; }
 	bool IsPresentBridgeActive() const;
 	bool ShouldUsePresentBridge() const;
+	bool QueryDisplayDesc(void* windowHandle, NRIFsr3Dx12DisplayDesc& outDesc) { return mPresentBridge.QueryDisplayDesc(windowHandle, outDesc); }
+	const NRIFsr3Dx12PresentBridgeSnapshot& GetPresentBridgeSnapshot() const { return mPresentBridge.GetSnapshot(); }
 #ifdef _WIN32
 	IDXGISwapChain4* GetPresentSwapChain() const;
 #endif
@@ -354,6 +367,8 @@ public:
 	static const char* GetSwapChainFormatName(nri::SwapChainFormat format);
 	static const char* GetNriFormatName(nri::Format format);
 	static const char* GetDxgiFormatName(uint32_t format);
+	static const char* GetDxgiColorSpaceName(uint32_t colorSpace);
+	static const char* GetFfxSurfaceFormatName(uint32_t format);
 	static const char* GetWindowModeName(NRIWindowPresentationMode mode);
 	static const char* GetDxgiFullscreenStateName(bool known, bool fullscreen);
 	static const char* GetPacingModeName(const NRIFrameGenerationPolicy& policy);

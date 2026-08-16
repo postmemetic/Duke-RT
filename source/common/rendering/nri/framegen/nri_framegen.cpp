@@ -8,6 +8,7 @@
 #include "printf.h"
 
 #include <cassert>
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -122,7 +123,7 @@ namespace
 		return NriFfxGetResourceDX12(nativeTexture, NriFfxGetResourceStateFromDx12State(state));
 	}
 
-	static uint32_t GetFfxCreateFlags(const NRIFrameGenerationPolicy& policy, const NRIFrameGenerationFrameDesc& desc, bool enableDebugChecking)
+	static uint32_t GetFfxCreateFlags(const NRIFrameGenerationPolicy& policy, const NRIFrameGenerationFrameDesc& desc, bool hdrInput, bool enableDebugChecking)
 	{
 		uint32_t flags = 0;
 		if (policy.requestedAsync)
@@ -133,6 +134,8 @@ namespace
 			flags |= NRI_FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
 		if (desc.depthInfinite)
 			flags |= NRI_FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE;
+		if (hdrInput)
+			flags |= NRI_FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
 		if (enableDebugChecking)
 			flags |= NRI_FFX_FRAMEGENERATION_ENABLE_DEBUG_CHECKING;
 		return flags;
@@ -208,16 +211,6 @@ namespace
 		return engineModeSupported && (!dxgiFullscreenKnown || !dxgiFullscreen);
 	}
 
-	static NRIFrameGenerationProvider GetRequestedProvider()
-	{
-		switch ((int)nri_framegenprovider)
-		{
-		default:
-		case 0: return NRIFrameGenerationProvider::Off;
-		case 1: return NRIFrameGenerationProvider::FSR3;
-		}
-	}
-
 	static NRIFrameGenerationUiMode GetRequestedUiMode()
 	{
 		switch ((int)nri_framegenui)
@@ -251,7 +244,7 @@ namespace
 		return
 			a.initialized == b.initialized &&
 			a.requestedEnabled == b.requestedEnabled &&
-			a.resolvedEnabled == b.resolvedEnabled &&
+			a.operational == b.operational &&
 			a.apiSupported == b.apiSupported &&
 			a.shaderModelSupported == b.shaderModelSupported &&
 			a.providerRuntimeSupported == b.providerRuntimeSupported &&
@@ -273,8 +266,7 @@ namespace
 			a.selectedApiName == b.selectedApiName &&
 			a.outputContractScope == b.outputContractScope &&
 			a.resolvedReason == b.resolvedReason &&
-			a.requestedProvider == b.requestedProvider &&
-			a.resolvedProvider == b.resolvedProvider &&
+			a.provider == b.provider &&
 			a.requestedUiMode == b.requestedUiMode &&
 			a.resolvedUiMode == b.resolvedUiMode &&
 			a.requestedOutputMode == b.requestedOutputMode &&
@@ -371,6 +363,7 @@ const char* NRIFrameGenerationContext::GetOutputContractName(NRIFrameGenerationO
 	default:
 	case NRIFrameGenerationOutputContract::None: return "none";
 	case NRIFrameGenerationOutputContract::SDRDisplayReady: return "sdr-display-ready";
+	case NRIFrameGenerationOutputContract::ScRGBDisplayReady: return "scrgb-display-ready";
 	case NRIFrameGenerationOutputContract::Unsupported: return "unsupported";
 	}
 }
@@ -434,6 +427,40 @@ const char* NRIFrameGenerationContext::GetDxgiFormatName(uint32_t format)
 #endif
 }
 
+const char* NRIFrameGenerationContext::GetDxgiColorSpaceName(uint32_t colorSpace)
+{
+#ifdef _WIN32
+	switch (static_cast<DXGI_COLOR_SPACE_TYPE>(colorSpace))
+	{
+	case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709: return "RGB_FULL_G22_NONE_P709";
+	case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709: return "RGB_FULL_G10_NONE_P709";
+	case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020: return "RGB_FULL_G2084_NONE_P2020";
+	default: return "unknown";
+	}
+#else
+	(void)colorSpace;
+	return "unknown";
+#endif
+}
+
+const char* NRIFrameGenerationContext::GetFfxSurfaceFormatName(uint32_t format)
+{
+	switch (format)
+	{
+	case NRI_FFX_API_SURFACE_FORMAT_R8G8B8A8_TYPELESS: return "R8G8B8A8_TYPELESS";
+	case NRI_FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
+	case NRI_FFX_API_SURFACE_FORMAT_R8G8B8A8_SRGB: return "R8G8B8A8_SRGB";
+	case NRI_FFX_API_SURFACE_FORMAT_B8G8R8A8_TYPELESS: return "B8G8R8A8_TYPELESS";
+	case NRI_FFX_API_SURFACE_FORMAT_B8G8R8A8_UNORM: return "B8G8R8A8_UNORM";
+	case NRI_FFX_API_SURFACE_FORMAT_B8G8R8A8_SRGB: return "B8G8R8A8_SRGB";
+	case NRI_FFX_API_SURFACE_FORMAT_R11G11B10_FLOAT: return "R11G11B10_FLOAT";
+	case NRI_FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM: return "R10G10B10A2_UNORM";
+	case NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_TYPELESS: return "R16G16B16A16_TYPELESS";
+	case NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT: return "R16G16B16A16_FLOAT";
+	default: return "unknown";
+	}
+}
+
 const char* NRIFrameGenerationContext::GetWindowModeName(NRIWindowPresentationMode mode)
 {
 	return mode == NRIWindowPresentationMode::BorderlessFullscreen ? "borderless" : "windowed";
@@ -490,7 +517,6 @@ NRIFrameGenerationSettings NRIFrameGenerationContext::CaptureSettings()
 {
 	NRIFrameGenerationSettings settings = {};
 	settings.enabled = !!nri_framegen;
-	settings.provider = GetRequestedProvider();
 	settings.uiMode = GetRequestedUiMode();
 	settings.async = !!nri_framegenasync;
 	settings.lowLatency = !!nri_framegenlatency;
@@ -508,8 +534,7 @@ bool NRIFrameGenerationContext::ShouldUsePresentBridge() const
 		IsPresentBridgeActive() &&
 		mProviderState.presentBridgeReady &&
 		mPresentContract.proxyAllowed &&
-		mPolicy.resolvedEnabled &&
-		mPolicy.resolvedProvider == NRIFrameGenerationProvider::FSR3;
+		mPolicy.operational;
 }
 
 #ifdef _WIN32
@@ -569,10 +594,11 @@ void NRIFrameGenerationContext::RefreshPolicy(const NRIRenderDevice& frameBuffer
 
 	if (logChanges && (!mHasLoggedPolicy || changed))
 	{
-		Printf("NRI frame generation policy: requested=%s provider=%s resolved=%s output=%s->%s contract=%s scope=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
+		Printf("NRI frame generation policy: request=%s provider=%s operational=%s owner=%s output=%s->%s contract=%s scope=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
 			mPolicy.requestedEnabled ? "on" : "off",
-			GetProviderName(mPolicy.requestedProvider),
-			GetProviderName(mPolicy.resolvedProvider),
+			GetProviderName(mPolicy.provider),
+			mPolicy.operational ? "yes" : "no",
+			mProviderState.presentBridgeReady ? "proxy" : (frameBuffer.mSwapChain != nullptr ? "native" : "none"),
 			GetNRIPTOutputModeName(mPolicy.requestedOutputMode),
 			GetNRIPTOutputModeName(mPolicy.resolvedOutputMode),
 			GetOutputContractName(mPolicy.resolvedOutputContract),
@@ -612,14 +638,14 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 	NRIFrameGenerationPolicy policy = {};
 	policy.initialized = true;
 	policy.requestedEnabled = settings.enabled;
-	policy.requestedProvider = settings.provider;
+	policy.provider = NRIFrameGenerationProvider::FSR3;
 	policy.requestedUiMode = settings.uiMode;
 	policy.requestedAsync = settings.async;
 	policy.requestedLowLatency = settings.lowLatency;
 	policy.resolvedUiMode = ResolveUiMode(policy.requestedUiMode);
 	policy.requestedOutputMode = presentContract.requestedOutputMode;
 	policy.resolvedOutputMode = presentContract.resolvedOutputMode;
-	policy.outputContractScope = "d3d12-windowed-or-borderless-sdr";
+	policy.outputContractScope = "d3d12-windowed-or-borderless-sdr-or-scrgb";
 	policy.swapChainReady = mSwapChainReady;
 	policy.windowPresentationMode = frameBuffer.IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 	const NRIFsr3Dx12PresentBridgeSnapshot& presentSnapshot = mPresentBridge.GetSnapshot();
@@ -653,95 +679,78 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 
 	if (!policy.requestedEnabled)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "disabled-by-cvar";
-		return policy;
-	}
-
-	if (policy.requestedProvider == NRIFrameGenerationProvider::Off)
-	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
-		policy.resolvedReason = "provider-off";
 		return policy;
 	}
 
 	if (frameBuffer.mDevice == nullptr)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "device-unavailable";
 		return policy;
 	}
 
 	if (!presentContract.proxyAllowed)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedOutputContract = NRIFrameGenerationOutputContract::Unsupported;
 		policy.resolvedReason = presentContract.resolvedReason;
 		return policy;
 	}
 
-	policy.resolvedOutputContract = NRIFrameGenerationOutputContract::SDRDisplayReady;
+	policy.resolvedOutputContract = presentContract.hdrContext ?
+		NRIFrameGenerationOutputContract::ScRGBDisplayReady :
+		NRIFrameGenerationOutputContract::SDRDisplayReady;
 
 	if (!policy.apiSupported)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "api-not-d3d12";
 		return policy;
 	}
 
 	if (!policy.windowModeSupported)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "dxgi-fullscreen-unsupported";
 		return policy;
 	}
 
 	if (!policy.shaderModelSupported)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "shader-model-below-6.2";
 		return policy;
 	}
 
 	if (!policy.nativeDeviceAvailable)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "native-device-unavailable";
 		return policy;
 	}
 
 	if (!policy.nativeGraphicsQueueAvailable)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "native-queue-unavailable";
 		return policy;
 	}
 
 	if (!policy.swapChainReady)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "swapchain-cold";
 		return policy;
 	}
 
 	if (!policy.providerRuntimeSupported)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "provider-runtime-unavailable";
 		return policy;
 	}
 
 	if (!mProviderState.presentBridgeReady)
 	{
-		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
 		policy.resolvedReason = "provider-present-unavailable";
 		return policy;
 	}
 
-	policy.resolvedEnabled = true;
+	policy.operational = true;
 	policy.resolvedAsync = policy.requestedAsync && policy.asyncWorkloadAvailable;
 	policy.resolvedLowLatency = policy.requestedLowLatency && policy.lowLatencyAvailable && policy.lowLatencySwapChainEnabled;
-	policy.resolvedProvider = policy.requestedProvider;
 	policy.resolvedReason = "enabled";
 	return policy;
 }
@@ -758,6 +767,12 @@ NRIFrameGenerationPresentContract NRIFrameGenerationContext::BuildPresentContrac
 	contract.resolvedTextureFormat = frameBuffer.mResolvedSwapChainTextureFormat;
 	contract.usesHdrSwapChain = outputPolicy.hdrSwapChainActive;
 	contract.hdrPaperWhiteScale = GetNRIPTHdrPaperWhiteScale(outputPolicy);
+	const float safeSdrNits = GetNRIPTOutputSafeDisplaySdrLuminance(outputPolicy.displaySdrLuminance);
+	const float safeMaxNits = GetNRIPTOutputSafeDisplayMaxLuminance(outputPolicy.displaySdrLuminance, outputPolicy.displayMaxLuminance);
+	contract.minLuminanceNits =
+		std::isfinite(outputPolicy.displayMinLuminance) && outputPolicy.displayMinLuminance >= 0.0f && outputPolicy.displayMinLuminance < safeMaxNits ?
+			outputPolicy.displayMinLuminance : 0.0f;
+	contract.maxLuminanceNits = outputPolicy.hdrSwapChainActive ? safeMaxNits : safeSdrNits;
 
 #ifdef _WIN32
 	if (api != nri::GraphicsAPI::D3D12)
@@ -770,32 +785,38 @@ NRIFrameGenerationPresentContract NRIFrameGenerationContext::BuildPresentContrac
 	switch (contract.createdSwapChainFormat)
 	{
 	case nri::SwapChainFormat::BT709_G22_8BIT:
-		contract.resolvedDxgiFormat = (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM;
+		contract.resolvedDxgiFormat = (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM;
 		contract.resolvedDxgiFormatValid = true;
+		contract.requestedDxgiColorSpace = (uint32_t)DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+		contract.requestedDxgiColorSpaceValid = true;
 		contract.transferFunction = NRIFrameGenerationPresentTransferFunction::SRGB;
-		contract.minLuminance = 0.0f;
-		contract.maxLuminance = 1.0f;
+		if (contract.resolvedTextureFormat == nri::Format::UNKNOWN)
+			contract.resolvedTextureFormat = nri::Format::RGBA8_UNORM;
 		break;
 	case nri::SwapChainFormat::BT709_G22_10BIT:
 		contract.resolvedDxgiFormat = (uint32_t)DXGI_FORMAT_R10G10B10A2_UNORM;
 		contract.resolvedDxgiFormatValid = true;
+		contract.requestedDxgiColorSpace = (uint32_t)DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+		contract.requestedDxgiColorSpaceValid = true;
 		contract.transferFunction = NRIFrameGenerationPresentTransferFunction::SRGB;
-		contract.minLuminance = 0.0f;
-		contract.maxLuminance = 1.0f;
 		break;
 	case nri::SwapChainFormat::BT709_G10_16BIT:
 		contract.resolvedDxgiFormat = (uint32_t)DXGI_FORMAT_R16G16B16A16_FLOAT;
 		contract.resolvedDxgiFormatValid = true;
+		contract.requestedDxgiColorSpace = (uint32_t)DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+		contract.requestedDxgiColorSpaceValid = true;
 		contract.transferFunction = NRIFrameGenerationPresentTransferFunction::ScRGB;
-		contract.minLuminance = 0.0f;
-		contract.maxLuminance = GetNRIPTHdrMaxOutputScale(outputPolicy);
+		contract.hdrContext = true;
+		if (contract.resolvedTextureFormat == nri::Format::UNKNOWN)
+			contract.resolvedTextureFormat = nri::Format::RGBA16_SFLOAT;
 		break;
 	case nri::SwapChainFormat::BT2020_G2084_10BIT:
 		contract.resolvedDxgiFormat = (uint32_t)DXGI_FORMAT_R10G10B10A2_UNORM;
 		contract.resolvedDxgiFormatValid = true;
+		contract.requestedDxgiColorSpace = (uint32_t)DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+		contract.requestedDxgiColorSpaceValid = true;
 		contract.transferFunction = NRIFrameGenerationPresentTransferFunction::PQ;
-		contract.minLuminance = 0.0f;
-		contract.maxLuminance = 1.0f;
+		contract.hdrContext = true;
 		break;
 	default:
 		break;
@@ -810,10 +831,15 @@ NRIFrameGenerationPresentContract NRIFrameGenerationContext::BuildPresentContrac
 			contract.activePresentTargetDxgiFormatValid = true;
 		}
 	}
+
+	const NRIFsr3Dx12PresentBridgeSnapshot& presentSnapshot = mPresentBridge.GetSnapshot();
+	if (mPresentBridge.IsActive() && presentSnapshot.observedColorSpaceValid)
+	{
+		contract.observedDxgiColorSpace = presentSnapshot.observedColorSpace;
+		contract.observedDxgiColorSpaceValid = true;
+	}
 #else
 	(void)outputPolicy;
-	contract.minLuminance = 0.0f;
-	contract.maxLuminance = 1.0f;
 #endif
 
 	if (!contract.resolvedDxgiFormatValid)
@@ -823,22 +849,66 @@ NRIFrameGenerationPresentContract NRIFrameGenerationContext::BuildPresentContrac
 		return contract;
 	}
 
-	if (contract.requestedOutputMode != NRIPTOutputMode::SDR)
+	if (!contract.requestedDxgiColorSpaceValid)
 	{
 		contract.proxyAllowed = false;
-		contract.resolvedReason = "requested-output-not-sdr";
+		contract.resolvedReason = "swapchain-color-space-unmapped";
 		return contract;
 	}
 
-	if (contract.resolvedOutputMode != NRIPTOutputMode::SDR)
+	if (contract.requestedOutputMode == NRIPTOutputMode::HDR10PQ ||
+		contract.createdSwapChainFormat == nri::SwapChainFormat::BT2020_G2084_10BIT)
 	{
 		contract.proxyAllowed = false;
-		contract.resolvedReason = "resolved-output-not-sdr";
+		contract.resolvedReason = "direct-pq-deferred";
 		return contract;
 	}
 
-	contract.proxyAllowed = true;
-	contract.resolvedReason = "proxy-sdr-display-ready";
+	if (contract.createdSwapChainFormat == nri::SwapChainFormat::BT709_G22_8BIT)
+	{
+		if (contract.requestedOutputMode != NRIPTOutputMode::SDR ||
+			contract.resolvedOutputMode != NRIPTOutputMode::SDR || contract.usesHdrSwapChain)
+		{
+			contract.proxyAllowed = false;
+			contract.resolvedReason = "sdr-contract-mismatch";
+			return contract;
+		}
+		if (frameBuffer.mResolvedSwapChainTextureFormat != nri::Format::UNKNOWN &&
+			frameBuffer.mResolvedSwapChainTextureFormat != nri::Format::RGBA8_UNORM)
+		{
+			contract.proxyAllowed = false;
+			contract.resolvedReason = "sdr-present-format-mismatch";
+			return contract;
+		}
+		contract.proxyAllowed = true;
+		contract.resolvedReason = "proxy-sdr-display-ready";
+		return contract;
+	}
+
+	if (contract.createdSwapChainFormat == nri::SwapChainFormat::BT709_G10_16BIT)
+	{
+		const bool requestedScRgb = contract.requestedOutputMode == NRIPTOutputMode::HDR ||
+			contract.requestedOutputMode == NRIPTOutputMode::HDRLinear16;
+		if (!requestedScRgb || contract.resolvedOutputMode != NRIPTOutputMode::HDRLinear16 || !contract.usesHdrSwapChain)
+		{
+			contract.proxyAllowed = false;
+			contract.resolvedReason = "scrgb-contract-mismatch";
+			return contract;
+		}
+		if (frameBuffer.mResolvedSwapChainTextureFormat != nri::Format::UNKNOWN &&
+			frameBuffer.mResolvedSwapChainTextureFormat != nri::Format::RGBA16_SFLOAT)
+		{
+			contract.proxyAllowed = false;
+			contract.resolvedReason = "scrgb-present-format-mismatch";
+			return contract;
+		}
+		contract.proxyAllowed = true;
+		contract.resolvedReason = "proxy-scrgb-display-ready";
+		return contract;
+	}
+
+	contract.proxyAllowed = false;
+	contract.resolvedReason = "swapchain-contract-unsupported";
 	return contract;
 }
 
@@ -1307,9 +1377,9 @@ bool NRIFrameGenerationContext::EnsureProviderRuntime(const NRIRenderDevice& fra
 	return false;
 #else
 	const NRIFrameGenerationSettings settings = CaptureSettings();
-	if (settings.provider != NRIFrameGenerationProvider::FSR3)
+	if (!settings.enabled)
 	{
-		std::strncpy(mProviderState.lastStatusReason, "provider-not-requested", std::size(mProviderState.lastStatusReason) - 1u);
+		std::strncpy(mProviderState.lastStatusReason, "disabled-by-cvar", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
 		return false;
 	}
@@ -1398,13 +1468,6 @@ bool NRIFrameGenerationContext::CreateProviderPresentBridge(const NRIRenderDevic
 		return false;
 	}
 
-	if (settings.provider != NRIFrameGenerationProvider::FSR3)
-	{
-		std::strncpy(mProviderState.lastStatusReason, "provider-not-requested", std::size(mProviderState.lastStatusReason) - 1u);
-		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
-		return false;
-	}
-
 	if (frameBuffer.GetLiveAPI() != nri::GraphicsAPI::D3D12)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "api-not-d3d12", std::size(mProviderState.lastStatusReason) - 1u);
@@ -1464,6 +1527,7 @@ bool NRIFrameGenerationContext::CreateProviderPresentBridge(const NRIRenderDevic
 	createDesc.width = (uint32_t)(std::max)(mutableFrameBuffer.GetClientWidth(), 1);
 	createDesc.height = (uint32_t)(std::max)(mutableFrameBuffer.GetClientHeight(), 1);
 	createDesc.format = presentContract.resolvedDxgiFormat;
+	createDesc.colorSpace = presentContract.requestedDxgiColorSpace;
 	createDesc.bufferCount = (std::max<uint32_t>)(frameBuffer.mSwapChainTextureCount != 0u ? frameBuffer.mSwapChainTextureCount : 3u, 2u);
 	bool created = mPresentBridge.Create(createDesc);
 	RefreshPresentBridgeSnapshot();
@@ -1473,6 +1537,17 @@ bool NRIFrameGenerationContext::CreateProviderPresentBridge(const NRIRenderDevic
 	mProviderState.swapChainMemoryUsageValid = snapshot.memoryUsageValid;
 	mProviderState.swapChainTotalUsageBytes = snapshot.totalUsageBytes;
 	mProviderState.swapChainAliasableUsageBytes = snapshot.aliasableUsageBytes;
+	if (!created)
+	{
+		if (!snapshot.colorSpaceSupportValid)
+			CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "color-space-check-failed");
+		else if ((snapshot.colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0u)
+			CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "color-space-present-unsupported");
+		else if (!snapshot.colorSpaceSet)
+			CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "color-space-set-failed");
+		else if (!snapshot.observedColorSpaceValid || snapshot.observedColorSpace != snapshot.requestedColorSpace)
+			CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "color-space-observation-mismatch");
+	}
 	if (created && (!snapshot.windowAssociationKnown || !snapshot.windowAssociationSucceeded || !snapshot.dxgiFullscreenKnown || snapshot.dxgiFullscreen))
 	{
 		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason),
@@ -1498,7 +1573,8 @@ bool NRIFrameGenerationContext::CreateProviderPresentBridge(const NRIRenderDevic
 		mProviderState.swapChainContextCreated = false;
 		mProviderState.presentBridgeReady = false;
 		if (std::strcmp(mProviderState.lastStatusReason, "window-association-failed") != 0 &&
-			std::strcmp(mProviderState.lastStatusReason, "dxgi-fullscreen-unsupported") != 0)
+			std::strcmp(mProviderState.lastStatusReason, "dxgi-fullscreen-unsupported") != 0 &&
+			std::strncmp(mProviderState.lastStatusReason, "color-space-", 12u) != 0)
 		{
 			std::strncpy(mProviderState.lastStatusReason, "present-bridge-create-failed", std::size(mProviderState.lastStatusReason) - 1u);
 		}
@@ -1543,24 +1619,53 @@ bool NRIFrameGenerationContext::EnsureProviderContext(const NRIRenderDevice& fra
 		return false;
 	}
 
+	ID3D12Resource* nativePresentColor = GetNativeTexture(frameBuffer.mCore, frameBuffer.mCurrentPresentTarget);
+	if (nativePresentColor == nullptr)
+	{
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "present-color-unavailable");
+		return false;
+	}
+
+	const D3D12_RESOURCE_DESC presentDesc = nativePresentColor->GetDesc();
 	const D3D12_RESOURCE_DESC hudlessDesc = nativeHudlessColor->GetDesc();
-	const uint32_t backBufferFormat = NriFfxGetSurfaceFormatDX12(hudlessDesc.Format);
-	if (backBufferFormat == NRI_FFX_API_SURFACE_FORMAT_UNKNOWN)
+	const uint32_t backBufferFormat = NriFfxGetSurfaceFormatDX12(presentDesc.Format);
+	const uint32_t hudlessFormat = NriFfxGetSurfaceFormatDX12(hudlessDesc.Format);
+	if (backBufferFormat == NRI_FFX_API_SURFACE_FORMAT_UNKNOWN || hudlessFormat == NRI_FFX_API_SURFACE_FORMAT_UNKNOWN)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "unsupported-backbuffer-format", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
 		return false;
 	}
+	const NRIFrameGenerationPresentContract& presentContract = mPresentContract;
+	if (presentDesc.Format != static_cast<DXGI_FORMAT>(presentContract.resolvedDxgiFormat))
+	{
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "present-format-contract-mismatch");
+		return false;
+	}
+	if (presentContract.hdrContext &&
+		(backBufferFormat != NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT ||
+		 hudlessFormat != NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT))
+	{
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "scrgb-input-format-mismatch");
+		return false;
+	}
+	const uint32_t effectiveCreateFlags = GetFfxCreateFlags(mPolicy, desc, presentContract.hdrContext, !!nri_validation);
 
-	const bool dimensionsChanged =
+	const bool contextIdentityChanged =
 		mProviderState.contextCreated &&
 		(mProviderState.contextDisplayWidth != desc.outputWidth ||
 		 mProviderState.contextDisplayHeight != desc.outputHeight ||
 		 mProviderState.contextRenderWidth != desc.renderWidth ||
-		 mProviderState.contextRenderHeight != desc.renderHeight);
-	if (dimensionsChanged)
+		 mProviderState.contextRenderHeight != desc.renderHeight ||
+		 mProviderState.contextBackBufferFormat != backBufferFormat ||
+		 mProviderState.contextHudlessFormat != hudlessFormat ||
+		 mProviderState.contextCreateFlags != effectiveCreateFlags ||
+		 mProviderState.contextTransferFunction != presentContract.transferFunction ||
+		 mProviderState.contextHdr != presentContract.hdrContext ||
+		 mProviderState.contextDisplayGeneration != frameBuffer.mCreatedSwapChainDisplayGeneration);
+	if (contextIdentityChanged)
 	{
-		NoteReset("output-size-change");
+		NoteReset("output-contract-change");
 		const auto destroyContext = reinterpret_cast<PfnFfxDestroyContext>(mFfxDestroyContextFn);
 		const auto allocationCallbacks = reinterpret_cast<ffxAllocationCallbacks*>(mFfxAllocCallbacks);
 		if (destroyContext != nullptr && mFfxContext != nullptr)
@@ -1593,14 +1698,14 @@ bool NRIFrameGenerationContext::EnsureProviderContext(const NRIRenderDevice& fra
 
 	ffxCreateContextDescFrameGeneration createDesc = {};
 	NriFfxInitHeader(createDesc.header, NRI_FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
-	createDesc.flags = GetFfxCreateFlags(mPolicy, desc, !!nri_validation);
+	createDesc.flags = effectiveCreateFlags;
 	createDesc.displaySize = { desc.outputWidth, desc.outputHeight };
 	createDesc.maxRenderSize = { desc.renderWidth, desc.renderHeight };
 	createDesc.backBufferFormat = backBufferFormat;
 
 	ffxCreateContextDescFrameGenerationHudless hudlessFormatDesc = {};
 	NriFfxInitHeader(hudlessFormatDesc.header, NRI_FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS);
-	hudlessFormatDesc.hudlessBackBufferFormat = backBufferFormat;
+	hudlessFormatDesc.hudlessBackBufferFormat = hudlessFormat;
 
 	createDesc.header.pNext = &hudlessFormatDesc.header;
 	hudlessFormatDesc.header.pNext = &backendDesc.header;
@@ -1626,6 +1731,13 @@ bool NRIFrameGenerationContext::EnsureProviderContext(const NRIRenderDevice& fra
 	mProviderState.contextDisplayHeight = desc.outputHeight;
 	mProviderState.contextRenderWidth = desc.renderWidth;
 	mProviderState.contextRenderHeight = desc.renderHeight;
+	mProviderState.contextBackBufferFormat = backBufferFormat;
+	mProviderState.contextHudlessFormat = hudlessFormat;
+	mProviderState.contextCreateFlags = effectiveCreateFlags;
+	mProviderState.contextTransferFunction = presentContract.transferFunction;
+	mProviderState.contextHdr = presentContract.hdrContext;
+	mProviderState.contextDisplayGeneration = frameBuffer.mCreatedSwapChainDisplayGeneration;
+	++mProviderState.contextGeneration;
 
 	if (nri_validation)
 	{
@@ -1675,8 +1787,15 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 #else
 	mProviderState.frameGenerationDispatchedThisFrame = false;
 	mProviderState.uiResourceRegisteredThisFrame = false;
+	const auto failToNative = [&](const char* reason)
+	{
+		char stableReason[96] = {};
+		CopyString(stableReason, std::size(stableReason), reason);
+		RequestNativeFallback(stableReason);
+		const_cast<NRIRenderDevice&>(frameBuffer).RequestSwapChainRefresh(stableReason, true);
+	};
 
-	if (!mInitialized || !mPolicy.resolvedEnabled || mPolicy.resolvedProvider != NRIFrameGenerationProvider::FSR3)
+	if (!mInitialized || !mPolicy.operational)
 	{
 		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), mPolicy.resolvedReason);
 		return;
@@ -1686,12 +1805,16 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason),
 			mPresentContract.initialized ? mPresentContract.resolvedReason : "present-contract-uninitialized");
+		if (IsPresentBridgeActive())
+			failToNative(mProviderState.lastStatusReason);
 		return;
 	}
 
 	if (!mLastInputAudit.complete || mLastInputAudit.adapterRequirement != NRIFrameGenerationAdapterRequirement::None)
 	{
 		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), mLastInputAudit.statusReason);
+		if (IsPresentBridgeActive())
+			failToNative(mProviderState.lastStatusReason);
 		return;
 	}
 
@@ -1703,6 +1826,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 
 	if (!EnsureProviderContext(frameBuffer, desc))
 	{
+		failToNative(mProviderState.lastStatusReason);
 		return;
 	}
 
@@ -1711,6 +1835,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		std::strncpy(mProviderState.lastStatusReason, "native-commandlist-unavailable", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+		failToNative("native-commandlist-unavailable");
 		return;
 	}
 
@@ -1746,7 +1871,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	configureDesc.presentCallbackUserContext = nullptr;
 	configureDesc.frameGenerationCallback = nullptr;
 	configureDesc.frameGenerationCallbackUserContext = nullptr;
-	configureDesc.frameGenerationEnabled = mPolicy.resolvedEnabled && usePresentBridge;
+	configureDesc.frameGenerationEnabled = mPolicy.operational && usePresentBridge;
 	configureDesc.allowAsyncWorkloads = false;
 	configureDesc.HUDLessColor = GetFfxTextureResource(frameBuffer.mCore, desc.hudlessColor);
 	configureDesc.flags = frameGenFlags;
@@ -1764,6 +1889,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		std::strncpy(mProviderState.lastStatusReason, "configure-failed", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+		failToNative("configure-failed");
 		return;
 	}
 
@@ -1779,6 +1905,13 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 		{
 			std::strncpy(mProviderState.lastStatusReason, "ui-texture-missing", std::size(mProviderState.lastStatusReason) - 1u);
 			mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+			failToNative("ui-texture-missing");
+			return;
+		}
+		if (desc.uiTexture != nullptr && frameBuffer.mCurrentPresentTarget != nullptr &&
+			desc.uiTexture->format != frameBuffer.mCurrentPresentTarget->format)
+		{
+			failToNative("ui-format-contract-mismatch");
 			return;
 		}
 		ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 uiConfig = {};
@@ -1791,6 +1924,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 		{
 			std::strncpy(mProviderState.lastStatusReason, "ui-register-failed", std::size(mProviderState.lastStatusReason) - 1u);
 			mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+			failToNative("ui-register-failed");
 			return;
 		}
 	}
@@ -1825,6 +1959,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		std::strncpy(mProviderState.lastStatusReason, "prepare-dispatch-failed", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+		failToNative("prepare-dispatch-failed");
 		return;
 	}
 
@@ -1849,6 +1984,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		std::strncpy(mProviderState.lastStatusReason, "interpolation-commandlist-unavailable", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+		failToNative("interpolation-commandlist-unavailable");
 		return;
 	}
 
@@ -1861,6 +1997,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		std::strncpy(mProviderState.lastStatusReason, "interpolation-output-unavailable", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+		failToNative("interpolation-output-unavailable");
 		return;
 	}
 
@@ -1885,8 +2022,8 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 		dispatchDesc.backbufferTransferFunction = NRI_FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SCRGB;
 		break;
 	}
-	dispatchDesc.minMaxLuminance[0] = presentContract.minLuminance;
-	dispatchDesc.minMaxLuminance[1] = presentContract.maxLuminance;
+	dispatchDesc.minMaxLuminance[0] = presentContract.minLuminanceNits;
+	dispatchDesc.minMaxLuminance[1] = presentContract.maxLuminanceNits;
 	dispatchDesc.generationRect = configureDesc.generationRect;
 	dispatchDesc.frameID = desc.frameId;
 
@@ -1895,6 +2032,7 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 	{
 		std::strncpy(mProviderState.lastStatusReason, "framegen-dispatch-failed", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
+		failToNative("framegen-dispatch-failed");
 		return;
 	}
 

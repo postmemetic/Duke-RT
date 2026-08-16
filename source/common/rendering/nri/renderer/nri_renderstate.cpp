@@ -890,12 +890,14 @@ void NRIRenderState::FillShaderConstants(NRIShaderConstants& constants) const
 		constants.Flags |= NRI2D_Invert;
 	}
 
-	if (mFrameBuffer != nullptr &&
-		mFrameBuffer->mActiveTarget != nullptr &&
-		mFrameBuffer->mActiveTarget == mFrameBuffer->mCurrentPresentTarget)
+	if (mFrameBuffer != nullptr && mFrameBuffer->mActiveTarget != nullptr)
 	{
+		const bool isPresentTarget = mFrameBuffer->mActiveTarget == mFrameBuffer->mCurrentPresentTarget;
+		const bool isFrameGenerationUiTarget =
+			mFrameBuffer->IsFrameGenerationPresentPathActive() &&
+			mFrameBuffer->mActiveTarget == mFrameBuffer->GetFrameGenerationUiTargetResource();
 		const NRIPTOutputPolicy outputPolicy = mFrameBuffer->GetPathTracingOutputPolicy();
-		if (outputPolicy.hdrSwapChainActive)
+		if ((isPresentTarget || isFrameGenerationUiTarget) && outputPolicy.hdrSwapChainActive)
 		{
 			constants.Flags |= NRI2D_OutputHdrLinear;
 			constants.OutputInfo[0] = GetNRIPTHdrPaperWhiteScale(outputPolicy);
