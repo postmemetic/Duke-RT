@@ -24,6 +24,8 @@ struct NRIFsr3Dx12PresentBridgeSnapshot
 	bool contextCreated = false;
 	bool swapChainCreated = false;
 	bool tearingSupported = false;
+	bool windowAssociationKnown = false;
+	bool windowAssociationSucceeded = false;
 	bool dxgiFullscreenKnown = false;
 	bool dxgiFullscreen = false;
 	bool memoryUsageValid = false;
@@ -34,6 +36,7 @@ struct NRIFsr3Dx12PresentBridgeSnapshot
 	uint32_t lastPresentSyncInterval = 0;
 	uint32_t lastPresentFlags = 0;
 	uint64_t createGeneration = 0;
+	uint64_t createAttemptCount = 0;
 	uint64_t drainCount = 0;
 	uint64_t totalUsageBytes = 0;
 	uint64_t aliasableUsageBytes = 0;

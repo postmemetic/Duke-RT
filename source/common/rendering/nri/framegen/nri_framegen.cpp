@@ -200,6 +200,14 @@ namespace
 		}
 	}
 
+	static bool SupportsFrameGenerationPresentMode(NRIWindowPresentationMode mode, bool dxgiFullscreenKnown, bool dxgiFullscreen)
+	{
+		const bool engineModeSupported =
+			mode == NRIWindowPresentationMode::Windowed ||
+			mode == NRIWindowPresentationMode::BorderlessFullscreen;
+		return engineModeSupported && (!dxgiFullscreenKnown || !dxgiFullscreen);
+	}
+
 	static NRIFrameGenerationProvider GetRequestedProvider()
 	{
 		switch ((int)nri_framegenprovider)
@@ -519,8 +527,17 @@ void NRIFrameGenerationContext::Initialize(const NRIRenderDevice& frameBuffer)
 	ResetProviderState();
 	EnsureProviderRuntime(frameBuffer);
 	RefreshPolicy(frameBuffer, false);
-	EnsureProviderPresentBridge(frameBuffer);
 	RefreshPolicy(frameBuffer, true);
+}
+
+bool NRIFrameGenerationContext::CreatePresentBridge(const NRIRenderDevice& frameBuffer)
+{
+	mSwapChainReady = true;
+	EnsureProviderRuntime(frameBuffer);
+	RefreshPolicy(frameBuffer, false);
+	const bool created = CreateProviderPresentBridge(frameBuffer);
+	RefreshPolicy(frameBuffer, true);
+	return created;
 }
 
 void NRIFrameGenerationContext::Shutdown()
@@ -603,10 +620,10 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 	policy.outputContractScope = "d3d12-windowed-or-borderless-sdr";
 	policy.swapChainReady = mSwapChainReady;
 	policy.windowPresentationMode = frameBuffer.IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
-	policy.windowModeSupported = policy.windowPresentationMode == NRIWindowPresentationMode::Windowed;
 	const NRIFsr3Dx12PresentBridgeSnapshot& presentSnapshot = mPresentBridge.GetSnapshot();
 	policy.dxgiFullscreenKnown = presentSnapshot.dxgiFullscreenKnown;
 	policy.dxgiFullscreen = presentSnapshot.dxgiFullscreen;
+	policy.windowModeSupported = SupportsFrameGenerationPresentMode(policy.windowPresentationMode, policy.dxgiFullscreenKnown, policy.dxgiFullscreen);
 	policy.ffxProxyPacing = mPresentBridge.IsActive();
 
 	const NRIBackendCapabilities backendCapabilities = frameBuffer.BuildBackendCapabilities();
@@ -673,7 +690,7 @@ NRIFrameGenerationPolicy NRIFrameGenerationContext::BuildPolicy(const NRIRenderD
 	if (!policy.windowModeSupported)
 	{
 		policy.resolvedProvider = NRIFrameGenerationProvider::Off;
-		policy.resolvedReason = "borderless-not-enabled";
+		policy.resolvedReason = "dxgi-fullscreen-unsupported";
 		return policy;
 	}
 
@@ -829,8 +846,6 @@ void NRIFrameGenerationContext::OnSwapChainCreated(const NRIRenderDevice& frameB
 	ResetLowLatencyState();
 	EnsureProviderRuntime(frameBuffer);
 	RefreshPolicy(frameBuffer, false);
-	EnsureProviderPresentBridge(frameBuffer);
-	RefreshPolicy(frameBuffer, false);
 	ConfigureLowLatencyMode(frameBuffer);
 	RefreshPolicy(frameBuffer, true);
 }
@@ -848,7 +863,6 @@ void NRIFrameGenerationContext::BeginFrame(const NRIRenderDevice& frameBuffer)
 {
 	EnsureProviderRuntime(frameBuffer);
 	RefreshPolicy(frameBuffer, false);
-	EnsureProviderPresentBridge(frameBuffer);
 	RefreshPolicy(frameBuffer, true);
 	mLowLatencyState.sleepInvoked = false;
 	mLowLatencyState.presentBoundarySeen = false;
@@ -1298,7 +1312,7 @@ bool NRIFrameGenerationContext::EnsureProviderRuntime(const NRIRenderDevice& fra
 #endif
 }
 
-bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevice& frameBuffer)
+bool NRIFrameGenerationContext::CreateProviderPresentBridge(const NRIRenderDevice& frameBuffer)
 {
 #ifndef _WIN32
 	(void)frameBuffer;
@@ -1331,9 +1345,9 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 		return false;
 	}
 
-	if (frameBuffer.IsFullscreenModeActive())
+	if (frameBuffer.mSwapChain != nullptr)
 	{
-		std::strncpy(mProviderState.lastStatusReason, "borderless-not-enabled", std::size(mProviderState.lastStatusReason) - 1u);
+		std::strncpy(mProviderState.lastStatusReason, "native-swapchain-active", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
 		return false;
 	}
@@ -1384,7 +1398,7 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 	createDesc.height = (uint32_t)(std::max)(mutableFrameBuffer.GetClientHeight(), 1);
 	createDesc.format = presentContract.resolvedDxgiFormat;
 	createDesc.bufferCount = (std::max<uint32_t>)(frameBuffer.mSwapChainTextureCount != 0u ? frameBuffer.mSwapChainTextureCount : 3u, 2u);
-	const bool created = mPresentBridge.Create(createDesc);
+	bool created = mPresentBridge.Create(createDesc);
 	RefreshPresentBridgeSnapshot();
 	const NRIFsr3Dx12PresentBridgeSnapshot& snapshot = mPresentBridge.GetSnapshot();
 	mProviderState.lastSwapChainCreateResult = snapshot.lastCreateResult;
@@ -1392,6 +1406,14 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 	mProviderState.swapChainMemoryUsageValid = snapshot.memoryUsageValid;
 	mProviderState.swapChainTotalUsageBytes = snapshot.totalUsageBytes;
 	mProviderState.swapChainAliasableUsageBytes = snapshot.aliasableUsageBytes;
+	if (created && (!snapshot.windowAssociationKnown || !snapshot.windowAssociationSucceeded || !snapshot.dxgiFullscreenKnown || snapshot.dxgiFullscreen))
+	{
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason),
+			!snapshot.windowAssociationSucceeded ? "window-association-failed" : "dxgi-fullscreen-unsupported");
+		mPresentBridge.Destroy(mFfxDispatchFn, mFfxDestroyContextFn, mFfxAllocCallbacks);
+		RefreshPresentBridgeSnapshot();
+		created = false;
+	}
 	if (created)
 	{
 		mProviderState.swapChainContextCreated = snapshot.contextCreated;
@@ -1400,9 +1422,18 @@ bool NRIFrameGenerationContext::EnsureProviderPresentBridge(const NRIRenderDevic
 	}
 	else
 	{
+		if (mPresentBridge.GetContext() != nullptr || mPresentBridge.GetSwapChain() != nullptr)
+		{
+			mPresentBridge.Destroy(mFfxDispatchFn, mFfxDestroyContextFn, mFfxAllocCallbacks);
+			RefreshPresentBridgeSnapshot();
+		}
 		mProviderState.swapChainContextCreated = false;
 		mProviderState.presentBridgeReady = false;
-		std::strncpy(mProviderState.lastStatusReason, "present-bridge-create-failed", std::size(mProviderState.lastStatusReason) - 1u);
+		if (std::strcmp(mProviderState.lastStatusReason, "window-association-failed") != 0 &&
+			std::strcmp(mProviderState.lastStatusReason, "dxgi-fullscreen-unsupported") != 0)
+		{
+			std::strncpy(mProviderState.lastStatusReason, "present-bridge-create-failed", std::size(mProviderState.lastStatusReason) - 1u);
+		}
 	}
 
 	mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
@@ -1596,8 +1627,9 @@ void NRIFrameGenerationContext::ConfigureAndPrepareProvider(const NRIRenderDevic
 		return;
 	}
 
-	if (!EnsureProviderPresentBridge(frameBuffer))
+	if (!IsPresentBridgeActive())
 	{
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "present-bridge-not-selected");
 		return;
 	}
 

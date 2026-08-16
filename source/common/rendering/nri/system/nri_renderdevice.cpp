@@ -2802,6 +2802,7 @@ void NRIRenderDevice::InitializeState()
 	}
 
 	StartupRecovery_UpdateStage("nri_create_swapchain");
+	mFrameGeneration.Initialize(*this);
 	if (!CreateSwapChain())
 	{
 		Printf(TEXTCOLOR_RED "NRI backend initialization failed.\n");
@@ -2809,7 +2810,6 @@ void NRIRenderDevice::InitializeState()
 		mInitialized = false;
 		return;
 	}
-	mFrameGeneration.Initialize(*this);
 
 	mVertexData = new FFlatVertexBuffer(GetWidth(), GetHeight(), mPipelineNbr);
 	mSkyData = new FSkyVertexBuffer;
@@ -3275,7 +3275,7 @@ bool NRIRenderDevice::ShouldRequestFrameGenerationLowLatencySwapChain() const
 		return false;
 	}
 
-	if (GetLiveAPI() != nri::GraphicsAPI::D3D12 || IsFullscreenModeActive())
+	if (GetLiveAPI() != nri::GraphicsAPI::D3D12)
 	{
 		return false;
 	}
@@ -9343,7 +9343,6 @@ bool NRIRenderDevice::CreateSwapChain()
 		requestedOutputMode == NRIPTOutputMode::SDR &&
 		HasRequestedFrameGenerationProvider() &&
 		GetLiveAPI() == nri::GraphicsAPI::D3D12 &&
-		!IsFullscreenModeActive() &&
 		!mFrameGeneration.ConsumeNativeFallbackRequest();
 
 	const auto resetCreateState = [&](nri::SwapChainFormat createdFormat, const char* reason)
@@ -9376,9 +9375,10 @@ bool NRIRenderDevice::CreateSwapChain()
 		if (tryFrameGenPresentBridge)
 		{
 			RefreshNativeFrameGenerationSwapChain();
-			mFrameGeneration.OnSwapChainCreated(*this);
-			if (mFrameGeneration.IsPresentBridgeActive() && RefreshFrameGenerationPresentTargets())
+			if (mFrameGeneration.CreatePresentBridge(*this) && RefreshFrameGenerationPresentTargets())
 			{
+				mFrameGeneration.OnSwapChainCreated(*this);
+				assert(mSwapChain == nullptr && mFrameGeneration.IsPresentBridgeActive());
 				mSwapChainTextureCount = (uint8_t)(std::min<size_t>)(mFrameGenerationPresentImages.size(), 255u);
 				mSwapChainAcquireCounts.assign(mFrameGenerationPresentImages.size(), 0);
 				mSwapChainPresentCounts.assign(mFrameGenerationPresentImages.size(), 0);
@@ -9436,10 +9436,7 @@ bool NRIRenderDevice::CreateSwapChain()
 
 		RefreshNativeFrameGenerationSwapChain();
 		mFrameGeneration.OnSwapChainCreated(*this);
-		if (mFrameGeneration.IsPresentBridgeActive() && !RefreshFrameGenerationPresentTargets())
-		{
-			Printf(TEXTCOLOR_RED "NRI framegen present bridge is active but proxy backbuffer wrapping failed; falling back to native present path.\n");
-		}
+		assert(!mFrameGeneration.IsPresentBridgeActive());
 		SetNriDebugName(mCore, mSwapChain, "Raze.SwapChain");
 
 		uint32_t textureCount = 0;

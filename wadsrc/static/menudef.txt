@@ -1143,7 +1143,7 @@ OptionMenu "NRIOptions" protected
 	Option "Frame Gen Async",					"nri_framegenasync",			"OnOff"
 	Slider "Render Scale",						"nri_renderscale",				0.33, 1.0, 0.01, 2
 	Slider "Sharpness",							"nri_sharpness",				0.0, 1.0, 0.05, 2
-	StaticText "Frame generation currently targets windowed D3D12."
+	StaticText "Frame generation requires D3D12 SDR output (windowed or borderless)."
 	StaticText "----------------"
 	StaticText "Bloom"
 	Option "Bloom",								"nri_ptbloom",					"OnOff"

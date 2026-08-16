@@ -302,6 +302,7 @@ public:
 	void Initialize(const NRIRenderDevice& frameBuffer);
 	void Shutdown();
 	void RefreshPolicy(const NRIRenderDevice& frameBuffer, bool logChanges);
+	bool CreatePresentBridge(const NRIRenderDevice& frameBuffer);
 	void OnSwapChainCreated(const NRIRenderDevice& frameBuffer);
 	void OnSwapChainDestroyed(const NRIRenderDevice& frameBuffer);
 	void BeginFrame(const NRIRenderDevice& frameBuffer);
@@ -365,7 +366,7 @@ private:
 	void DestroyProviderPresentBridge();
 	void ShutdownProvider();
 	bool EnsureProviderRuntime(const NRIRenderDevice& frameBuffer);
-	bool EnsureProviderPresentBridge(const NRIRenderDevice& frameBuffer);
+	bool CreateProviderPresentBridge(const NRIRenderDevice& frameBuffer);
 	bool EnsureProviderContext(const NRIRenderDevice& frameBuffer, const NRIFrameGenerationFrameDesc& desc);
 	void ConfigureAndPrepareProvider(const NRIRenderDevice& frameBuffer, const NRIFrameGenerationFrameDesc& desc);
 

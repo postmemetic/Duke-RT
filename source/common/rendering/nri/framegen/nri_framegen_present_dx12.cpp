@@ -52,6 +52,20 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 	if (IsActive() || desc.windowHandle == nullptr || desc.gameQueue == nullptr || desc.createContextFn == nullptr)
 		return false;
 
+	++mSnapshot.createAttemptCount;
+	mSnapshot.contextCreated = false;
+	mSnapshot.swapChainCreated = false;
+	mSnapshot.tearingSupported = false;
+	mSnapshot.windowAssociationKnown = false;
+	mSnapshot.windowAssociationSucceeded = false;
+	mSnapshot.dxgiFullscreenKnown = false;
+	mSnapshot.dxgiFullscreen = false;
+	mSnapshot.memoryUsageValid = false;
+	mSnapshot.lastCreateResult = 0;
+	mSnapshot.lastQueryResult = 0;
+	mSnapshot.totalUsageBytes = 0;
+	mSnapshot.aliasableUsageBytes = 0;
+
 	IDXGIFactory7* factory = nullptr;
 	if (FAILED(CreateDxgiFactoryForFrameGeneration(&factory)) || factory == nullptr)
 		return false;
@@ -85,16 +99,18 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 	const auto createContext = reinterpret_cast<PfnFfxCreateContext>(desc.createContextFn);
 	ffxContext context = nullptr;
 	mSnapshot.lastCreateResult = createContext(&context, &createDesc.header, reinterpret_cast<ffxAllocationCallbacks*>(desc.allocationCallbacks));
+	mContext = context;
+	mSnapshot.contextCreated = mContext != nullptr;
+	mSnapshot.swapChainCreated = mSwapChain != nullptr;
 	if (mSnapshot.lastCreateResult == NRI_FFX_API_RETURN_OK)
 	{
-		mContext = context;
-		mSnapshot.contextCreated = mContext != nullptr;
-		mSnapshot.swapChainCreated = mSwapChain != nullptr;
 		mDrainRequired = IsActive();
 		++mSnapshot.createGeneration;
 		if (mSwapChain != nullptr)
 		{
-			factory->MakeWindowAssociation(static_cast<HWND>(desc.windowHandle), DXGI_MWA_NO_WINDOW_CHANGES);
+			const HRESULT associationResult = factory->MakeWindowAssociation(static_cast<HWND>(desc.windowHandle), DXGI_MWA_NO_WINDOW_CHANGES);
+			mSnapshot.windowAssociationKnown = true;
+			mSnapshot.windowAssociationSucceeded = SUCCEEDED(associationResult);
 			RefreshFullscreenState();
 		}
 
@@ -165,6 +181,8 @@ uint32_t NRIFsr3Dx12PresentBridge::Destroy(void* dispatchFn, void* destroyContex
 	mSnapshot.swapChainCreated = false;
 	mSnapshot.dxgiFullscreenKnown = false;
 	mSnapshot.dxgiFullscreen = false;
+	mSnapshot.windowAssociationKnown = false;
+	mSnapshot.windowAssociationSucceeded = false;
 	return result;
 #endif
 }
