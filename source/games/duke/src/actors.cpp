@@ -1352,12 +1352,15 @@ void move(DDukeActor* actor, DDukePlayer* const p, double pdist)
 	int a = actor->spr.hitag;
 
 	if (a == -1) a = 0;
+	// One-view death sprites hide retained CON facing flags, but 3D replacements expose the turn.
+	const bool suppressDeadOneViewFacing =
+		isDuke() && badguy(actor) && actor->spr.extra <= 0 && actor->curAction != nullptr && actor->curAction->rotationtype <= 1;
 
 	actor->counter++;
 
 	const auto pact = p->GetActor();
 
-	if (a & face_player)
+	if (!suppressDeadOneViewFacing && (a & face_player))
 	{
 		if (p->newOwner != nullptr)
 			goalang = (pact->opos.XY() - actor->spr.pos.XY()).Angle();
@@ -1370,7 +1373,7 @@ void move(DDukeActor* actor, DDukePlayer* const p, double pdist)
 	if (a & spin)
 		actor->spr.Angles.Yaw += DAngle45 * BobVal(actor->counter << 3);
 
-	if (a & face_player_slow)
+	if (!suppressDeadOneViewFacing && (a & face_player_slow))
 	{
 		if (p->newOwner != nullptr)
 			goalang = (pact->opos.XY() - actor->spr.pos.XY()).Angle();
@@ -1410,7 +1413,7 @@ void move(DDukeActor* actor, DDukePlayer* const p, double pdist)
 	}
 
 
-	if (a & face_player_smart)
+	if (!suppressDeadOneViewFacing && (a & face_player_smart))
 	{
 		DVector2 newpos = pact->spr.pos.XY() + (p->vel.XY() * (4. / 3.));
 		goalang = (newpos - actor->spr.pos.XY()).Angle();
