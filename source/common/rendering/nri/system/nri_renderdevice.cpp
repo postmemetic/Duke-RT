@@ -2836,6 +2836,7 @@ void NRIRenderDevice::ToggleFullscreen(bool yes)
 	if (!mWindowModeTransitionPending)
 		mWindowModeTransitionFrom = previousMode;
 	mWindowModeTransitionPending = true;
+	mWindowModeTransitionSettleBudget = 8;
 	++mWindowModeTransitionSerial;
 	RequestSwapChainRefresh("window-mode-change", true);
 }
@@ -3244,6 +3245,31 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 	if (!mSwapChainRefreshPending)
 	{
 		return true;
+	}
+	if (mWindowModeTransitionPending && mWindowModeTransitionSettleBudget != 0u)
+	{
+		uint32_t createdWidth = 0;
+		uint32_t createdHeight = 0;
+		if (!mFrameGenerationPresentImages.empty())
+		{
+			createdWidth = mFrameGenerationPresentImages[0].width;
+			createdHeight = mFrameGenerationPresentImages[0].height;
+		}
+		else if (!mSwapChainImages.empty())
+		{
+			createdWidth = mSwapChainImages[0].target.width;
+			createdHeight = mSwapChainImages[0].target.height;
+		}
+
+		const uint32_t clientWidth = (uint32_t)(std::max)(GetClientWidth(), 1);
+		const uint32_t clientHeight = (uint32_t)(std::max)(GetClientHeight(), 1);
+		const bool geometryChanged = createdWidth != 0u && (createdWidth != clientWidth || createdHeight != clientHeight);
+		if (!geometryChanged)
+		{
+			--mWindowModeTransitionSettleBudget;
+			return false;
+		}
+		mWindowModeTransitionSettleBudget = 0;
 	}
 
 	const bool forceRecreate = mSwapChainRefreshForceRecreate;

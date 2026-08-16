@@ -462,6 +462,7 @@ private:
 	bool mWindowModeTransitionPending = false;
 	NRIWindowPresentationMode mWindowModeTransitionFrom = NRIWindowPresentationMode::Windowed;
 	uint64_t mWindowModeTransitionSerial = 0;
+	uint8_t mWindowModeTransitionSettleBudget = 0;
 	bool mUsingSaveTarget = false;
 	bool mStandaloneSavePicFrame = false;
 	bool mPreloadCommandContextActive = false;
