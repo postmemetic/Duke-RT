@@ -258,6 +258,8 @@ struct NRIFrameGenerationProviderState
 	bool dxgiFullscreenKnown = false;
 	bool dxgiFullscreen = false;
 	bool tearingSupported = false;
+	bool presentBridgeDetached = false;
+	bool waitableObjectAvailable = false;
 	uint32_t contextDisplayWidth = 0;
 	uint32_t contextDisplayHeight = 0;
 	uint32_t contextRenderWidth = 0;
@@ -270,7 +272,10 @@ struct NRIFrameGenerationProviderState
 	uint64_t resetCount = 0;
 	uint64_t presentCount = 0;
 	uint64_t bridgeCreateGeneration = 0;
+	uint64_t bridgeCreateAttemptCount = 0;
 	uint64_t bridgeDrainCount = 0;
+	uint64_t pacingWaitCount = 0;
+	uint64_t pacingWaitTimeoutCount = 0;
 	uint64_t totalUsageBytes = 0;
 	uint64_t aliasableUsageBytes = 0;
 	uint64_t swapChainTotalUsageBytes = 0;
@@ -287,6 +292,7 @@ struct NRIFrameGenerationProviderState
 	uint32_t lastBridgeDrainResult = 0;
 	uint32_t lastPresentSyncInterval = 0;
 	uint32_t lastPresentFlags = 0;
+	uint32_t lastPacingWaitResult = 0;
 	int64_t lastPresentHresult = 0;
 	nri::Result lastPresentResult = nri::Result::FAILURE;
 	char runtimeLibrary[64] = "unloaded";
@@ -319,6 +325,7 @@ public:
 	void NoteReset(const char* reason);
 	void RequestHistoryReset(const char* reason);
 	bool DrainPresentBridge();
+	bool WaitForPresentPacing();
 	void RequestNativeFallback(const char* reason);
 	bool ConsumeNativeFallbackRequest();
 

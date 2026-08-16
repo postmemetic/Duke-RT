@@ -61,6 +61,7 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 	mSnapshot.dxgiFullscreenKnown = false;
 	mSnapshot.dxgiFullscreen = false;
 	mSnapshot.memoryUsageValid = false;
+	mSnapshot.waitableObjectAvailable = false;
 	mSnapshot.lastCreateResult = 0;
 	mSnapshot.lastQueryResult = 0;
 	mSnapshot.totalUsageBytes = 0;
@@ -112,6 +113,8 @@ bool NRIFsr3Dx12PresentBridge::Create(const NRIFsr3Dx12PresentBridgeCreateDesc& 
 			mSnapshot.windowAssociationKnown = true;
 			mSnapshot.windowAssociationSucceeded = SUCCEEDED(associationResult);
 			RefreshFullscreenState();
+			mFrameLatencyWaitableObject = mSwapChain->GetFrameLatencyWaitableObject();
+			mSnapshot.waitableObjectAvailable = mFrameLatencyWaitableObject != nullptr;
 		}
 
 		const auto query = reinterpret_cast<PfnFfxQuery>(desc.queryFn);
@@ -163,6 +166,11 @@ uint32_t NRIFsr3Dx12PresentBridge::Destroy(void* dispatchFn, void* destroyContex
 	return 0;
 #else
 	Drain(dispatchFn);
+	RefreshFullscreenState();
+	if (mSwapChain != nullptr && mSnapshot.dxgiFullscreenKnown && mSnapshot.dxgiFullscreen)
+	{
+		mSnapshot.lastExitFullscreenHresult = static_cast<int64_t>(mSwapChain->SetFullscreenState(FALSE, nullptr));
+	}
 	if (mSwapChain != nullptr)
 	{
 		mSwapChain->Release();
@@ -176,6 +184,11 @@ uint32_t NRIFsr3Dx12PresentBridge::Destroy(void* dispatchFn, void* destroyContex
 		result = reinterpret_cast<PfnFfxDestroyContext>(destroyContextFn)(&context, reinterpret_cast<ffxAllocationCallbacks*>(allocationCallbacks));
 		mContext = nullptr;
 	}
+	if (mFrameLatencyWaitableObject != nullptr)
+	{
+		CloseHandle(static_cast<HANDLE>(mFrameLatencyWaitableObject));
+		mFrameLatencyWaitableObject = nullptr;
+	}
 	mDrainRequired = false;
 	mSnapshot.contextCreated = false;
 	mSnapshot.swapChainCreated = false;
@@ -183,7 +196,25 @@ uint32_t NRIFsr3Dx12PresentBridge::Destroy(void* dispatchFn, void* destroyContex
 	mSnapshot.dxgiFullscreen = false;
 	mSnapshot.windowAssociationKnown = false;
 	mSnapshot.windowAssociationSucceeded = false;
+	mSnapshot.waitableObjectAvailable = false;
 	return result;
+#endif
+}
+
+bool NRIFsr3Dx12PresentBridge::WaitForPacing(uint32_t timeoutMs)
+{
+#ifndef _WIN32
+	(void)timeoutMs;
+	return false;
+#else
+	if (!IsActive() || mFrameLatencyWaitableObject == nullptr)
+		return false;
+
+	mSnapshot.lastWaitResult = WaitForSingleObject(static_cast<HANDLE>(mFrameLatencyWaitableObject), timeoutMs);
+	++mSnapshot.pacingWaitCount;
+	if (mSnapshot.lastWaitResult == WAIT_TIMEOUT)
+		++mSnapshot.pacingWaitTimeoutCount;
+	return mSnapshot.lastWaitResult == WAIT_OBJECT_0;
 #endif
 }
 

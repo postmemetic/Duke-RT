@@ -2870,6 +2870,7 @@ void NRIRenderDevice::BeginFrame()
 	{
 		return;
 	}
+	mFrameGeneration.WaitForPresentPacing();
 	if (mGpuTiming != nullptr && mDevice != nullptr)
 	{
 		mGpuTiming->Prepare(mCore, *mDevice);
@@ -3263,10 +3264,11 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 	}
 
 	mFrameGeneration.RequestHistoryReset(reason.GetChars());
-	WaitForCommands(true);
-	const bool createSucceeded = CreateSwapChain();
-	if (mWindowModeTransitionPending)
+	const auto logWindowModeTransition = [&](bool succeeded)
 	{
+		if (!mWindowModeTransitionPending)
+			return;
+
 		const auto& provider = mFrameGeneration.GetProviderState();
 		const NRIWindowPresentationMode currentMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 		Printf("NRI framegen window transition: serial=%llu from=%s to=%s reason=window-mode-change coalesced_requests=%u recreates=1 present_drain=%s drain_count=%llu owner=%s dxgi_state=%s result=%s\n",
@@ -3278,14 +3280,17 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 			(unsigned long long)provider.bridgeDrainCount,
 			provider.presentBridgeReady ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
 			NRIFrameGenerationContext::GetDxgiFullscreenStateName(provider.dxgiFullscreenKnown, provider.dxgiFullscreen),
-			createSucceeded ? "success" : "failure");
+			succeeded ? "success" : "failure");
 		mWindowModeTransitionPending = false;
-	}
-	if (!createSucceeded)
+	};
+	WaitForCommands(true);
+	if (!CreateSwapChain())
 	{
+		logWindowModeTransition(false);
 		Printf(TEXTCOLOR_RED "NRI failed to apply deferred swapchain refresh '%s'.\n", reason.GetChars());
 		return false;
 	}
+	logWindowModeTransition(true);
 	return true;
 }
 
@@ -7515,15 +7520,21 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		frameGenProvider.nativeFallbackRequested ? "yes" : "no",
 		frameGenProvider.lastPresentMode,
 		NRIFrameGenerationContext::GetPresentResultName(frameGenProvider.lastPresentResult));
-	Printf("NRI PT framegen bridge: window=%s dxgi_state=%s owner=%s active=%s tearing_supported=%s create_generation=%llu drain_count=%llu drain_result=%s sync_interval=%u present_flags=0x%X present_hr=0x%08llX configure_count=%llu prepare_count=%llu dispatch_count=%llu proxy_present_count=%llu fallback_pending=%s\n",
+	Printf("NRI PT framegen bridge: window=%s dxgi_state=%s owner=%s active=%s tearing_supported=%s detached=%s create_attempt_count=%llu create_generation=%llu drain_count=%llu drain_result=%s waitable=%s pacing_wait_count=%llu pacing_timeout_count=%llu pacing_wait_result=0x%X sync_interval=%u present_flags=0x%X present_hr=0x%08llX configure_count=%llu prepare_count=%llu dispatch_count=%llu proxy_present_count=%llu fallback_pending=%s\n",
 		NRIFrameGenerationContext::GetWindowModeName(frameGenPolicy.windowPresentationMode),
 		NRIFrameGenerationContext::GetDxgiFullscreenStateName(frameGenProvider.dxgiFullscreenKnown, frameGenProvider.dxgiFullscreen),
 		frameGenProvider.presentBridgeReady ? "proxy" : (mSwapChain != nullptr ? "native" : "none"),
 		frameGenProvider.presentBridgeReady ? "yes" : "no",
 		frameGenProvider.tearingSupported ? "yes" : "no",
+		frameGenProvider.presentBridgeDetached ? "yes" : "no",
+		(unsigned long long)frameGenProvider.bridgeCreateAttemptCount,
 		(unsigned long long)frameGenProvider.bridgeCreateGeneration,
 		(unsigned long long)frameGenProvider.bridgeDrainCount,
 		NRIFrameGenerationContext::GetProviderReturnCodeName(frameGenProvider.lastBridgeDrainResult),
+		frameGenProvider.waitableObjectAvailable ? "yes" : "no",
+		(unsigned long long)frameGenProvider.pacingWaitCount,
+		(unsigned long long)frameGenProvider.pacingWaitTimeoutCount,
+		frameGenProvider.lastPacingWaitResult,
 		frameGenProvider.lastPresentSyncInterval,
 		frameGenProvider.lastPresentFlags,
 		(unsigned long long)frameGenProvider.lastPresentHresult,

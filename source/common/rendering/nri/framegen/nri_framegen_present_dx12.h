@@ -29,15 +29,20 @@ struct NRIFsr3Dx12PresentBridgeSnapshot
 	bool dxgiFullscreenKnown = false;
 	bool dxgiFullscreen = false;
 	bool memoryUsageValid = false;
+	bool waitableObjectAvailable = false;
 	uint32_t lastCreateResult = 0;
 	uint32_t lastQueryResult = 0;
 	uint32_t lastDrainResult = 0;
 	int64_t lastPresentHresult = 0;
 	uint32_t lastPresentSyncInterval = 0;
 	uint32_t lastPresentFlags = 0;
+	uint32_t lastWaitResult = 0;
+	int64_t lastExitFullscreenHresult = 0;
 	uint64_t createGeneration = 0;
 	uint64_t createAttemptCount = 0;
 	uint64_t drainCount = 0;
+	uint64_t pacingWaitCount = 0;
+	uint64_t pacingWaitTimeoutCount = 0;
 	uint64_t totalUsageBytes = 0;
 	uint64_t aliasableUsageBytes = 0;
 };
@@ -49,6 +54,7 @@ public:
 	uint32_t Drain(void* dispatchFn);
 	uint32_t Destroy(void* dispatchFn, void* destroyContextFn, void* allocationCallbacks);
 	int64_t Present(bool vsync, bool allowTearing);
+	bool WaitForPacing(uint32_t timeoutMs);
 
 	bool IsActive() const;
 	void* GetContext() const { return mContext; }
@@ -64,6 +70,7 @@ private:
 	void* mContext = nullptr;
 #ifdef _WIN32
 	IDXGISwapChain4* mSwapChain = nullptr;
+	void* mFrameLatencyWaitableObject = nullptr;
 #endif
 	bool mDrainRequired = false;
 	NRIFsr3Dx12PresentBridgeSnapshot mSnapshot = {};

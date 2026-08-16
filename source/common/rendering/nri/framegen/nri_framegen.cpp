@@ -991,12 +991,44 @@ bool NRIFrameGenerationContext::DrainPresentBridge()
 	if (!IsPresentBridgeActive())
 		return true;
 	const uint32_t result = mPresentBridge.Drain(mFfxDispatchFn);
+	bool detached = true;
+#ifdef _WIN32
+	const auto configure = reinterpret_cast<PfnFfxConfigure>(mFfxConfigureFn);
+	if (configure != nullptr && mFfxContext != nullptr)
+	{
+		ffxConfigureDescFrameGeneration disableDesc = {};
+		NriFfxInitHeader(disableDesc.header, NRI_FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
+		disableDesc.swapChain = mPresentBridge.GetSwapChain();
+		disableDesc.frameGenerationEnabled = false;
+		disableDesc.frameID = mProviderState.lastConfiguredFrameId + 1u;
+		mProviderState.lastConfigureResult = configure(reinterpret_cast<ffxContext*>(&mFfxContext), &disableDesc.header);
+		detached = mProviderState.lastConfigureResult == NRI_FFX_API_RETURN_OK;
+	}
+	if (configure != nullptr && mPresentBridge.GetContext() != nullptr)
+	{
+		ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 uiDesc = {};
+		NriFfxInitHeader(uiDesc.header, NRI_FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12);
+		mProviderState.lastSwapChainConfigureResult = configure(reinterpret_cast<ffxContext*>(mPresentBridge.GetContextAddress()), &uiDesc.header);
+		detached = detached && mProviderState.lastSwapChainConfigureResult == NRI_FFX_API_RETURN_OK;
+	}
+#endif
+	mProviderState.presentBridgeDetached = detached;
+	mProviderState.uiResourceRegisteredThisFrame = false;
 	RefreshPresentBridgeSnapshot();
 #ifdef _WIN32
-	return result == NRI_FFX_API_RETURN_OK;
+	return result == NRI_FFX_API_RETURN_OK && detached;
 #else
 	return false;
 #endif
+}
+
+bool NRIFrameGenerationContext::WaitForPresentPacing()
+{
+	if (!IsPresentBridgeActive())
+		return true;
+	const bool ready = mPresentBridge.WaitForPacing(1000u);
+	RefreshPresentBridgeSnapshot();
+	return ready;
 }
 
 void NRIFrameGenerationContext::RequestNativeFallback(const char* reason)
@@ -1198,7 +1230,12 @@ void NRIFrameGenerationContext::RefreshPresentBridgeSnapshot()
 	mProviderState.dxgiFullscreen = snapshot.dxgiFullscreen;
 	mProviderState.tearingSupported = snapshot.tearingSupported;
 	mProviderState.bridgeCreateGeneration = snapshot.createGeneration;
+	mProviderState.bridgeCreateAttemptCount = snapshot.createAttemptCount;
 	mProviderState.bridgeDrainCount = snapshot.drainCount;
+	mProviderState.waitableObjectAvailable = snapshot.waitableObjectAvailable;
+	mProviderState.pacingWaitCount = snapshot.pacingWaitCount;
+	mProviderState.pacingWaitTimeoutCount = snapshot.pacingWaitTimeoutCount;
+	mProviderState.lastPacingWaitResult = snapshot.lastWaitResult;
 	mProviderState.lastBridgeDrainResult = snapshot.lastDrainResult;
 	mProviderState.lastPresentHresult = snapshot.lastPresentHresult;
 	mProviderState.lastPresentSyncInterval = snapshot.lastPresentSyncInterval;
@@ -1448,6 +1485,7 @@ bool NRIFrameGenerationContext::CreateProviderPresentBridge(const NRIRenderDevic
 	{
 		mProviderState.swapChainContextCreated = snapshot.contextCreated;
 		mProviderState.presentBridgeReady = snapshot.swapChainCreated;
+		mProviderState.presentBridgeDetached = false;
 		std::strncpy(mProviderState.lastStatusReason, "present-bridge-ready", std::size(mProviderState.lastStatusReason) - 1u);
 	}
 	else
