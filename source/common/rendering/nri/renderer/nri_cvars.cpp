@@ -114,6 +114,9 @@ namespace
 		NRI_SETTINGS_PROFILE_DLSS_SR_FAST,
 		NRI_SETTINGS_PROFILE_DLSS_SR_MEDIUM,
 		NRI_SETTINGS_PROFILE_DLSS_SR_BEAUTIFUL,
+		NRI_SETTINGS_PROFILE_FSR_FAST,
+		NRI_SETTINGS_PROFILE_FSR_MEDIUM,
+		NRI_SETTINGS_PROFILE_FSR_BEAUTIFUL,
 	};
 
 	struct NRISettingsProfilePreset
@@ -129,6 +132,7 @@ namespace
 	constexpr int kNRIUpscalerOff = 0;
 	constexpr int kNRIUpscalerDlssSr = 2;
 	constexpr int kNRIUpscalerDlrr = 3;
+	constexpr int kNRIUpscalerFsr = 4;
 
 	constexpr int kNRIUpscalerModeNative = 0;
 	constexpr int kNRIUpscalerModeQuality = 2;
@@ -152,6 +156,9 @@ namespace
 		{ "Fast Preset - DLSS-SR", kNRIUpscalerDlssSr, kNRIUpscalerModeBalanced, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
 		{ "Medium Preset - DLSS-SR", kNRIUpscalerDlssSr, kNRIUpscalerModeQuality, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
 		{ "Beautiful Preset - DLSS-SR", kNRIUpscalerDlssSr, kNRIUpscalerModeNative, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
+		{ "Fast Preset - AMD FSR 3", kNRIUpscalerFsr, kNRIUpscalerModeBalanced, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
+		{ "Medium Preset - AMD FSR 3", kNRIUpscalerFsr, kNRIUpscalerModeQuality, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
+		{ "Beautiful Preset - AMD FSR 3", kNRIUpscalerFsr, kNRIUpscalerModeNative, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
 	};
 
 	bool gSkipInitialProfileApply = true;
