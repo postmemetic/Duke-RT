@@ -80,6 +80,9 @@ namespace
 		HashValue(hash, row.materialClass);
 		HashValue(hash, row.emissiveMode);
 		HashValue(hash, row.emissiveStableFrames);
+		HashValue(hash, row.voxelPaletteIndex);
+		HashValue(hash, row.voxelPalettePolicyFlags);
+		HashValue(hash, row.voxelPalettePolicyApplied);
 		HashValue(hash, row.sourceType);
 		HashValue(hash, row.sectorIndex);
 		HashValue(hash, row.actorIndex);

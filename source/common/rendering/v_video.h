@@ -86,6 +86,69 @@ struct PathTracingEmissiveLightEditTarget
 	FString failureReason;
 };
 
+enum class PathTracingVoxelPolicyEditAction : uint8_t
+{
+	CreateSidecar,
+	ToggleEmission,
+	ToggleFullbright,
+	ToggleShadowCast,
+	ToggleShadowReceive,
+	AdjustEmissionScale,
+	Reload,
+	DiscardAndReload,
+};
+
+struct PathTracingVoxelPolicyEditTarget
+{
+	bool valid = false;
+	bool hit = false;
+	int actorIndex = -1;
+	int sourcePicnum = -1;
+	int resolvedVoxelIndex = -1;
+	uint32_t paletteIndex = UINT32_MAX;
+	uint32_t policyBits = 0;
+	uint32_t usedPaletteIndexCount = 0;
+	uint8_t usedPaletteIndices[256] = {};
+	uint8_t policyByPaletteIndex[256] = {};
+	uint8_t rawPaletteRgbByIndex[256][3] = {};
+	uint8_t rawPaletteRgb[3] = {};
+	uint8_t resolvedPaletteRgb[3] = {};
+	uint64_t meshVariantHash = 0;
+	uint64_t materialVariantHash = 0;
+	uint64_t sourceHash = 0;
+	uint64_t paletteHash = 0;
+	uint64_t policyContentHash = 0;
+	int32_t selectedCellBoundsMin[3] = {};
+	int32_t selectedCellBoundsMax[3] = {};
+	uint32_t selectedCellComponentCount = 0;
+	FString voxelResource;
+	FString policySource;
+	FString failureReason;
+};
+
+struct PathTracingVoxelPolicyEditRequest
+{
+	PathTracingVoxelPolicyEditAction action = PathTracingVoxelPolicyEditAction::Reload;
+	int actorIndex = -1;
+	int sourcePicnum = -1;
+	int resolvedVoxelIndex = -1;
+	uint32_t paletteIndex = UINT32_MAX;
+	uint64_t sourceHash = 0;
+	uint64_t paletteHash = 0;
+	uint64_t contentHash = 0;
+	float emissionScaleDelta = 0.0f;
+	FString voxelResource;
+};
+
+struct PathTracingVoxelPolicyEditResult
+{
+	bool changed = false;
+	bool reloaded = false;
+	uint32_t policyBits = 0;
+	FString writablePath;
+	FString message;
+};
+
 enum EHWCaps
 {
 	// [BB] Added texture compression flags.
@@ -425,6 +488,18 @@ public:
 	virtual void PrintPathTracingSurfaceProbeStatus() const;
 	virtual bool BuildPathTracingEmissiveLightEditTarget(PathTracingEmissiveLightEditTarget& outTarget) const { outTarget = {}; return false; }
 	virtual bool BuildPathTracingSurfaceLightEditTarget(PathTracingEmissiveLightEditTarget& outTarget) const { outTarget = {}; return false; }
+	virtual bool BuildPathTracingVoxelPolicyEditTarget(PathTracingVoxelPolicyEditTarget& outTarget) const
+	{
+		outTarget = {};
+		outTarget.failureReason = "voxel policy probing is unavailable from the active renderer";
+		return false;
+	}
+	virtual bool ApplyPathTracingVoxelPolicyEdit(const PathTracingVoxelPolicyEditRequest&, PathTracingVoxelPolicyEditResult& outResult)
+	{
+		outResult = {};
+		outResult.message = "voxel policy editing is unavailable from the active renderer";
+		return false;
+	}
 	virtual bool ProjectPathTracingEditorLine(const float renderStart[3], const float renderEnd[3],
 		DVector2& outStart, DVector2& outEnd) const { outStart = {}; outEnd = {}; return false; }
 	virtual bool SetPathTracingEditorPointLight(const DVector3& worldPosition, const float color[3], float intensity, float radius) { return false; }

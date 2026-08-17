@@ -4,6 +4,7 @@
 #include "nri_scene_instance_visibility.h"
 
 #include "../scene/nri_hash.h"
+#include "../scene/nri_voxel_material_slots.h"
 #include "nri_cvars.h"
 #include "nri_filter_candidate_policy.h"
 #include "nri_ray_scene_builder.h"
@@ -1824,7 +1825,8 @@ bool NRIPersistentVoxelResidency::ValidateActorGeometry(
 		{
 			return reject("primitive-index-range", std::max({ primitive.indices[0], primitive.indices[1], primitive.indices[2] }), vertexCount);
 		}
-		if (materialCount != 0 && primitive.materialIndex >= materialCount)
+		if (materialCount != 0 &&
+			!nri_scene::IsVoxelPrimitiveMaterialIndexCompatible(primitive.materialIndex, materialCount))
 		{
 			return reject("primitive-material-range", primitive.materialIndex, materialCount);
 		}
@@ -3872,8 +3874,11 @@ NRIPersistentVoxelLightAppendStats NRIPersistentVoxelResidency::AppendSceneLight
 		std::vector<SceneLightSystem::SurfaceRecord> placedRecords = actor.lightRecords;
 		for (SceneLightSystem::SurfaceRecord& record : placedRecords)
 		{
-			record.placedPrimitiveBase = actor.primitiveOffset;
-			record.placedPrimitiveCount = actor.primitiveCount;
+			record.placedPrimitiveBase += actor.primitiveOffset;
+			if (record.placedPrimitiveCount == 0)
+			{
+				record.placedPrimitiveCount = actor.primitiveCount;
+			}
 			record.sceneInstanceIndex = actor.worldTlasInstanceIndex;
 			record.occurrenceKeyLo = (uint32_t)(actor.identityKey & 0xffffffffu);
 			record.occurrenceKeyHi = (uint32_t)(actor.identityKey >> 32u);
@@ -7571,6 +7576,54 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		auto rebuildPersistentVoxelActorLightRecords = [&](PersistentVoxelBatch::ActorEntry& actor, PersistentVoxelMeshVariantResource& meshResource)
 		{
 			actor.lightRecords.clear();
+			const nri_scene::SurfaceRef* sourceSurface = cacheEntry.surface;
+			if (sourceSurface != nullptr &&
+				sourceSurface->materialRowSpan == nri_scene::VoxelPaletteMaterialSlotCount &&
+				sourceSurface->primitiveLocalMaterialSlots.size() * 3u == sourceSurface->indices.size())
+			{
+				const uint32_t primitiveCount = (uint32_t)sourceSurface->primitiveLocalMaterialSlots.size();
+				uint32_t primitive = 0;
+				while (primitive < primitiveCount)
+				{
+					const uint32_t localMaterialIndex = sourceSurface->primitiveLocalMaterialSlots[primitive];
+					const bool emissive = localMaterialIndex < actor.materialBridge.lightMetadata.size() &&
+						batchServices.MaterialWouldEmit(actor.materialBridge.lightMetadata[localMaterialIndex]);
+					if (!emissive)
+					{
+						++primitive;
+						continue;
+					}
+					uint32_t runEnd = primitive + 1u;
+					while (runEnd < primitiveCount && sourceSurface->primitiveLocalMaterialSlots[runEnd] == localMaterialIndex)
+					{
+						++runEnd;
+					}
+					nri_scene::SurfaceRef emissiveRun = *sourceSurface;
+					emissiveRun.indices.assign(
+						sourceSurface->indices.begin() + (size_t)primitive * 3u,
+						sourceSurface->indices.begin() + (size_t)runEnd * 3u);
+					emissiveRun.primitiveLocalMaterialSlots.assign(
+						sourceSurface->primitiveLocalMaterialSlots.begin() + primitive,
+						sourceSurface->primitiveLocalMaterialSlots.begin() + runEnd);
+					SceneLightSystem::SurfaceRecord record = batchServices.BuildSurfaceRecord(
+						emissiveRun,
+						actor.materialBridge,
+						SceneLightRecordSource::PersistentVoxelScene,
+						localMaterialIndex,
+						localMaterialIndex);
+					const float localCenter[3] = { record.center[0], record.center[1], record.center[2] };
+					TransformPersistentVoxelLightCenter(actor.instanceTransform, localCenter, record.center);
+					const float scale = ResolvePersistentVoxelLightScale(actor.instanceTransform);
+					record.boundsRadius *= scale;
+					record.surfaceArea *= scale * scale;
+					record.placedPrimitiveBase = primitive;
+					record.placedPrimitiveCount = runEnd - primitive;
+					record.identityKey = SceneLightSystem::ComputeSurfaceIdentityKey(record.source, record.provenance, record.center);
+					actor.lightRecords.push_back(std::move(record));
+					primitive = runEnd;
+				}
+				return;
+			}
 			const uint32_t emissiveMaterialIndex = findPersistentVoxelEmissiveMaterial(actor.materialBridge);
 			if (emissiveMaterialIndex == UINT32_MAX)
 			{

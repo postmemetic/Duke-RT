@@ -179,6 +179,23 @@ FVoxelModel::~FVoxelModel()
 	if (mOwningVoxel) delete mVoxel;
 }
 
+int FVoxelModel::GetVoxelSourceLump() const
+{
+	return mVoxel != nullptr ? mVoxel->LumpNum : -1;
+}
+
+bool FVoxelModel::CopyVoxelPalette(uint8_t* outPalette, size_t outSize) const
+{
+	constexpr size_t VoxelPaletteSize = 256u * 3u;
+	if (mVoxel == nullptr || outPalette == nullptr || outSize < VoxelPaletteSize || mVoxel->Palette.Size() != VoxelPaletteSize)
+	{
+		return false;
+	}
+
+	memcpy(outPalette, mVoxel->Palette.Data(), VoxelPaletteSize);
+	return true;
+}
+
 
 //===========================================================================
 //
@@ -413,6 +430,7 @@ void FVoxelModel::BuildRawMeshStats(
 		face.y[3] = y4;
 		face.z[3] = z4;
 		face.color = color;
+		face.materialIndex = color;
 		outFaces->Push(face);
 	};
 

@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "nri_voxel_palette_policy.h"
 #include "../renderer/nri_cvars.h"
 
 #include "nri_hash.h"
@@ -519,6 +520,102 @@ namespace
 		return metadata;
 	}
 
+	void ApplyVoxelPalettePolicyRow(
+		const SurfaceRef& surface,
+		uint32_t paletteIndex,
+		MaterialData& material,
+		MaterialLightingMetadata& metadata)
+	{
+		const VoxelPalettePolicyDocument* policy = surface.material.voxelPalettePolicy.get();
+		if (policy == nullptr || paletteIndex >= policy->compiled.size())
+		{
+			return;
+		}
+
+		const uint8_t policyFlags = policy->compiled[paletteIndex];
+		constexpr uint32_t inheritedLightingMask =
+			MaterialLightingFlag_MaterialFullbright |
+			MaterialLightingFlag_TextureFullbright |
+			MaterialLightingFlag_TextureGlowing |
+			MaterialLightingFlag_TextureAutoGlowing |
+			MaterialLightingFlag_HasGlowmap |
+			MaterialLightingFlag_NoShadowReceive |
+			MaterialLightingFlag_NoShadowCast;
+		material.flags &= ~(MaterialFlag_Fullbright | MaterialFlag_TintEmission);
+		material.lightingFlags &= ~inheritedLightingMask;
+		material.emissiveTextureIndex = UINT32_MAX;
+		material.emissiveColor[0] = 0.0f;
+		material.emissiveColor[1] = 0.0f;
+		material.emissiveColor[2] = 0.0f;
+		material.emissiveIntensity = 0.0f;
+		material.emissiveMaskScale = 0.0f;
+		material.emissiveMode = MaterialEmissiveMode_None;
+		material.emissiveReserved = 1.0f;
+
+		metadata.materialFlags &= ~(MaterialFlag_Fullbright | MaterialFlag_TintEmission);
+		metadata.lightingFlags &= ~inheritedLightingMask;
+		metadata.glowmapTextureIndex = UINT32_MAX;
+		metadata.glowmapContentKey = 0;
+		metadata.emissiveTextureIndex = UINT32_MAX;
+		metadata.emissiveColor[0] = 0.0f;
+		metadata.emissiveColor[1] = 0.0f;
+		metadata.emissiveColor[2] = 0.0f;
+		metadata.emissiveIntensity = 0.0f;
+		metadata.emissiveMaskScale = 0.0f;
+		metadata.emissiveMode = MaterialEmissiveMode_None;
+		metadata.visibleFullbrightBoost = 1.0f;
+		metadata.voxelPalettePolicyApplied = true;
+		metadata.voxelPaletteIndex = paletteIndex;
+		metadata.voxelPalettePolicyFlags = policyFlags;
+
+		if ((policyFlags & VoxelPalettePolicyFlag_EmissionEnabled) != 0)
+		{
+			const float emissionScale = (float)std::clamp(policy->emissionScale, 0.0, 65536.0) * GetVoxelEmissionBoostScale();
+			material.flags |= MaterialFlag_TintEmission;
+			material.emissiveTextureIndex = material.textureIndex;
+			material.emissiveColor[0] = 1.0f;
+			material.emissiveColor[1] = 1.0f;
+			material.emissiveColor[2] = 1.0f;
+			material.emissiveIntensity = emissionScale;
+			material.emissiveMaskScale = 1.0f;
+			material.emissiveMode = MaterialEmissiveMode_UseBaseTexture;
+
+			metadata.materialFlags |= MaterialFlag_TintEmission;
+			metadata.emissiveTextureIndex = material.textureIndex;
+			metadata.emissiveColor[0] = 1.0f;
+			metadata.emissiveColor[1] = 1.0f;
+			metadata.emissiveColor[2] = 1.0f;
+			metadata.emissiveIntensity = emissionScale;
+			metadata.emissiveMaskScale = 1.0f;
+			metadata.emissiveMode = MaterialEmissiveMode_UseBaseTexture;
+		}
+
+		if ((policyFlags & VoxelPalettePolicyFlag_Fullbright) != 0)
+		{
+			material.flags |= MaterialFlag_Fullbright;
+			material.lightingFlags |= MaterialLightingFlag_MaterialFullbright;
+			material.lightLevel = 1.0f;
+			material.emissiveReserved = GetVisibleFullbrightBoost();
+			metadata.materialFlags |= MaterialFlag_Fullbright;
+			metadata.lightingFlags |= MaterialLightingFlag_MaterialFullbright;
+			metadata.lightLevel = 1.0f;
+			metadata.visibleFullbrightBoost = GetVisibleFullbrightBoost();
+		}
+		if ((policyFlags & VoxelPalettePolicyFlag_NoShadowCast) != 0)
+		{
+			material.lightingFlags |= MaterialLightingFlag_NoShadowCast;
+			metadata.lightingFlags |= MaterialLightingFlag_NoShadowCast;
+		}
+		if ((policyFlags & VoxelPalettePolicyFlag_NoShadowReceive) != 0)
+		{
+			material.lightingFlags |= MaterialLightingFlag_NoShadowReceive;
+			metadata.lightingFlags |= MaterialLightingFlag_NoShadowReceive;
+		}
+
+		metadata.materialKey = HashCombine64(metadata.materialKey, surface.material.voxelPalettePolicyContentKey);
+		metadata.materialKey = HashCombine64(metadata.materialKey, ((uint64_t)paletteIndex << 8u) | policyFlags);
+	}
+
 	void AppendSurfaceMaterial(const SurfaceRef& surface, std::unordered_map<uint64_t, uint32_t>& textureLookup, MaterialBridgeData& outMaterials)
 	{
 		const MaterialRef& materialRef = surface.material;
@@ -591,6 +688,29 @@ namespace
 		outMaterials.materials.back().lightingFlags = metadata.lightingFlags;
 		outMaterials.materials.back().emissiveReserved = metadata.visibleFullbrightBoost;
 		outMaterials.lightMetadata.push_back(metadata);
+
+		if (surface.material.voxelPalettePolicy != nullptr && surface.materialRowSpan == VoxelPalettePolicyEntryCount)
+		{
+			const MaterialData baseMaterial = outMaterials.materials.back();
+			const MaterialLightingMetadata baseMetadata = outMaterials.lightMetadata.back();
+			const size_t baseRow = outMaterials.materials.size() - 1u;
+			for (uint32_t paletteIndex = 0; paletteIndex < VoxelPalettePolicyEntryCount; ++paletteIndex)
+			{
+				MaterialData rowMaterial = baseMaterial;
+				MaterialLightingMetadata rowMetadata = baseMetadata;
+				ApplyVoxelPalettePolicyRow(surface, paletteIndex, rowMaterial, rowMetadata);
+				if (paletteIndex == 0)
+				{
+					outMaterials.materials[baseRow] = rowMaterial;
+					outMaterials.lightMetadata[baseRow] = rowMetadata;
+				}
+				else
+				{
+					outMaterials.materials.push_back(rowMaterial);
+					outMaterials.lightMetadata.push_back(rowMetadata);
+				}
+			}
+		}
 	}
 
 	struct PaletteLookupCache

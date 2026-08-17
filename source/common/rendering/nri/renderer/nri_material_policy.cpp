@@ -1033,19 +1033,20 @@ void nri_material_policy::ApplyActorMaterialOverridesToBuiltMaterials(
 		nri_scene::MaterialData& material = materials.materials[materialIndex];
 		const ActorMaterialOverrideState& overrideState = it->second;
 		const uint32_t overrideBits = overrideState.bits;
+		const bool explicitVoxelPolicy = metadata.voxelPalettePolicyApplied;
 		bool appliedOverride = false;
 		if (overrideState.emissiveStableFrames > 0)
 		{
 			metadata.emissiveStableFrames = std::max(metadata.emissiveStableFrames, overrideState.emissiveStableFrames);
 			appliedOverride = true;
 		}
-		if ((overrideBits & ActorMaterialOverride_NoShadowReceive) != 0)
+		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowReceive) != 0)
 		{
 			material.lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowReceive;
 			metadata.lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowReceive;
 			appliedOverride = true;
 		}
-		if ((overrideBits & ActorMaterialOverride_NoShadowCast) != 0)
+		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowCast) != 0)
 		{
 			material.lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowCast;
 			metadata.lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowCast;
@@ -1057,7 +1058,7 @@ void nri_material_policy::ApplyActorMaterialOverridesToBuiltMaterials(
 			metadata.lightingFlags |= nri_scene::MaterialLightingFlag_SmokeForeground;
 			appliedOverride = true;
 		}
-		if ((overrideBits & ActorMaterialOverride_Fullbright) == 0)
+		if (explicitVoxelPolicy || (overrideBits & ActorMaterialOverride_Fullbright) == 0)
 		{
 			if (appliedOverride)
 			{
@@ -1136,11 +1137,12 @@ void nri_material_policy::ApplyActorShadowMaterialOverrides(
 		}
 
 		const uint32_t overrideBits = it->second.bits;
-		if ((overrideBits & ActorMaterialOverride_NoShadowReceive) != 0)
+		const bool explicitVoxelPolicy = metadata.voxelPalettePolicyApplied;
+		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowReceive) != 0)
 		{
 			inOutGpuMaterials[materialIndex].lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowReceive;
 		}
-		if ((overrideBits & ActorMaterialOverride_NoShadowCast) != 0)
+		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowCast) != 0)
 		{
 			inOutGpuMaterials[materialIndex].lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowCast;
 		}
@@ -1148,7 +1150,7 @@ void nri_material_policy::ApplyActorShadowMaterialOverrides(
 		{
 			inOutGpuMaterials[materialIndex].lightingFlags |= nri_scene::MaterialLightingFlag_SmokeForeground;
 		}
-		if ((overrideBits & ActorMaterialOverride_Fullbright) != 0)
+		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_Fullbright) != 0)
 		{
 			ApplyFullbrightMaterialOverride(inOutGpuMaterials[materialIndex], fullbrightBoost);
 		}

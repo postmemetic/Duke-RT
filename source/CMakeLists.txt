@@ -1055,6 +1055,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_voxel_compute_meshing.cpp
 	common/rendering/nri/renderer/nri_world_tlas_slots.cpp
 	common/rendering/nri/renderer/nri_world_tlas_policy.cpp
+	common/rendering/nri/renderer/nri_voxel_policy_editor.cpp
 	common/rendering/nri/scene/nri_map_world.cpp
 	common/rendering/nri/scene/nri_map_builder.cpp
 	common/rendering/nri/scene/nri_map_mover_adapter.cpp
@@ -1068,6 +1069,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_scene_texture_utils.cpp
 	common/rendering/nri/scene/nri_texture_signature.cpp
 	common/rendering/nri/scene/nri_voxel_geometry_hash.cpp
+	common/rendering/nri/scene/nri_voxel_palette_policy.cpp
 	common/rendering/nri/scene/nri_voxel_actor_cache_maintenance.cpp
 	common/rendering/nri/scene/nri_scene_bridge.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
@@ -1147,6 +1149,7 @@ set (PCH_SOURCES
 	core/lightoverlay.cpp
 	core/lightoverlay_editor.cpp
 	core/lightoverlay_smoke_editor.cpp
+	core/voxelpolicy_editor.cpp
 	core/interpolate.cpp
 	core/inputstate.cpp
 	core/maphack.cpp

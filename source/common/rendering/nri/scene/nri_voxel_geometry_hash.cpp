@@ -2,6 +2,7 @@
 
 #include "nri_hash.h"
 #include "nri_scene_surface_types.h"
+#include "nri_voxel_material_slots.h"
 
 #include <algorithm>
 #include <cmath>
@@ -136,7 +137,7 @@ uint64_t BuildVoxelRenderPrimitiveHash(const SurfaceRef& surface)
 	}
 
 	uint64_t hash = NRIHashFnv1a64OffsetBasis;
-	hash = HashCombine64(hash, 0x564f585052494d31ull); // VOXPRIM1
+	hash = HashCombine64(hash, 0x564f585052494d32ull); // VOXPRIM2
 	hash = HashCombine64(hash, (uint64_t)surface.vertices.size());
 	hash = HashCombine64(hash, (uint64_t)primitiveCount);
 	hash = HashCombine64(hash, surface.indices.empty() ? 0ull : (uint64_t)surface.indices.size());
@@ -164,6 +165,9 @@ uint64_t BuildVoxelRenderPrimitiveHash(const SurfaceRef& surface)
 		hash = HashCombine64(hash, (uint64_t)i0);
 		hash = HashCombine64(hash, (uint64_t)i1);
 		hash = HashCombine64(hash, (uint64_t)i2);
+		const uint32_t localMaterialSlot = primitiveIndex < surface.primitiveLocalMaterialSlots.size() ?
+			surface.primitiveLocalMaterialSlots[primitiveIndex] : 0u;
+		hash = HashCombine64(hash, (uint64_t)localMaterialSlot);
 		hash = HashCombine64(hash, (uint64_t)FloatBits(v0.uv[0]));
 		hash = HashCombine64(hash, (uint64_t)FloatBits(v0.uv[1]));
 		hash = HashCombine64(hash, (uint64_t)FloatBits(v1.uv[0]));

@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-constexpr uint32_t NRI_PERSISTENT_VOXEL_MATERIAL_SEED_VERSION = 1;
+constexpr uint32_t NRI_PERSISTENT_VOXEL_MATERIAL_SEED_VERSION = 2;
 
 enum class NRIPersistentVoxelMaterialClosureSource : uint8_t
 {
@@ -102,6 +102,9 @@ struct NRIPersistentVoxelMaterialLightingSeed
 	uint32_t materialClass = 0;
 	uint32_t emissiveMode = 0;
 	uint32_t emissiveStableFrames = 0;
+	uint32_t voxelPaletteIndex = UINT32_MAX;
+	uint32_t voxelPalettePolicyFlags = 0;
+	bool voxelPalettePolicyApplied = false;
 	uint32_t sourceType = 0;
 	int32_t sectorIndex = -1;
 	int32_t actorIndex = -1;
