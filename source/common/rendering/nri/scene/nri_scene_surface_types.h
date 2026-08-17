@@ -1,12 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 class FGameTexture;
 
 namespace nri_scene
 {
+struct VoxelPalettePolicyDocument;
+
 static constexpr uint32_t MaxActorOverlayRuleIdsPerSurface = 4;
 
 enum class SurfaceSourceType : uint32_t
@@ -74,6 +77,8 @@ struct MaterialRef
 	int shade = 0;
 	float alpha = 1.0f;
 	uint32_t flags = MaterialFlag_None;
+	std::shared_ptr<const VoxelPalettePolicyDocument> voxelPalettePolicy;
+	uint64_t voxelPalettePolicyContentKey = 0;
 };
 
 struct CapturedVertex
@@ -87,6 +92,8 @@ struct SurfaceRef
 {
 	std::vector<CapturedVertex> vertices;
 	std::vector<uint32_t> indices;
+	std::vector<uint8_t> primitiveLocalMaterialSlots;
+	uint32_t materialRowSpan = 1u;
 	MaterialRef material;
 	SurfaceProvenance provenance;
 };

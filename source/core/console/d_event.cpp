@@ -43,6 +43,7 @@
 #include "gamecontrol.h"
 #include "lightoverlay_editor.h"
 #include "lightoverlay_smoke_editor.h"
+#include "voxelpolicy_editor.h"
 #include "uiinput.h"
 #include "automap.h"
 #include "screenjob.h"
@@ -71,6 +72,8 @@ bool G_Responder (event_t *ev)
 	switch (ev->type)
 	{
 	case EV_KeyDown:
+		if (VoxelPolicyEditorResponder(ev))
+			return true;
 		if (MapSmokeEmitterEditorResponder(ev))
 			return true;
 		if (ev->data1 == KEY_ESCAPE && gi->WantEscape())
@@ -86,6 +89,8 @@ bool G_Responder (event_t *ev)
 		break;
 
 	case EV_KeyUp:
+		if (VoxelPolicyEditorResponder(ev))
+			return true;
 		if (MapSmokeEmitterEditorResponder(ev))
 			return true;
 		ActorLightEditorResponder(ev);

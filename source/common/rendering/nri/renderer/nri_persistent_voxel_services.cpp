@@ -359,6 +359,9 @@ namespace
 		seed.materialClass = metadata.materialClass;
 		seed.emissiveMode = metadata.emissiveMode;
 		seed.emissiveStableFrames = metadata.emissiveStableFrames;
+		seed.voxelPaletteIndex = metadata.voxelPaletteIndex;
+		seed.voxelPalettePolicyFlags = metadata.voxelPalettePolicyFlags;
+		seed.voxelPalettePolicyApplied = metadata.voxelPalettePolicyApplied;
 		seed.sourceType = (uint32_t)metadata.sourceType;
 		seed.sectorIndex = metadata.sectorIndex;
 		seed.actorIndex = metadata.actorIndex;
@@ -430,6 +433,9 @@ namespace
 		metadata.materialClass = seed.materialClass;
 		metadata.emissiveMode = seed.emissiveMode;
 		metadata.emissiveStableFrames = seed.emissiveStableFrames;
+		metadata.voxelPaletteIndex = seed.voxelPaletteIndex;
+		metadata.voxelPalettePolicyFlags = seed.voxelPalettePolicyFlags;
+		metadata.voxelPalettePolicyApplied = seed.voxelPalettePolicyApplied;
 		metadata.sourceType = (nri_scene::SurfaceSourceType)seed.sourceType;
 		metadata.sectorIndex = seed.sectorIndex;
 		metadata.actorIndex = seed.actorIndex;

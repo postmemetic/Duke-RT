@@ -6,6 +6,7 @@
 #include "../framegen/nri_framegen.h"
 #include "../renderer/nri_renderer.h"
 #include "../renderer/nri_renderstate.h"
+#include "../scene/nri_voxel_palette_policy.h"
 #include "nri_hwbuffer.h"
 #include "nri_hwtexture.h"
 #include "c_cvars.h"
@@ -2007,6 +2008,28 @@ CCMD(nri_ptstatus)
 	{
 		frameBuffer->PrintPathTracingStatus();
 	}
+}
+
+CCMD(nri_ptvoxelpolicyreload)
+{
+	auto results = nri_scene::GetVoxelPalettePolicyCache().ReloadAll();
+	uint32_t resolved = 0;
+	uint32_t missing = 0;
+	uint32_t invalid = 0;
+	uint32_t lastValid = 0;
+	for (const auto& result : results)
+	{
+		switch (result.status)
+		{
+		case nri_scene::VoxelPalettePolicyResolveStatus::Resolved: ++resolved; break;
+		case nri_scene::VoxelPalettePolicyResolveStatus::NotFound: ++missing; break;
+		case nri_scene::VoxelPalettePolicyResolveStatus::Invalid: ++invalid; break;
+		}
+		if (result.usingLastValid) ++lastValid;
+	}
+	Printf("NRI PT voxel policy reload: tracked=%u resolved=%u missing=%u invalid=%u last_valid=%u generation=%llu\n",
+		(unsigned int)results.size(), resolved, missing, invalid, lastValid,
+		(unsigned long long)nri_scene::GetVoxelPalettePolicyCache().GetGeneration());
 }
 
 CCMD(nri_ptsmokestatus)
@@ -7731,6 +7754,31 @@ bool NRIRenderDevice::BuildPathTracingSurfaceLightEditTarget(PathTracingEmissive
 	}
 
 	return mRenderer->BuildSurfaceLightEditTarget(outTarget);
+}
+
+bool NRIRenderDevice::BuildPathTracingVoxelPolicyEditTarget(PathTracingVoxelPolicyEditTarget& outTarget) const
+{
+	outTarget = {};
+	if (mRenderer == nullptr)
+	{
+		outTarget.failureReason = "renderer is not initialized";
+		return false;
+	}
+
+	return mRenderer->BuildVoxelPolicyEditTarget(outTarget);
+}
+
+bool NRIRenderDevice::ApplyPathTracingVoxelPolicyEdit(const PathTracingVoxelPolicyEditRequest& request,
+	PathTracingVoxelPolicyEditResult& outResult)
+{
+	outResult = {};
+	if (mRenderer == nullptr)
+	{
+		outResult.message = "renderer is not initialized";
+		return false;
+	}
+
+	return mRenderer->ApplyVoxelPolicyEdit(request, outResult);
 }
 
 bool NRIRenderDevice::ProjectPathTracingEditorLine(const float renderStart[3], const float renderEnd[3],

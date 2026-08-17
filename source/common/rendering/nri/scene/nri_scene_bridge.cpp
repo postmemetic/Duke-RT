@@ -7,6 +7,8 @@
 #include "nri_scene_texture_utils.h"
 #include "nri_texture_signature.h"
 #include "nri_voxel_geometry_hash.h"
+#include "nri_voxel_material_slots.h"
+#include "nri_voxel_palette_policy.h"
 #include "nri_voxel_actor_cache_maintenance.h"
 #include "../renderer/nri_voxel_compute_meshing.h"
 
@@ -164,6 +166,7 @@ namespace
 		int shade = 0;
 		uint32_t alphaBits = 0;
 		uint32_t materialFlags = 0;
+		uint64_t palettePolicyContentKey = 0;
 	};
 
 	struct VoxelActorCacheEntry
@@ -1941,12 +1944,35 @@ namespace
 		}
 	}
 
-	MaterialRef MakeVoxelPaletteMaterialRef(FGameTexture* voxelTexture, FGameTexture* emissiveSourceTexture, int palette, int shade, float alpha, uint32_t extraFlags)
+	MaterialRef MakeVoxelPaletteMaterialRef(
+		FVoxelModel* voxelModel,
+		int sourcePicnum,
+		FGameTexture* voxelTexture,
+		FGameTexture* emissiveSourceTexture,
+		int palette,
+		int shade,
+		float alpha,
+		uint32_t extraFlags)
 	{
 		MaterialRef material = MakeMaterialRef(voxelTexture, palette, shade, alpha, extraFlags | MaterialFlag_PointSampled);
 		material.emissiveSourceTexture = emissiveSourceTexture;
 		material.flags |= MaterialFlag_Indexed;
+		VoxelPalettePolicyRequest request;
+		if (BuildVoxelPalettePolicyRequest(voxelModel, sourcePicnum, request))
+		{
+			const VoxelPalettePolicyResolution resolution = GetVoxelPalettePolicyCache().Resolve(request);
+			if (resolution.policy != nullptr)
+			{
+				material.voxelPalettePolicy = resolution.policy;
+				material.voxelPalettePolicyContentKey = resolution.policy->semanticContentKey;
+			}
+		}
 		return material;
+	}
+
+	uint32_t GetVoxelPaletteMaterialRowSpan(const MaterialRef& material)
+	{
+		return material.voxelPalettePolicy != nullptr ? VoxelPaletteMaterialSlotCount : LegacyVoxelMaterialRowSpan;
 	}
 
 	uint64_t HashCombine64(uint64_t hash, uint64_t value)
@@ -2015,6 +2041,7 @@ namespace
 		key.shade = material.shade;
 		key.alphaBits = QuantizeSignatureFloat32(material.alpha, 65535.0);
 		key.materialFlags = material.flags;
+		key.palettePolicyContentKey = material.voxelPalettePolicyContentKey;
 		return key;
 	}
 
@@ -2043,6 +2070,7 @@ namespace
 		hash = HashCombine64(hash, (uint64_t)(uint32_t)key.shade);
 		hash = HashCombine64(hash, (uint64_t)key.alphaBits);
 		hash = HashCombine64(hash, (uint64_t)key.materialFlags);
+		hash = HashCombine64(hash, key.palettePolicyContentKey);
 		return hash;
 	}
 
@@ -2628,6 +2656,7 @@ namespace
 	{
 		entry.desiredMaterialSurface = {};
 		entry.desiredMaterialSurface.material = material;
+		entry.desiredMaterialSurface.materialRowSpan = GetVoxelPaletteMaterialRowSpan(material);
 		entry.desiredMaterialSurface.provenance = provenance;
 		entry.hasDesiredMaterialSurface = true;
 		entry.desiredPrimitiveCount = primitiveCount;
@@ -2929,8 +2958,10 @@ namespace
 			if (!lookup.entry->sharedVariantSurface)
 			{
 				lookup.entry->surface.material = material;
+				lookup.entry->surface.materialRowSpan = GetVoxelPaletteMaterialRowSpan(material);
 			}
 			lookup.entry->lightSurface.material = material;
+			lookup.entry->lightSurface.materialRowSpan = GetVoxelPaletteMaterialRowSpan(material);
 			lookup.entry->lastSeenFrame = gVoxelActorCacheFrame;
 			const bool promoted = !lookup.entry->persistentReady;
 			if (!lookup.entry->persistentReady && !lookup.entry->startupPending && CanPromoteVoxelActorCacheEntry(*lookup.entry))
@@ -3148,11 +3179,13 @@ namespace
 		{
 			entry.surface = meshSurface;
 			entry.surface.material = lightSurface.material;
+			entry.surface.materialRowSpan = lightSurface.materialRowSpan;
 			entry.surface.provenance = lightSurface.provenance;
 			NormalizeCachedSurfacePreviousPositions(entry.surface);
 		}
 		entry.lightSurface = {};
 		entry.lightSurface.material = lightSurface.material;
+		entry.lightSurface.materialRowSpan = lightSurface.materialRowSpan;
 		entry.lightSurface.provenance = lightSurface.provenance;
 		entry.lastSeenFrame = gVoxelActorCacheFrame;
 		entry.surfaceFrame = gVoxelActorCacheFrame;
@@ -5299,6 +5332,7 @@ namespace
 
 		const unsigned int vertexCount = mesh.vertices.Size();
 		outSurface.indices.reserve(indexCount);
+		outSurface.primitiveLocalMaterialSlots.reserve(indexCount / 3u);
 		for (unsigned int i = 0; i + 2u < indexCount; i += 3u)
 		{
 			const unsigned int i0 = mesh.indices[i + 0u];
@@ -5312,6 +5346,12 @@ namespace
 			outSurface.indices.push_back(i0);
 			outSurface.indices.push_back(i1);
 			outSurface.indices.push_back(i2);
+			uint8_t localMaterialSlot = 0u;
+			DecodeVoxelPaletteMaterialSlot(
+				outSurface.vertices[i0].uv[0],
+				outSurface.vertices[i0].uv[1],
+				localMaterialSlot);
+			outSurface.primitiveLocalMaterialSlots.push_back(localMaterialSlot);
 		}
 
 		if (outSurface.indices.empty())
@@ -5342,6 +5382,7 @@ namespace
 
 		const uint32_t vertexCount = (uint32_t)geometry.vertices.size();
 		outSurface.indices.reserve(geometry.indices.size());
+		outSurface.primitiveLocalMaterialSlots.reserve(geometry.indices.size() / 3u);
 		for (size_t i = 0; i + 2u < geometry.indices.size(); i += 3u)
 		{
 			const uint32_t i0 = geometry.indices[i + 0u];
@@ -5354,6 +5395,22 @@ namespace
 			outSurface.indices.push_back(i0);
 			outSurface.indices.push_back(i1);
 			outSurface.indices.push_back(i2);
+
+			const size_t primitiveIndex = i / 3u;
+			uint8_t localMaterialSlot = 0u;
+			if (primitiveIndex < geometry.primitives.size() &&
+				geometry.primitives[primitiveIndex].materialIndex < VoxelPaletteMaterialSlotCount)
+			{
+				localMaterialSlot = (uint8_t)geometry.primitives[primitiveIndex].materialIndex;
+			}
+			else
+			{
+				DecodeVoxelPaletteMaterialSlot(
+					outSurface.vertices[i0].uv[0],
+					outSurface.vertices[i0].uv[1],
+					localMaterialSlot);
+			}
+			outSurface.primitiveLocalMaterialSlots.push_back(localMaterialSlot);
 		}
 
 		return !outSurface.indices.empty();
@@ -5576,6 +5633,8 @@ namespace
 			outSurface.vertices.push_back(vertex);
 		}
 		outSurface.indices = canonicalSurface.indices;
+		outSurface.primitiveLocalMaterialSlots = canonicalSurface.primitiveLocalMaterialSlots;
+		outSurface.materialRowSpan = GetVoxelPaletteMaterialRowSpan(voxelMaterial);
 		if (outSurface.indices.empty())
 		{
 			return false;
@@ -5652,7 +5711,16 @@ namespace
 		}
 
 		FGameTexture* emissiveSourceTexture = GetVoxelReplacementEmissiveSourceTexture(sprite);
-		const MaterialRef voxelMaterial = MakeVoxelPaletteMaterialRef(voxelTexture, emissiveSourceTexture, sprite.palette, sprite.shade, sprite.alpha, MaterialFlag_Sprite);
+		const int sourcePicnum = sprite.Sprite != nullptr ? sprite.Sprite->spritetexture().GetIndex() : -1;
+		const MaterialRef voxelMaterial = MakeVoxelPaletteMaterialRef(
+			sprite.voxel->model,
+			sourcePicnum,
+			voxelTexture,
+			emissiveSourceTexture,
+			sprite.palette,
+			sprite.shade,
+			sprite.alpha,
+			MaterialFlag_Sprite);
 		const bool authoringIndirectOnlyActor =
 			captureMode == DynamicVoxelCaptureMode::Authoritative &&
 			sprite.Sprite != nullptr &&
@@ -5751,6 +5819,7 @@ namespace
 				const bool wasPersistentReady = cacheLookup.entry != nullptr && cacheLookup.entry->persistentReady;
 				SurfaceRef lightSurface = {};
 				lightSurface.material = voxelMaterial;
+				lightSurface.materialRowSpan = GetVoxelPaletteMaterialRowSpan(voxelMaterial);
 				lightSurface.provenance = MakeSpriteProvenance(sprite, SurfaceSourceType::VoxelProxySprite, drawListType, lightSurface.material.flags);
 				{
 					ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.modelStoreMs);
@@ -5832,6 +5901,7 @@ namespace
 				const bool wasPersistentReady = cacheLookup.entry != nullptr && cacheLookup.entry->persistentReady;
 				SurfaceRef lightSurface = {};
 				lightSurface.material = voxelMaterial;
+				lightSurface.materialRowSpan = GetVoxelPaletteMaterialRowSpan(voxelMaterial);
 				lightSurface.provenance = MakeSpriteProvenance(sprite, SurfaceSourceType::VoxelProxySprite, drawListType, lightSurface.material.flags);
 				{
 					ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.modelStoreMs);
@@ -7393,6 +7463,8 @@ bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& out
 			const int shade = context.actor != nullptr ? context.actor->spr.shade : 0;
 			const float alpha = context.actor != nullptr ? GetLoadingActorAlpha(context.actor) : 1.0f;
 			const MaterialRef material = MakeVoxelPaletteMaterialRef(
+				request.model,
+				context.texid.GetIndex(),
 				voxelTexture,
 				emissiveSourceTexture,
 				palette,
@@ -7627,7 +7699,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 			const int shade = context.actor != nullptr ? context.actor->spr.shade : 0;
 			const float alpha = context.actor != nullptr ? GetLoadingActorAlpha(context.actor) : 1.0f;
 			const MaterialRef material = voxelTexture != nullptr ?
-				MakeVoxelPaletteMaterialRef(voxelTexture, emissiveSourceTexture, palette, shade, alpha, MaterialFlag_Sprite) :
+				MakeVoxelPaletteMaterialRef(request.model, context.texid.GetIndex(), voxelTexture, emissiveSourceTexture, palette, shade, alpha, MaterialFlag_Sprite) :
 				MaterialRef{};
 			const uint64_t materialVariantHash = voxelTexture != nullptr ?
 				BuildVoxelMaterialVariantKeyHash(BuildVoxelMaterialVariantKey(voxelTexture, material)) :

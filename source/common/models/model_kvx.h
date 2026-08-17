@@ -5,6 +5,8 @@
 #include "tarray.h"
 #include "xs_Float.h"
 
+#include <cstddef>
+
 struct FVoxel;
 struct kvxslab_t;
 class FModelRenderer;
@@ -127,6 +129,8 @@ public:
 	virtual void RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int frame, int frame2, double inter, FTranslationID translation, const FTextureID* surfaceskinids, const TArray<VSMatrix>& boneData, int boneStartPosition) override;
 	virtual void AddSkins(uint8_t *hitlist, const FTextureID* surfaceskinids) override;
 	FTextureID GetPaletteTexture() const { return mPalette; }
+	int GetVoxelSourceLump() const;
+	bool CopyVoxelPalette(uint8_t* outPalette, size_t outSize) const;
 	void BuildVertexBuffer(FModelRenderer *renderer) override;
 	float getAspectFactor(float vscale) override;
 };

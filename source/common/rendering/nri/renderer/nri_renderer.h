@@ -65,6 +65,9 @@ struct MapRecord;
 struct LevelTransitionInfo;
 struct PathTracingActorSpriteTraceEvent;
 struct PathTracingEmissiveLightEditTarget;
+struct PathTracingVoxelPolicyEditRequest;
+struct PathTracingVoxelPolicyEditResult;
+struct PathTracingVoxelPolicyEditTarget;
 struct RenderSceneCompletionInputs;
 struct RenderSceneDispatchInputs;
 struct RenderSceneFrameBuildInputs;
@@ -2032,6 +2035,9 @@ public:
 	NRISurfaceProbeStatusSnapshot BuildSurfaceProbeStatusSnapshot() const;
 	bool BuildEmissiveLightEditTarget(PathTracingEmissiveLightEditTarget& outTarget) const;
 	bool BuildSurfaceLightEditTarget(PathTracingEmissiveLightEditTarget& outTarget) const;
+	bool BuildVoxelPolicyEditTarget(PathTracingVoxelPolicyEditTarget& outTarget) const;
+	bool ApplyVoxelPolicyEdit(const PathTracingVoxelPolicyEditRequest& request,
+		PathTracingVoxelPolicyEditResult& outResult);
 	bool ProjectEditorLineToScreen(const float renderStart[3], const float renderEnd[3],
 		float outStart[2], float outEnd[2]) const;
 	void PrintMapChunkDump(int32_t chunkIndex) const;

@@ -2,6 +2,7 @@
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_material_bridge.h"
+#include "../scene/nri_voxel_material_slots.h"
 
 #include <cmath>
 
@@ -26,7 +27,9 @@ bool CertifyNRIVoxelShadowProxyPrimitiveSemantics(
 		NRIVoxelShadowProxyPrimitiveFacts facts = {};
 		facts.flagsSupported = primitive.flags == nri_scene::PrimitiveFlag_None;
 		facts.portalFree = primitive.portalIndex == UINT32_MAX;
-		facts.materialInRange = primitive.materialIndex < materialCount;
+		facts.materialInRange = nri_scene::IsVoxelPrimitiveMaterialIndexCompatible(
+			primitive.materialIndex,
+			materialCount);
 		if (!CertifyNRIVoxelShadowProxyPrimitiveFacts(facts))
 		{
 			return false;
