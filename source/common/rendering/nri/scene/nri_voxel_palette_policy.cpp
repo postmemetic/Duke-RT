@@ -6,6 +6,7 @@
 #include "filesystem.h"
 #include "model_kvx.h"
 
+#define RAPIDJSON_48BITPOINTER_OPTIMIZATION 0 // Match Raze's serializer translation units.
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 #include <rapidjson/prettywriter.h>

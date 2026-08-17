@@ -248,7 +248,7 @@ namespace
 		{
 			if (actor.actorIndex == request.actorIndex && actor.sourcePicnum == request.sourcePicnum &&
 				actor.resolvedVoxelIndex == request.resolvedVoxelIndex && actor.active && actor.authorityCurrent &&
-				actor.publicationEligible && !actor.pendingRemoval)
+				actor.publicationEligible && !actor.pendingRemoval && !actor.indirectOnly)
 			{
 				return &actor;
 			}
@@ -277,7 +277,7 @@ bool NRIRenderer::BuildVoxelPolicyEditTarget(PathTracingVoxelPolicyEditTarget& o
 	uint32_t nearestPrimitive = UINT32_MAX;
 	for (const auto& actor : mPersistentVoxels.batch.actors)
 	{
-		if (!actor.active || !actor.authorityCurrent || !actor.publicationEligible || actor.pendingRemoval)
+		if (!actor.active || !actor.authorityCurrent || !actor.publicationEligible || actor.pendingRemoval || actor.indirectOnly)
 		{
 			continue;
 		}
