@@ -1,0 +1,1800 @@
+{
+  "version": 1,
+  "source": "voxels/props/1010_sign.kvx",
+  "paletteHash": "fnv1a64:1986d54a4af1b3dc",
+  "emissionScale": 1.0,
+  "entries": {
+    "0": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "1": {
+      "expectedRgb": "#040404",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "2": {
+      "expectedRgb": "#100C10",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "3": {
+      "expectedRgb": "#181818",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "4": {
+      "expectedRgb": "#242020",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "5": {
+      "expectedRgb": "#2C282C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "6": {
+      "expectedRgb": "#383434",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "7": {
+      "expectedRgb": "#413C3C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "8": {
+      "expectedRgb": "#4D4949",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "9": {
+      "expectedRgb": "#595151",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "10": {
+      "expectedRgb": "#61595D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "11": {
+      "expectedRgb": "#6D6165",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "12": {
+      "expectedRgb": "#756D71",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "13": {
+      "expectedRgb": "#7D7579",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "14": {
+      "expectedRgb": "#867D7D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "15": {
+      "expectedRgb": "#92868A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "16": {
+      "expectedRgb": "#968A8E",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "17": {
+      "expectedRgb": "#9E9296",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "18": {
+      "expectedRgb": "#A69A9E",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "19": {
+      "expectedRgb": "#AAA2A6",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "20": {
+      "expectedRgb": "#AEAAAA",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "21": {
+      "expectedRgb": "#B6AEB2",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "22": {
+      "expectedRgb": "#BEB6B6",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "23": {
+      "expectedRgb": "#C7BABE",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "24": {
+      "expectedRgb": "#CBC3C7",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "25": {
+      "expectedRgb": "#D3CBCF",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "26": {
+      "expectedRgb": "#D7D3D7",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "27": {
+      "expectedRgb": "#DFD7DB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "28": {
+      "expectedRgb": "#E3DFE3",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "29": {
+      "expectedRgb": "#EBE7EB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "30": {
+      "expectedRgb": "#F3EFF3",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "31": {
+      "expectedRgb": "#FBFBFB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "32": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "33": {
+      "expectedRgb": "#040400",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "34": {
+      "expectedRgb": "#0C0404",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "35": {
+      "expectedRgb": "#180C04",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "36": {
+      "expectedRgb": "#201008",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "37": {
+      "expectedRgb": "#28140C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "38": {
+      "expectedRgb": "#301C10",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "39": {
+      "expectedRgb": "#3C2014",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "40": {
+      "expectedRgb": "#452418",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "41": {
+      "expectedRgb": "#4D2C18",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "42": {
+      "expectedRgb": "#55301C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "43": {
+      "expectedRgb": "#613420",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "44": {
+      "expectedRgb": "#693C24",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "45": {
+      "expectedRgb": "#714128",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "46": {
+      "expectedRgb": "#79452C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "47": {
+      "expectedRgb": "#824D30",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "48": {
+      "expectedRgb": "#8A5538",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "49": {
+      "expectedRgb": "#8E5D3C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "50": {
+      "expectedRgb": "#966545",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "51": {
+      "expectedRgb": "#9E6D49",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "52": {
+      "expectedRgb": "#A67551",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "53": {
+      "expectedRgb": "#AA7D59",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "54": {
+      "expectedRgb": "#AE8261",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "55": {
+      "expectedRgb": "#B68E69",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "56": {
+      "expectedRgb": "#BA9671",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "57": {
+      "expectedRgb": "#C39E79",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "58": {
+      "expectedRgb": "#CBAA7D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "59": {
+      "expectedRgb": "#D3AE8A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "60": {
+      "expectedRgb": "#D7B692",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "61": {
+      "expectedRgb": "#DBC39A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "62": {
+      "expectedRgb": "#E3CBA6",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "63": {
+      "expectedRgb": "#EBD7AE",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "64": {
+      "expectedRgb": "#516192",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "65": {
+      "expectedRgb": "#556996",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "66": {
+      "expectedRgb": "#5D719E",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "67": {
+      "expectedRgb": "#6179A6",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "68": {
+      "expectedRgb": "#697DAA",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "69": {
+      "expectedRgb": "#7186B2",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "70": {
+      "expectedRgb": "#798EBA",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "71": {
+      "expectedRgb": "#7D96C3",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "72": {
+      "expectedRgb": "#82A2CB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "73": {
+      "expectedRgb": "#8AAACF",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "74": {
+      "expectedRgb": "#92AED7",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "75": {
+      "expectedRgb": "#9AB6DB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "76": {
+      "expectedRgb": "#A2C3E3",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "77": {
+      "expectedRgb": "#AACBEB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "78": {
+      "expectedRgb": "#B2D3F3",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "79": {
+      "expectedRgb": "#BADBFB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "80": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "81": {
+      "expectedRgb": "#040404",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "82": {
+      "expectedRgb": "#040810",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "83": {
+      "expectedRgb": "#0C0C18",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "84": {
+      "expectedRgb": "#101420",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "85": {
+      "expectedRgb": "#14182C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "86": {
+      "expectedRgb": "#182034",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "87": {
+      "expectedRgb": "#202841",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "88": {
+      "expectedRgb": "#242C49",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "89": {
+      "expectedRgb": "#283451",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "90": {
+      "expectedRgb": "#2C385D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "91": {
+      "expectedRgb": "#344165",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "92": {
+      "expectedRgb": "#38456D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "93": {
+      "expectedRgb": "#3C4D79",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "94": {
+      "expectedRgb": "#41517D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "95": {
+      "expectedRgb": "#49598A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "96": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "97": {
+      "expectedRgb": "#040404",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "98": {
+      "expectedRgb": "#0C0C08",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "99": {
+      "expectedRgb": "#18140C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "100": {
+      "expectedRgb": "#202010",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "101": {
+      "expectedRgb": "#282818",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "102": {
+      "expectedRgb": "#30301C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "103": {
+      "expectedRgb": "#3C3824",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "104": {
+      "expectedRgb": "#454128",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "105": {
+      "expectedRgb": "#4D4D2C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "106": {
+      "expectedRgb": "#555534",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "107": {
+      "expectedRgb": "#615D38",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "108": {
+      "expectedRgb": "#696541",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "109": {
+      "expectedRgb": "#716D45",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "110": {
+      "expectedRgb": "#797549",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "111": {
+      "expectedRgb": "#827D51",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "112": {
+      "expectedRgb": "#8A8655",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "113": {
+      "expectedRgb": "#929255",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "114": {
+      "expectedRgb": "#969A59",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "115": {
+      "expectedRgb": "#9AA25D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "116": {
+      "expectedRgb": "#9EAA61",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "117": {
+      "expectedRgb": "#A2AE61",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "118": {
+      "expectedRgb": "#A6B665",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "119": {
+      "expectedRgb": "#AABE69",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "120": {
+      "expectedRgb": "#AAC769",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "121": {
+      "expectedRgb": "#AACF6D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "122": {
+      "expectedRgb": "#AED76D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "123": {
+      "expectedRgb": "#AEDB71",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "124": {
+      "expectedRgb": "#AEE371",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "125": {
+      "expectedRgb": "#AEEB75",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "126": {
+      "expectedRgb": "#AEF375",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "127": {
+      "expectedRgb": "#AEFB79",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "128": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "129": {
+      "expectedRgb": "#0C0000",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "130": {
+      "expectedRgb": "#180400",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "131": {
+      "expectedRgb": "#280400",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "132": {
+      "expectedRgb": "#340804",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "133": {
+      "expectedRgb": "#450C04",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "134": {
+      "expectedRgb": "#551004",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "135": {
+      "expectedRgb": "#611404",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "136": {
+      "expectedRgb": "#711808",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "137": {
+      "expectedRgb": "#7D1C08",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "138": {
+      "expectedRgb": "#8A200C",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "139": {
+      "expectedRgb": "#9A240C",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "140": {
+      "expectedRgb": "#AA280C",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "141": {
+      "expectedRgb": "#B62C10",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "142": {
+      "expectedRgb": "#C73010",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "143": {
+      "expectedRgb": "#D73414",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "144": {
+      "expectedRgb": "#654518",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "145": {
+      "expectedRgb": "#695104",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "146": {
+      "expectedRgb": "#755904",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "147": {
+      "expectedRgb": "#7D6504",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "148": {
+      "expectedRgb": "#8A6D08",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "149": {
+      "expectedRgb": "#927908",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "150": {
+      "expectedRgb": "#9E7D08",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "151": {
+      "expectedRgb": "#AA8A08",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "152": {
+      "expectedRgb": "#AE9210",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "153": {
+      "expectedRgb": "#BA9E10",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "154": {
+      "expectedRgb": "#C7AA10",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "155": {
+      "expectedRgb": "#D3B214",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "156": {
+      "expectedRgb": "#D7BE14",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "157": {
+      "expectedRgb": "#E3C714",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "158": {
+      "expectedRgb": "#EFD714",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "159": {
+      "expectedRgb": "#FBDF18",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "160": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "161": {
+      "expectedRgb": "#040400",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "162": {
+      "expectedRgb": "#080804",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "163": {
+      "expectedRgb": "#100C08",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "164": {
+      "expectedRgb": "#141010",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "165": {
+      "expectedRgb": "#1C1414",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "166": {
+      "expectedRgb": "#201C18",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "167": {
+      "expectedRgb": "#28201C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "168": {
+      "expectedRgb": "#302420",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "169": {
+      "expectedRgb": "#342C28",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "170": {
+      "expectedRgb": "#3C302C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "171": {
+      "expectedRgb": "#413430",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "172": {
+      "expectedRgb": "#493C34",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "173": {
+      "expectedRgb": "#4D4138",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "174": {
+      "expectedRgb": "#554541",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "175": {
+      "expectedRgb": "#5D4D45",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "176": {
+      "expectedRgb": "#65554D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "177": {
+      "expectedRgb": "#6D5D51",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "178": {
+      "expectedRgb": "#796559",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "179": {
+      "expectedRgb": "#7D6D61",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "180": {
+      "expectedRgb": "#8A7569",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "181": {
+      "expectedRgb": "#927D71",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "182": {
+      "expectedRgb": "#9A8279",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "183": {
+      "expectedRgb": "#A68A7D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "184": {
+      "expectedRgb": "#AA9282",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "185": {
+      "expectedRgb": "#B29A8A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "186": {
+      "expectedRgb": "#BEA292",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "187": {
+      "expectedRgb": "#C7AA9A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "188": {
+      "expectedRgb": "#D3AEA2",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "189": {
+      "expectedRgb": "#D7B6AA",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "190": {
+      "expectedRgb": "#DFC3AE",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "191": {
+      "expectedRgb": "#EBCBB6",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "192": {
+      "expectedRgb": "#341C00",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "193": {
+      "expectedRgb": "#452800",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "194": {
+      "expectedRgb": "#593000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "195": {
+      "expectedRgb": "#6D3800",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "196": {
+      "expectedRgb": "#7D4100",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "197": {
+      "expectedRgb": "#8E4900",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "198": {
+      "expectedRgb": "#A25100",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "199": {
+      "expectedRgb": "#B25504",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "200": {
+      "expectedRgb": "#C75D04",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "201": {
+      "expectedRgb": "#CB6918",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "202": {
+      "expectedRgb": "#D37530",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "203": {
+      "expectedRgb": "#D78245",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "204": {
+      "expectedRgb": "#DB8E59",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "205": {
+      "expectedRgb": "#E39E71",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "206": {
+      "expectedRgb": "#EBAA86",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "207": {
+      "expectedRgb": "#F3BE9E",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "208": {
+      "expectedRgb": "#D74118",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "209": {
+      "expectedRgb": "#D74D1C",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "210": {
+      "expectedRgb": "#DB5D28",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "211": {
+      "expectedRgb": "#DF6930",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "212": {
+      "expectedRgb": "#E37938",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "213": {
+      "expectedRgb": "#E78241",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "214": {
+      "expectedRgb": "#EB8E49",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "215": {
+      "expectedRgb": "#EF9E51",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "216": {
+      "expectedRgb": "#EFAA5D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "217": {
+      "expectedRgb": "#EFB665",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "218": {
+      "expectedRgb": "#F3C375",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "219": {
+      "expectedRgb": "#F3CF7D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "220": {
+      "expectedRgb": "#F7D78A",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "221": {
+      "expectedRgb": "#F7DF92",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "222": {
+      "expectedRgb": "#F7E7A2",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "223": {
+      "expectedRgb": "#FBEFAA",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "224": {
+      "expectedRgb": "#081034",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "225": {
+      "expectedRgb": "#080841",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "226": {
+      "expectedRgb": "#14084D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "227": {
+      "expectedRgb": "#1C0859",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "228": {
+      "expectedRgb": "#30085D",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "229": {
+      "expectedRgb": "#411065",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "230": {
+      "expectedRgb": "#551469",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "231": {
+      "expectedRgb": "#691871",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "232": {
+      "expectedRgb": "#7D1879",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "233": {
+      "expectedRgb": "#862075",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "234": {
+      "expectedRgb": "#96206D",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "235": {
+      "expectedRgb": "#A21861",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "236": {
+      "expectedRgb": "#AE284D",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "237": {
+      "expectedRgb": "#BA2C38",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "238": {
+      "expectedRgb": "#CB3018",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "239": {
+      "expectedRgb": "#D73414",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "240": {
+      "expectedRgb": "#454500",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "241": {
+      "expectedRgb": "#A2A200",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "242": {
+      "expectedRgb": "#FBFB00",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "243": {
+      "expectedRgb": "#450045",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "244": {
+      "expectedRgb": "#A200A2",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "245": {
+      "expectedRgb": "#FB00FB",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "246": {
+      "expectedRgb": "#590000",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "247": {
+      "expectedRgb": "#AA0000",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "248": {
+      "expectedRgb": "#FB0000",
+      "emission": true,
+      "fullbright": true,
+      "shadowCast": false,
+      "shadowReceive": false
+    },
+    "249": {
+      "expectedRgb": "#004500",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "250": {
+      "expectedRgb": "#00A200",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "251": {
+      "expectedRgb": "#00FB00",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "252": {
+      "expectedRgb": "#000045",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "253": {
+      "expectedRgb": "#0000A2",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "254": {
+      "expectedRgb": "#0000FB",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    },
+    "255": {
+      "expectedRgb": "#000000",
+      "emission": false,
+      "fullbright": false,
+      "shadowCast": true,
+      "shadowReceive": true
+    }
+  }
+}
