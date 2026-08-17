@@ -461,6 +461,14 @@ bool NRIRenderer::ApplyVoxelPolicyEdit(
 	{
 		document.source = request.voxelSource;
 		document.paletteHash = nri_scene::ComputeVoxelPalettePolicyPaletteHash(request.palette.data(), request.palette.size());
+		for (uint32_t paletteIndex = 0; paletteIndex < nri_scene::VoxelPalettePolicyEntryCount; ++paletteIndex)
+		{
+			auto& entry = document.entries[paletteIndex];
+			entry.authored = true;
+			entry.hasExpectedRgb = true;
+			entry.expectedRgb = ExpandedPaletteRgb(request, paletteIndex);
+			entry.flags = nri_scene::VoxelPalettePolicyFlag_None;
+		}
 	}
 	if (edit.action != PathTracingVoxelPolicyEditAction::CreateSidecar)
 	{
