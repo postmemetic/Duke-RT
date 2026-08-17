@@ -281,6 +281,9 @@ public:
 		float currentTanHalfFovY = 0.0f;
 		float previousTanHalfFovX = 0.0f;
 		float previousTanHalfFovY = 0.0f;
+		float cameraNear = 0.0f;
+		float cameraFar = 0.0f;
+		float viewSpaceToMetersFactor = 1.0f;
 		std::array<float, 2> currentJitter = {};
 		std::array<float, 2> previousJitter = {};
 		std::array<float, 16> currentViewToClip = {};

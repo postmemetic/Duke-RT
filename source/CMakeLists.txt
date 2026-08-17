@@ -2413,15 +2413,41 @@ if( WIN32 )
 	if( HAVE_NRI )
 		set( RAZE_NRI_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/../NRD-Sample/_Bin/Release" CACHE PATH "Directory containing NRI/NRD runtime DLLs to stage beside raze.exe." )
 		if( EXISTS "${RAZE_NRI_RUNTIME_DIR}" )
-			file(GLOB RAZE_NRI_RUNTIME_DLLS LIST_DIRECTORIES FALSE "${RAZE_NRI_RUNTIME_DIR}/*.dll" )
-			if( RAZE_NRI_RUNTIME_DLLS )
-				foreach(_dll IN LISTS RAZE_NRI_RUNTIME_DLLS)
+			set( RAZE_NRI_RUNTIME_NAMES
+				NRI.dll
+				NRD.dll
+				amd_ags_x64.dll
+				amd_fidelityfx_dx12.dll
+				amd_fidelityfx_vk.dll
+				libxess.dll
+				nvngx_dlss.dll
+				nvngx_dlssd.dll
+			)
+			set( RAZE_NRI_REQUIRED_RUNTIME_NAMES
+				NRI.dll
+				NRD.dll
+				amd_fidelityfx_dx12.dll
+				amd_fidelityfx_vk.dll
+			)
+			foreach(_runtime_name IN LISTS RAZE_NRI_RUNTIME_NAMES)
+				set(_dll "${RAZE_NRI_RUNTIME_DIR}/${_runtime_name}")
+				if( EXISTS "${_dll}" )
 					add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 						COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
 						COMMENT "Copying NRI runtime dependency ${_dll}" VERBATIM)
-				endforeach()
+				elseif( _runtime_name IN_LIST RAZE_NRI_REQUIRED_RUNTIME_NAMES )
+					message(WARNING "Required NRI/FSR runtime ${_dll} is missing; the corresponding renderer feature will be unavailable.")
+				endif()
+			endforeach()
+
+			set( RAZE_FFX_SDK_ROOT "${CMAKE_SOURCE_DIR}/../NRD-Sample/_Build/_deps/ffx-src" CACHE PATH "FidelityFX SDK 1.1.4 source root used for runtime notices." )
+			set( _raze_ffx_license "${RAZE_FFX_SDK_ROOT}/sdk/LICENSE.txt" )
+			if( EXISTS "${_raze_ffx_license}" )
+				add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+					COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_raze_ffx_license}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/FidelityFX-SDK-LICENSE.txt"
+					COMMENT "Copying FidelityFX SDK license" VERBATIM)
 			else()
-				message(STATUS "No NRI runtime DLLs found under ${RAZE_NRI_RUNTIME_DIR}; Visual Studio debugging may require staging NRI/NRD runtimes manually.")
+				message(WARNING "FidelityFX SDK license ${_raze_ffx_license} is missing; release packaging must provide it.")
 			endif()
 
 			set( RAZE_NRI_AGILITY_RUNTIME_DIR "${RAZE_NRI_RUNTIME_DIR}/AgilitySDK" )

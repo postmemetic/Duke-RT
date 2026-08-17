@@ -1429,12 +1429,9 @@ namespace
 
 	static const char* GetUpscalerFamilyName(NRIMainUpscalerKind kind, bool runAppTaa)
 	{
-		switch (kind)
-		{
-		case NRIMainUpscalerKind::DLSR: return "vendor-sr";
-		case NRIMainUpscalerKind::DLRR: return "vendor-rr";
-		default: return runAppTaa ? "native-taa" : "native";
-		}
+		if (NRIIsStandardSuperResolutionMain(kind)) return "vendor-sr";
+		if (NRIIsRayReconstructionMain(kind)) return "vendor-rr";
+		return runAppTaa ? "native-taa" : "native";
 	}
 
 	static uint32_t PackPresentSceneOrigin(int sceneLeft, int sceneTop)
@@ -2676,7 +2673,7 @@ void NRIRenderer::PrintSwapChainRenderConfig() const
 	const bool runAppTaa = NRIShouldRunAppTaa(resolvedMain);
 	const float requestedRenderScale = std::max(0.33f, std::min((float)nri_renderscale, 1.0f));
 	const float resolvedRenderScale = NRIResolveRenderScaleForMain(resolvedMain, requestedUpscalerMode, requestedRenderScale);
-	const bool beautyDenoiseActive = !!nri_denoise && resolvedMain != NRIMainUpscalerKind::DLRR;
+	const bool beautyDenoiseActive = !!nri_denoise && !NRIIsRayReconstructionMain(resolvedMain);
 	NRIPTOutputPolicy outputPolicy = {};
 	if (mFrameBuffer != nullptr)
 	{
@@ -2688,8 +2685,10 @@ void NRIRenderer::PrintSwapChainRenderConfig() const
 		mFrameBuffer->mUpscaler.IsUpscalerSupported(*mFrameBuffer->mDevice, nri::UpscalerType::NIS);
 	const bool dlsrSupported = IsMainUpscalerSupported(NRIMainUpscalerKind::DLSR);
 	const bool dlrrSupported = IsMainUpscalerSupported(NRIMainUpscalerKind::DLRR);
+	const bool fsrSupported = IsMainUpscalerSupported(NRIMainUpscalerKind::FSR);
+	const bool fsrReady = mUpscaler.IsMainUpscalerReady(NRIMainUpscalerKind::FSR);
 
-	Printf("NRI swapchain render config: main_upscaler=%s->%s mode=%s->%s post_sharpen=%s->%s support=NIS:%s DLSS-SR:%s DLRR:%s app_taa=requested:%s active:%s denoise=requested:%s beauty_active:%s nrd=%s render_scale=%.3f->%.3f jitter=%s phases=%u output=%s->%s hdr_swapchain=%s display_hdr=%s tonemap=%s sharpness=%.3f\n",
+	Printf("NRI swapchain render config: main_upscaler=%s->%s mode=%s->%s post_sharpen=%s->%s support=NIS:%s DLSS-SR:%s DLRR:%s FSR-3.1.4:%s context:%s ffx_sdk=1.1.4 app_taa=requested:%s active:%s denoise=requested:%s beauty_active:%s nrd=%s render_scale=%.3f->%.3f jitter=%s phases=%u output=%s->%s hdr_swapchain=%s display_hdr=%s tonemap=%s sharpness=%.3f\n",
 		NRIGetMainUpscalerName(requestedMain),
 		NRIGetMainUpscalerName(resolvedMain),
 		NRIGetUpscalerModeName(requestedUpscalerMode),
@@ -2699,6 +2698,8 @@ void NRIRenderer::PrintSwapChainRenderConfig() const
 		nisSupported ? "yes" : "no",
 		dlsrSupported ? "yes" : "no",
 		dlrrSupported ? "yes" : "no",
+		fsrSupported ? "yes" : "no",
+		fsrReady ? "ready" : "not-created",
 		nri_pttaa ? "on" : "off",
 		runAppTaa ? "on" : "off",
 		nri_denoise ? "on" : "off",

@@ -291,7 +291,7 @@ bool ExecuteNRIFrameGraph(
 	const bool rawTraceDirectPresent = presentRoute.kind == NRIPresentRouteKind::RawTraceDebug;
 	const bool useSplitShadowDebugProbe = rawTraceDirectPresent && ptDebugMode >= 21 && ptDebugMode <= 22;
 	const NRIMainUpscalerKind resolvedMainKind = context.mUpscalerService.ResolveMainUpscalerKind(false);
-	const bool compositionConsumesNrd = useCompositionPath && denoise && resolvedMainKind != NRIMainUpscalerKind::DLRR;
+	const bool compositionConsumesNrd = useCompositionPath && denoise && !NRIIsRayReconstructionMain(resolvedMainKind);
 	context.mTraceIndirectDenoiserAvailable =
 		useValidationPresent ||
 		useDenoisedDebugPresent ||
@@ -404,7 +404,7 @@ bool ExecuteNRIFrameGraph(
 
 	auto dispatchCompositionPath = [&]() -> bool
 	{
-		const bool buildRrInput = resolvedMainKind == NRIMainUpscalerKind::DLRR;
+		const bool buildRrInput = NRIIsRayReconstructionMain(resolvedMainKind);
 		const bool needStandardComposition =
 			!buildRrInput || useComposedDebugPresent || useUpscalerTraceTransparentProbe;
 
@@ -526,7 +526,7 @@ bool ExecuteNRIFrameGraph(
 
 		const FrameTextureSlot resolvedPresentSlot = context.mUseUpscaledInFinal ? context.mUpscaledInputSlot : context.mHistoryOutputSlot;
 		FrameTextureSlot finalPresentSlot = resolvedPresentSlot;
-		if (context.mUpscalerService.ResolveMainUpscalerKind(false) == NRIMainUpscalerKind::DLRR && (int)nri_ptsmokedlrrmode == 2)
+		if (NRIIsRayReconstructionMain(context.mUpscalerService.ResolveMainUpscalerKind(false)) && (int)nri_ptsmokedlrrmode == 2)
 		{
 			NRISmokeRouteDesc smokeRoute = {};
 			smokeRoute.inputSlot = resolvedPresentSlot;

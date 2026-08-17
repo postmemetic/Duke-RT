@@ -38,12 +38,9 @@ namespace
 
 	static const char* GetUpscalerFamilyName(NRIMainUpscalerKind kind, bool runAppTaa)
 	{
-		switch (kind)
-		{
-		case NRIMainUpscalerKind::DLSR: return "vendor-sr";
-		case NRIMainUpscalerKind::DLRR: return "vendor-rr";
-		default: return runAppTaa ? "native-taa" : "native";
-		}
+		if (NRIIsStandardSuperResolutionMain(kind)) return "vendor-sr";
+		if (NRIIsRayReconstructionMain(kind)) return "vendor-rr";
+		return runAppTaa ? "native-taa" : "native";
 	}
 
 	static const char* GetDirectionalLightSourceName(const NRIDirectionalLightState& state)
@@ -348,11 +345,10 @@ void NRIRenderer::PrintStatus()
 		autoExposureSettings.enabled &&
 		autoExposureSceneHdrInput &&
 		autoExposureTextureValid;
-	const bool vendorExposurePath =
-		autoExposureResolvedMain == NRIMainUpscalerKind::DLSR ||
-		autoExposureResolvedMain == NRIMainUpscalerKind::DLRR;
+	const bool vendorExposurePath = NRIUsesNriUpscalerProvider(autoExposureResolvedMain);
 	const bool vendorExposureEngine =
 		vendorExposurePath &&
+		autoExposureResolvedMain != NRIMainUpscalerKind::FSR &&
 		autoExposureSettings.enabled &&
 		autoExposureTextureValid;
 	const char* vendorExposureMode =

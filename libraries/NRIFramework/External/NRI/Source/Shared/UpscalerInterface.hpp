@@ -89,6 +89,7 @@ struct ffxCreateBackendVKDesc { // TODO: copied from "vk" header (can't be used 
 struct FfxVkPair {
     VkDevice device;
     PFN_vkGetDeviceProcAddr getDeviceProcAddress;
+    uint32_t referenceCount;
 };
 
 struct FfxGlobals {
@@ -97,15 +98,22 @@ struct FfxGlobals {
     Lock lock = {};
 } g_ffx;
 
-static inline void FfxRegisterDevice(VkDevice device, PFN_vkGetDeviceProcAddr getDeviceProcAddress) {
+static inline bool FfxRegisterDevice(VkDevice device, PFN_vkGetDeviceProcAddr getDeviceProcAddress) {
+    NRI_CHECK(device && getDeviceProcAddress, "Unexpected");
+    if (!device || !getDeviceProcAddress)
+        return false;
+
     ExclusiveScope lock(g_ffx.lock);
 
     size_t i = 0;
     for (; i < g_ffx.vkPairs.size(); i++) {
         if (g_ffx.vkPairs[i].device == device) {
             // Already registered
-            NRI_CHECK(g_ffx.vkPairs[i].getDeviceProcAddress == getDeviceProcAddress, "Unexpected");
-            return;
+            const bool isSame = g_ffx.vkPairs[i].getDeviceProcAddress == getDeviceProcAddress;
+            NRI_CHECK(isSame, "Unexpected");
+            if (isSame)
+                g_ffx.vkPairs[i].referenceCount++;
+            return isSame;
         }
 
         // Empty slot is found
@@ -114,9 +122,33 @@ static inline void FfxRegisterDevice(VkDevice device, PFN_vkGetDeviceProcAddr ge
     }
 
     NRI_CHECK(i < g_ffx.vkPairs.size(), "Too many devices?");
+    if (i == g_ffx.vkPairs.size())
+        return false;
 
     // Add new entry
-    g_ffx.vkPairs[i] = {device, getDeviceProcAddress};
+    g_ffx.vkPairs[i] = {device, getDeviceProcAddress, 1};
+    return true;
+}
+
+static inline void FfxUnregisterDevice(VkDevice device) {
+    if (!device)
+        return;
+
+    ExclusiveScope lock(g_ffx.lock);
+
+    for (FfxVkPair& pair : g_ffx.vkPairs) {
+        if (pair.device != device)
+            continue;
+
+        NRI_CHECK(pair.referenceCount != 0, "Unexpected");
+        if (pair.referenceCount > 1)
+            pair.referenceCount--;
+        else
+            pair = {};
+        return;
+    }
+
+    NRI_CHECK(false, "Unexpected");
 }
 
 static PFN_vkVoidFunction VKAPI_PTR FfxVkGetDeviceProcAddr(VkDevice device, const char* pName) {
@@ -124,17 +156,24 @@ static PFN_vkVoidFunction VKAPI_PTR FfxVkGetDeviceProcAddr(VkDevice device, cons
     if (!strcmp(pName, "vkGetBufferMemoryRequirements2KHR"))
         pName = "vkGetBufferMemoryRequirements2";
 
-    // Find entry
-    size_t i = 0;
-    for (; i < g_ffx.vkPairs.size(); i++) {
-        if (g_ffx.vkPairs[i].device == device)
-            break;
+    PFN_vkGetDeviceProcAddr getDeviceProcAddress = nullptr;
+    {
+        ExclusiveScope lock(g_ffx.lock);
+
+        for (const FfxVkPair& pair : g_ffx.vkPairs) {
+            if (pair.device == device) {
+                getDeviceProcAddress = pair.getDeviceProcAddress;
+                break;
+            }
+        }
     }
 
-    NRI_CHECK(i < g_ffx.vkPairs.size(), "Unexpected");
+    NRI_CHECK(getDeviceProcAddress, "Unexpected");
+    if (!getDeviceProcAddress)
+        return nullptr;
 
     // Use corresponding "vkGetDeviceProcAddr"
-    PFN_vkVoidFunction func = g_ffx.vkPairs[i].getDeviceProcAddress(device, pName);
+    PFN_vkVoidFunction func = getDeviceProcAddress(device, pName);
     NRI_CHECK(func || strstr(pName, "AMD"), "Another non-CORE function name?");
 
     return func;
@@ -150,6 +189,9 @@ struct Ffx {
     ffxContext context = nullptr;
     ffxAllocationCallbacks allocationCallbacks = {};
     ffxAllocationCallbacks* allocationCallbacksPtr = nullptr;
+#    if NRI_ENABLE_VK_SUPPORT
+    VkDevice registeredVkDevice = VK_NULL_HANDLE;
+#    endif
 };
 
 static inline Result FfxConvertError(ffxReturnCode_t code) {
@@ -500,10 +542,17 @@ UpscalerImpl::~UpscalerImpl() {
 
 #if NRI_ENABLE_FFX_SDK
     if (m_Desc.type == UpscalerType::FSR && m.ffx) {
-        ffxReturnCode_t result = m.ffx->DestroyContext(&m.ffx->context, m.ffx->allocationCallbacksPtr);
-        NRI_CHECK(result == FFX_API_RETURN_OK, "ffxDestroyContext() failed!");
+        if (m.ffx->context && m.ffx->DestroyContext) {
+            ffxReturnCode_t result = m.ffx->DestroyContext(&m.ffx->context, m.ffx->allocationCallbacksPtr);
+            NRI_CHECK(result == FFX_API_RETURN_OK, "ffxDestroyContext() failed!");
+        }
 
-        UnloadSharedLibrary(*m.ffx->library);
+#    if NRI_ENABLE_VK_SUPPORT
+        FfxUnregisterDevice(m.ffx->registeredVkDevice);
+#    endif
+
+        if (m.ffx->library)
+            UnloadSharedLibrary(*m.ffx->library);
 
         const auto& allocationCallbacks = ((DeviceBase&)m_Device).GetAllocationCallbacks();
         Destroy<Ffx>(allocationCallbacks, m.ffx);
@@ -866,7 +915,9 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
             VkDevice vkDevice = (VkDevice)m_iCore.GetDeviceNativeObject(&m_Device);
             VkPhysicalDevice vkPhysicalDevice = (VkPhysicalDevice)iWrapperVK.GetPhysicalDeviceVK(m_Device);
             PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)iWrapperVK.GetDeviceProcAddrVK(m_Device);
-            FfxRegisterDevice(vkDevice, vkGetDeviceProcAddr);
+            if (!FfxRegisterDevice(vkDevice, vkGetDeviceProcAddr))
+                return Result::FAILURE;
+            m.ffx->registeredVkDevice = vkDevice;
 
             backendVKDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
             backendVKDesc.vkDevice = vkDevice;

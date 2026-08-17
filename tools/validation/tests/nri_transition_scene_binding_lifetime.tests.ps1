@@ -65,10 +65,10 @@ if ($ensureStart -lt 0 -or $ensureEnd -lt 0) {
 	throw 'could not isolate upscaler replacement'
 }
 $ensure = $upscaler.Substring($ensureStart, $ensureEnd - $ensureStart)
-$waitIndex = $ensure.IndexOf('frameBuffer.WaitForCommands(true);', [StringComparison]::Ordinal)
+$waitIndex = $ensure.IndexOf('frameBuffer.SubmitWaitAndRestartCommandList("upscaler-recreate")', [StringComparison]::Ordinal)
 $destroyIndex = $ensure.IndexOf('DestroyUpscaler(frameBuffer, slot.instance);', [StringComparison]::Ordinal)
 if ($waitIndex -lt 0 -or $destroyIndex -le $waitIndex) {
-	throw 'upscaler replacement must drain submitted consumers before destroying the provider instance'
+	throw 'upscaler replacement must submit the open list, drain consumers, and restart recording before destroying the provider instance'
 }
 
 foreach ($required in @(

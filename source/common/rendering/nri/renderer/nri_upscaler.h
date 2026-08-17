@@ -9,6 +9,7 @@ enum class NRIMainUpscalerKind : uint32_t
 	Off = 0,
 	DLSR = 2,
 	DLRR = 3,
+	FSR = 4,
 };
 
 enum class NRIPostSharpenKind : uint32_t
@@ -28,6 +29,10 @@ float NRIGetUpscalerRenderScale(nri::UpscalerMode mode);
 uint32_t NRIGetUpscalerJitterPhaseCount(nri::UpscalerMode mode);
 nri::UpscalerMode NRIResolveUpscalerModeForMain(NRIMainUpscalerKind kind, nri::UpscalerMode requestedMode);
 float NRIResolveRenderScaleForMain(NRIMainUpscalerKind kind, nri::UpscalerMode requestedMode, float manualRenderScale);
+bool NRIIsTemporalMain(NRIMainUpscalerKind kind);
+bool NRIIsStandardSuperResolutionMain(NRIMainUpscalerKind kind);
+bool NRIIsRayReconstructionMain(NRIMainUpscalerKind kind);
+bool NRIUsesNriUpscalerProvider(NRIMainUpscalerKind kind);
 bool NRIIsAppTaaEligibleUpscaler(NRIMainUpscalerKind kind);
 bool NRIShouldRunAppTaa(NRIMainUpscalerKind kind);
 bool NRIShouldUseTemporalJitter(NRIMainUpscalerKind kind);
@@ -52,6 +57,11 @@ struct NRIUpscalerDispatchDesc
 	float cameraJitter[2] = {};
 	float viewToClipMatrix[16] = {};
 	float worldToViewMatrix[16] = {};
+	float zNear = 0.0f;
+	float zFar = 0.0f;
+	float verticalFov = 0.0f;
+	float frameTimeMs = 0.0f;
+	float viewSpaceToMetersFactor = 1.0f;
 	float sharpness = 0.2f;
 	bool resetHistory = false;
 };
@@ -60,6 +70,7 @@ class NRIUpscalerContext
 {
 public:
 	bool EnsureMainUpscaler(NRIRenderDevice& frameBuffer, NRIMainUpscalerKind kind, nri::UpscalerMode mode, uint32_t upscaleWidth, uint32_t upscaleHeight, bool useExposure, bool useReactive);
+	bool IsMainUpscalerReady(NRIMainUpscalerKind kind) const;
 	bool DispatchMainUpscaler(NRIRenderDevice& frameBuffer, NRIMainUpscalerKind kind, const NRIUpscalerDispatchDesc& desc);
 	bool EnsurePostSharpen(NRIRenderDevice& frameBuffer, NRIPostSharpenKind kind, uint32_t upscaleWidth, uint32_t upscaleHeight);
 	bool DispatchPostSharpen(NRIRenderDevice& frameBuffer, NRIPostSharpenKind kind, const NRIUpscalerDispatchDesc& desc);
@@ -73,6 +84,7 @@ private:
 		uint32_t upscaleWidth = 0;
 		uint32_t upscaleHeight = 0;
 		nri::UpscalerBits flags = nri::UpscalerBits::NONE;
+		bool creationFailed = false;
 	};
 
 	bool EnsureUpscaler(
@@ -88,4 +100,5 @@ private:
 	UpscalerSlotState mNis = {};
 	UpscalerSlotState mDlsr = {};
 	UpscalerSlotState mDlrr = {};
+	UpscalerSlotState mFsr = {};
 };

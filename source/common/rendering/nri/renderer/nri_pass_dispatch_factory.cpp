@@ -5,6 +5,7 @@
 #include "nri_scene_upload.h"
 #include "nri_smoke.h"
 #include "../system/nri_renderdevice.h"
+#include "v_video.h"
 
 #include <algorithm>
 
@@ -402,6 +403,9 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.frame.currentTanHalfFovY = mCurrentTanHalfFovY;
 	init.frame.previousTanHalfFovX = mPreviousTanHalfFovX;
 	init.frame.previousTanHalfFovY = mPreviousTanHalfFovY;
+	init.frame.cameraNear = screen->GetZNear();
+	init.frame.cameraFar = screen->GetZFar();
+	init.frame.viewSpaceToMetersFactor = 1.0f;
 	std::copy(mCurrentJitter, mCurrentJitter + 2, init.frame.currentJitter.begin());
 	std::copy(mPreviousJitter, mPreviousJitter + 2, init.frame.previousJitter.begin());
 	std::copy(mCurrentViewToClip, mCurrentViewToClip + 16, init.frame.currentViewToClip.begin());

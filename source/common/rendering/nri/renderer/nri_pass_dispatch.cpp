@@ -911,13 +911,14 @@ bool NRIPassDispatcher::DispatchTraceTransparent(NRIPassDispatchContext& context
 
 bool NRIPassDispatcher::DispatchUpscalerPrepass(NRIPassDispatchContext& context, NRIMainUpscalerKind mainKind)
 {
-	if (mainKind == NRIMainUpscalerKind::Off)
+	if (!NRIUsesNriUpscalerProvider(mainKind))
 	{
 		return false;
 	}
 
+	const bool useSrPrepass = NRIIsStandardSuperResolutionMain(mainKind);
 	const NRIRenderer::FrameTextureSlot vendorInputSlot =
-		mainKind == NRIMainUpscalerKind::DLSR ? NRIRenderer::FrameTextureSlot::SrInput :
+		useSrPrepass ? NRIRenderer::FrameTextureSlot::SrInput :
 		GetDlrrMainInputSlot();
 	NRITextureResource& vendorInput = context.mTextures.Get(vendorInputSlot);
 	NRITextureResource& upscalerDepth = context.mTextures.Get(NRIRenderer::FrameTextureSlot::UpscalerDepth);
@@ -925,8 +926,6 @@ bool NRIPassDispatcher::DispatchUpscalerPrepass(NRIPassDispatchContext& context,
 	NRITextureResource& rrGuideSpecularAlbedo = context.mTextures.Get(NRIRenderer::FrameTextureSlot::RrGuideSpecularAlbedo);
 	NRITextureResource& rrGuideSpecularHitDistance = context.mTextures.Get(NRIRenderer::FrameTextureSlot::RrGuideSpecularHitDistance);
 	NRITextureResource& rrGuideNormalRoughness = context.mTextures.Get(NRIRenderer::FrameTextureSlot::RrGuideNormalRoughness);
-	const bool useSrPrepass = mainKind == NRIMainUpscalerKind::DLSR;
-
 	// SR consumes the post-transparent composed signal, while RR now arrives with an
 	// explicitly prepared noisy RrInput from the frame-graph path above.
 	if (useSrPrepass)
@@ -984,8 +983,8 @@ bool NRIPassDispatcher::DispatchUpscalerPrepass(NRIPassDispatchContext& context,
 	constants.DisplayHeight = context.mFrame.outputHeight;
 	constants.FrameIndex = context.mFrame.frameIndex;
 	constants.ReservedTrace0 =
-		mainKind == NRIMainUpscalerKind::DLSR ? 1u :
-		mainKind == NRIMainUpscalerKind::DLRR ? 2u :
+		NRIIsStandardSuperResolutionMain(mainKind) ? 1u :
+		NRIIsRayReconstructionMain(mainKind) ? 2u :
 		0u;
 	constants.ReservedTrace1 = (uint32_t)GetSelectedNrdDenoiserMode();
 	constants.Flags = context.mFrame.resetHistory ? NRI_FLAG_RESET_HISTORY : 0u;
@@ -1251,12 +1250,12 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 	{
 		context.mResources.CopyTexture(composed, historyOutput);
 	}
-	else if (mainKind == NRIMainUpscalerKind::DLSR)
+	else if (NRIIsStandardSuperResolutionMain(mainKind))
 	{
-		// Keep ptdebug 13 context.meaningful even when app-TAA is intentionally bypassed for vendor SR.
+		// Keep ptdebug 13 meaningful when app-TAA is intentionally bypassed for vendor SR.
 		context.mResources.CopyTexture(composed, historyOutput);
 	}
-	else if (mainKind == NRIMainUpscalerKind::DLRR)
+	else if (NRIIsRayReconstructionMain(mainKind))
 	{
 		// Keep ptdebug 13 context.meaningful for RR as well by exposing the explicit noisy RR input.
 		context.mResources.CopyTexture(context.mTextures.Get(GetDlrrMainInputSlot()), historyOutput);
@@ -1266,8 +1265,11 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 
 	if (mainKind != NRIMainUpscalerKind::Off)
 	{
+		const bool standardSuperResolution = NRIIsStandardSuperResolutionMain(mainKind);
+		const bool rayReconstruction = NRIIsRayReconstructionMain(mainKind);
+		const bool fsr = mainKind == NRIMainUpscalerKind::FSR;
 		const NRIRenderer::FrameTextureSlot vendorInputSlot =
-			mainKind == NRIMainUpscalerKind::DLSR ? NRIRenderer::FrameTextureSlot::SrInput :
+			standardSuperResolution ? NRIRenderer::FrameTextureSlot::SrInput :
 			GetDlrrMainInputSlot();
 		NRITextureResource& vendorInput = context.mTextures.Get(vendorInputSlot);
 		NRITextureResource& upscalerDepth = context.mTextures.Get(NRIRenderer::FrameTextureSlot::UpscalerDepth);
@@ -1277,12 +1279,12 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		NRITextureResource& rrGuideNormalRoughness = context.mTextures.Get(NRIRenderer::FrameTextureSlot::RrGuideNormalRoughness);
 		NRITextureResource& vendorOutput = context.mTextures.Get(NRIRenderer::FrameTextureSlot::VendorOutput);
 		const NRIRenderer::FrameTextureSlot volumeMetaSlot = context.mSmokeService.GetVolumeSlot(true);
-		NRITextureResource* volumeReactive = volumeMetaSlot != NRIRenderer::FrameTextureSlot::Count ? &context.mTextures.Get(volumeMetaSlot) : nullptr;
+		NRITextureResource* volumeReactive = !fsr && volumeMetaSlot != NRIRenderer::FrameTextureSlot::Count ? &context.mTextures.Get(volumeMetaSlot) : nullptr;
 		if (volumeReactive != nullptr && (volumeReactive->shaderView == nullptr ||
 			volumeReactive->width != context.mFrame.renderWidth || volumeReactive->height != context.mFrame.renderHeight))
 			volumeReactive = nullptr;
 		NRITextureResource* vendorExposure = nullptr;
-		if (context.mExposure.GetSettings().enabled)
+		if (!fsr && context.mExposure.GetSettings().enabled)
 		{
 			NRITextureResource& candidateExposureState = context.mExposure.GetMutableExposureStateTexture(context.mFrame.frameIndex & 1u);
 			if (candidateExposureState.texture != nullptr && candidateExposureState.shaderView != nullptr)
@@ -1299,10 +1301,13 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		context.mResources.TransitionTexture(context.mTextures.Get(NRIRenderer::FrameTextureSlot::Motion), NRIComputeShaderResourceState());
 		context.mResources.TransitionTexture(vendorInput, NRIComputeShaderResourceState());
 		context.mResources.TransitionTexture(upscalerDepth, NRIComputeShaderResourceState());
-		context.mResources.TransitionTexture(rrGuideDiffuseAlbedo, NRIComputeShaderResourceState());
-		context.mResources.TransitionTexture(rrGuideSpecularAlbedo, NRIComputeShaderResourceState());
-		context.mResources.TransitionTexture(rrGuideSpecularHitDistance, NRIComputeShaderResourceState());
-		context.mResources.TransitionTexture(rrGuideNormalRoughness, NRIComputeShaderResourceState());
+		if (rayReconstruction)
+		{
+			context.mResources.TransitionTexture(rrGuideDiffuseAlbedo, NRIComputeShaderResourceState());
+			context.mResources.TransitionTexture(rrGuideSpecularAlbedo, NRIComputeShaderResourceState());
+			context.mResources.TransitionTexture(rrGuideSpecularHitDistance, NRIComputeShaderResourceState());
+			context.mResources.TransitionTexture(rrGuideNormalRoughness, NRIComputeShaderResourceState());
+		}
 		if (vendorExposure != nullptr)
 		{
 			context.mResources.TransitionTexture(*vendorExposure, NRIComputeShaderResourceState());
@@ -1334,6 +1339,14 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		Copy2(context.mFrame.currentJitter.data(), upscalerDesc.cameraJitter);
 		std::memcpy(upscalerDesc.viewToClipMatrix, context.mFrame.currentViewToClip.data(), sizeof(upscalerDesc.viewToClipMatrix));
 		std::memcpy(upscalerDesc.worldToViewMatrix, context.mFrame.currentWorldToView.data(), sizeof(upscalerDesc.worldToViewMatrix));
+		upscalerDesc.zNear = context.mFrame.cameraNear;
+		upscalerDesc.zFar = context.mFrame.cameraFar;
+		upscalerDesc.verticalFov = 2.0f * std::atan(context.mFrame.currentTanHalfFovY);
+		const float observedFrameTimeMs = context.mFrame.observedFrameTimeMs;
+		upscalerDesc.frameTimeMs = std::isfinite(observedFrameTimeMs) && observedFrameTimeMs > 0.0f
+			? std::clamp(observedFrameTimeMs, 1.0f, 250.0f)
+			: 16.667f;
+		upscalerDesc.viewSpaceToMetersFactor = context.mFrame.viewSpaceToMetersFactor;
 		upscalerDesc.sharpness = Clamp01((float)nri_sharpness);
 		upscalerDesc.resetHistory = context.mFrame.resetHistory;
 		const bool mainUpscalerDispatched = context.mUpscalerService.DispatchMainUpscaler(mainKind, upscalerDesc);

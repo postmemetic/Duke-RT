@@ -90,11 +90,29 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 	const int32_t sceneBottom = renderer.mFrameBuffer->mSceneViewport.top;
 	const int32_t sceneTop = (int32_t)targetHeight - sceneBottom - (int32_t)outputHeight;
 
-	const NRIMainUpscalerKind mainUpscalerKind = renderer.ResolveMainUpscalerKind(false);
 	const nri::UpscalerMode requestedUpscalerMode = renderer.GetSelectedUpscalerMode();
+	const NRIMainUpscalerKind requestedMainUpscalerKind = renderer.GetSelectedMainUpscalerKind();
+	bool fsrPreparationFailed = false;
+	if (requestedMainUpscalerKind == NRIMainUpscalerKind::FSR)
+	{
+		const nri::UpscalerMode fsrMode = NRIResolveUpscalerModeForMain(requestedMainUpscalerKind, requestedUpscalerMode);
+		fsrPreparationFailed =
+			!renderer.IsMainUpscalerSupported(requestedMainUpscalerKind) ||
+			!renderer.mUpscaler.EnsureMainUpscaler(
+				*renderer.mFrameBuffer,
+				requestedMainUpscalerKind,
+				fsrMode,
+				outputWidth,
+				outputHeight,
+				false,
+				false);
+	}
+	const NRIMainUpscalerKind mainUpscalerKind = renderer.ResolveMainUpscalerKind(false);
 	const nri::UpscalerMode resolvedUpscalerMode = NRIResolveUpscalerModeForMain(mainUpscalerKind, requestedUpscalerMode);
 	const float requestedRenderScale = std::max(0.33f, std::min((float)nri_renderscale, 1.0f));
-	const float renderScale = NRIResolveRenderScaleForMain(mainUpscalerKind, requestedUpscalerMode, requestedRenderScale);
+	const float renderScale = fsrPreparationFailed
+		? 1.0f
+		: NRIResolveRenderScaleForMain(mainUpscalerKind, requestedUpscalerMode, requestedRenderScale);
 	const NRIFrameGenerationPresentContract& presentContract = renderer.mFrameBuffer->mFrameGeneration.GetPresentContract();
 
 	const uint32_t renderWidth = std::max(1u, (uint32_t)std::lround((double)outputWidth * renderScale));

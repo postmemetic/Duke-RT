@@ -7489,10 +7489,11 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		deviceDesc.pipelineLayout.rootConstantMaxSize,
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum,
 		deviceDesc.pipelineLayout.descriptorSetMaxNum);
-	Printf("NRI PT upscalers: NIS=%s DLSS-SR=%s DLRR=%s portal_depth=%d\n",
+	Printf("NRI PT upscalers: NIS=%s DLSS-SR=%s DLRR=%s FSR-3.1.4=%s ffx_sdk=1.1.4 portal_depth=%d\n",
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::NIS) ? "yes" : "no",
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLSR) ? "yes" : "no",
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLRR) ? "yes" : "no",
+		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::FSR) ? "yes" : "no",
 		(int)nri_ptportaldepth);
 	const auto& frameGenPolicy = mFrameGeneration.GetPolicy();
 	const auto& frameGenPresentContract = mFrameGeneration.GetPresentContract();
@@ -9061,10 +9062,11 @@ void NRIRenderDevice::LogStartup()
 		(uint32_t)mSwapChainQueuedFrameNum,
 		vid_vsync ? "on" : "off",
 		DescribeSwapChainFlags(mSwapChainFlags).GetChars());
-	Printf("Upscaler support: NIS=%s DLSS-SR=%s DLRR=%s\n",
+	Printf("Upscaler support: NIS=%s DLSS-SR=%s DLRR=%s FSR-3.1.4=%s ffx_sdk=1.1.4\n",
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::NIS) ? "yes" : "no",
 		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLSR) ? "yes" : "no",
-		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLRR) ? "yes" : "no");
+		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::DLRR) ? "yes" : "no",
+		mUpscaler.IsUpscalerSupported(*mDevice, nri::UpscalerType::FSR) ? "yes" : "no");
 	const auto& frameGenPolicy = mFrameGeneration.GetPolicy();
 	Printf("FSR3 frame generation policy: request=%s provider=%s operational=%s owner=%s api=%s shader_model=%u.%u window=%s dxgi=%s supported=%s low_latency=%s->%s(avail=%s iface=%s swapchain=%s pacing=%s) async=%s->%s(avail=%s) ui=%s->%s(route=%s) swapchain=%s native=device:%s queue:%s swapchain:%s waitable=%s runtime=%s reason=%s\n",
 		frameGenPolicy.requestedEnabled ? "on" : "off",
