@@ -614,7 +614,7 @@ void NRIRenderer::PrintStatus()
 		NRIFrameGenerationContext::GetPresentResultName(frameGenProvider.lastPresentResult));
 	if (hasFrameGenDesc)
 	{
-		Printf("NRI PT framegen inputs: frame_id=%llu hudless=%s:%ux%u ui=%ux%u motion=%ux%u depth=%ux%u render_rect=%u,%u+%ux%u output_rect=%u,%u+%ux%u reset=%s prev_camera=%s frame_time=%s frame_time_ms=%.3f\n",
+		Printf("NRI PT framegen inputs: frame_id=%llu hudless=%s:%ux%u ui=%ux%u motion=%ux%u depth=%ux%u render_rect=%d,%d+%ux%u output_rect=%d,%d+%ux%u reset=%s prev_camera=%s frame_time=%s frame_time_ms=%.3f\n",
 			(unsigned long long)frameGenDesc.frameId,
 			NRIFrameGenerationContext::GetColorSourceName(frameGenDesc.hudlessColorSource),
 			frameGenDesc.hudlessColor != nullptr ? frameGenDesc.hudlessColor->width : 0u,

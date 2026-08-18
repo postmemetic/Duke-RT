@@ -89,8 +89,8 @@ enum class NRIFrameGenerationPresentTransferFunction : uint32_t
 
 struct NRIFrameGenerationRect
 {
-	uint32_t left = 0;
-	uint32_t top = 0;
+	int32_t left = 0;
+	int32_t top = 0;
 	uint32_t width = 0;
 	uint32_t height = 0;
 };

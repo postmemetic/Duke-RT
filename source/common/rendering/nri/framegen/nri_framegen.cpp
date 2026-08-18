@@ -116,11 +116,37 @@ namespace
 		return core.GetCommandBufferNativeObject(commandBuffer);
 	}
 
+	static uint32_t GetFfxSurfaceFormat(nri::Format format)
+	{
+		switch (format)
+		{
+		case nri::Format::RGBA16_SFLOAT: return NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT;
+		case nri::Format::RGBA8_UNORM: return NRI_FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+		case nri::Format::R32_SFLOAT: return NRI_FFX_API_SURFACE_FORMAT_R32_FLOAT;
+		default: return NRI_FFX_API_SURFACE_FORMAT_UNKNOWN;
+		}
+	}
+
+	static bool IsNativeTextureFormatCompatible(DXGI_FORMAT nativeFormat, uint32_t ffxFormat)
+	{
+		switch (ffxFormat)
+		{
+		case NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT:
+			return nativeFormat == DXGI_FORMAT_R16G16B16A16_FLOAT || nativeFormat == DXGI_FORMAT_R16G16B16A16_TYPELESS;
+		case NRI_FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM:
+			return nativeFormat == DXGI_FORMAT_R8G8B8A8_UNORM || nativeFormat == DXGI_FORMAT_R8G8B8A8_TYPELESS;
+		default:
+			return false;
+		}
+	}
+
 	static FfxApiResource GetFfxTextureResource(const nri::CoreInterface& core, const NRITextureResource* texture)
 	{
 		ID3D12Resource* nativeTexture = GetNativeTexture(core, texture);
 		const D3D12_RESOURCE_STATES state = texture != nullptr ? ConvertNriStateToD3D12State(texture->state) : D3D12_RESOURCE_STATE_COMMON;
-		return NriFfxGetResourceDX12(nativeTexture, NriFfxGetResourceStateFromDx12State(state));
+		FfxApiResource resource = NriFfxGetResourceDX12(nativeTexture, NriFfxGetResourceStateFromDx12State(state));
+		resource.description.format = texture != nullptr ? GetFfxSurfaceFormat(texture->format) : NRI_FFX_API_SURFACE_FORMAT_UNKNOWN;
+		return resource;
 	}
 
 	static uint32_t GetFfxCreateFlags(const NRIFrameGenerationPolicy& policy, const NRIFrameGenerationFrameDesc& desc, bool hdrInput, bool enableDebugChecking)
@@ -416,9 +442,11 @@ const char* NRIFrameGenerationContext::GetDxgiFormatName(uint32_t format)
 	case DXGI_FORMAT_UNKNOWN: return "UNKNOWN";
 	case DXGI_FORMAT_B8G8R8A8_UNORM: return "B8G8R8A8_UNORM";
 	case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return "B8G8R8A8_UNORM_SRGB";
+	case DXGI_FORMAT_R8G8B8A8_TYPELESS: return "R8G8B8A8_TYPELESS";
 	case DXGI_FORMAT_R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
 	case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
 	case DXGI_FORMAT_R10G10B10A2_UNORM: return "R10G10B10A2_UNORM";
+	case DXGI_FORMAT_R16G16B16A16_TYPELESS: return "R16G16B16A16_TYPELESS";
 	case DXGI_FORMAT_R16G16B16A16_FLOAT: return "R16G16B16A16_FLOAT";
 	}
 #else
@@ -1119,15 +1147,29 @@ NRIFrameGenerationInputAudit NRIFrameGenerationContext::BuildInputAudit(const NR
 {
 	NRIFrameGenerationInputAudit audit = {};
 	audit.renderRectValid =
-		desc.renderRect.left == 0u &&
-		desc.renderRect.top == 0u &&
+		desc.renderRect.left == 0 &&
+		desc.renderRect.top == 0 &&
 		desc.renderRect.width == desc.renderWidth &&
-		desc.renderRect.height == desc.renderHeight;
+		desc.renderRect.height == desc.renderHeight &&
+		desc.renderRect.width <= 0x7fffffffu &&
+		desc.renderRect.height <= 0x7fffffffu;
+	const int64_t outputRectRight = (int64_t)desc.outputRect.left + desc.outputRect.width;
+	const int64_t outputRectBottom = (int64_t)desc.outputRect.top + desc.outputRect.height;
 	audit.outputRectValid =
-		desc.outputRect.left == 0u &&
-		desc.outputRect.top == 0u &&
-		desc.outputRect.width == desc.outputWidth &&
-		desc.outputRect.height == desc.outputHeight;
+		desc.outputRect.width > 0u &&
+		desc.outputRect.height > 0u &&
+		desc.outputRect.width <= 0x7fffffffu &&
+		desc.outputRect.height <= 0x7fffffffu &&
+		desc.outputRect.left >= -32768 &&
+		desc.outputRect.left <= 32767 &&
+		desc.outputRect.top >= -32768 &&
+		desc.outputRect.top <= 32767 &&
+		(int64_t)desc.outputRect.left < desc.outputWidth &&
+		(int64_t)desc.outputRect.top < desc.outputHeight &&
+		outputRectRight > 0 &&
+		outputRectBottom > 0 &&
+		outputRectRight <= 0x7fffffffll &&
+		outputRectBottom <= 0x7fffffffll;
 	audit.currentJitterValid = true;
 	audit.previousJitterValid = desc.hasPreviousCamera;
 	audit.hudlessColorAvailable = desc.hudlessColor != nullptr;
@@ -1161,7 +1203,8 @@ NRIFrameGenerationInputAudit NRIFrameGenerationContext::BuildInputAudit(const NR
 
 	if (!audit.complete)
 	{
-		std::strncpy(audit.statusReason, "missing-required-input", std::size(audit.statusReason) - 1u);
+		const char* statusReason = !audit.outputRectValid ? "invalid-generation-rect" : "missing-required-input";
+		std::strncpy(audit.statusReason, statusReason, std::size(audit.statusReason) - 1u);
 		audit.statusReason[std::size(audit.statusReason) - 1u] = '\0';
 		audit.adapterRequirement = NRIFrameGenerationAdapterRequirement::MotionAndDepth;
 		return audit;
@@ -1604,7 +1647,9 @@ bool NRIFrameGenerationContext::EnsureProviderContext(const NRIRenderDevice& fra
 		return false;
 	}
 
-	if (desc.outputWidth == 0u || desc.outputHeight == 0u || desc.renderWidth == 0u || desc.renderHeight == 0u)
+	if (desc.outputWidth == 0u || desc.outputHeight == 0u || desc.renderWidth == 0u || desc.renderHeight == 0u ||
+		desc.outputWidth > 0x7fffffffu || desc.outputHeight > 0x7fffffffu ||
+		desc.renderWidth > 0x7fffffffu || desc.renderHeight > 0x7fffffffu)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "invalid-dimensions", std::size(mProviderState.lastStatusReason) - 1u);
 		mProviderState.lastStatusReason[std::size(mProviderState.lastStatusReason) - 1u] = '\0';
@@ -1628,8 +1673,34 @@ bool NRIFrameGenerationContext::EnsureProviderContext(const NRIRenderDevice& fra
 
 	const D3D12_RESOURCE_DESC presentDesc = nativePresentColor->GetDesc();
 	const D3D12_RESOURCE_DESC hudlessDesc = nativeHudlessColor->GetDesc();
-	const uint32_t backBufferFormat = NriFfxGetSurfaceFormatDX12(presentDesc.Format);
-	const uint32_t hudlessFormat = NriFfxGetSurfaceFormatDX12(hudlessDesc.Format);
+	const bool logicalExtentMismatch =
+		frameBuffer.mCurrentPresentTarget->width != desc.outputWidth ||
+		frameBuffer.mCurrentPresentTarget->height != desc.outputHeight ||
+		desc.hudlessColor->width != desc.outputWidth ||
+		desc.hudlessColor->height != desc.outputHeight;
+	const bool nativeExtentMismatch =
+		presentDesc.Width != desc.outputWidth ||
+		presentDesc.Height != desc.outputHeight ||
+		hudlessDesc.Width != desc.outputWidth ||
+		hudlessDesc.Height != desc.outputHeight;
+	if (logicalExtentMismatch || nativeExtentMismatch)
+	{
+		Printf("NRI framegen extent mismatch: output=%ux%u present_logical=%ux%u present_native=%llux%u hudless_logical=%ux%u hudless_native=%llux%u\n",
+			desc.outputWidth,
+			desc.outputHeight,
+			frameBuffer.mCurrentPresentTarget->width,
+			frameBuffer.mCurrentPresentTarget->height,
+			(unsigned long long)presentDesc.Width,
+			presentDesc.Height,
+			desc.hudlessColor->width,
+			desc.hudlessColor->height,
+			(unsigned long long)hudlessDesc.Width,
+			hudlessDesc.Height);
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "presentation-extent-mismatch");
+		return false;
+	}
+	const uint32_t backBufferFormat = GetFfxSurfaceFormat(frameBuffer.mCurrentPresentTarget->format);
+	const uint32_t hudlessFormat = GetFfxSurfaceFormat(desc.hudlessColor->format);
 	if (backBufferFormat == NRI_FFX_API_SURFACE_FORMAT_UNKNOWN || hudlessFormat == NRI_FFX_API_SURFACE_FORMAT_UNKNOWN)
 	{
 		std::strncpy(mProviderState.lastStatusReason, "unsupported-backbuffer-format", std::size(mProviderState.lastStatusReason) - 1u);
@@ -1640,6 +1711,19 @@ bool NRIFrameGenerationContext::EnsureProviderContext(const NRIRenderDevice& fra
 	if (presentDesc.Format != static_cast<DXGI_FORMAT>(presentContract.resolvedDxgiFormat))
 	{
 		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "present-format-contract-mismatch");
+		return false;
+	}
+	if (!IsNativeTextureFormatCompatible(presentDesc.Format, backBufferFormat) ||
+		!IsNativeTextureFormatCompatible(hudlessDesc.Format, hudlessFormat))
+	{
+		Printf("NRI framegen format mismatch: present_native=%s present_logical=%s present_ffx=%s hudless_native=%s hudless_logical=%s hudless_ffx=%s\n",
+			GetDxgiFormatName((uint32_t)presentDesc.Format),
+			GetNriFormatName(frameBuffer.mCurrentPresentTarget->format),
+			GetFfxSurfaceFormatName(backBufferFormat),
+			GetDxgiFormatName((uint32_t)hudlessDesc.Format),
+			GetNriFormatName(desc.hudlessColor->format),
+			GetFfxSurfaceFormatName(hudlessFormat));
+		CopyString(mProviderState.lastStatusReason, std::size(mProviderState.lastStatusReason), "native-logical-format-mismatch");
 		return false;
 	}
 	if (presentContract.hdrContext &&

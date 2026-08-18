@@ -229,13 +229,14 @@ void NRIRenderer::UpdateFrameGenerationFrameDesc()
 
 	NRIFrameGenerationFrameDesc desc = {};
 	const bool frameGenerationCadenceBreak = HasFrameGenerationCadenceBreak();
+	NRITextureResource& final = GetFrameTexture(FrameTextureSlot::Final);
 	desc.frameId = mFrameGenerationFrameId + 1u;
 	desc.renderWidth = mRenderWidth;
 	desc.renderHeight = mRenderHeight;
-	desc.outputWidth = mOutputWidth;
-	desc.outputHeight = mOutputHeight;
-	desc.renderRect = { 0u, 0u, mRenderWidth, mRenderHeight };
-	desc.outputRect = { 0u, 0u, mOutputWidth, mOutputHeight };
+	desc.outputWidth = final.width;
+	desc.outputHeight = final.height;
+	desc.renderRect = { 0, 0, mRenderWidth, mRenderHeight };
+	desc.outputRect = { mSceneLeft, mSceneTop, mOutputWidth, mOutputHeight };
 	desc.hasPreviousCamera = mHasPreviousCameraState;
 	desc.resetHistory = mResetHistory || frameGenerationCadenceBreak;
 	desc.hasRealFrameTimeMs = mHasPendingFrameGenerationRealFrameTime;
@@ -246,7 +247,7 @@ void NRIRenderer::UpdateFrameGenerationFrameDesc()
 	std::strncpy(desc.resetReason, resetReason, std::size(desc.resetReason) - 1u);
 	desc.resetReason[std::size(desc.resetReason) - 1u] = '\0';
 	desc.hudlessColorSource = NRIFrameGenerationColorSource::Final;
-	desc.hudlessColor = &GetFrameTexture(FrameTextureSlot::Final);
+	desc.hudlessColor = &final;
 	desc.uiTexture = nullptr;
 	desc.motionVectors = &GetFrameTexture(FrameTextureSlot::Motion);
 	desc.depth = &GetFrameTexture(FrameTextureSlot::UpscalerDepth);
