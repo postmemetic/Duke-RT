@@ -1382,14 +1382,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					indirectDiffuseSelected = SelectDiffuseIndirectLobe(pixelPos, gTraceConstants.FrameIndex, indirectDiffuseSelectionProbability);
 					indirectSpecularSelected = !indirectDiffuseSelected;
 				}
-				const float3 lightDir = directSceneTrace ? normalize(gTraceConstants.LightDirection) : SampleSunDirection(normalize(gTraceConstants.LightDirection), pixelPos, gTraceConstants.FrameIndex);
-				const float3 directionalShadingNormal = ResolveLightFacingShadingNormal(material, shadingNormal, lightDir);
+				const float3 centerLightDir = normalize(gTraceConstants.LightDirection);
+				const float3 shadowSampleDir = directSceneTrace ? centerLightDir : SampleSunDirection(centerLightDir, pixelPos, gTraceConstants.FrameIndex);
+				const float3 shadowShadingNormal = ResolveLightFacingShadingNormal(material, shadingNormal, shadowSampleDir);
+				const float3 directionalShadingNormal = ResolveLightFacingShadingNormal(material, shadingNormal, centerLightDir);
 				float shadowHitDistance = 0.0;
 				if (useDirectionalLight && useDirectionalShadow && !directSceneTrace)
 				{
 					TraceShaderStatAdd(TRACE_STAT_DIRECTIONAL_SHADOW_TESTS, 1u);
 				}
-				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, directionalShadingNormal, lightDir, shadowHitDistance, spatialProbeTargetPixel)) : 0.0;
+				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, shadowShadingNormal, shadowSampleDir, shadowHitDistance, spatialProbeTargetPixel)) : 0.0;
 				shadowVisibility = shadow;
 				if (useDirectionalLight && useDirectionalShadow && !directSceneTrace)
 				{
@@ -1400,8 +1402,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					sectorSourceLighting = EvaluateSectorLightingSource(material, shadingNormal);
 					sectorAmbientLighting = EvaluateSectorLighting(material, shadingNormal, diffuseAlbedo);
 					ambientDirectLighting = EvaluateAmbientSurface(albedo.rgb, diffuseAlbedo, metalness) + sectorAmbientLighting;
-					sunTransportDiffuse = useDirectionalLight ? EvaluateDirectSunDiffuse(diffuseAlbedo, directionalShadingNormal, lightDir) * directionalLightColor * shadow : 0.0;
-					sunTransportSpecular = useDirectionalLight ? EvaluateSunSpecular(albedo.rgb, metalness, directionalShadingNormal, viewDir, lightDir, 1.0) * directionalLightColor * shadow : 0.0;
+					sunTransportDiffuse = useDirectionalLight ? EvaluateDirectSunDiffuse(diffuseAlbedo, directionalShadingNormal, centerLightDir) * directionalLightColor * shadow : 0.0;
+					sunTransportSpecular = useDirectionalLight ? EvaluateSunSpecular(albedo.rgb, metalness, directionalShadingNormal, viewDir, centerLightDir, 1.0) * directionalLightColor * shadow : 0.0;
 				}
 
 				const RuntimeLightTileHeaderData runtimeLightTile = GetRuntimeLightTileHeader(pixelPos);

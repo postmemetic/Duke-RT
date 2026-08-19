@@ -464,6 +464,7 @@ bool ExecuteNRIFrameGraph(
 				{
 					return false;
 				}
+				context.mUseSplitShadowDenoiser = false;
 				if (!logState.phaseFDenoiserFallback)
 				{
 					Printf(TEXTCOLOR_ORANGE "NRD dispatch failed in the composition path; falling back to raw trace inputs for this frame.\n");
