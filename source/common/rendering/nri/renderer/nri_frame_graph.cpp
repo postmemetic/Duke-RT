@@ -304,7 +304,7 @@ bool ExecuteNRIFrameGraph(
 	context.mUseUpscaledInFinal = false;
 	context.mUseDenoisedCompositionInputs = false;
 	const bool directionalLightShadowEnabled = context.mDirectionalLightState.enabled && context.mDirectionalLightState.shadow;
-	context.mUseSplitShadowDenoiser = directionalLightShadowEnabled && (useShadowDebugPresent || useSplitShadowDebugProbe || (useCompositionPath && denoise));
+	context.mUseSplitShadowDenoiser = directionalLightShadowEnabled && (useShadowDebugPresent || useSplitShadowDebugProbe || compositionConsumesNrd);
 	const NRIPTOutputPolicy outputPolicy = context.mResources.GetOutputPolicy();
 	const NRIAutoExposureSettings autoExposureSettings = GetNRIAutoExposureSettings(
 		outputPolicy.exposure,

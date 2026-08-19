@@ -27,6 +27,7 @@ class NRIFrameResources;
 class NRIPipelineStateManager;
 class NRIExposurePassAccess;
 class NRIAccelerationStructureManager;
+class NRIBlueNoiseResources;
 class NRISceneTextureResidency;
 class NRIUpscalerContext;
 class NRIGpuTiming;
@@ -371,6 +372,7 @@ private:
 	friend class NRIPipelineStateManager;
 	friend class NRIExposurePassAccess;
 	friend class NRIAccelerationStructureManager;
+	friend class NRIBlueNoiseResources;
 	friend class NRIPersistentVoxelServiceFactory;
 	friend class NRISceneTextureResidency;
 	friend class NRIUpscalerContext;

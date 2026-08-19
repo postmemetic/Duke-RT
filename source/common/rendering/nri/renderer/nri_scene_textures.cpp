@@ -1700,6 +1700,12 @@ bool NRIRenderer::EnsureSceneTextures(
 	mLastPerfShellTraceStats.sceneTextureCacheInserts = insertCount;
 	mLastPerfShellTraceStats.sceneTextureLookupMs = lookupMs;
 	mLastPerfShellTraceStats.sceneTextureRealizeMs = realizeMs;
+	if (!mBlueNoise.IsReady())
+	{
+		return false;
+	}
+	descriptors[NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT] = mBlueNoise.GetScramblingRankingDescriptor();
+	descriptors[NRI_BLUE_NOISE_SOBOL_SLOT] = mBlueNoise.GetSobolDescriptor();
 	bool updated = false;
 	if (tracePerf)
 	{
@@ -1822,6 +1828,12 @@ bool NRIRenderer::UseFallbackSceneTextures(bool preserveExistingSky, const char*
 	std::vector<nri::Descriptor*> descriptors(NRI_SCENE_DESCRIPTOR_NUM, mFrameBuffer->mWhiteTexture->GetResource().shaderView);
 	descriptors[0] = mFrameBuffer->mWhiteTexture->GetResource().shaderView;
 	descriptors[1] = GetActiveSkyTexture() != nullptr && GetActiveSkyTexture()->shaderView != nullptr ? GetActiveSkyTexture()->shaderView : mFrameBuffer->mWhiteTexture->GetResource().shaderView;
+	if (!mBlueNoise.IsReady())
+	{
+		return false;
+	}
+	descriptors[NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT] = mBlueNoise.GetScramblingRankingDescriptor();
+	descriptors[NRI_BLUE_NOISE_SOBOL_SLOT] = mBlueNoise.GetSobolDescriptor();
 	return UpdateSceneTextureSet(descriptors, reason != nullptr ? reason : "fallback");
 }
 

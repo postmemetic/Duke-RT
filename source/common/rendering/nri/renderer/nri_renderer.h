@@ -3,6 +3,7 @@
 #include "../nri_output.h"
 #include "nri_debug_overlays.h"
 #include "nri_debug_reporters.h"
+#include "nri_blue_noise.h"
 #include "nri_descriptor_sets.h"
 #include "nri_exposure.h"
 #include "nri_frame_graph.h"
@@ -2837,6 +2838,7 @@ private:
 	NRIAccelerationStructureResource mEmissiveTopLevelAS;
 
 	NRISkyEnvironment mSkyEnvironment;
+	NRIBlueNoiseResources mBlueNoise;
 	NRINrdContext mNrd;
 	NRIUpscalerContext mUpscaler;
 	nri_scene::PTMapWorld mMapWorld;

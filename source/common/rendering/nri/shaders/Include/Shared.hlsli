@@ -177,6 +177,8 @@ SamplerState gPointClamp : register(s3, space0);
 Texture2D<float4> gPaletteLookup : register(t0, space1);
 TextureCube<float4> gSkyTexture : register(t1, space1);
 Texture2D<float4> gSceneTextures[MAX_SCENE_TEXTURES] : register(t2, space1);
+Texture2D<uint4> gBlueNoiseScramblingRanking : register(t514, space1);
+Texture2D<uint4> gBlueNoiseSobol : register(t515, space1);
 
 Texture2D<float4> gHistoryInput : register(t0, space3);
 // PT motion contract shared by TraceOpaque, NRD, TAA, and the upscaler:

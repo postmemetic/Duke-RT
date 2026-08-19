@@ -1740,6 +1740,7 @@ bool NRIRenderer::Initialize()
 		mSpatialAbsenceFormat == 1u ? "typed" : (mSpatialAbsenceFormat == 2u ? "compare-raw-authoritative" : "raw"));
 
 	const bool rendererReady =
+		mBlueNoise.Initialize(*mFrameBuffer) &&
 		NRIPipelineStateManager::CreatePipelineLayout(*this) &&
 		NRIPipelineStateManager::CreateTaaPipelineLayout(*this) &&
 		NRIPipelineStateManager::CreatePresentPipelineLayout(*this) &&
@@ -1775,6 +1776,7 @@ void NRIRenderer::Shutdown()
 	ClearRuntimePointLights();
 	DestroySceneBuffers();
 	NRIFrameResources::DestroyFrameTextures(*this);
+	mBlueNoise.Destroy(*mFrameBuffer);
 	mFrameBuffer->DestroyTextureResource(mSceneTextures.PaletteTexture());
 	DestroyCachedTextures();
 	mFrameGenerationFrameId = 0;

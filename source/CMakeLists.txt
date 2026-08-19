@@ -929,6 +929,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_acceleration.cpp
 	common/rendering/nri/renderer/nri_actor_sprite_diagnostics.cpp
 	common/rendering/nri/renderer/nri_bloom.cpp
+	common/rendering/nri/renderer/nri_blue_noise.cpp
 	common/rendering/nri/renderer/nri_debug_overlays.cpp
 	common/rendering/nri/renderer/nri_diagnostic_names.cpp
 	common/rendering/nri/renderer/nri_debug_reporters.cpp

@@ -739,7 +739,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 		else
 		{
-			const float rawShadow = saturate(gGuideSpecHitInput.Load(int3(samplePos, 0)).y);
+			const float rawShadow = gGuideSpecHitInput.Load(int3(samplePos, 0)).x >= NRD_FP16_MAX ? 1.0 : 0.0;
 			composed = float4(rawShadow.xxx, 1.0);
 		}
 	}

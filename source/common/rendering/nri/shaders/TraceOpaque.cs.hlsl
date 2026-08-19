@@ -31,11 +31,18 @@ float3 BuildOrthonormalTangent(float3 n)
 
 float3 SampleSunDirection(float3 lightDir, uint2 pixelPos, uint frameIndex)
 {
-	uint rngState = pixelPos.x * 73856093u ^ pixelPos.y * 19349663u ^ (frameIndex + 1u) * 83492791u;
+	// SIGMA expects a high-frequency spatial distribution and only a short temporal
+	// sequence. Match NRD's reference shadow sampler: a 128x128 ranked Owen-scrambled
+	// Sobol tile with four animated samples.
+	const uint phase = frameIndex & 3u;
+	const uint4 scramblingRanking = gBlueNoiseScramblingRanking[pixelPos & 127u];
+	const uint rankedSampleIndex = phase ^ scramblingRanking.z;
+	const uint4 sobol = gBlueNoiseSobol[uint2(rankedSampleIndex, 0u)];
+	const float2 uniformSample = (float2(sobol.xy ^ scramblingRanking.xy) + 0.5) * (1.0 / 256.0);
 	return SampleUniformDirectionalCone(
 		lightDir,
 		GetDirectionalPlaceholderAngularSize(),
-		float2(RandomFloat01(rngState), RandomFloat01(rngState)));
+		uniformSample);
 }
 
 float3 SampleCosineHemisphere(float3 normal, inout uint rngState)
@@ -1223,7 +1230,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gBaseColorOutput[pixelPos] = float4(sentinel, 1.0);
 			gGuideSpecularOutput[pixelPos] = float4(0.0, 0.0, 0.0, 1.0);
 			gGuideSpecHitOutput[pixelPos] = float4(0.0, 0.0, 0.0, 1.0);
-			gShadowPenumbraOutput[pixelPos] = float4(SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize()), 1.0, 0.0, 1.0);
+			gShadowPenumbraOutput[pixelPos] = float4(SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize()), 0.0, 0.0, 0.0);
 			gDirectLightingOutput[pixelPos] = 0.0;
 			gDirectEmissionOutput[pixelPos] = float4(sentinel, 1.0);
 		}
@@ -1250,7 +1257,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			// Keep sky misses out of NRD's ordinary noisy radiance inputs and composite them via direct emission.
 			gGuideSpecularOutput[pixelPos] = 0.0;
 			gGuideSpecHitOutput[pixelPos] = 0.0;
-			gShadowPenumbraOutput[pixelPos] = float4(SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize()), 1.0, 0.0, 1.0);
+			gShadowPenumbraOutput[pixelPos] = float4(SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize()), 0.0, 0.0, 0.0);
 			gDirectLightingOutput[pixelPos] = 0.0;
 			gDirectEmissionOutput[pixelPos] = float4(missColor, 1.0);
 		}
@@ -1287,10 +1294,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float3 directLighting = 0.0;
 		float3 directEmission = 0.0;
 		// Explicit lighting ownership after phase-2 demodulation:
-		// - directLighting: stable raw direct-composition bucket only
+		// - directLighting: stable direct-composition bucket
 		//   * ambient / sector ambient
-		//   * placeholder directional sun diffuse/specular (already shadowed)
+		//   * placeholder directional sun diffuse/specular when split-shadow composition is inactive
 		//   * runtime point-light direct terms
+		// - deferredDirectionalLighting: exact unshadowed sun RGB for split-shadow composition
 		// - diffuse/specular: NRD-facing primary-hit demodulated radiance
 		//   * sampled emissive and indirect transport are divided by primary material factors
 		//   * composition remodulates them later using the same factor model
@@ -1299,6 +1307,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float3 runtimePointDirectLighting = 0.0;
 		float3 sunTransportDiffuse = 0.0;
 		float3 sunTransportSpecular = 0.0;
+		float3 deferredDirectionalLighting = 0.0;
 		float3 sampledEmissiveTransportDiffuse = 0.0;
 		float3 sampledEmissiveTransportSpecular = 0.0;
 		float3 sampledAnalyticTransportDiffuse = 0.0;
@@ -1316,8 +1325,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float indirectDiffuseSelectionProbability = 0.0;
 		bool indirectDiffuseSelected = false;
 		bool indirectSpecularSelected = false;
-		float shadowVisibility = 1.0;
-		float shadowPenumbra = 0.0;
+		// Default to fully lit when this surface does not issue a SIGMA shadow ray (for
+		// example, materials which opt out of receiving directional shadows).
+		float shadowPenumbra = SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize());
 		float roughness = 1.0;
 		bool smokeForeground = false;
 		if (bootstrapFlat)
@@ -1392,7 +1402,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					TraceShaderStatAdd(TRACE_STAT_DIRECTIONAL_SHADOW_TESTS, 1u);
 				}
 				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, shadowShadingNormal, shadowSampleDir, shadowHitDistance, spatialProbeTargetPixel)) : 0.0;
-				shadowVisibility = shadow;
 				if (useDirectionalLight && useDirectionalShadow && !directSceneTrace)
 				{
 					shadowPenumbra = SIGMA_FrontEnd_PackPenumbra(shadowHitDistance, GetDirectionalPlaceholderTanAngularSize());
@@ -1402,8 +1411,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					sectorSourceLighting = EvaluateSectorLightingSource(material, shadingNormal);
 					sectorAmbientLighting = EvaluateSectorLighting(material, shadingNormal, diffuseAlbedo);
 					ambientDirectLighting = EvaluateAmbientSurface(albedo.rgb, diffuseAlbedo, metalness) + sectorAmbientLighting;
-					sunTransportDiffuse = useDirectionalLight ? EvaluateDirectSunDiffuse(diffuseAlbedo, directionalShadingNormal, centerLightDir) * directionalLightColor * shadow : 0.0;
-					sunTransportSpecular = useDirectionalLight ? EvaluateSunSpecular(albedo.rgb, metalness, directionalShadingNormal, viewDir, centerLightDir, 1.0) * directionalLightColor * shadow : 0.0;
+					sunTransportDiffuse = useDirectionalLight ? EvaluateDirectSunDiffuse(diffuseAlbedo, directionalShadingNormal, centerLightDir) * directionalLightColor : 0.0;
+					sunTransportSpecular = useDirectionalLight ? EvaluateSunSpecular(albedo.rgb, metalness, directionalShadingNormal, viewDir, centerLightDir, 1.0) * directionalLightColor : 0.0;
 				}
 
 				const RuntimeLightTileHeaderData runtimeLightTile = GetRuntimeLightTileHeader(pixelPos);
@@ -1584,7 +1593,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				}
 				// Keep the placeholder sun out of the primary-hit demodulated NRD bucket so its
 				// hard shadow structure does not get spatially mixed back into REBLUR/RELAX history.
-				directLighting += ambientDirectLighting + sunTransportDiffuse + sunTransportSpecular + runtimePointDirectLighting;
+				const bool deferDirectionalComposition = UseSplitShadowDenoiser() && useDirectionalLight && useDirectionalShadow;
+				directLighting += ambientDirectLighting + runtimePointDirectLighting;
+				if (!deferDirectionalComposition)
+				{
+					directLighting += (sunTransportDiffuse + sunTransportSpecular) * shadow;
+				}
+				else
+				{
+					deferredDirectionalLighting = sunTransportDiffuse + sunTransportSpecular;
+				}
 				if (emissiveMaterial)
 				{
 					directEmission = EvaluateVisibleMaterialEmission(hit.materialIndex, hit.dataSource, hit.primitiveIndex, material, albedo.rgb, hit.uv);
@@ -1598,6 +1616,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				specular *= plainMirrorThroughput;
 				directLighting *= plainMirrorThroughput;
 				directEmission *= plainMirrorThroughput;
+				deferredDirectionalLighting *= plainMirrorThroughput;
 			}
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);
@@ -1620,7 +1639,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 		gGuideSpecularOutput[pixelPos] = packedSpecular;
 		gGuideSpecHitOutput[pixelPos] = float4(specular, packedSpecular.w);
-		gShadowPenumbraOutput[pixelPos] = float4(shadowPenumbra, shadowVisibility, 0.0, 1.0);
+		// SIGMA consumes x only. Preserve the exact, producer-owned unshadowed sun term in yzw
+		// so Composition can replace stochastic visibility without reconstructing BRDF or normal policy.
+		gShadowPenumbraOutput[pixelPos] = float4(shadowPenumbra, deferredDirectionalLighting);
 		gDirectLightingOutput[pixelPos] = float4(directLighting, 1.0);
 		gDirectEmissionOutput[pixelPos] = float4(directEmission, 1.0);
 
