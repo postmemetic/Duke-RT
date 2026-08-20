@@ -407,7 +407,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					centerDelta[axis] = absence.center[axis] - mPreviousCameraPos[axis];
 				}
 			}
-			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u build_elapsed_ms=%.3f topology_cache_hit=%u topology_pairs=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
+			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u build_elapsed_ms=%.3f topology_cache_hit=%u topology_pairs=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u protected_open=%u protected_near=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
 				mFrameIndex,
 				(unsigned long long)census.captureSerial,
 				census.complete ? 1u : 0u,
@@ -436,6 +436,8 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 				census.reachedWallCount,
 				absence.candidateCount,
 				absence.certifiedCount,
+				absence.openBoundaryProtectedCount,
+				absence.nearTopologyProtectedCount,
 				absence.authorizedPairCount,
 				absence.pendingPairCount,
 				absence.sourceWitnessCount,
@@ -451,7 +453,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 			uint32_t rows = 0;
 			auto printConflict = [&](const NRISpatialAbsenceConflictRecord& conflict)
 			{
-				Printf("NRI PT 360 absence conflict: frame=%u capture=%llu world=%llu local_space=%d decision=%s positive_chunk=%u positive_sector=%d negative_chunk=%u negative_sector=%d witnesses=%u continuity_count=%u continuity_previous=%u continuity_context=%u continuity_authorized=%u distance=%.3f overlap=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f))\n",
+				Printf("NRI PT 360 absence conflict: frame=%u capture=%llu world=%llu local_space=%d decision=%s positive_chunk=%u positive_sector=%d negative_chunk=%u negative_sector=%d witnesses=%u protected_open=%u protected_near=%u topology_via=%d continuity_count=%u continuity_previous=%u continuity_context=%u continuity_authorized=%u distance=%.3f overlap=((%.3f,%.3f,%.3f),(%.3f,%.3f,%.3f))\n",
 					mFrameIndex,
 					(unsigned long long)absence.captureSerial,
 					(unsigned long long)absence.worldGeneration,
@@ -462,6 +464,9 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					conflict.negativeChunk,
 					conflict.negativeSector,
 					conflict.exactWitnessCount,
+					(conflict.protectionFlags & NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY) != 0 ? 1u : 0u,
+					(conflict.protectionFlags & NRI_SPATIAL_ABSENCE_PROTECTION_NEAR_ORDINARY_TOPOLOGY) != 0 ? 1u : 0u,
+					conflict.topologyIntermediateSector,
 					conflict.continuityCount,
 					conflict.continuityPresentPrevious ? 1u : 0u,
 					conflict.continuityContextContinuous ? 1u : 0u,
@@ -471,6 +476,21 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					conflict.overlapMax[0], conflict.overlapMax[1], conflict.overlapMax[2]);
 				rows++;
 			};
+			const int32_t targetedChunk = (bool)nri_pt360absenceprobe && (int)nri_pt360absenceprobechunk >= 0
+				? (int)nri_pt360absenceprobechunk : -1;
+			if (targetedChunk >= 0)
+			{
+				for (const NRISpatialAbsenceConflictRecord& conflict : absence.conflicts)
+				{
+					if (rows >= 16u) break;
+					if ((conflict.positiveChunk == (uint32_t)targetedChunk ||
+						conflict.negativeChunk == (uint32_t)targetedChunk) &&
+						conflict.protectionFlags != NRI_SPATIAL_ABSENCE_PROTECTION_NONE)
+					{
+						printConflict(conflict);
+					}
+				}
+			}
 			for (const NRISpatialAbsenceConflictRecord& conflict : absence.conflicts)
 			{
 				if (rows >= 16u) break;

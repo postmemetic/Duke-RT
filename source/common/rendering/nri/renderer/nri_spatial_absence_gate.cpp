@@ -25,6 +25,9 @@ namespace
 	constexpr uint32_t kMaxFloatExactInteger = 1u << 24u;
 	constexpr uint64_t kHashOffset = 1469598103934665603ull;
 	constexpr uint64_t kHashPrime = 1099511628211ull;
+	constexpr uint32_t kOpenPlaneMaterialFlags = nri_scene::MaterialFlag_Sky |
+		nri_scene::MaterialFlag_Portal | nri_scene::MaterialFlag_Mirror |
+		nri_scene::MaterialFlag_PlainMirror;
 
 	struct PairClassification
 	{
@@ -67,8 +70,10 @@ namespace
 
 	struct CachedChunkTopology
 	{
+		bool boundaryResolved = false;
 		bool resolved = false;
 		bool flatClosed = false;
+		bool openBoundary = false;
 		bool gridValid = false;
 		std::vector<Triangle2D> footprint;
 		FootprintGrid grid;
@@ -109,6 +114,86 @@ namespace
 			}
 		}
 		return false;
+	}
+
+	bool AreOrdinarilyLinkedAdjacent(int32_t firstSector, int32_t secondSector)
+	{
+		if (firstSector < 0 || secondSector < 0 ||
+			(unsigned)firstSector >= sector.Size() || (unsigned)secondSector >= sector.Size())
+		{
+			return false;
+		}
+
+		for (const walltype& wall : sector[(unsigned)firstSector].walls)
+		{
+			if (wall.nextsector == secondSector && wall.portalflags == 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	template<typename VisitNeighbors, typename IsAdjacent>
+	int32_t FindOrdinaryTopologyIntermediateImpl(
+		int32_t firstSector,
+		int32_t secondSector,
+		size_t sectorCount,
+		VisitNeighbors&& visitNeighbors,
+		IsAdjacent&& isAdjacent)
+	{
+		if (firstSector < 0 || secondSector < 0 ||
+			(size_t)firstSector >= sectorCount || (size_t)secondSector >= sectorCount)
+		{
+			return -1;
+		}
+		if (firstSector == secondSector || isAdjacent(firstSector, secondSector) ||
+			isAdjacent(secondSector, firstSector))
+		{
+			return -1;
+		}
+
+		auto findFrom = [&](int32_t sourceSector, int32_t targetSector)
+		{
+			int32_t foundIntermediate = -1;
+			visitNeighbors(sourceSector, [&](int32_t intermediateSector)
+			{
+				if (foundIntermediate >= 0 || intermediateSector < 0 || intermediateSector == sourceSector ||
+					intermediateSector == targetSector || (size_t)intermediateSector >= sectorCount)
+				{
+					return;
+				}
+				if (isAdjacent(intermediateSector, targetSector) ||
+					isAdjacent(targetSector, intermediateSector))
+				{
+					foundIntermediate = intermediateSector;
+				}
+			});
+			return foundIntermediate;
+		};
+
+		const int32_t forwardIntermediate = findFrom(firstSector, secondSector);
+		return forwardIntermediate >= 0 ? forwardIntermediate : findFrom(secondSector, firstSector);
+	}
+
+	int32_t FindOrdinaryTopologyIntermediate(int32_t firstSector, int32_t secondSector)
+	{
+		return FindOrdinaryTopologyIntermediateImpl(
+			firstSector,
+			secondSector,
+			sector.Size(),
+			[](int32_t sourceSector, const auto& visit)
+			{
+				for (const walltype& wall : sector[(unsigned)sourceSector].walls)
+				{
+					if (wall.portalflags == 0)
+						visit(wall.nextsector);
+				}
+			},
+			[](int32_t sourceSector, int32_t targetSector)
+			{
+				return AreOrdinarilyLinkedAdjacent(sourceSector, targetSector);
+			});
 	}
 
 	bool ArePortalRelated(const nri_scene::PTMapWorld& mapWorld, uint32_t firstChunk, uint32_t secondChunk)
@@ -296,6 +381,10 @@ namespace
 			{
 				continue;
 			}
+			if ((surface.surface.material.flags & kOpenPlaneMaterialFlags) != 0)
+			{
+				return false;
+			}
 			if (surface.surface.vertices.empty())
 			{
 				return false;
@@ -312,6 +401,24 @@ namespace
 			sawCeiling |= surface.kind == nri_scene::PTMapSurfaceKind::Ceiling;
 		}
 		return sawFloor && sawCeiling;
+	}
+
+	bool HasOpenPlaneBoundary(const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk)
+	{
+		const uint64_t surfaceEnd = std::min<uint64_t>(
+			(uint64_t)chunk.firstSurface + chunk.surfaceCount,
+			mapWorld.surfaces.size());
+		for (uint64_t surfaceIndex = chunk.firstSurface; surfaceIndex < surfaceEnd; ++surfaceIndex)
+		{
+			const nri_scene::PTMapSurface& surface = mapWorld.surfaces[(size_t)surfaceIndex];
+			if ((surface.kind == nri_scene::PTMapSurfaceKind::Floor ||
+				surface.kind == nri_scene::PTMapSurfaceKind::Ceiling) &&
+				(surface.surface.material.flags & kOpenPlaneMaterialFlags) != 0)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	PairClassification ClassifyBounds(
@@ -412,6 +519,8 @@ namespace
 		hash = HashValue(hash, snapshot.certifiedCount);
 		hash = HashValue(hash, snapshot.sourceWitnessCount);
 		hash = HashValue(hash, snapshot.selectedWitnessCount);
+		hash = HashValue(hash, snapshot.openBoundaryProtectedCount);
+		hash = HashValue(hash, snapshot.nearTopologyProtectedCount);
 		hash = HashValue(hash, snapshot.authorizedPairCount);
 		hash = HashValue(hash, snapshot.pendingPairCount);
 		hash = HashValue(hash, snapshot.footprintTriangleCount);
@@ -428,6 +537,8 @@ namespace
 			hash = HashBytes(hash, conflict.overlapMin, sizeof(conflict.overlapMin));
 			hash = HashBytes(hash, conflict.overlapMax, sizeof(conflict.overlapMax));
 			hash = HashValue(hash, conflict.exactWitnessCount);
+			hash = HashValue(hash, conflict.protectionFlags);
+			hash = HashValue(hash, conflict.topologyIntermediateSector);
 		}
 		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
 		{
@@ -1414,6 +1525,18 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	mSnapshot.topologyPairCount = (uint32_t)std::min<size_t>(
 		mTopologyCache->pairs.size(), std::numeric_limits<uint32_t>::max());
 
+	auto ensureChunkBoundary = [&](size_t chunkIndex) -> CachedChunkTopology&
+	{
+		CachedChunkTopology& cached = mTopologyCache->chunks[chunkIndex];
+		if (!cached.boundaryResolved)
+		{
+			topologyCacheHit = false;
+			cached.openBoundary = HasOpenPlaneBoundary(mapWorld, mapWorld.chunks[chunkIndex]);
+			cached.boundaryResolved = true;
+		}
+		return cached;
+	};
+
 	auto ensureChunkTopology = [&](size_t chunkIndex) -> CachedChunkTopology&
 	{
 		CachedChunkTopology& cached = mTopologyCache->chunks[chunkIndex];
@@ -1427,6 +1550,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 				ValidateFootprintGrid(cached.footprint, cached.grid);
 			cached.resolved = true;
 		}
+		ensureChunkBoundary(chunkIndex);
 		return cached;
 	};
 
@@ -1453,6 +1577,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		const bool secondRuntimeUnknown = std::binary_search(uncertainChunks.begin(), uncertainChunks.end(), second.chunkIndex);
 		const nri_scene::PTMapChunk* positive = &first;
 		const nri_scene::PTMapChunk* negative = &second;
+		int32_t topologyIntermediateSector = -1;
 
 		if (firstUnknown || secondUnknown || first.sectorIndex < 0 || second.sectorIndex < 0)
 		{
@@ -1490,8 +1615,36 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			{
 				classification.decision = NRISpatialAbsenceConflictDecision::PortalRelated;
 			}
+			else
+			{
+				topologyIntermediateSector = FindOrdinaryTopologyIntermediate(
+					first.sectorIndex, second.sectorIndex);
+				if (topologyIntermediateSector >= 0)
+				{
+					classification.decision = NRISpatialAbsenceConflictDecision::NearOrdinaryTopology;
+				}
+			}
+		}
+		uint32_t protectionFlags = NRI_SPATIAL_ABSENCE_PROTECTION_NONE;
+		if (classification.decision == NRISpatialAbsenceConflictDecision::NearOrdinaryTopology)
+		{
+			protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_NEAR_ORDINARY_TOPOLOGY;
+			mSnapshot.nearTopologyProtectedCount++;
 		}
 		uint32_t exactWitnessCount = 0;
+		if (classification.decision == NRISpatialAbsenceConflictDecision::Certified ||
+			classification.decision == NRISpatialAbsenceConflictDecision::NearOrdinaryTopology)
+		{
+			const CachedChunkTopology& firstTopology = ensureChunkBoundary(cachedPair.firstIndex);
+			const CachedChunkTopology& secondTopology = ensureChunkBoundary(cachedPair.secondIndex);
+			if (firstTopology.openBoundary || secondTopology.openBoundary)
+			{
+				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY;
+				mSnapshot.openBoundaryProtectedCount++;
+				if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
+					classification.decision = NRISpatialAbsenceConflictDecision::OpenBoundary;
+			}
+		}
 		if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
 		{
 			if (!cachedPair.exactWitnessResolved)
@@ -1518,6 +1671,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mSnapshot.conflicts.push_back(MakeDebugRecord(*positive, *negative, classification));
 		const size_t debugRecordIndex = mSnapshot.conflicts.size() - 1u;
 		mSnapshot.conflicts.back().exactWitnessCount = exactWitnessCount;
+		mSnapshot.conflicts.back().protectionFlags = protectionFlags;
+		mSnapshot.conflicts.back().topologyIntermediateSector = topologyIntermediateSector;
 		if (classification.decision != NRISpatialAbsenceConflictDecision::Certified)
 			continue;
 
@@ -1939,6 +2094,92 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		NRISpatialAbsenceConflictDecision::OutsideGuard)
 	{
 		return fail("overlap outside the finite guard was not rejected");
+	}
+
+	auto makePlaneSurface = [](nri_scene::PTMapSurfaceKind kind, uint32_t materialFlags, float y)
+	{
+		nri_scene::PTMapSurface surface;
+		surface.kind = kind;
+		surface.surface.material.flags = materialFlags;
+		nri_scene::CapturedVertex vertex = {};
+		vertex.position[1] = y;
+		surface.surface.vertices.push_back(vertex);
+		return surface;
+	};
+	nri_scene::PTMapWorld volumeWorld;
+	volumeWorld.surfaces.push_back(makePlaneSurface(
+		nri_scene::PTMapSurfaceKind::Floor, nri_scene::MaterialFlag_Flat, -1.0f));
+	volumeWorld.surfaces.push_back(makePlaneSurface(
+		nri_scene::PTMapSurfaceKind::Ceiling, nri_scene::MaterialFlag_Flat, 1.0f));
+	nri_scene::PTMapChunk volumeChunk;
+	volumeChunk.firstSurface = 0u;
+	volumeChunk.surfaceCount = 2u;
+	if (!HasFlatClosedVolume(volumeWorld, volumeChunk) || HasOpenPlaneBoundary(volumeWorld, volumeChunk))
+		return fail("ordinary horizontal floor and ceiling did not satisfy the closed-volume precondition");
+	const uint32_t openPlaneFlags[] = {
+		nri_scene::MaterialFlag_Sky,
+		nri_scene::MaterialFlag_Portal,
+		nri_scene::MaterialFlag_Mirror,
+		nri_scene::MaterialFlag_PlainMirror,
+	};
+	for (size_t boundarySurfaceIndex = 0; boundarySurfaceIndex < volumeWorld.surfaces.size(); ++boundarySurfaceIndex)
+	{
+		for (uint32_t openPlaneFlag : openPlaneFlags)
+		{
+			volumeWorld.surfaces[boundarySurfaceIndex].surface.material.flags =
+				nri_scene::MaterialFlag_Flat | openPlaneFlag;
+			if (HasFlatClosedVolume(volumeWorld, volumeChunk) || !HasOpenPlaneBoundary(volumeWorld, volumeChunk))
+				return fail("an open floor or ceiling material satisfied the closed-volume precondition");
+			volumeWorld.surfaces[boundarySurfaceIndex].surface.material.flags = nri_scene::MaterialFlag_Flat;
+		}
+	}
+
+	const std::vector<std::vector<int32_t>> ordinaryNeighbors = {
+		{ 1 }, { 0, 2 }, { 1, 3 }, { 2 }, { 5 }, { 4 }, { 7, 8 }, { 6, 8 }, { 6, 7 }
+	};
+	auto visitOrdinaryNeighbors = [&](int32_t sourceSector, const auto& visit)
+	{
+		for (int32_t neighbor : ordinaryNeighbors[(size_t)sourceSector])
+			visit(neighbor);
+	};
+	auto isOrdinarilyAdjacent = [&](int32_t sourceSector, int32_t targetSector)
+	{
+		const std::vector<int32_t>& neighbors = ordinaryNeighbors[(size_t)sourceSector];
+		return std::find(neighbors.begin(), neighbors.end(), targetSector) != neighbors.end();
+	};
+	if (FindOrdinaryTopologyIntermediateImpl(
+			0, 2, ordinaryNeighbors.size(), visitOrdinaryNeighbors, isOrdinarilyAdjacent) != 1)
+	{
+		return fail("a shared ordinary neighbor did not protect a two-hop sector pair");
+	}
+	const std::vector<std::vector<int32_t>> asymmetricNeighbors = { { 1 }, {}, { 1 } };
+	auto visitAsymmetricNeighbors = [&](int32_t sourceSector, const auto& visit)
+	{
+		for (int32_t neighbor : asymmetricNeighbors[(size_t)sourceSector])
+			visit(neighbor);
+	};
+	auto isAsymmetricallyAdjacent = [&](int32_t sourceSector, int32_t targetSector)
+	{
+		const std::vector<int32_t>& neighbors = asymmetricNeighbors[(size_t)sourceSector];
+		return std::find(neighbors.begin(), neighbors.end(), targetSector) != neighbors.end();
+	};
+	if (FindOrdinaryTopologyIntermediateImpl(
+			0, 2, asymmetricNeighbors.size(), visitAsymmetricNeighbors, isAsymmetricallyAdjacent) != 1)
+	{
+		return fail("an asymmetric ordinary second hop did not fail open as near topology");
+	}
+	if (FindOrdinaryTopologyIntermediateImpl(
+			0, 1, ordinaryNeighbors.size(), visitOrdinaryNeighbors, isOrdinarilyAdjacent) >= 0 ||
+		FindOrdinaryTopologyIntermediateImpl(
+			6, 7, ordinaryNeighbors.size(), visitOrdinaryNeighbors, isOrdinarilyAdjacent) >= 0 ||
+		FindOrdinaryTopologyIntermediateImpl(
+			0, 3, ordinaryNeighbors.size(), visitOrdinaryNeighbors, isOrdinarilyAdjacent) >= 0 ||
+		FindOrdinaryTopologyIntermediateImpl(
+			2, 2, ordinaryNeighbors.size(), visitOrdinaryNeighbors, isOrdinarilyAdjacent) >= 0 ||
+		FindOrdinaryTopologyIntermediateImpl(
+			-1, 2, ordinaryNeighbors.size(), visitOrdinaryNeighbors, isOrdinarilyAdjacent) >= 0)
+	{
+		return fail("direct, same-sector, distant, or malformed topology was misclassified as a two-hop pair");
 	}
 	Triangle2D firstTriangle = { { { 0.0f, 0.0f }, { 4.0f, 0.0f }, { 0.0f, 4.0f } } };
 	Triangle2D overlappingTriangle = { { { 1.0f, 1.0f }, { 3.0f, 1.0f }, { 1.0f, 3.0f } } };
@@ -2415,6 +2656,8 @@ const char* GetNRISpatialAbsenceConflictDecisionName(NRISpatialAbsenceConflictDe
 	case NRISpatialAbsenceConflictDecision::ExactOverlapMissing: return "no-exact-overlap";
 	case NRISpatialAbsenceConflictDecision::RuntimeAuthorityUnknown: return "runtime-authority-unknown";
 	case NRISpatialAbsenceConflictDecision::AmbiguousNegativeOwner: return "ambiguous-negative-owner";
+	case NRISpatialAbsenceConflictDecision::OpenBoundary: return "open-boundary";
+	case NRISpatialAbsenceConflictDecision::NearOrdinaryTopology: return "near-ordinary-topology";
 	default: return "unknown";
 	}
 }

@@ -80,6 +80,15 @@ enum class NRISpatialAbsenceConflictDecision : uint32_t
 	ExactOverlapMissing,
 	RuntimeAuthorityUnknown,
 	AmbiguousNegativeOwner,
+	OpenBoundary,
+	NearOrdinaryTopology,
+};
+
+enum NRISpatialAbsenceProtectionFlags : uint32_t
+{
+	NRI_SPATIAL_ABSENCE_PROTECTION_NONE = 0,
+	NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY = 1u << 0,
+	NRI_SPATIAL_ABSENCE_PROTECTION_NEAR_ORDINARY_TOPOLOGY = 1u << 1,
 };
 
 struct NRISpatialAbsenceCensusInput
@@ -120,6 +129,8 @@ struct NRISpatialAbsenceConflictRecord
 	float overlapMax[3] = {};
 	float distanceToGuardCenter = 0.0f;
 	uint32_t exactWitnessCount = 0;
+	uint32_t protectionFlags = NRI_SPATIAL_ABSENCE_PROTECTION_NONE;
+	int32_t topologyIntermediateSector = -1;
 	uint32_t continuityCount = 0;
 	bool continuityPresentPrevious = false;
 	bool continuityContextContinuous = false;
@@ -164,6 +175,8 @@ struct NRISpatialAbsenceSnapshot
 	uint32_t certifiedCount = 0;
 	uint32_t sourceWitnessCount = 0;
 	uint32_t selectedWitnessCount = 0;
+	uint32_t openBoundaryProtectedCount = 0;
+	uint32_t nearTopologyProtectedCount = 0;
 	uint32_t authorizedPairCount = 0;
 	uint32_t pendingPairCount = 0;
 	uint32_t footprintTriangleCount = 0;
