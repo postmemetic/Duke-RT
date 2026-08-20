@@ -196,6 +196,75 @@ namespace
 			});
 	}
 
+	template<typename IsCollapsed, typename VisitNeighbors>
+	int32_t FindCollapsedPortalEnvelopeImpl(
+		int32_t sourceSector,
+		size_t sectorCount,
+		IsCollapsed&& isCollapsed,
+		VisitNeighbors&& visitNeighbors)
+	{
+		if (sourceSector < 0 || (size_t)sourceSector >= sectorCount)
+			return -1;
+
+		// A zero-height sector with two distinct ordinary neighbors is a closed
+		// passage envelope. Its adjacent sectors own the wall bands that seal it,
+		// so all three chunks are unsafe negative-volume certificates.
+		auto isCollapsedPassage = [&](int32_t candidateSector)
+		{
+			if (candidateSector < 0 || (size_t)candidateSector >= sectorCount ||
+				!isCollapsed(candidateSector))
+			{
+				return false;
+			}
+			int32_t firstNeighbor = -1;
+			bool hasDistinctSecondNeighbor = false;
+			visitNeighbors(candidateSector, [&](int32_t neighborSector)
+			{
+				if (neighborSector < 0 || neighborSector == candidateSector ||
+					(size_t)neighborSector >= sectorCount)
+				{
+					return;
+				}
+				if (firstNeighbor < 0)
+					firstNeighbor = neighborSector;
+				else if (neighborSector != firstNeighbor)
+					hasDistinctSecondNeighbor = true;
+			});
+			return firstNeighbor >= 0 && hasDistinctSecondNeighbor;
+		};
+
+		if (isCollapsedPassage(sourceSector))
+			return sourceSector;
+		int32_t collapsedNeighbor = -1;
+		visitNeighbors(sourceSector, [&](int32_t neighborSector)
+		{
+			if (collapsedNeighbor < 0 && isCollapsedPassage(neighborSector))
+				collapsedNeighbor = neighborSector;
+		});
+		return collapsedNeighbor;
+	}
+
+	int32_t FindCollapsedPortalEnvelope(int32_t sourceSector)
+	{
+		return FindCollapsedPortalEnvelopeImpl(
+			sourceSector,
+			sector.Size(),
+			[](int32_t candidateSector)
+			{
+				const sectortype& candidate = sector[(unsigned)candidateSector];
+				return candidate.floorz == candidate.ceilingz &&
+					candidate.floorheinum == candidate.ceilingheinum;
+			},
+			[](int32_t candidateSector, const auto& visit)
+			{
+				for (const walltype& wall : sector[(unsigned)candidateSector].walls)
+				{
+					if (wall.portalflags == 0)
+						visit(wall.nextsector);
+				}
+			});
+	}
+
 	bool ArePortalRelated(const nri_scene::PTMapWorld& mapWorld, uint32_t firstChunk, uint32_t secondChunk)
 	{
 		for (const nri_scene::PTMapPortal& portal : mapWorld.portals)
@@ -521,6 +590,7 @@ namespace
 		hash = HashValue(hash, snapshot.selectedWitnessCount);
 		hash = HashValue(hash, snapshot.openBoundaryProtectedCount);
 		hash = HashValue(hash, snapshot.nearTopologyProtectedCount);
+		hash = HashValue(hash, snapshot.collapsedPortalProtectedCount);
 		hash = HashValue(hash, snapshot.authorizedPairCount);
 		hash = HashValue(hash, snapshot.pendingPairCount);
 		hash = HashValue(hash, snapshot.footprintTriangleCount);
@@ -539,6 +609,7 @@ namespace
 			hash = HashValue(hash, conflict.exactWitnessCount);
 			hash = HashValue(hash, conflict.protectionFlags);
 			hash = HashValue(hash, conflict.topologyIntermediateSector);
+			hash = HashValue(hash, conflict.collapsedPortalSector);
 		}
 		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
 		{
@@ -1578,6 +1649,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		const nri_scene::PTMapChunk* positive = &first;
 		const nri_scene::PTMapChunk* negative = &second;
 		int32_t topologyIntermediateSector = -1;
+		int32_t collapsedPortalSector = -1;
 
 		if (firstUnknown || secondUnknown || first.sectorIndex < 0 || second.sectorIndex < 0)
 		{
@@ -1632,16 +1704,32 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			mSnapshot.nearTopologyProtectedCount++;
 		}
 		uint32_t exactWitnessCount = 0;
-		if (classification.decision == NRISpatialAbsenceConflictDecision::Certified ||
-			classification.decision == NRISpatialAbsenceConflictDecision::NearOrdinaryTopology)
+		const bool protectionCandidate =
+			classification.decision == NRISpatialAbsenceConflictDecision::Certified ||
+			classification.decision == NRISpatialAbsenceConflictDecision::NearOrdinaryTopology;
+		if (protectionCandidate)
 		{
+			const int32_t firstCollapsedPortal = FindCollapsedPortalEnvelope(first.sectorIndex);
+			const int32_t secondCollapsedPortal = FindCollapsedPortalEnvelope(second.sectorIndex);
+			collapsedPortalSector = firstCollapsedPortal >= 0
+				? firstCollapsedPortal : secondCollapsedPortal;
+			if (collapsedPortalSector >= 0)
+			{
+				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_COLLAPSED_PORTAL_ENVELOPE;
+				mSnapshot.collapsedPortalProtectedCount++;
+			}
 			const CachedChunkTopology& firstTopology = ensureChunkBoundary(cachedPair.firstIndex);
 			const CachedChunkTopology& secondTopology = ensureChunkBoundary(cachedPair.secondIndex);
 			if (firstTopology.openBoundary || secondTopology.openBoundary)
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY;
 				mSnapshot.openBoundaryProtectedCount++;
-				if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
+			}
+			if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
+			{
+				if (collapsedPortalSector >= 0)
+					classification.decision = NRISpatialAbsenceConflictDecision::CollapsedPortalEnvelope;
+				else if ((protectionFlags & NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY) != 0)
 					classification.decision = NRISpatialAbsenceConflictDecision::OpenBoundary;
 			}
 		}
@@ -1673,6 +1761,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mSnapshot.conflicts.back().exactWitnessCount = exactWitnessCount;
 		mSnapshot.conflicts.back().protectionFlags = protectionFlags;
 		mSnapshot.conflicts.back().topologyIntermediateSector = topologyIntermediateSector;
+		mSnapshot.conflicts.back().collapsedPortalSector = collapsedPortalSector;
 		if (classification.decision != NRISpatialAbsenceConflictDecision::Certified)
 			continue;
 
@@ -2181,6 +2270,40 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	{
 		return fail("direct, same-sector, distant, or malformed topology was misclassified as a two-hop pair");
 	}
+
+	const std::vector<std::vector<int32_t>> collapsedPortalNeighbors = {
+		{ 1 }, { 0, 2 }, { 1 }, { 4, 4 }, { 3 }, {}
+	};
+	const std::vector<bool> collapsedPortalPlanes = { false, true, false, true, false, false };
+	auto visitCollapsedPortalNeighbors = [&](int32_t sourceSector, const auto& visit)
+	{
+		for (int32_t neighbor : collapsedPortalNeighbors[(size_t)sourceSector])
+			visit(neighbor);
+	};
+	auto isCollapsedPortalPlane = [&](int32_t candidateSector)
+	{
+		return collapsedPortalPlanes[(size_t)candidateSector];
+	};
+	if (FindCollapsedPortalEnvelopeImpl(
+			0, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) != 1 ||
+		FindCollapsedPortalEnvelopeImpl(
+			1, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) != 1 ||
+		FindCollapsedPortalEnvelopeImpl(
+			2, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) != 1)
+	{
+		return fail("a collapsed ordinary passage did not protect its volume and sealing-band neighbors");
+	}
+	if (FindCollapsedPortalEnvelopeImpl(
+			3, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0 ||
+		FindCollapsedPortalEnvelopeImpl(
+			4, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0 ||
+		FindCollapsedPortalEnvelopeImpl(
+			5, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0 ||
+		FindCollapsedPortalEnvelopeImpl(
+			-1, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0)
+	{
+		return fail("a one-sided, duplicate-neighbor, noncollapsed, or malformed sector entered a collapsed portal envelope");
+	}
 	Triangle2D firstTriangle = { { { 0.0f, 0.0f }, { 4.0f, 0.0f }, { 0.0f, 4.0f } } };
 	Triangle2D overlappingTriangle = { { { 1.0f, 1.0f }, { 3.0f, 1.0f }, { 1.0f, 3.0f } } };
 	Triangle2D disjointTriangle = { { { 8.0f, 8.0f }, { 9.0f, 8.0f }, { 8.0f, 9.0f } } };
@@ -2658,6 +2781,7 @@ const char* GetNRISpatialAbsenceConflictDecisionName(NRISpatialAbsenceConflictDe
 	case NRISpatialAbsenceConflictDecision::AmbiguousNegativeOwner: return "ambiguous-negative-owner";
 	case NRISpatialAbsenceConflictDecision::OpenBoundary: return "open-boundary";
 	case NRISpatialAbsenceConflictDecision::NearOrdinaryTopology: return "near-ordinary-topology";
+	case NRISpatialAbsenceConflictDecision::CollapsedPortalEnvelope: return "collapsed-portal-envelope";
 	default: return "unknown";
 	}
 }
