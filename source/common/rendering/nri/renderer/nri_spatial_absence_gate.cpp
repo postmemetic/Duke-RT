@@ -434,6 +434,212 @@ namespace
 		return -1;
 	}
 
+	struct InsetBoundarySealEdge
+	{
+		int32_t nextSector = -1;
+		bool ordinaryReciprocalPortal = false;
+		bool oneSided = false;
+	};
+
+	struct InsetBoundarySealTopology
+	{
+		int32_t sectorIndex = -1;
+		bool flatPlanes = false;
+		bool collapsed = false;
+		bool sharesNeighborCeiling = false;
+		bool floorStrictlyInsideNeighbor = false;
+		bool emittedFloorSection = false;
+		std::vector<InsetBoundarySealEdge> edges;
+	};
+
+	int32_t FindInsetBoundarySealNeighbor(const InsetBoundarySealTopology& topology)
+	{
+		if (topology.sectorIndex < 0 || topology.edges.size() < 3u)
+			return -1;
+
+		int32_t neighborSector = -1;
+		uint32_t portalCount = 0;
+		uint32_t oneSidedCount = 0;
+		for (const InsetBoundarySealEdge& edge : topology.edges)
+		{
+			if (edge.oneSided && edge.nextSector < 0)
+			{
+				oneSidedCount++;
+				continue;
+			}
+			if (!edge.ordinaryReciprocalPortal || edge.nextSector < 0 ||
+				edge.nextSector == topology.sectorIndex)
+			{
+				return -1;
+			}
+			if (neighborSector < 0)
+				neighborSector = edge.nextSector;
+			else if (edge.nextSector != neighborSector)
+				return -1;
+			portalCount++;
+		}
+		return oneSidedCount == 1u && portalCount + oneSidedCount == topology.edges.size()
+			? neighborSector : -1;
+	}
+
+	bool IsInsetBoundarySeal(const InsetBoundarySealTopology& topology)
+	{
+		return topology.flatPlanes && !topology.collapsed &&
+			topology.sharesNeighborCeiling && topology.floorStrictlyInsideNeighbor &&
+			topology.emittedFloorSection && FindInsetBoundarySealNeighbor(topology) >= 0;
+	}
+
+	bool HasEmittedInsetPlaneSection(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& chunk,
+		nri_scene::PTMapSurfaceKind kind,
+		nri_scene::SurfaceSourceType sourceType)
+	{
+		const uint64_t surfaceEnd = std::min<uint64_t>(
+			(uint64_t)chunk.firstSurface + chunk.surfaceCount,
+			mapWorld.surfaces.size());
+		for (uint64_t surfaceIndex = chunk.firstSurface;
+			surfaceIndex < surfaceEnd; ++surfaceIndex)
+		{
+			const nri_scene::PTMapSurface& surface = mapWorld.surfaces[(size_t)surfaceIndex];
+			const nri_scene::SurfaceProvenance& provenance = surface.surface.provenance;
+			if (surface.kind == kind &&
+				surface.chunkIndex == chunk.chunkIndex &&
+				provenance.sourceType == sourceType &&
+				provenance.mapChunkIndex == (int32_t)chunk.chunkIndex &&
+				provenance.sectorIndex == chunk.sectorIndex &&
+				(surface.surface.material.flags & kOpenPlaneMaterialFlags) == 0 &&
+				(surface.surface.indices.size() >= 3u || surface.surface.vertices.size() >= 3u))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool HasEmittedInsetFloorSection(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& chunk)
+	{
+		return HasEmittedInsetPlaneSection(mapWorld, chunk,
+			nri_scene::PTMapSurfaceKind::Floor,
+			nri_scene::SurfaceSourceType::MapFloorSection);
+	}
+
+	bool HasEmittedInsetCeilingSection(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& chunk)
+	{
+		return HasEmittedInsetPlaneSection(mapWorld, chunk,
+			nri_scene::PTMapSurfaceKind::Ceiling,
+			nri_scene::SurfaceSourceType::MapCeilingSection);
+	}
+
+	InsetBoundarySealTopology BuildInsetBoundarySealTopology(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& insetChunk)
+	{
+		InsetBoundarySealTopology topology;
+		if (insetChunk.sectorIndex < 0 ||
+			(unsigned)insetChunk.sectorIndex >= sector.Size())
+		{
+			return topology;
+		}
+
+		const sectortype& candidate = sector[(unsigned)insetChunk.sectorIndex];
+		topology.sectorIndex = insetChunk.sectorIndex;
+		topology.collapsed = candidate.ceilingz >= candidate.floorz;
+		topology.emittedFloorSection = HasEmittedInsetFloorSection(mapWorld, insetChunk);
+		topology.edges.reserve(candidate.walls.Size());
+		for (const walltype& candidateWall : candidate.walls)
+		{
+			InsetBoundarySealEdge edge;
+			edge.nextSector = candidateWall.nextsector;
+			edge.oneSided = candidateWall.nextsector < 0 && candidateWall.nextwall < 0 &&
+				candidateWall.portalflags == 0 &&
+				!(candidateWall.cstat & CSTAT_WALL_MASKED) &&
+				!(candidateWall.cstat & CSTAT_WALL_1WAY);
+			if (candidateWall.nextsector >= 0 &&
+				(unsigned)candidateWall.nextsector < sector.Size())
+			{
+				const walltype* reciprocalWall = candidateWall.nextWall();
+				edge.ordinaryReciprocalPortal = candidateWall.portalflags == 0 &&
+					reciprocalWall != nullptr &&
+					reciprocalWall->nextsector == insetChunk.sectorIndex &&
+					reciprocalWall->portalflags == 0 &&
+					!(candidateWall.cstat & CSTAT_WALL_MASKED) &&
+					!(candidateWall.cstat & CSTAT_WALL_1WAY) &&
+					!(reciprocalWall->cstat & CSTAT_WALL_MASKED) &&
+					!(reciprocalWall->cstat & CSTAT_WALL_1WAY);
+			}
+			topology.edges.push_back(edge);
+		}
+
+		const int32_t neighborSector = FindInsetBoundarySealNeighbor(topology);
+		if (neighborSector < 0 || (unsigned)neighborSector >= sector.Size())
+			return topology;
+		const sectortype& neighbor = sector[(unsigned)neighborSector];
+		topology.flatPlanes = candidate.ceilingheinum == 0 && candidate.floorheinum == 0 &&
+			neighbor.ceilingheinum == 0 && neighbor.floorheinum == 0;
+		topology.sharesNeighborCeiling = candidate.ceilingz == neighbor.ceilingz;
+		topology.floorStrictlyInsideNeighbor = neighbor.ceilingz < candidate.floorz &&
+			candidate.floorz < neighbor.floorz;
+		return topology;
+	}
+
+	const nri_scene::PTMapChunk* FindChunkForSector(
+		const nri_scene::PTMapWorld& mapWorld,
+		int32_t sectorIndex,
+		uint32_t localSpaceIndex)
+	{
+		if (sectorIndex < 0 || (size_t)sectorIndex >= mapWorld.sectorChunkLookup.size())
+			return nullptr;
+		const uint32_t chunkIndex = mapWorld.sectorChunkLookup[(size_t)sectorIndex];
+		if (chunkIndex >= mapWorld.chunks.size())
+			return nullptr;
+		const nri_scene::PTMapChunk& chunk = mapWorld.chunks[chunkIndex];
+		return chunk.chunkIndex == chunkIndex && chunk.sectorIndex == sectorIndex &&
+			chunk.localSpaceIndex == localSpaceIndex ? &chunk : nullptr;
+	}
+
+	int32_t FindProtectedInsetBoundaryEnclosure(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& negativeOwner)
+	{
+		if (negativeOwner.sectorIndex < 0 ||
+			(unsigned)negativeOwner.sectorIndex >= sector.Size() ||
+			!HasEmittedInsetCeilingSection(mapWorld, negativeOwner))
+		{
+			return -1;
+		}
+
+		// The census-negative occurrence that must remain opaque is the sector
+		// owning the enclosing ceiling, not the small raised-floor inset itself.
+		// Require the inset's exact topology and emitted floor before extending
+		// that dependency to its unique enclosing neighbor.
+		const sectortype& ownerSector = sector[(unsigned)negativeOwner.sectorIndex];
+		for (const walltype& ownerWall : ownerSector.walls)
+		{
+			if (ownerWall.nextsector < 0 ||
+				(unsigned)ownerWall.nextsector >= sector.Size())
+			{
+				continue;
+			}
+			const nri_scene::PTMapChunk* insetChunk = FindChunkForSector(
+				mapWorld, ownerWall.nextsector, negativeOwner.localSpaceIndex);
+			if (insetChunk == nullptr)
+				continue;
+			const InsetBoundarySealTopology topology =
+				BuildInsetBoundarySealTopology(mapWorld, *insetChunk);
+			if (IsInsetBoundarySeal(topology) &&
+				FindInsetBoundarySealNeighbor(topology) == negativeOwner.sectorIndex)
+			{
+				return insetChunk->sectorIndex;
+			}
+		}
+		return -1;
+	}
+
 	bool ArePortalRelated(const nri_scene::PTMapWorld& mapWorld, uint32_t firstChunk, uint32_t secondChunk)
 	{
 		for (const nri_scene::PTMapPortal& portal : mapWorld.portals)
@@ -760,6 +966,7 @@ namespace
 		hash = HashValue(hash, snapshot.openBoundaryProtectedCount);
 		hash = HashValue(hash, snapshot.nearTopologyProtectedCount);
 		hash = HashValue(hash, snapshot.collapsedPortalProtectedCount);
+		hash = HashValue(hash, snapshot.insetBoundaryEnclosureProtectedCount);
 		hash = HashValue(hash, snapshot.authorizedPairCount);
 		hash = HashValue(hash, snapshot.pendingPairCount);
 		hash = HashValue(hash, snapshot.footprintTriangleCount);
@@ -779,6 +986,7 @@ namespace
 			hash = HashValue(hash, conflict.protectionFlags);
 			hash = HashValue(hash, conflict.topologyIntermediateSector);
 			hash = HashValue(hash, conflict.collapsedPortalSector);
+			hash = HashValue(hash, conflict.insetBoundaryChildSector);
 		}
 		for (const NRISpatialAbsenceSelectionRecord& selection : snapshot.selections)
 		{
@@ -1824,6 +2032,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		const nri_scene::PTMapChunk* negative = &second;
 		int32_t topologyIntermediateSector = -1;
 		int32_t collapsedPortalSector = -1;
+		int32_t insetBoundaryChildSector = -1;
 
 		if (firstUnknown || secondUnknown || first.sectorIndex < 0 || second.sectorIndex < 0)
 		{
@@ -1893,6 +2102,12 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_COLLAPSED_PORTAL_ENVELOPE;
 				mSnapshot.collapsedPortalProtectedCount++;
 			}
+			insetBoundaryChildSector = FindProtectedInsetBoundaryEnclosure(mapWorld, *negative);
+			if (insetBoundaryChildSector >= 0)
+			{
+				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_INSET_BOUNDARY_ENCLOSURE;
+				mSnapshot.insetBoundaryEnclosureProtectedCount++;
+			}
 			const CachedChunkTopology& firstTopology = ensureChunkBoundary(cachedPair.firstIndex);
 			const CachedChunkTopology& secondTopology = ensureChunkBoundary(cachedPair.secondIndex);
 			if (firstTopology.openBoundary || secondTopology.openBoundary)
@@ -1904,6 +2119,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			{
 				if (collapsedPortalSector >= 0)
 					classification.decision = NRISpatialAbsenceConflictDecision::CollapsedPortalEnvelope;
+				else if (insetBoundaryChildSector >= 0)
+					classification.decision = NRISpatialAbsenceConflictDecision::InsetBoundaryEnclosure;
 				else if ((protectionFlags & NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY) != 0)
 					classification.decision = NRISpatialAbsenceConflictDecision::OpenBoundary;
 			}
@@ -1937,6 +2154,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		mSnapshot.conflicts.back().protectionFlags = protectionFlags;
 		mSnapshot.conflicts.back().topologyIntermediateSector = topologyIntermediateSector;
 		mSnapshot.conflicts.back().collapsedPortalSector = collapsedPortalSector;
+		mSnapshot.conflicts.back().insetBoundaryChildSector = insetBoundaryChildSector;
 		if (classification.decision != NRISpatialAbsenceConflictDecision::Certified)
 			continue;
 
@@ -2514,6 +2732,162 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	malformedClosure.edges[0].nextSector = 4;
 	if (IsProtectedSealingCarrierPair(sealingCarrier, malformedClosure, true, true))
 		return fail("a closure without reciprocal carrier topology was protected");
+
+	auto makeInsetFloorSurface = []()
+	{
+		nri_scene::PTMapSurface surface;
+		surface.kind = nri_scene::PTMapSurfaceKind::Floor;
+		surface.chunkIndex = 4;
+		surface.surface.provenance.sourceType = nri_scene::SurfaceSourceType::MapFloorSection;
+		surface.surface.provenance.mapChunkIndex = 4;
+		surface.surface.provenance.sectorIndex = 7;
+		surface.surface.vertices.resize(3u);
+		return surface;
+	};
+	nri_scene::PTMapWorld insetFloorWorld;
+	insetFloorWorld.surfaces.push_back(makeInsetFloorSurface());
+	nri_scene::PTMapChunk insetFloorChunk;
+	insetFloorChunk.chunkIndex = 4;
+	insetFloorChunk.sectorIndex = 7;
+	insetFloorChunk.surfaceCount = 1u;
+	if (!HasEmittedInsetFloorSection(insetFloorWorld, insetFloorChunk))
+		return fail("an opaque owned map-floor section was not recognized as an inset seal");
+	nri_scene::PTMapSurface insetCeilingSurface = makeInsetFloorSurface();
+	insetCeilingSurface.kind = nri_scene::PTMapSurfaceKind::Ceiling;
+	insetCeilingSurface.surface.provenance.sourceType =
+		nri_scene::SurfaceSourceType::MapCeilingSection;
+	insetFloorWorld.surfaces[0] = insetCeilingSurface;
+	if (!HasEmittedInsetCeilingSection(insetFloorWorld, insetFloorChunk))
+		return fail("an opaque owned map-ceiling section was not recognized as an inset owner");
+	insetFloorWorld.surfaces[0] = makeInsetFloorSurface();
+	auto rejectsInsetFloor = [&](const nri_scene::PTMapSurface& surface)
+	{
+		insetFloorWorld.surfaces[0] = surface;
+		return !HasEmittedInsetFloorSection(insetFloorWorld, insetFloorChunk);
+	};
+	nri_scene::PTMapSurface malformedInsetFloor = makeInsetFloorSurface();
+	malformedInsetFloor.kind = nri_scene::PTMapSurfaceKind::Ceiling;
+	if (!rejectsInsetFloor(malformedInsetFloor))
+		return fail("a ceiling surface was accepted as an inset floor seal");
+	malformedInsetFloor = makeInsetFloorSurface();
+	malformedInsetFloor.chunkIndex++;
+	if (!rejectsInsetFloor(malformedInsetFloor))
+		return fail("an inset floor owned by another surface chunk was protected");
+	malformedInsetFloor = makeInsetFloorSurface();
+	malformedInsetFloor.surface.provenance.sourceType = nri_scene::SurfaceSourceType::FloorFlat;
+	if (!rejectsInsetFloor(malformedInsetFloor))
+		return fail("a non-map floor source was accepted as an inset seal");
+	malformedInsetFloor = makeInsetFloorSurface();
+	malformedInsetFloor.surface.provenance.mapChunkIndex++;
+	if (!rejectsInsetFloor(malformedInsetFloor))
+		return fail("an inset floor with mismatched chunk provenance was protected");
+	malformedInsetFloor = makeInsetFloorSurface();
+	malformedInsetFloor.surface.provenance.sectorIndex++;
+	if (!rejectsInsetFloor(malformedInsetFloor))
+		return fail("an inset floor with mismatched sector provenance was protected");
+	for (uint32_t openPlaneFlag : openPlaneFlags)
+	{
+		malformedInsetFloor = makeInsetFloorSurface();
+		malformedInsetFloor.surface.material.flags = openPlaneFlag;
+		if (!rejectsInsetFloor(malformedInsetFloor))
+			return fail("an open floor material was accepted as an inset seal");
+	}
+	malformedInsetFloor = makeInsetFloorSurface();
+	malformedInsetFloor.surface.vertices.resize(2u);
+	if (!rejectsInsetFloor(malformedInsetFloor))
+		return fail("an inset floor without emitted triangle geometry was protected");
+
+	nri_scene::PTMapWorld insetLookupWorld;
+	insetLookupWorld.chunks.resize(1u);
+	insetLookupWorld.chunks[0].chunkIndex = 0u;
+	insetLookupWorld.chunks[0].sectorIndex = 7;
+	insetLookupWorld.chunks[0].localSpaceIndex = 3u;
+	insetLookupWorld.sectorChunkLookup.assign(8u, UINT32_MAX);
+	insetLookupWorld.sectorChunkLookup[7] = 0u;
+	if (FindChunkForSector(insetLookupWorld, 7, 3u) != &insetLookupWorld.chunks[0] ||
+		FindChunkForSector(insetLookupWorld, 7, 2u) != nullptr ||
+		FindChunkForSector(insetLookupWorld, -1, 3u) != nullptr)
+	{
+		return fail("inset enclosure sector-to-chunk lookup validation failed");
+	}
+	insetLookupWorld.chunks[0].sectorIndex = 6;
+	if (FindChunkForSector(insetLookupWorld, 7, 3u) != nullptr)
+		return fail("an inset enclosure lookup accepted mismatched sector ownership");
+
+	auto makeInsetBoundarySeal = [](uint32_t portalCount)
+	{
+		InsetBoundarySealTopology topology;
+		topology.sectorIndex = 7;
+		topology.flatPlanes = true;
+		topology.sharesNeighborCeiling = true;
+		topology.floorStrictlyInsideNeighbor = true;
+		topology.emittedFloorSection = true;
+		for (uint32_t portalIndex = 0; portalIndex < portalCount; ++portalIndex)
+			topology.edges.push_back({ 9, true, false });
+		topology.edges.push_back({ -1, false, true });
+		return topology;
+	};
+	const InsetBoundarySealTopology fourWallInset = makeInsetBoundarySeal(3u);
+	const InsetBoundarySealTopology splitSixWallInset = makeInsetBoundarySeal(5u);
+	if (!IsInsetBoundarySeal(fourWallInset) ||
+		FindInsetBoundarySealNeighbor(fourWallInset) != 9 ||
+		!IsInsetBoundarySeal(splitSixWallInset))
+	{
+		return fail("four-wall or collinearly split raised-floor ceiling inset was not protected");
+	}
+
+	InsetBoundarySealTopology malformedInset = fourWallInset;
+	malformedInset.sectorIndex = -1;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset with invalid sector identity was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges.resize(2u);
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset with a malformed perimeter was protected");
+	malformedInset = fourWallInset;
+	malformedInset.flatPlanes = false;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("a sloped inset boundary was protected");
+	malformedInset = fourWallInset;
+	malformedInset.collapsed = true;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("a collapsed inset boundary was protected");
+	malformedInset = fourWallInset;
+	malformedInset.sharesNeighborCeiling = false;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset without a shared neighbor ceiling was protected");
+	malformedInset = fourWallInset;
+	malformedInset.floorStrictlyInsideNeighbor = false;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset floor outside the neighbor volume was protected");
+	malformedInset = fourWallInset;
+	malformedInset.emittedFloorSection = false;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset without an emitted owned floor section was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges[1].nextSector = 10;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset with multiple ordinary neighbors was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges.back() = { 9, true, false };
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset without exactly one one-sided cap was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges[1] = { -1, false, true };
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("an inset with multiple one-sided caps was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges[1].ordinaryReciprocalPortal = false;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("a linked nonordinary or nonreciprocal inset edge was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges[1].nextSector = malformedInset.sectorIndex;
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("a self-linked inset edge was protected");
+	malformedInset = fourWallInset;
+	malformedInset.edges.back() = { -1, false, false };
+	if (IsInsetBoundarySeal(malformedInset))
+		return fail("a malformed linked edge was accepted as a one-sided inset cap");
 	Triangle2D firstTriangle = { { { 0.0f, 0.0f }, { 4.0f, 0.0f }, { 0.0f, 4.0f } } };
 	Triangle2D overlappingTriangle = { { { 1.0f, 1.0f }, { 3.0f, 1.0f }, { 1.0f, 3.0f } } };
 	Triangle2D disjointTriangle = { { { 8.0f, 8.0f }, { 9.0f, 8.0f }, { 8.0f, 9.0f } } };
@@ -2992,6 +3366,7 @@ const char* GetNRISpatialAbsenceConflictDecisionName(NRISpatialAbsenceConflictDe
 	case NRISpatialAbsenceConflictDecision::OpenBoundary: return "open-boundary";
 	case NRISpatialAbsenceConflictDecision::NearOrdinaryTopology: return "near-ordinary-topology";
 	case NRISpatialAbsenceConflictDecision::CollapsedPortalEnvelope: return "collapsed-portal-envelope";
+	case NRISpatialAbsenceConflictDecision::InsetBoundaryEnclosure: return "inset-boundary-enclosure";
 	default: return "unknown";
 	}
 }
