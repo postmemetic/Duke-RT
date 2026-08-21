@@ -153,6 +153,7 @@ struct GameInterface
 	virtual bool GetRuntimeLinkDebugTaggedSectorInfo(int sectorIndex, RuntimeTaggedSectorDebugInfo* info) { return false; }
 	virtual RuntimeMapMoverAuthorityState GetRuntimeMapMoverAuthorityState() const { return {}; }
 	virtual void CaptureRuntimeMapMovers(TArray<RuntimeMapMoverSnapshot>& out) const { out.Clear(); }
+	virtual bool IsPortalClosureSector(int sectorIndex) const { return false; }
 	virtual int Voxelize(int sprnum) { return -1; }
 	virtual void AddExcludedEpisode(const FString& episode) {}
 	virtual int GetCurrentSkill() { return -1; }

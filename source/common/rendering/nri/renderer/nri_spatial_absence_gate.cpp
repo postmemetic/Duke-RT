@@ -196,73 +196,242 @@ namespace
 			});
 	}
 
-	template<typename IsCollapsed, typename VisitNeighbors>
-	int32_t FindCollapsedPortalEnvelopeImpl(
-		int32_t sourceSector,
-		size_t sectorCount,
-		IsCollapsed&& isCollapsed,
-		VisitNeighbors&& visitNeighbors)
+	struct ClosureStripEdge
 	{
-		if (sourceSector < 0 || (size_t)sourceSector >= sectorCount)
-			return -1;
+		double start[2] = {};
+		double end[2] = {};
+		int32_t wallIndex = -1;
+		int32_t nextSector = -1;
+		bool ordinaryPortal = false;
+	};
 
-		// A zero-height sector with two distinct ordinary neighbors is a closed
-		// passage envelope. Its adjacent sectors own the wall bands that seal it,
-		// so all three chunks are unsafe negative-volume certificates.
-		auto isCollapsedPassage = [&](int32_t candidateSector)
-		{
-			if (candidateSector < 0 || (size_t)candidateSector >= sectorCount ||
-				!isCollapsed(candidateSector))
-			{
-				return false;
-			}
-			int32_t firstNeighbor = -1;
-			bool hasDistinctSecondNeighbor = false;
-			visitNeighbors(candidateSector, [&](int32_t neighborSector)
-			{
-				if (neighborSector < 0 || neighborSector == candidateSector ||
-					(size_t)neighborSector >= sectorCount)
-				{
-					return;
-				}
-				if (firstNeighbor < 0)
-					firstNeighbor = neighborSector;
-				else if (neighborSector != firstNeighbor)
-					hasDistinctSecondNeighbor = true;
-			});
-			return firstNeighbor >= 0 && hasDistinctSecondNeighbor;
-		};
+	struct ClosureStripTopology
+	{
+		int32_t sectorIndex = -1;
+		bool collapsed = false;
+		std::vector<ClosureStripEdge> edges;
+	};
 
-		if (isCollapsedPassage(sourceSector))
-			return sourceSector;
-		int32_t collapsedNeighbor = -1;
-		visitNeighbors(sourceSector, [&](int32_t neighborSector)
-		{
-			if (collapsedNeighbor < 0 && isCollapsedPassage(neighborSector))
-				collapsedNeighbor = neighborSector;
-		});
-		return collapsedNeighbor;
+	struct ClosureStripAnalysis
+	{
+		bool valid = false;
+		int32_t portalNeighbors[2] = { -1, -1 };
+		int32_t portalWalls[2] = { -1, -1 };
+	};
+
+	double EdgeLength(const ClosureStripEdge& edge)
+	{
+		const double x = edge.end[0] - edge.start[0];
+		const double y = edge.end[1] - edge.start[1];
+		return std::sqrt(x * x + y * y);
 	}
 
-	int32_t FindCollapsedPortalEnvelope(int32_t sourceSector)
+	bool NearlyEqualLength(double first, double second)
 	{
-		return FindCollapsedPortalEnvelopeImpl(
-			sourceSector,
-			sector.Size(),
-			[](int32_t candidateSector)
+		const double scale = std::max({ 1.0, std::abs(first), std::abs(second) });
+		return std::abs(first - second) <= scale * 1.0e-6;
+	}
+
+	ClosureStripAnalysis AnalyzeClosureStrip(const ClosureStripTopology& topology)
+	{
+		ClosureStripAnalysis analysis;
+		if (topology.sectorIndex < 0 || topology.edges.size() != 4u)
+			return analysis;
+
+		int portalIndices[2] = { -1, -1 };
+		int capIndices[2] = { -1, -1 };
+		uint32_t portalCount = 0;
+		uint32_t capCount = 0;
+		for (uint32_t edgeIndex = 0; edgeIndex < topology.edges.size(); ++edgeIndex)
+		{
+			const ClosureStripEdge& edge = topology.edges[edgeIndex];
+			if (edge.ordinaryPortal && edge.nextSector >= 0)
 			{
-				const sectortype& candidate = sector[(unsigned)candidateSector];
-				return candidate.floorz == candidate.ceilingz &&
-					candidate.floorheinum == candidate.ceilingheinum;
-			},
-			[](int32_t candidateSector, const auto& visit)
+				if (portalCount >= 2u)
+					return analysis;
+				portalIndices[portalCount++] = (int)edgeIndex;
+			}
+			else if (edge.nextSector < 0)
 			{
-				for (const walltype& wall : sector[(unsigned)candidateSector].walls)
-				{
-					if (wall.portalflags == 0)
-						visit(wall.nextsector);
-				}
-			});
+				if (capCount >= 2u)
+					return analysis;
+				capIndices[capCount++] = (int)edgeIndex;
+			}
+			else
+			{
+				// A linked nonordinary edge is not a one-sided end cap.
+				return analysis;
+			}
+		}
+		if (portalCount != 2u || capCount != 2u ||
+			topology.edges[(size_t)portalIndices[0]].nextSector ==
+				topology.edges[(size_t)portalIndices[1]].nextSector ||
+			std::abs(portalIndices[0] - portalIndices[1]) != 2)
+		{
+			return analysis;
+		}
+
+		const ClosureStripEdge& firstPortal = topology.edges[(size_t)portalIndices[0]];
+		const ClosureStripEdge& secondPortal = topology.edges[(size_t)portalIndices[1]];
+		const double firstX = firstPortal.end[0] - firstPortal.start[0];
+		const double firstY = firstPortal.end[1] - firstPortal.start[1];
+		const double secondX = secondPortal.end[0] - secondPortal.start[0];
+		const double secondY = secondPortal.end[1] - secondPortal.start[1];
+		const double firstLength = EdgeLength(firstPortal);
+		const double secondLength = EdgeLength(secondPortal);
+		if (firstLength <= 0.0 || secondLength <= 0.0 ||
+			!NearlyEqualLength(firstLength, secondLength))
+		{
+			return analysis;
+		}
+		const double vectorScale = firstLength * secondLength;
+		const double cross = firstX * secondY - firstY * secondX;
+		const double dot = firstX * secondX + firstY * secondY;
+		if (std::abs(cross) > vectorScale * 1.0e-6 || dot >= 0.0)
+			return analysis;
+
+		const double firstCapLength = EdgeLength(topology.edges[(size_t)capIndices[0]]);
+		const double secondCapLength = EdgeLength(topology.edges[(size_t)capIndices[1]]);
+		const double maximumCapLength = std::max(firstCapLength, secondCapLength);
+		if (maximumCapLength <= 0.0 || firstLength / maximumCapLength < 16.0)
+			return analysis;
+
+		analysis.valid = true;
+		for (uint32_t portalIndex = 0; portalIndex < 2u; ++portalIndex)
+		{
+			const ClosureStripEdge& edge = topology.edges[(size_t)portalIndices[portalIndex]];
+			analysis.portalNeighbors[portalIndex] = edge.nextSector;
+			analysis.portalWalls[portalIndex] = edge.wallIndex;
+		}
+		return analysis;
+	}
+
+	bool ContainsPortalNeighbor(const ClosureStripAnalysis& analysis, int32_t sectorIndex)
+	{
+		return analysis.portalNeighbors[0] == sectorIndex ||
+			analysis.portalNeighbors[1] == sectorIndex;
+	}
+
+	int32_t FindPortalWall(const ClosureStripAnalysis& analysis, int32_t sectorIndex)
+	{
+		for (uint32_t portalIndex = 0; portalIndex < 2u; ++portalIndex)
+		{
+			if (analysis.portalNeighbors[portalIndex] == sectorIndex)
+				return analysis.portalWalls[portalIndex];
+		}
+		return -1;
+	}
+
+	bool IsProtectedSealingCarrierPair(
+		const ClosureStripTopology& negative,
+		const ClosureStripTopology& closure,
+		bool authoredClosure,
+		bool emittedOrdinaryWallBand)
+	{
+		if (negative.collapsed || !closure.collapsed || !authoredClosure ||
+			!emittedOrdinaryWallBand)
+		{
+			return false;
+		}
+		const ClosureStripAnalysis negativeAnalysis = AnalyzeClosureStrip(negative);
+		const ClosureStripAnalysis closureAnalysis = AnalyzeClosureStrip(closure);
+		return negativeAnalysis.valid && closureAnalysis.valid &&
+			ContainsPortalNeighbor(negativeAnalysis, closure.sectorIndex) &&
+			ContainsPortalNeighbor(closureAnalysis, negative.sectorIndex);
+	}
+
+	ClosureStripTopology BuildClosureStripTopology(int32_t sectorIndex)
+	{
+		ClosureStripTopology topology;
+		if (sectorIndex < 0 || (unsigned)sectorIndex >= sector.Size())
+			return topology;
+		const sectortype& candidate = sector[(unsigned)sectorIndex];
+		topology.sectorIndex = sectorIndex;
+		topology.collapsed = candidate.floorz == candidate.ceilingz &&
+			candidate.floorheinum == candidate.ceilingheinum;
+		topology.edges.reserve(candidate.walls.Size());
+		for (const walltype& candidateWall : candidate.walls)
+		{
+			ClosureStripEdge edge;
+			edge.start[0] = candidateWall.pos.X;
+			edge.start[1] = candidateWall.pos.Y;
+			const walltype* endWall = candidateWall.point2Wall();
+			if (endWall == nullptr)
+				return {};
+			edge.end[0] = endWall->pos.X;
+			edge.end[1] = endWall->pos.Y;
+			edge.wallIndex = wall.IndexOf(&candidateWall);
+			edge.nextSector = candidateWall.nextsector;
+			edge.ordinaryPortal = candidateWall.portalflags == 0 &&
+				candidateWall.nextsector >= 0;
+			topology.edges.push_back(edge);
+		}
+		return topology;
+	}
+
+	bool HasEmittedOrdinaryWallBand(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& negativeChunk,
+		int32_t negativeSector,
+		int32_t closureSector,
+		int32_t expectedWall)
+	{
+		if (expectedWall < 0)
+			return false;
+		const uint64_t surfaceEnd = std::min<uint64_t>(
+			(uint64_t)negativeChunk.firstSurface + negativeChunk.surfaceCount,
+			mapWorld.surfaces.size());
+		for (uint64_t surfaceIndex = negativeChunk.firstSurface;
+			surfaceIndex < surfaceEnd; ++surfaceIndex)
+		{
+			const nri_scene::SurfaceProvenance& provenance =
+				mapWorld.surfaces[(size_t)surfaceIndex].surface.provenance;
+			if (provenance.sourceType != nri_scene::SurfaceSourceType::MapWallBand ||
+				provenance.mapChunkIndex != (int32_t)negativeChunk.chunkIndex ||
+				provenance.sectorIndex != negativeSector ||
+				provenance.nextSectorIndex != closureSector ||
+				provenance.wallIndex != expectedWall ||
+				(unsigned)provenance.wallIndex >= wall.Size())
+			{
+				continue;
+			}
+			const walltype& sourceWall = wall[(unsigned)provenance.wallIndex];
+			if (sourceWall.nextsector == closureSector && sourceWall.portalflags == 0)
+				return true;
+		}
+		return false;
+	}
+
+	int32_t FindProtectedSealingCarrier(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& negativeChunk,
+		const std::vector<uint32_t>& authoredClosureSectors)
+	{
+		const ClosureStripTopology negative = BuildClosureStripTopology(negativeChunk.sectorIndex);
+		const ClosureStripAnalysis negativeAnalysis = AnalyzeClosureStrip(negative);
+		if (negative.collapsed || !negativeAnalysis.valid)
+			return -1;
+		for (int32_t closureSector : negativeAnalysis.portalNeighbors)
+		{
+			if (closureSector < 0 ||
+				!std::binary_search(authoredClosureSectors.begin(), authoredClosureSectors.end(),
+					(uint32_t)closureSector))
+			{
+				continue;
+			}
+			const ClosureStripTopology closure = BuildClosureStripTopology(closureSector);
+			if (IsProtectedSealingCarrierPair(
+				negative,
+				closure,
+				true,
+				HasEmittedOrdinaryWallBand(mapWorld, negativeChunk,
+					negativeChunk.sectorIndex, closureSector,
+					FindPortalWall(negativeAnalysis, closureSector))))
+			{
+				return closureSector;
+			}
+		}
+		return -1;
 	}
 
 	bool ArePortalRelated(const nri_scene::PTMapWorld& mapWorld, uint32_t firstChunk, uint32_t secondChunk)
@@ -1545,6 +1714,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	std::vector<uint32_t> reached = input.reachedSectorIndices;
 	std::vector<uint32_t> uncertain = input.uncertainSectorIndices;
 	std::vector<uint32_t> uncertainChunks = input.uncertainChunkIndices;
+	std::vector<uint32_t> authoredClosureSectors = input.authoredClosureSectorIndices;
 	std::sort(reached.begin(), reached.end());
 	reached.erase(std::unique(reached.begin(), reached.end()), reached.end());
 	mSnapshot.reachedSectorIndices = reached;
@@ -1557,6 +1727,10 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	uncertain.erase(std::unique(uncertain.begin(), uncertain.end()), uncertain.end());
 	std::sort(uncertainChunks.begin(), uncertainChunks.end());
 	uncertainChunks.erase(std::unique(uncertainChunks.begin(), uncertainChunks.end()), uncertainChunks.end());
+	std::sort(authoredClosureSectors.begin(), authoredClosureSectors.end());
+	authoredClosureSectors.erase(
+		std::unique(authoredClosureSectors.begin(), authoredClosureSectors.end()),
+		authoredClosureSectors.end());
 
 	std::vector<CertifiedPair> certifiedPairs;
 	const bool rebuildTopology = mTopologyCache->worldGeneration != input.worldGeneration ||
@@ -1709,10 +1883,11 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			classification.decision == NRISpatialAbsenceConflictDecision::NearOrdinaryTopology;
 		if (protectionCandidate)
 		{
-			const int32_t firstCollapsedPortal = FindCollapsedPortalEnvelope(first.sectorIndex);
-			const int32_t secondCollapsedPortal = FindCollapsedPortalEnvelope(second.sectorIndex);
-			collapsedPortalSector = firstCollapsedPortal >= 0
-				? firstCollapsedPortal : secondCollapsedPortal;
+			// Orientation is resolved above. Only a census-negative chunk whose own
+			// emitted wall band seals an authored closure may fail open here; a
+			// nearby closure on the positive side is not negative-volume evidence.
+			collapsedPortalSector = FindProtectedSealingCarrier(
+				mapWorld, *negative, authoredClosureSectors);
 			if (collapsedPortalSector >= 0)
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_COLLAPSED_PORTAL_ENVELOPE;
@@ -2271,39 +2446,74 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		return fail("direct, same-sector, distant, or malformed topology was misclassified as a two-hop pair");
 	}
 
-	const std::vector<std::vector<int32_t>> collapsedPortalNeighbors = {
-		{ 1 }, { 0, 2 }, { 1 }, { 4, 4 }, { 3 }, {}
-	};
-	const std::vector<bool> collapsedPortalPlanes = { false, true, false, true, false, false };
-	auto visitCollapsedPortalNeighbors = [&](int32_t sourceSector, const auto& visit)
+	auto makeClosureStrip = [](
+		int32_t sectorIndex,
+		bool collapsed,
+		int32_t firstNeighbor,
+		int32_t secondNeighbor,
+		double length,
+		double thickness)
 	{
-		for (int32_t neighbor : collapsedPortalNeighbors[(size_t)sourceSector])
-			visit(neighbor);
+		ClosureStripTopology topology;
+		topology.sectorIndex = sectorIndex;
+		topology.collapsed = collapsed;
+		topology.edges = {
+			{ { 0.0, 0.0 }, { length, 0.0 }, 10, firstNeighbor, true },
+			{ { length, 0.0 }, { length, thickness }, 11, -1, false },
+			{ { length, thickness }, { 0.0, thickness }, 12, secondNeighbor, true },
+			{ { 0.0, thickness }, { 0.0, 0.0 }, 13, -1, false },
+		};
+		return topology;
 	};
-	auto isCollapsedPortalPlane = [&](int32_t candidateSector)
+	const ClosureStripTopology sealingCarrier = makeClosureStrip(0, false, 1, 2, 128.0, 2.0);
+	const ClosureStripTopology authoredClosure = makeClosureStrip(1, true, 0, 3, 128.0, 4.0);
+	if (!IsProtectedSealingCarrierPair(sealingCarrier, authoredClosure, true, true))
+		return fail("an authored double-strip sealing carrier was not protected");
+	if (IsProtectedSealingCarrierPair(authoredClosure, sealingCarrier, true, true))
+		return fail("a closure on the oriented positive side protected the negative certificate");
+	if (IsProtectedSealingCarrierPair(sealingCarrier, authoredClosure, false, true) ||
+		IsProtectedSealingCarrierPair(sealingCarrier, authoredClosure, true, false))
 	{
-		return collapsedPortalPlanes[(size_t)candidateSector];
-	};
-	if (FindCollapsedPortalEnvelopeImpl(
-			0, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) != 1 ||
-		FindCollapsedPortalEnvelopeImpl(
-			1, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) != 1 ||
-		FindCollapsedPortalEnvelopeImpl(
-			2, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) != 1)
-	{
-		return fail("a collapsed ordinary passage did not protect its volume and sealing-band neighbors");
+		return fail("an unauthored closure or missing emitted N-to-D wall band was protected");
 	}
-	if (FindCollapsedPortalEnvelopeImpl(
-			3, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0 ||
-		FindCollapsedPortalEnvelopeImpl(
-			4, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0 ||
-		FindCollapsedPortalEnvelopeImpl(
-			5, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0 ||
-		FindCollapsedPortalEnvelopeImpl(
-			-1, collapsedPortalNeighbors.size(), isCollapsedPortalPlane, visitCollapsedPortalNeighbors) >= 0)
-	{
-		return fail("a one-sided, duplicate-neighbor, noncollapsed, or malformed sector entered a collapsed portal envelope");
-	}
+
+	ClosureStripTopology malformedCarrier = sealingCarrier;
+	malformedCarrier.collapsed = true;
+	if (IsProtectedSealingCarrierPair(malformedCarrier, authoredClosure, true, true))
+		return fail("a collapsed negative carrier was protected");
+	ClosureStripTopology malformedClosure = authoredClosure;
+	malformedClosure.collapsed = false;
+	if (IsProtectedSealingCarrierPair(sealingCarrier, malformedClosure, true, true))
+		return fail("a noncollapsed authored closure was protected");
+
+	malformedCarrier = makeClosureStrip(0, false, 1, 2, 128.0, 9.0);
+	if (IsProtectedSealingCarrierPair(malformedCarrier, authoredClosure, true, true))
+		return fail("a carrier below the minimum strip aspect was protected");
+	malformedClosure = makeClosureStrip(1, true, 0, 3, 128.0, 9.0);
+	if (IsProtectedSealingCarrierPair(sealingCarrier, malformedClosure, true, true))
+		return fail("a closure below the minimum strip aspect was protected");
+	malformedCarrier = sealingCarrier;
+	malformedCarrier.edges.push_back(
+		{ { 0.0, 0.0 }, { 1.0, 1.0 }, 14, -1, false });
+	if (IsProtectedSealingCarrierPair(malformedCarrier, authoredClosure, true, true))
+		return fail("a non-quadrilateral carrier was protected");
+	malformedCarrier = sealingCarrier;
+	malformedCarrier.edges[2].nextSector = malformedCarrier.edges[0].nextSector;
+	if (IsProtectedSealingCarrierPair(malformedCarrier, authoredClosure, true, true))
+		return fail("a carrier without two distinct portal neighbors was protected");
+	malformedCarrier = sealingCarrier;
+	malformedCarrier.edges[1].nextSector = 4;
+	malformedCarrier.edges[1].ordinaryPortal = false;
+	if (IsProtectedSealingCarrierPair(malformedCarrier, authoredClosure, true, true))
+		return fail("a linked nonordinary edge was accepted as an end cap");
+	malformedCarrier = sealingCarrier;
+	malformedCarrier.edges[2].end[1] += 1.0;
+	if (IsProtectedSealingCarrierPair(malformedCarrier, authoredClosure, true, true))
+		return fail("unequal nonparallel portal edges were accepted as an opposite pair");
+	malformedClosure = authoredClosure;
+	malformedClosure.edges[0].nextSector = 4;
+	if (IsProtectedSealingCarrierPair(sealingCarrier, malformedClosure, true, true))
+		return fail("a closure without reciprocal carrier topology was protected");
 	Triangle2D firstTriangle = { { { 0.0f, 0.0f }, { 4.0f, 0.0f }, { 0.0f, 4.0f } } };
 	Triangle2D overlappingTriangle = { { { 1.0f, 1.0f }, { 3.0f, 1.0f }, { 1.0f, 3.0f } } };
 	Triangle2D disjointTriangle = { { { 8.0f, 8.0f }, { 9.0f, 8.0f }, { 8.0f, 9.0f } } };

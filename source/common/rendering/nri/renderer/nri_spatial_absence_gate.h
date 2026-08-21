@@ -118,6 +118,10 @@ struct NRISpatialAbsenceCensusInput
 	// Runtime-dragged/replaced chunks must remain fail-open until their current
 	// occurrence bounds and generation are available to the classifier.
 	std::vector<uint32_t> uncertainChunkIndices;
+	// Authored sectors whose closed state is allowed to protect an adjacent
+	// sealing-band carrier. Runtime plane coincidence alone is not sufficient
+	// closure authority.
+	std::vector<uint32_t> authoredClosureSectorIndices;
 };
 
 struct NRISpatialAbsenceConflictRecord

@@ -64,6 +64,7 @@ struct GameInterface : public ::GameInterface
 	bool GetRuntimeLinkDebugTaggedSectorInfo(int sectorIndex, RuntimeTaggedSectorDebugInfo* info) override;
 	RuntimeMapMoverAuthorityState GetRuntimeMapMoverAuthorityState() const override;
 	void CaptureRuntimeMapMovers(TArray<RuntimeMapMoverSnapshot>& out) const override;
+	bool IsPortalClosureSector(int sectorIndex) const override;
 	void AddExcludedEpisode(const FString& episode) override;
 	int GetCurrentSkill() override;
 	bool WantEscape() override;

@@ -780,4 +780,10 @@ void GameInterface::CaptureRuntimeMapMovers(TArray<RuntimeMapMoverSnapshot>& out
 	CaptureRuntimeMapMoverAuthority(out);
 }
 
+bool GameInterface::IsPortalClosureSector(int sectorIndex) const
+{
+	return sectorIndex >= 0 && (unsigned)sectorIndex < sector.Size() &&
+		(sector[(unsigned)sectorIndex].lotag & 0xff) == ST_20_CEILING_DOOR;
+}
+
 END_DUKE_NS

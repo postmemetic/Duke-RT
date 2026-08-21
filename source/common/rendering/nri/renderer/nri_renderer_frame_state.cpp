@@ -384,6 +384,15 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 				input.reachedWallIndices.push_back(wallIndex);
 			}
 		}
+		if (gi != nullptr)
+		{
+			input.authoredClosureSectorIndices.reserve(sector.Size());
+			for (unsigned sectorIndex = 0; sectorIndex < sector.Size(); ++sectorIndex)
+			{
+				if (gi->IsPortalClosureSector((int)sectorIndex))
+					input.authoredClosureSectorIndices.push_back(sectorIndex);
+			}
+		}
 		for (uint32_t chunkIndex = 0; chunkIndex < mMapWorld.chunks.size(); ++chunkIndex)
 		{
 			const RuntimeMapMutationCache::ChunkReplacement* replacement = mRuntimeMutation.FindReplacement(chunkIndex);
