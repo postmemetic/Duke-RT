@@ -36,7 +36,7 @@ int main()
 {
 	Require(NRI_TRACE_SHADER_READBACK_SLOT_COUNT == 3,
 		"trace stats must match the triple-buffered frame shell");
-	Require(sizeof(NRITraceShaderInstanceAttribution) == 24,
+	Require(sizeof(NRITraceShaderInstanceAttribution) == 28,
 		"frame-correct attribution rows must remain compact");
 
 	std::array<NRITraceShaderReadbackSlotObservation, 3> slots = {};
@@ -58,7 +58,7 @@ int main()
 		{ 5, 0, 1, 300, 0 },
 		{ 0, 0, 0, 101, 0 },
 		{ 20, 0, 2, 201, 0 },
-		{ 20, 0, 2, 203, 0, 4 },
+		{ 20, 0, 2, 203, 0, 0, 4 },
 		{ 30, 0, 2, 202, 0 },
 		{ 40, 0, 0, 102, 0 },
 		{ 1, 0, 9, 900, 0 },

@@ -1,0 +1,59 @@
+{
+  "name": "red-texture-d3d12-save0096",
+  "backend": "d3d12",
+  "save": {"dir": "M:/Raze/tools/perf-saves/Duke.WorldTour"},
+  "debugMode": 0,
+  "traceFrames": 32,
+  "captureWhenPassed": true,
+  "minSelfTestFrames": 8,
+  "windowHealth": {
+    "minCenterNonzeroRatio": 0.001,
+    "minCenterLumaMean": 0.001
+  },
+  "extraArgs": [
+    "+set", "nri_ptwaitpresent", "false",
+    "+set", "nri_ptsurfaceprobe", "1"
+  ],
+  "commands": "+wait 45; load save0096",
+  "requiredPrefixes": [
+    "NRI PT selftest:",
+    "NRI PT surface probe:",
+    "NRI PT scene texture cap:"
+  ],
+  "prefixAssertions": [
+    {"prefix": "NRI PT surface probe:", "minCount": 1, "applyTo": "all", "fields": {
+      "source": {"exact": "map_wall_band"},
+      "owner": {"exact": "static_map"},
+      "data_source": {"exact": "static"},
+      "sector": {"exact": "160"},
+      "wall": {"exact": "1047"},
+      "cpu_palette": {"exact": "0"},
+      "metadata_palette": {"exact": "0"},
+      "gpu_palette": {"exact": "0"},
+      "gpu_material_valid": {"exact": "yes"},
+      "cpu_metadata_match": {"exact": "yes"},
+      "gpu_palette_match": {"exact": "yes"},
+      "gpu_texture_match": {"exact": "yes"},
+      "stable_texture_slots": {"exact": "yes"}
+    }},
+    {"prefix": "NRI PT scene texture cap:", "minCount": 1, "applyTo": "last", "fields": {
+      "cap": {"exact": "1024"},
+      "scene_set": {"exact": "1028"},
+      "stage_textures": {"exact": "1042"},
+      "supported": {"exact": "yes"}
+    }}
+  ],
+  "forbiddenPatterns": [
+    "Device removed",
+    "device lost",
+    "DXGI_ERROR_DEVICE",
+    "DRED after",
+    "NRI render failed",
+    "validation error",
+    "failed to create",
+    "assertion failed",
+    "fatal error",
+    "Failed to open savegame",
+    "Failed to restore all objects in savegame"
+  ]
+}
