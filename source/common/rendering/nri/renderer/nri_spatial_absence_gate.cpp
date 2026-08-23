@@ -2,6 +2,7 @@
 
 #include "nri_diagnostic_names.h"
 #include "nri_frame_resources.h"
+#include "nri_spatial_absence_frontier_index.h"
 
 #include "build.h"
 
@@ -418,14 +419,7 @@ namespace
 		return false;
 	}
 
-	struct ReachedMapFrontierProtection
-	{
-		int32_t reachedSector = -1;
-		int32_t reachedWall = -1;
-		int32_t closureSector = -1;
-
-		bool IsValid() const { return reachedSector >= 0 && reachedWall >= 0; }
-	};
+	using ReachedMapFrontierProtection = NRISpatialAbsenceFrontierRoute;
 
 	struct FrameNegativeProtection
 	{
@@ -468,215 +462,43 @@ namespace
 		return result;
 	}
 
-	struct MapFrontierWallLink
-	{
-		int32_t wallIndex = -1;
-		int32_t sectorIndex = -1;
-		int32_t nextWallIndex = -1;
-		int32_t nextSectorIndex = -1;
-		uint32_t portalFlags = 0;
-		uint32_t cstat = 0;
-	};
-
-	bool IsOrdinaryReciprocalMapFrontierPortal(
-		const MapFrontierWallLink& edge,
-		const MapFrontierWallLink& reciprocal)
-	{
-		return edge.wallIndex >= 0 && edge.sectorIndex >= 0 && edge.nextWallIndex >= 0 &&
-			edge.nextSectorIndex >= 0 &&
-			edge.portalFlags == 0 &&
-			(edge.cstat & (CSTAT_WALL_MASKED | CSTAT_WALL_1WAY)) == 0 &&
-			reciprocal.wallIndex == edge.nextWallIndex &&
-			reciprocal.sectorIndex == edge.nextSectorIndex &&
-			reciprocal.nextSectorIndex == edge.sectorIndex &&
-			reciprocal.nextWallIndex == edge.wallIndex &&
-			reciprocal.portalFlags == 0 &&
-			(reciprocal.cstat & (CSTAT_WALL_MASKED | CSTAT_WALL_1WAY)) == 0;
-	}
-
-	struct MapFrontierPortalEdge
-	{
-		int32_t wallIndex = -1;
-		int32_t sectorIndex = -1;
-		int32_t reciprocalWallIndex = -1;
-		int32_t nextSectorIndex = -1;
-		bool ordinaryReciprocal = false;
-		bool positiveAperture = false;
-	};
-
-	struct MapFrontierClosureDescriptor
-	{
-		int32_t sectorIndex = -1;
-		bool valid = false;
-		int32_t portalNeighbors[2] = { -1, -1 };
-		int32_t portalWalls[2] = { -1, -1 };
-	};
-
-	template<typename VisitSectorWalls, typename GetPortalEdge,
-		typename GetClosure, typename HasOpaqueNegativeBand>
-	ReachedMapFrontierProtection FindReachedMapFrontierProtectionImpl(
-		int32_t negativeSector,
-		const std::vector<uint32_t>& reachedSectorIndices,
-		VisitSectorWalls&& visitSectorWalls,
-		GetPortalEdge&& getPortalEdge,
-		GetClosure&& getClosure,
+	template<typename HasOpaqueNegativeBand>
+	ReachedMapFrontierProtection SelectIndexedFrontierProtection(
+		const ReachedMapFrontierProtection* direct,
+		const std::vector<ReachedMapFrontierProtection>* closures,
 		HasOpaqueNegativeBand&& hasOpaqueNegativeBand)
 	{
-		ReachedMapFrontierProtection protection;
-		if (negativeSector < 0)
-			return protection;
-
-		// An ordinary wall of a reached sector with a live opening directly into N makes
-		// census absence nonauthoritative without consulting the overlap pair's
-		// positive owner.
-		for (uint32_t reachedSector : reachedSectorIndices)
+		if (direct != nullptr && direct->IsValid()) return *direct;
+		if (closures != nullptr)
 		{
-			visitSectorWalls((int32_t)reachedSector, [&](int32_t wallIndex)
+			for (const ReachedMapFrontierProtection& route : *closures)
 			{
-				if (protection.IsValid()) return;
-				const MapFrontierPortalEdge edge = getPortalEdge(wallIndex);
-				if (edge.sectorIndex == (int32_t)reachedSector &&
-					edge.nextSectorIndex == negativeSector && edge.ordinaryReciprocal &&
-					edge.positiveAperture)
+				if (route.IsValid() && route.closureSector >= 0 && route.negativeWall >= 0 &&
+					hasOpaqueNegativeBand(route))
 				{
-					protection.reachedSector = edge.sectorIndex;
-					protection.reachedWall = edge.wallIndex;
+					return route;
 				}
-			});
-			if (protection.IsValid()) return protection;
+			}
 		}
-
-		// One authored, currently closed two-neighbor strip may sit between the
-		// reached frontier and N. This is deliberately a fixed two-edge walk;
-		// ordinary sectors cannot extend it into a general reachability search.
-		for (uint32_t reachedSector : reachedSectorIndices)
-		{
-			visitSectorWalls((int32_t)reachedSector, [&](int32_t wallIndex)
-			{
-				if (protection.IsValid()) return;
-				const MapFrontierPortalEdge reachedEdge = getPortalEdge(wallIndex);
-				if (reachedEdge.sectorIndex != (int32_t)reachedSector ||
-					!reachedEdge.ordinaryReciprocal) return;
-				const MapFrontierClosureDescriptor closure =
-					getClosure(reachedEdge.nextSectorIndex);
-				if (!closure.valid || closure.sectorIndex != reachedEdge.nextSectorIndex) return;
-
-				int reachedPortal = -1;
-				for (int portalIndex = 0; portalIndex < 2; ++portalIndex)
-				{
-					if (closure.portalNeighbors[portalIndex] == reachedEdge.sectorIndex &&
-						closure.portalWalls[portalIndex] == reachedEdge.reciprocalWallIndex)
-					{
-						reachedPortal = portalIndex;
-						break;
-					}
-				}
-				if (reachedPortal < 0) return;
-				const int negativePortal = reachedPortal ^ 1;
-				if (closure.portalNeighbors[negativePortal] != negativeSector) return;
-				const MapFrontierPortalEdge closureEdge =
-					getPortalEdge(closure.portalWalls[negativePortal]);
-				if (closureEdge.sectorIndex != closure.sectorIndex ||
-					closureEdge.nextSectorIndex != negativeSector ||
-					!closureEdge.ordinaryReciprocal ||
-					!hasOpaqueNegativeBand(closureEdge.reciprocalWallIndex, closure.sectorIndex)) return;
-
-				protection.reachedSector = reachedEdge.sectorIndex;
-				protection.reachedWall = reachedEdge.wallIndex;
-				protection.closureSector = closure.sectorIndex;
-			});
-			if (protection.IsValid()) return protection;
-		}
-		return protection;
+		return {};
 	}
 
-	MapFrontierPortalEdge BuildMapFrontierPortalEdge(
-		int32_t wallIndex,
-		NRISpatialAbsenceWorkloadTelemetry* workload = nullptr)
-	{
-		MapFrontierPortalEdge edge;
-		if (workload != nullptr) workload->reciprocalLinkTestCount++;
-		if (wallIndex < 0 || (unsigned)wallIndex >= wall.Size()) return edge;
-		const walltype& source = wall[(unsigned)wallIndex];
-		const walltype* reciprocal = source.nextWall();
-		const walltype* endWall = source.point2Wall();
-		if (reciprocal == nullptr || endWall == nullptr || source.sector < 0 || source.nextsector < 0 ||
-			(unsigned)source.sector >= sector.Size() || (unsigned)source.nextsector >= sector.Size()) return edge;
-		const MapFrontierWallLink sourceLink = {
-			wallIndex, source.sector, source.nextwall, source.nextsector,
-			(uint32_t)source.portalflags, (uint32_t)source.cstat };
-		const MapFrontierWallLink reciprocalLink = {
-			source.nextwall, reciprocal->sector, reciprocal->nextwall, reciprocal->nextsector,
-			(uint32_t)reciprocal->portalflags, (uint32_t)reciprocal->cstat };
-		edge.wallIndex = wallIndex;
-		edge.sectorIndex = source.sector;
-		edge.reciprocalWallIndex = source.nextwall;
-		edge.nextSectorIndex = source.nextsector;
-		edge.ordinaryReciprocal = IsOrdinaryReciprocalMapFrontierPortal(sourceLink, reciprocalLink);
-		const sectortype& front = sector[(unsigned)source.sector];
-		const sectortype& back = sector[(unsigned)source.nextsector];
-		if (workload != nullptr) workload->apertureTestCount++;
-		auto apertureAt = [&](double x, double y)
-		{
-			return std::min(getflorzofslopeptr(&front, x, y), getflorzofslopeptr(&back, x, y)) -
-				std::max(getceilzofslopeptr(&front, x, y), getceilzofslopeptr(&back, x, y));
-		};
-		const double startAperture = apertureAt(source.pos.X, source.pos.Y);
-		const double endAperture = apertureAt(endWall->pos.X, endWall->pos.Y);
-		edge.positiveAperture = std::isfinite(startAperture) && std::isfinite(endAperture) &&
-			std::max(startAperture, endAperture) > (double)kBoundsEpsilon;
-		return edge;
-	}
-
-	ReachedMapFrontierProtection FindProtectedReachedMapFrontier(
+	ReachedMapFrontierProtection FindProtectedReachedMapFrontierIndexed(
 		const nri_scene::PTMapWorld& mapWorld,
 		const nri_scene::PTMapChunk& negativeChunk,
-		const std::vector<uint32_t>& reachedSectorIndices,
-		const std::vector<uint32_t>& authoredClosureSectors,
+		const NRISpatialAbsenceFrontierIndex& frontierIndex,
 		NRISpatialAbsenceWorkloadTelemetry* workload = nullptr)
 	{
-		if (negativeChunk.sectorIndex < 0 ||
-			(unsigned)negativeChunk.sectorIndex >= sector.Size())
-		{
+		if (negativeChunk.sectorIndex < 0)
 			return {};
-		}
-		return FindReachedMapFrontierProtectionImpl(
-			negativeChunk.sectorIndex,
-			reachedSectorIndices,
-			[&](int32_t sectorIndex, const auto& visit)
-			{
-				if (sectorIndex < 0 || (unsigned)sectorIndex >= sector.Size()) return;
-				for (const walltype& source : sector[(unsigned)sectorIndex].walls)
-				{
-					if (workload != nullptr) workload->reachedAuthoredWallVisitCount++;
-					visit(wall.IndexOf(&source));
-				}
-			},
-			[&](int32_t wallIndex) { return BuildMapFrontierPortalEdge(wallIndex, workload); },
-			[&](int32_t closureSector)
-			{
-				MapFrontierClosureDescriptor descriptor;
-				if (closureSector < 0 || (unsigned)closureSector >= sector.Size() ||
-					!std::binary_search(authoredClosureSectors.begin(), authoredClosureSectors.end(),
-						(uint32_t)closureSector)) return descriptor;
-				if (workload != nullptr) workload->closureDescriptorBuildCount++;
-				const ClosureStripTopology closure = BuildClosureStripTopology(closureSector);
-				const ClosureStripAnalysis analysis = AnalyzeClosureStrip(closure);
-				descriptor.sectorIndex = closureSector;
-				descriptor.valid = closure.collapsed && analysis.valid;
-				if (workload != nullptr && descriptor.valid) workload->closureDescriptorHitCount++;
-				for (int portalIndex = 0; portalIndex < 2; ++portalIndex)
-				{
-					descriptor.portalNeighbors[portalIndex] = analysis.portalNeighbors[portalIndex];
-					descriptor.portalWalls[portalIndex] = analysis.portalWalls[portalIndex];
-				}
-				return descriptor;
-			},
-			[&](int32_t negativeWall, int32_t closureSector)
+		return SelectIndexedFrontierProtection(
+			frontierIndex.FindDirect(negativeChunk.sectorIndex),
+			frontierIndex.FindClosures(negativeChunk.sectorIndex),
+			[&](const ReachedMapFrontierProtection& route)
 			{
 				return HasEmittedOrdinaryWallBand(
 					mapWorld, negativeChunk, negativeChunk.sectorIndex,
-					closureSector, negativeWall, workload);
+					route.closureSector, route.negativeWall, workload);
 			});
 	}
 
@@ -2289,6 +2111,26 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		return cached;
 	};
 	std::vector<FrameNegativeProtection> negativeProtectionMemo(mapWorld.chunks.size());
+	NRISpatialAbsenceFrontierIndex frontierIndex;
+	auto ensureFrontierIndex = [&](NRISpatialAbsenceWorkloadTelemetry* workload)
+	{
+		if (frontierIndex.IsBuilt()) return;
+		const auto started = workload != nullptr
+			? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
+		frontierIndex.Build(reached, authoredClosureSectors);
+		if (workload == nullptr) return;
+		const NRISpatialAbsenceFrontierIndexStats& stats = frontierIndex.GetStats();
+		workload->frontierIndexBuildCount++;
+		workload->reachedAuthoredWallVisitCount += stats.reachedAuthoredWallCount;
+		workload->reciprocalLinkTestCount += stats.reciprocalLinkTestCount;
+		workload->apertureTestCount += stats.apertureTestCount;
+		workload->closureDescriptorBuildCount += stats.closureDescriptorBuildCount;
+		workload->closureDescriptorHitCount += stats.closureDescriptorHitCount;
+		workload->frontierIndexElapsedMilliseconds +=
+			std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - started).count();
+	};
 
 	for (CachedPairTopology& cachedPair : mTopologyCache->pairs)
 	{
@@ -2379,21 +2221,13 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			NRISpatialAbsenceWorkloadTelemetry* workload = input.collectWorkloadTelemetry
 				? &mSnapshot.workload : nullptr;
 			if (workload != nullptr) workload->structuralProtectionCandidateCount++;
+			ensureFrontierIndex(workload);
 			FrameNegativeProtection& negativeProtection = ResolveFrameNegativeProtection(
 				negativeProtectionMemo, negative->chunkIndex, workload,
 				[&](FrameNegativeProtection& resolved)
 				{
-					const auto frontierStarted = workload != nullptr
-						? std::chrono::steady_clock::now()
-						: std::chrono::steady_clock::time_point{};
-					resolved.frontier = FindProtectedReachedMapFrontier(
-						mapWorld, *negative, reached, authoredClosureSectors, workload);
-					if (workload != nullptr)
-					{
-						workload->frontierTraversalElapsedMilliseconds +=
-							std::chrono::duration<double, std::milli>(
-								std::chrono::steady_clock::now() - frontierStarted).count();
-					}
+					resolved.frontier = FindProtectedReachedMapFrontierIndexed(
+						mapWorld, *negative, frontierIndex, workload);
 					resolved.collapsedPortalSector = FindProtectedSealingCarrier(
 						mapWorld, *negative, authoredClosureSectors, workload);
 					resolved.insetBoundaryChildSector =
@@ -2864,6 +2698,13 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		}
 		return false;
 	};
+	std::string frontierFailure;
+	if (!RunNRISpatialAbsenceFrontierIndexSelfTests(&frontierFailure))
+	{
+		if (failureReason != nullptr)
+			*failureReason = "frontier index: " + frontierFailure;
+		return false;
+	}
 	auto bounds = [](float minX, float minY, float minZ, float maxX, float maxY, float maxZ)
 	{
 		nri_scene::PTMapChunkBounds value;
@@ -2900,6 +2741,19 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	{
 		return fail("negative protection work was not resolved once for three positive owners");
 	}
+	const ReachedMapFrontierProtection directRoute = { 2, 10, -1, -1 };
+	const std::vector<ReachedMapFrontierProtection> closureRoutes = {
+		{ 3, 11, 5, 20 }, { 4, 12, 6, 21 }
+	};
+	ReachedMapFrontierProtection selectedRoute = SelectIndexedFrontierProtection(
+		&directRoute, &closureRoutes, [](const ReachedMapFrontierProtection&) { return true; });
+	if (selectedRoute.reachedWall != 10 || selectedRoute.closureSector >= 0)
+		return fail("a closure route took precedence over a direct frontier route");
+	selectedRoute = SelectIndexedFrontierProtection(
+		nullptr, &closureRoutes,
+		[](const ReachedMapFrontierProtection& route) { return route.negativeWall == 21; });
+	if (selectedRoute.reachedWall != 12 || selectedRoute.closureSector != 6)
+		return fail("a failed first closure provenance check hid a later valid route");
 
 	const float center[3] = { 0.0f, 0.0f, 0.0f };
 	if (ClassifyBounds(bounds(-2, -2, -2, -1, -1, -1), bounds(1, 1, 1, 2, 2, 2), center, 8.0f).decision !=
@@ -3077,108 +2931,6 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	malformedClosure.edges[0].nextSector = 4;
 	if (IsProtectedSealingCarrierPair(sealingCarrier, malformedClosure, true, true))
 		return fail("a closure without reciprocal carrier topology was protected");
-
-	std::vector<std::vector<int32_t>> frontierSectorWalls = { { 0 }, { 1, 2 }, { 3 }, {} };
-	std::vector<MapFrontierPortalEdge> frontierEdges(4u);
-	auto setFrontierEdge = [&](int32_t wallIndex, int32_t sectorIndex,
-		int32_t reciprocalWall, int32_t nextSector, bool aperture = true)
-	{
-		frontierEdges[(size_t)wallIndex] = {
-			wallIndex, sectorIndex, reciprocalWall, nextSector, true, aperture };
-	};
-	std::vector<MapFrontierClosureDescriptor> frontierClosures(4u);
-	auto findSyntheticFrontier = [&](int32_t negativeSector,
-		const std::vector<uint32_t>& reachedSectors, int32_t opaqueBandWall = -1)
-	{
-		return FindReachedMapFrontierProtectionImpl(
-			negativeSector, reachedSectors,
-			[&](int32_t sectorIndex, const auto& visit)
-			{
-				if (sectorIndex >= 0 && (size_t)sectorIndex < frontierSectorWalls.size())
-					for (int32_t wallIndex : frontierSectorWalls[(size_t)sectorIndex]) visit(wallIndex);
-			},
-			[&](int32_t wallIndex)
-			{
-				return wallIndex >= 0 && (size_t)wallIndex < frontierEdges.size()
-					? frontierEdges[(size_t)wallIndex] : MapFrontierPortalEdge{};
-			},
-			[&](int32_t sectorIndex)
-			{
-				return sectorIndex >= 0 && (size_t)sectorIndex < frontierClosures.size()
-					? frontierClosures[(size_t)sectorIndex] : MapFrontierClosureDescriptor{};
-			},
-			[&](int32_t wallIndex, int32_t closureSector)
-			{
-				return wallIndex == opaqueBandWall && closureSector == 1;
-			});
-	};
-
-	setFrontierEdge(0, 0, 1, 2);
-	setFrontierEdge(1, 2, 0, 0);
-	ReachedMapFrontierProtection syntheticProtection = findSyntheticFrontier(2, { 0u });
-	if (!syntheticProtection.IsValid() || syntheticProtection.reachedSector != 0 ||
-		syntheticProtection.reachedWall != 0 || syntheticProtection.closureSector >= 0)
-	{
-		return fail("a reached ordinary portal with live aperture did not protect its direct negative neighbor");
-	}
-	if (findSyntheticFrontier(2, {}).IsValid())
-		return fail("a sector absent from the reached census protected a negative neighbor");
-	frontierEdges[0].positiveAperture = false;
-	if (findSyntheticFrontier(2, { 0u }).IsValid())
-		return fail("a reached edge without positive live aperture protected a direct negative neighbor");
-	frontierEdges[0].positiveAperture = true;
-	frontierEdges[0].ordinaryReciprocal = false;
-	if (findSyntheticFrontier(2, { 0u }).IsValid())
-		return fail("a nonordinary edge protected a direct negative neighbor");
-
-	setFrontierEdge(0, 0, 1, 1);
-	setFrontierEdge(1, 1, 0, 0);
-	setFrontierEdge(2, 1, 3, 2);
-	setFrontierEdge(3, 2, 2, 1);
-	if (findSyntheticFrontier(2, { 0u }).IsValid())
-		return fail("an ordinary path beyond the direct frontier protected a negative sector");
-
-	MapFrontierClosureDescriptor& syntheticClosure = frontierClosures[1];
-	syntheticClosure.sectorIndex = 1;
-	syntheticClosure.valid = true;
-	syntheticClosure.portalNeighbors[0] = 0;
-	syntheticClosure.portalNeighbors[1] = 2;
-	syntheticClosure.portalWalls[0] = 1;
-	syntheticClosure.portalWalls[1] = 2;
-	syntheticProtection = findSyntheticFrontier(2, { 0u }, 3);
-	if (!syntheticProtection.IsValid() || syntheticProtection.reachedSector != 0 ||
-		syntheticProtection.reachedWall != 0 || syntheticProtection.closureSector != 1)
-	{
-		return fail("a reached wall through one authored collapsed closure did not protect the negative sealing-band owner");
-	}
-	if (findSyntheticFrontier(2, { 0u }).IsValid())
-		return fail("a closure frontier without an exact opaque negative wall band was protected");
-	syntheticClosure.valid = false;
-	if (findSyntheticFrontier(2, { 0u }, 3).IsValid())
-		return fail("a collapsed sector without closure-strip topology extended the reached frontier");
-	syntheticClosure.valid = true;
-	syntheticClosure.portalNeighbors[1] = 3;
-	if (findSyntheticFrontier(2, { 0u }, 3).IsValid())
-		return fail("a path continuing beyond the authored closure protected a more distant negative sector");
-
-	const MapFrontierWallLink ordinaryFirst = { 0, 0, 1, 2, 0, 0 };
-	const MapFrontierWallLink ordinarySecond = { 1, 2, 0, 0, 0, 0 };
-	MapFrontierWallLink malformedLink = ordinaryFirst;
-	malformedLink.portalFlags = 1;
-	if (IsOrdinaryReciprocalMapFrontierPortal(malformedLink, ordinarySecond))
-		return fail("a portal-flagged frontier edge was ordinary");
-	malformedLink = ordinaryFirst;
-	malformedLink.cstat = (uint32_t)CSTAT_WALL_MASKED;
-	if (IsOrdinaryReciprocalMapFrontierPortal(malformedLink, ordinarySecond))
-		return fail("a masked frontier edge was ordinary");
-	malformedLink = ordinarySecond;
-	malformedLink.cstat = (uint32_t)CSTAT_WALL_1WAY;
-	if (IsOrdinaryReciprocalMapFrontierPortal(ordinaryFirst, malformedLink))
-		return fail("a one-way reciprocal frontier edge was ordinary");
-	malformedLink = ordinarySecond;
-	malformedLink.nextWallIndex = -1;
-	if (IsOrdinaryReciprocalMapFrontierPortal(ordinaryFirst, malformedLink))
-		return fail("a nonreciprocal frontier edge was ordinary");
 
 	auto makeInsetFloorSurface = []()
 	{
