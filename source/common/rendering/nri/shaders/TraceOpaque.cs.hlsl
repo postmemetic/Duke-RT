@@ -505,8 +505,12 @@ float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint
 	if (material.emissiveMode == 3u)
 	{
 		const float3 glow = SampleMaterialEmissionSource(materialIndex, dataSource, uv);
+		// A glowmap's black background is a mask, but OverlayBlend can produce a
+		// non-zero result for black blend texels when the base color is above 0.5.
+		// Preserve the authored overlay response while keeping masked texels dark.
+		const float glowCoverage = saturate(max(glow.r, max(glow.g, glow.b)));
 		const float visibleBlend = max(material.emissiveReserved, 0.0);
-		return OverlayBlend(albedo, glow) * material.emissiveIntensity * visibleBlend * materialResponseScale;
+		return OverlayBlend(albedo, glow) * glowCoverage * material.emissiveIntensity * visibleBlend * materialResponseScale;
 	}
 
 	return EvaluateMaterialEmission(materialIndex, dataSource, primitiveIndex, material, uv);
