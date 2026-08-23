@@ -427,6 +427,47 @@ namespace
 		bool IsValid() const { return reachedSector >= 0 && reachedWall >= 0; }
 	};
 
+	struct FrameNegativeProtection
+	{
+		bool resolved = false;
+		ReachedMapFrontierProtection frontier;
+		int32_t collapsedPortalSector = -1;
+		int32_t insetBoundaryChildSector = -1;
+	};
+
+	template<typename Resolve>
+	FrameNegativeProtection& ResolveFrameNegativeProtection(
+		std::vector<FrameNegativeProtection>& memo,
+		uint32_t negativeChunk,
+		NRISpatialAbsenceWorkloadTelemetry* workload,
+		Resolve&& resolve)
+	{
+		FrameNegativeProtection& result = memo[(size_t)negativeChunk];
+		if (result.resolved)
+		{
+			if (workload != nullptr) workload->negativeProtectionMemoHitCount++;
+			return result;
+		}
+
+		if (workload != nullptr)
+		{
+			workload->negativeProtectionMemoMissCount++;
+			workload->uniqueNegativeChunkCount++;
+		}
+		const auto started = workload != nullptr
+			? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
+		resolve(result);
+		result.resolved = true;
+		if (workload != nullptr)
+		{
+			workload->negativeProtectionElapsedMilliseconds +=
+				std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - started).count();
+		}
+		return result;
+	}
+
 	struct MapFrontierWallLink
 	{
 		int32_t wallIndex = -1;
@@ -2247,9 +2288,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		ensureChunkBoundary(chunkIndex);
 		return cached;
 	};
-	std::vector<uint8_t> telemetryNegativeSeen;
-	if (input.collectWorkloadTelemetry)
-		telemetryNegativeSeen.resize(mapWorld.chunks.size(), 0u);
+	std::vector<FrameNegativeProtection> negativeProtectionMemo(mapWorld.chunks.size());
 
 	for (CachedPairTopology& cachedPair : mTopologyCache->pairs)
 	{
@@ -2339,29 +2378,30 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		{
 			NRISpatialAbsenceWorkloadTelemetry* workload = input.collectWorkloadTelemetry
 				? &mSnapshot.workload : nullptr;
-			std::chrono::steady_clock::time_point protectionStarted;
-			if (workload != nullptr)
-			{
-				workload->structuralProtectionCandidateCount++;
-				workload->negativeProtectionMemoMissCount++;
-				if (negative->chunkIndex < telemetryNegativeSeen.size() &&
-					telemetryNegativeSeen[negative->chunkIndex] == 0u)
+			if (workload != nullptr) workload->structuralProtectionCandidateCount++;
+			FrameNegativeProtection& negativeProtection = ResolveFrameNegativeProtection(
+				negativeProtectionMemo, negative->chunkIndex, workload,
+				[&](FrameNegativeProtection& resolved)
 				{
-					telemetryNegativeSeen[negative->chunkIndex] = 1u;
-					workload->uniqueNegativeChunkCount++;
-				}
-				protectionStarted = std::chrono::steady_clock::now();
-			}
-			std::chrono::steady_clock::time_point frontierStarted;
-			if (workload != nullptr) frontierStarted = std::chrono::steady_clock::now();
-			mapFrontierProtection = FindProtectedReachedMapFrontier(
-				mapWorld, *negative, reached, authoredClosureSectors, workload);
-			if (workload != nullptr)
-			{
-				workload->frontierTraversalElapsedMilliseconds +=
-					std::chrono::duration<double, std::milli>(
-						std::chrono::steady_clock::now() - frontierStarted).count();
-			}
+					const auto frontierStarted = workload != nullptr
+						? std::chrono::steady_clock::now()
+						: std::chrono::steady_clock::time_point{};
+					resolved.frontier = FindProtectedReachedMapFrontier(
+						mapWorld, *negative, reached, authoredClosureSectors, workload);
+					if (workload != nullptr)
+					{
+						workload->frontierTraversalElapsedMilliseconds +=
+							std::chrono::duration<double, std::milli>(
+								std::chrono::steady_clock::now() - frontierStarted).count();
+					}
+					resolved.collapsedPortalSector = FindProtectedSealingCarrier(
+						mapWorld, *negative, authoredClosureSectors, workload);
+					resolved.insetBoundaryChildSector =
+						FindProtectedInsetBoundaryEnclosure(mapWorld, *negative);
+				});
+			mapFrontierProtection = negativeProtection.frontier;
+			collapsedPortalSector = negativeProtection.collapsedPortalSector;
+			insetBoundaryChildSector = negativeProtection.insetBoundaryChildSector;
 			if (mapFrontierProtection.IsValid())
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_REACHED_MAP_FRONTIER;
@@ -2370,14 +2410,11 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			// Orientation is resolved above. Only a census-negative chunk whose own
 			// emitted wall band seals an authored closure may fail open here; a
 			// nearby closure on the positive side is not negative-volume evidence.
-			collapsedPortalSector = FindProtectedSealingCarrier(
-				mapWorld, *negative, authoredClosureSectors, workload);
 			if (collapsedPortalSector >= 0)
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_COLLAPSED_PORTAL_ENVELOPE;
 				mSnapshot.collapsedPortalProtectedCount++;
 			}
-			insetBoundaryChildSector = FindProtectedInsetBoundaryEnclosure(mapWorld, *negative);
 			if (insetBoundaryChildSector >= 0)
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_INSET_BOUNDARY_ENCLOSURE;
@@ -2400,12 +2437,6 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 					classification.decision = NRISpatialAbsenceConflictDecision::ReachedMapFrontier;
 				else if ((protectionFlags & NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY) != 0)
 					classification.decision = NRISpatialAbsenceConflictDecision::OpenBoundary;
-			}
-			if (workload != nullptr)
-			{
-				workload->negativeProtectionElapsedMilliseconds +=
-					std::chrono::duration<double, std::milli>(
-						std::chrono::steady_clock::now() - protectionStarted).count();
 			}
 		}
 		if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)
@@ -2841,6 +2872,34 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		value.max[0] = maxX; value.max[1] = maxY; value.max[2] = maxZ;
 		return value;
 	};
+
+	std::vector<FrameNegativeProtection> protectionMemo(2u);
+	NRISpatialAbsenceWorkloadTelemetry protectionWorkload;
+	uint32_t protectionResolveCount = 0;
+	auto resolveProtection = [&](FrameNegativeProtection& result)
+	{
+		protectionResolveCount++;
+		result.frontier.reachedSector = 4;
+		result.frontier.reachedWall = 12;
+		result.collapsedPortalSector = 7;
+		result.insetBoundaryChildSector = 9;
+	};
+	for (uint32_t owner = 0; owner < 3u; ++owner)
+	{
+		const FrameNegativeProtection& result = ResolveFrameNegativeProtection(
+			protectionMemo, 1u, &protectionWorkload, resolveProtection);
+		if (!result.frontier.IsValid() || result.collapsedPortalSector != 7 ||
+			result.insetBoundaryChildSector != 9)
+		{
+			return fail("a memoized negative protection result changed between positive owners");
+		}
+	}
+	if (protectionResolveCount != 1u || protectionWorkload.uniqueNegativeChunkCount != 1u ||
+		protectionWorkload.negativeProtectionMemoMissCount != 1u ||
+		protectionWorkload.negativeProtectionMemoHitCount != 2u)
+	{
+		return fail("negative protection work was not resolved once for three positive owners");
+	}
 
 	const float center[3] = { 0.0f, 0.0f, 0.0f };
 	if (ClassifyBounds(bounds(-2, -2, -2, -1, -1, -1), bounds(1, 1, 1, 2, 2, 2), center, 8.0f).decision !=
