@@ -982,6 +982,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_resources.cpp
 	common/rendering/nri/renderer/nri_render_geometry_helpers.cpp
 	common/rendering/nri/renderer/nri_renderer.cpp
+	common/rendering/nri/renderer/nri_spatial_absence_frontier_index.cpp
 	common/rendering/nri/renderer/nri_spatial_absence_gate.cpp
 	common/rendering/nri/renderer/nri_spatial_absence_gpu_snapshot.cpp
 	common/rendering/nri/renderer/nri_renderer_settings.cpp
