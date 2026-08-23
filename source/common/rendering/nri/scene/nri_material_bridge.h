@@ -272,6 +272,7 @@ struct TextureUpload
 	uint64_t key = 0;
 	uint32_t width = 0;
 	uint32_t height = 0;
+	uint32_t mipCount = 1;
 	bool indexed = false;
 	FTexture* sourceTexture = nullptr;
 	ImmutableBytePayload pixels;
@@ -282,12 +283,17 @@ struct MaterialBridgeBuildStats
 	double materialRowsMs = 0.0;
 	double paletteMs = 0.0;
 	double indexedPayloadMs = 0.0;
+	double indexedMipMs = 0.0;
 	uint64_t paletteBytesBuilt = 0;
 	uint64_t indexedPayloadBytes = 0;
+	uint64_t indexedMipVariantBytes = 0;
 	uint32_t paletteBuilds = 0;
 	uint32_t paletteReuses = 0;
 	uint32_t indexedPayloadRealizations = 0;
 	uint32_t indexedPayloadReuses = 0;
+	uint32_t indexedMipVariants = 0;
+	uint32_t indexedMipBuilds = 0;
+	uint32_t indexedMipReuses = 0;
 };
 
 struct MaterialBridgeData

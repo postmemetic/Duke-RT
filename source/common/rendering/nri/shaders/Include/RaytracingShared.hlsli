@@ -208,9 +208,20 @@ static const uint TRACE_STAT_FILTER_COMPARE_SURFACE = TRACE_STAT_FILTER_QUERY_BA
 static const uint TRACE_STAT_FILTER_COMPARE_PORTAL = TRACE_STAT_FILTER_QUERY_BASE + 13u;
 static const uint TRACE_STAT_FILTER_COMPARE_TEMPORAL = TRACE_STAT_FILTER_QUERY_BASE + 14u;
 static const uint TRACE_STAT_FILTER_COMPARE_SKIP_LIMIT = TRACE_STAT_FILTER_QUERY_BASE + 15u;
+static const uint TRACE_STAT_SURFACE_PROBE_BASE = TRACE_STAT_FILTER_QUERY_BASE + TRACE_STAT_FILTER_QUERY_COUNT;
+static const uint TRACE_STAT_SURFACE_PROBE_COUNT = 9u;
+static const uint TRACE_STAT_SURFACE_PROBE_VALID = TRACE_STAT_SURFACE_PROBE_BASE + 0u;
+static const uint TRACE_STAT_SURFACE_PROBE_SOURCE = TRACE_STAT_SURFACE_PROBE_BASE + 1u;
+static const uint TRACE_STAT_SURFACE_PROBE_INSTANCE = TRACE_STAT_SURFACE_PROBE_BASE + 2u;
+static const uint TRACE_STAT_SURFACE_PROBE_PRIMITIVE = TRACE_STAT_SURFACE_PROBE_BASE + 3u;
+static const uint TRACE_STAT_SURFACE_PROBE_MATERIAL = TRACE_STAT_SURFACE_PROBE_BASE + 4u;
+static const uint TRACE_STAT_SURFACE_PROBE_TEXTURE = TRACE_STAT_SURFACE_PROBE_BASE + 5u;
+static const uint TRACE_STAT_SURFACE_PROBE_PALETTE = TRACE_STAT_SURFACE_PROBE_BASE + 6u;
+static const uint TRACE_STAT_SURFACE_PROBE_FLAGS = TRACE_STAT_SURFACE_PROBE_BASE + 7u;
+static const uint TRACE_STAT_SURFACE_PROBE_LIGHTING_FLAGS = TRACE_STAT_SURFACE_PROBE_BASE + 8u;
 static const uint TRACE_STAT_INSTANCE_BUCKET_COUNT = 1024u;
 static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE =
-	TRACE_STAT_FILTER_QUERY_BASE + TRACE_STAT_FILTER_QUERY_COUNT;
+	TRACE_STAT_SURFACE_PROBE_BASE + TRACE_STAT_SURFACE_PROBE_COUNT;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 
@@ -221,6 +232,26 @@ bool TraceShaderStatsEnabled()
 #else
 	return false;
 #endif
+}
+
+void RecordSurfaceProbePrimaryPixel(uint2 pixelPosition, HitData hit, MaterialData material)
+{
+	if (!TraceShaderStatsEnabled() ||
+		any(pixelPosition != uint2(gTraceConstants.RenderWidth / 2u, gTraceConstants.RenderHeight / 2u)) ||
+		!hit.hit)
+	{
+		return;
+	}
+
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_SOURCE] = hit.dataSource;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_INSTANCE] = hit.instanceId;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_PRIMITIVE] = hit.primitiveIndex;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_MATERIAL] = hit.materialIndex;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_TEXTURE] = material.textureIndex;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_PALETTE] = material.paletteIndex;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_FLAGS] = material.flags;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_LIGHTING_FLAGS] = material.lightingFlags;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_VALID] = 1u;
 }
 
 void TraceShaderStatAdd(uint index, uint value)
@@ -463,6 +494,7 @@ bool UseFastEmissiveShadow()
 	return (gTraceConstants.Flags & NRI_FLAG_FAST_EMISSIVE_SHADOW) != 0;
 }
 
+float4 SampleMaterialColorLevel(MaterialData material, uint textureIndex, float2 uv, float lod, bool indexed, bool applyPaletteLookup, bool applyLightLevel);
 float4 SampleMaterialColor(MaterialData material, uint textureIndex, float2 uv, bool indexed, bool applyPaletteLookup, bool applyLightLevel);
 
 bool TryResolveHitTangentFrame(uint dataSource, uint primitiveIndex, float3 geometricNormal, out float3 tangent, out float3 bitangent)
@@ -677,21 +709,26 @@ bool ProjectWorldToUvMatrixRaw(float3 worldPos, bool previousFrame, out float2 u
 	return all(uv >= 0.0) && all(uv <= 1.0);
 }
 
-float4 SampleMaterialColor(MaterialData material, uint textureIndex, float2 uv, bool indexed, bool applyPaletteLookup, bool applyLightLevel)
+float4 SampleMaterialColorLevel(MaterialData material, uint textureIndex, float2 uv, float lod, bool indexed, bool applyPaletteLookup, bool applyLightLevel)
 {
 	if (textureIndex == 0xffffffffu)
 	{
 		return 0.0;
 	}
 
+	const float sampleLod = (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0u ?
+		0.0 : max(lod, 0.0);
 	float4 color = 0.0;
 	if (indexed || (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0)
 	{
-		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gPointWrap, uv, 0.0);
+		// Indexed texels are palette indices, so both texel and mip selection
+		// remain discrete before the palette lookup.
+		const float pointLod = indexed ? round(sampleLod) : sampleLod;
+		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gPointWrap, uv, pointLod);
 	}
 	else
 	{
-		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gLinearWrap, uv, 0.0);
+		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gLinearWrap, uv, sampleLod);
 	}
 
 	if (indexed && applyPaletteLookup)
@@ -706,6 +743,11 @@ float4 SampleMaterialColor(MaterialData material, uint textureIndex, float2 uv, 
 		color.rgb *= material.lightLevel;
 	}
 	return color;
+}
+
+float4 SampleMaterialColor(MaterialData material, uint textureIndex, float2 uv, bool indexed, bool applyPaletteLookup, bool applyLightLevel)
+{
+	return SampleMaterialColorLevel(material, textureIndex, uv, 0.0, indexed, applyPaletteLookup, applyLightLevel);
 }
 
 float SampleMaterialScalarChannel(MaterialData material, uint textureIndex, float2 uv, float fallback)
@@ -733,6 +775,18 @@ float4 SampleMaterialBaseColor(uint materialIndex, uint dataSource, float2 uv)
 
 	const bool indexed = (material.flags & MATERIAL_FLAG_INDEXED) != 0;
 	return SampleMaterialColor(material, material.textureIndex, uv, indexed, true, true);
+}
+
+float4 SampleMaterialBaseColorLevel(uint materialIndex, uint dataSource, float2 uv, float lod)
+{
+	MaterialData material = GetMaterialData(materialIndex, dataSource);
+	if (IsPlainMirrorMaterial(material))
+	{
+		return float4(0.92, 0.92, 0.92, 1.0);
+	}
+
+	const bool indexed = (material.flags & MATERIAL_FLAG_INDEXED) != 0;
+	return SampleMaterialColorLevel(material, material.textureIndex, uv, lod, indexed, true, true);
 }
 
 float4 SampleMaterialBaseColorRaw(uint materialIndex, uint dataSource, float2 uv)

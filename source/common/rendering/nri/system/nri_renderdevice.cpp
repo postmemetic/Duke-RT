@@ -7429,6 +7429,7 @@ bool NRIRenderDevice::RefreshFrameGenerationPresentTargets()
 		const nri::TextureDesc& wrappedDesc = mCore.GetTextureDesc(*target.texture);
 		target.width = wrappedDesc.width;
 		target.height = wrappedDesc.height;
+		target.mipCount = wrappedDesc.mipNum;
 		target.layerNum = wrappedDesc.layerNum;
 		target.format = wrappedDesc.format;
 		target.usage = wrappedDesc.usage;
@@ -9642,6 +9643,8 @@ bool NRIRenderDevice::CreateSwapChain()
 			const nri::TextureDesc& desc = mCore.GetTextureDesc(*textures[i]);
 			image.target.width = desc.width;
 			image.target.height = desc.height;
+			image.target.mipCount = desc.mipNum;
+			image.target.layerNum = desc.layerNum;
 			image.target.format = desc.format;
 			mResolvedSwapChainTextureFormat = desc.format;
 			image.target.usage = desc.usage;
@@ -10804,8 +10807,8 @@ void NRIRenderDevice::TransitionTexture(NRITextureResource& texture, nri::Access
 	barrier.texture = texture.texture;
 	barrier.before = texture.state;
 	barrier.after = after;
-	barrier.mipNum = 1;
-	barrier.layerNum = 1;
+	barrier.mipNum = texture.mipCount;
+	barrier.layerNum = texture.layerNum;
 	barrier.planes = nri::PlaneBits::COLOR;
 
 	nri::BarrierDesc barriers = {};
@@ -10854,6 +10857,7 @@ void NRIRenderDevice::DestroyTextureResource(NRITextureResource& resource)
 	resource.owned = false;
 	resource.width = 0;
 	resource.height = 0;
+	resource.mipCount = 1;
 	resource.layerNum = 1;
 	resource.format = nri::Format::UNKNOWN;
 	resource.memorySize = 0;
@@ -10935,7 +10939,7 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 	shaderViewDesc.texture = resource.texture;
 	shaderViewDesc.type = resource.shaderViewType;
 	shaderViewDesc.format = resource.format;
-	shaderViewDesc.mipNum = 1;
+	shaderViewDesc.mipNum = resource.mipCount;
 	shaderViewDesc.layerNum = resource.layerNum;
 	shaderViewDesc.sliceNum = 1;
 	shaderViewDesc.readonlyPlanes = nri::PlaneBits::COLOR;
@@ -10971,6 +10975,7 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 	if ((usage & (uint32_t)nri::TextureUsageBits::SHADER_RESOURCE_STORAGE) != 0)
 	{
 		nri::TextureViewDesc storageViewDesc = shaderViewDesc;
+		storageViewDesc.mipNum = 1;
 		if (resource.format == nri::Format::BGRA8_SRGB)
 		{
 			storageViewDesc.format = nri::Format::BGRA8_UNORM;
@@ -10990,6 +10995,7 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 	if ((usage & (uint32_t)nri::TextureUsageBits::COLOR_ATTACHMENT) != 0)
 	{
 		nri::TextureViewDesc colorViewDesc = shaderViewDesc;
+		colorViewDesc.mipNum = 1;
 		colorViewDesc.type = nri::TextureView::COLOR_ATTACHMENT;
 		if (mCore.CreateTextureView(colorViewDesc, resource.colorAttachmentView) != nri::Result::SUCCESS)
 		{
@@ -11000,8 +11006,13 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 	return true;
 }
 
-bool NRIRenderDevice::CreateOwnedTexture(NRITextureResource& resource, uint32_t width, uint32_t height, nri::Format format, nri::TextureUsageBits usage, nri::TextureType type, uint32_t layerNum, nri::TextureView shaderViewType)
+bool NRIRenderDevice::CreateOwnedTexture(NRITextureResource& resource, uint32_t width, uint32_t height, nri::Format format, nri::TextureUsageBits usage, nri::TextureType type, uint32_t layerNum, nri::TextureView shaderViewType, uint32_t mipCount)
 {
+	if (width == 0 || height == 0 || layerNum == 0 || mipCount == 0)
+	{
+		return false;
+	}
+
 	nri::TextureDesc textureDesc = {};
 	textureDesc.type = type;
 	textureDesc.usage = usage;
@@ -11009,7 +11020,7 @@ bool NRIRenderDevice::CreateOwnedTexture(NRITextureResource& resource, uint32_t 
 	textureDesc.width = width;
 	textureDesc.height = height;
 	textureDesc.depth = 1;
-	textureDesc.mipNum = 1;
+	textureDesc.mipNum = mipCount;
 	textureDesc.layerNum = layerNum;
 	textureDesc.sampleNum = 1;
 
@@ -11020,6 +11031,7 @@ bool NRIRenderDevice::CreateOwnedTexture(NRITextureResource& resource, uint32_t 
 
 	resource.width = width;
 	resource.height = height;
+	resource.mipCount = mipCount;
 	resource.layerNum = layerNum;
 	resource.format = format;
 	nri::MemoryDesc memoryDesc = {};
@@ -11062,10 +11074,27 @@ bool NRIRenderDevice::UploadTextureDataAsync(
 	uint32_t rowPitch,
 	uint64_t& outFenceValue)
 {
+	nri::TextureSubresourceUploadDesc subresource = {};
+	subresource.slices = data;
+	subresource.sliceNum = 1;
+	subresource.rowPitch = rowPitch;
+	subresource.slicePitch = rowPitch * height;
+	return UploadTextureSubresourcesAsync(resource, &subresource, 1, width, height, outFenceValue);
+}
+
+bool NRIRenderDevice::UploadTextureSubresourcesAsync(
+	NRITextureResource& resource,
+	const nri::TextureSubresourceUploadDesc* subresources,
+	uint32_t subresourceNum,
+	uint32_t width,
+	uint32_t height,
+	uint64_t& outFenceValue)
+{
 	outFenceValue = 0;
-	if (data == nullptr || width == 0 || height == 0 || rowPitch == 0 ||
-		resource.texture == nullptr || !mFrameBegun || !mCommandBufferOpen ||
-		mCommandBuffer == nullptr || mStreamerInstance == nullptr)
+	if (subresources == nullptr || subresourceNum == 0 || width == 0 || height == 0 ||
+		resource.texture == nullptr || resource.mipCount == 0 || resource.layerNum == 0 ||
+		subresourceNum != resource.mipCount * resource.layerNum ||
+		!mFrameBegun || !mCommandBufferOpen || mCommandBuffer == nullptr || mStreamerInstance == nullptr)
 	{
 		return false;
 	}
@@ -11075,26 +11104,59 @@ bool NRIRenderDevice::UploadTextureDataAsync(
 		return false;
 	}
 
-	nri::TextureRegionDesc region = {};
-	region.width = width;
-	region.height = height;
-	region.depth = 1;
-	region.planes = nri::PlaneBits::COLOR;
-	nri::StreamTextureDataDesc streamDesc = {};
-	streamDesc.data = data;
-	streamDesc.dataRowPitch = rowPitch;
-	streamDesc.dataSlicePitch = rowPitch * height;
-	streamDesc.dstTexture = resource.texture;
-	streamDesc.dstRegion = region;
+	TransitionTexture(resource, NRICopyDestinationState());
+	uint32_t streamedSubresourceCount = 0;
+	for (uint32_t subresourceIndex = 0; subresourceIndex < subresourceNum; ++subresourceIndex)
+	{
+		const nri::TextureSubresourceUploadDesc& subresource = subresources[subresourceIndex];
+		if (subresource.slices == nullptr || subresource.sliceNum != 1 ||
+			subresource.rowPitch == 0 || subresource.slicePitch == 0)
+		{
+			break;
+		}
 
-	const nri::BufferOffset streamed = mStreamer.StreamTextureData(*mStreamerInstance, streamDesc);
-	if (streamed.buffer == nullptr)
+		const uint32_t mipIndex = subresourceIndex % resource.mipCount;
+		const uint32_t layerIndex = subresourceIndex / resource.mipCount;
+		uint32_t mipWidth = width;
+		uint32_t mipHeight = height;
+		for (uint32_t mip = 0; mip < mipIndex; ++mip)
+		{
+			mipWidth = (std::max)(1u, mipWidth / 2u);
+			mipHeight = (std::max)(1u, mipHeight / 2u);
+		}
+
+		nri::TextureRegionDesc region = {};
+		region.width = mipWidth;
+		region.height = mipHeight;
+		region.depth = 1;
+		region.mipOffset = mipIndex;
+		region.layerOffset = layerIndex;
+		region.planes = nri::PlaneBits::COLOR;
+		nri::StreamTextureDataDesc streamDesc = {};
+		streamDesc.data = subresource.slices;
+		streamDesc.dataRowPitch = subresource.rowPitch;
+		streamDesc.dataSlicePitch = subresource.slicePitch;
+		streamDesc.dstTexture = resource.texture;
+		streamDesc.dstRegion = region;
+
+		const nri::BufferOffset streamed = mStreamer.StreamTextureData(*mStreamerInstance, streamDesc);
+		if (streamed.buffer == nullptr)
+		{
+			break;
+		}
+		streamedSubresourceCount++;
+	}
+
+	if (streamedSubresourceCount != 0)
+	{
+		mStreamer.CmdCopyStreamedData(*mCommandBuffer, *mStreamerInstance);
+	}
+	TransitionTexture(resource, NRIShaderResourceState());
+	if (streamedSubresourceCount != subresourceNum)
 	{
 		return false;
 	}
-	TransitionTexture(resource, NRICopyDestinationState());
-	mStreamer.CmdCopyStreamedData(*mCommandBuffer, *mStreamerInstance);
-	TransitionTexture(resource, NRIShaderResourceState());
+
 	resource.width = width;
 	resource.height = height;
 	outFenceValue = recordingFenceValue;
@@ -11103,7 +11165,9 @@ bool NRIRenderDevice::UploadTextureDataAsync(
 
 bool NRIRenderDevice::UploadTextureSubresources(NRITextureResource& resource, const nri::TextureSubresourceUploadDesc* subresources, uint32_t subresourceNum, uint32_t width, uint32_t height)
 {
-	if (subresources == nullptr || subresourceNum == 0 || width == 0 || height == 0)
+	if (subresources == nullptr || subresourceNum == 0 || width == 0 || height == 0 ||
+		resource.texture == nullptr || resource.mipCount == 0 || resource.layerNum == 0 ||
+		subresourceNum != resource.mipCount * resource.layerNum)
 	{
 		return false;
 	}

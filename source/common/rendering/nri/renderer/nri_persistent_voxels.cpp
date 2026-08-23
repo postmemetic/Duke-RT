@@ -7091,7 +7091,16 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 	auto estimateTextureUploadBytes = [](const nri_scene::TextureUpload& upload) -> uint64_t
 	{
 		const uint64_t bytesPerPixel = upload.indexed ? 1ull : 4ull;
-		return (uint64_t)upload.width * (uint64_t)upload.height * bytesPerPixel;
+		uint32_t mipWidth = upload.width;
+		uint32_t mipHeight = upload.height;
+		uint64_t totalBytes = 0;
+		for (uint32_t mip = 0; mip < (std::max)(1u, upload.mipCount); ++mip)
+		{
+			totalBytes += (uint64_t)mipWidth * (uint64_t)mipHeight * bytesPerPixel;
+			mipWidth = (std::max)(1u, mipWidth / 2u);
+			mipHeight = (std::max)(1u, mipHeight / 2u);
+		}
+		return totalBytes;
 	};
 
 	auto isTextureUploadCached = [&](const nri_scene::TextureUpload& upload) -> bool

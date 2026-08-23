@@ -16,7 +16,8 @@
 #define NRI_SMOKE_PORTAL_TRAVERSAL_SPACE_TRANSFER 2u
 #define NRI_SMOKE_FILTER_SKIP_LIMIT 64u
 #define NRI_SMOKE_FILTER_CONTINUATION_LIMIT 32u
-#define NRI_SMOKE_SCENE_TEXTURE_COUNT 512u
+#define NRI_SMOKE_SCENE_TEXTURE_COUNT 1024u
+#define NRI_SMOKE_WORLD_TLAS_REGISTER t1044
 #define NRI_SMOKE_LIGHT_SOURCE_POINT 0x1u
 #define NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL 0x2u
 #define NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL_SHADOW 0x4u
@@ -86,7 +87,7 @@ Texture2D<float4> gSmokeSceneTextures[NRI_SMOKE_SCENE_TEXTURE_COUNT] : register(
 SamplerState gSmokePointWrap : register(s0, space6);
 SamplerState gSmokeLinearWrap : register(s1, space6);
 SamplerState gSmokePointClamp : register(s2, space6);
-RaytracingAccelerationStructure gSmokeWorldTlas : register(t532, space6);
+RaytracingAccelerationStructure gSmokeWorldTlas : register(NRI_SMOKE_WORLD_TLAS_REGISTER, space6);
 
 struct SmokeIndirectHit
 {

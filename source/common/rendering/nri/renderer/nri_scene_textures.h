@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../system/nri_local.h"
+#include "nri_shader_contracts.h"
 #include "nri_scene_texture_slot_table.h"
 
 #include <cstdint>
@@ -218,15 +219,18 @@ private:
 		NRIRenderDevice& device,
 		uint32_t cacheIndex,
 		NRISceneTextureClosureResult& outResult);
+	uint32_t FindCompatibleCacheIndex(const nri_scene::TextureUpload& upload) const;
+	uint32_t FindCompatibleReadyCacheIndex(const nri_scene::TextureUpload& upload) const;
 	void InvalidateCachedTexture(NRIRenderDevice& device, uint32_t cacheIndex);
 
 	NRITextureResource mPaletteTexture;
+	uint64_t mPalettePayloadSignature = 0;
 	std::vector<NRISceneCachedTexture> mTextureCache;
 	std::unordered_map<uint64_t, uint32_t> mTextureCacheKeyIndex;
 	std::vector<NRITextureResource*> mLiveResources;
 	SceneTextureOverflowDebugStats mOverflowStats = {};
 	SceneTextureCacheDebugStats mCacheStats = {};
-	NRISceneTextureSlotTable mSlotTable;
+	NRISceneTextureSlotTable mSlotTable{ NRI_MAX_SCENE_TEXTURES };
 	std::vector<StableSlotDescriptorCacheEntry> mStableSlotDescriptors;
 	bool mLimitLogPrinted = false;
 };

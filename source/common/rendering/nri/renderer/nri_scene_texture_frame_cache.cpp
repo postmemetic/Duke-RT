@@ -9,6 +9,8 @@ namespace
 		hash = nri_scene::HashCombine64(hash, upload.key);
 		hash = nri_scene::HashCombine64(hash, upload.width);
 		hash = nri_scene::HashCombine64(hash, upload.height);
+		hash = nri_scene::HashCombine64(hash, upload.mipCount);
+		hash = nri_scene::HashCombine64(hash, upload.pixels.signature());
 		hash = nri_scene::HashCombine64(hash, upload.indexed ? 1ull : 0ull);
 		return nri_scene::HashCombine64(hash, (uint64_t)(uintptr_t)upload.sourceTexture);
 	}
@@ -50,6 +52,8 @@ const NRISceneTextureFrameProduct* NRISceneTextureFrameCache::Find(
 				if (mProduct.sourceTextureKeys[index] != upload.key ||
 					mProduct.sourceTextureWidths[index] != upload.width ||
 					mProduct.sourceTextureHeights[index] != upload.height ||
+					mProduct.sourceTextureMipCounts[index] != upload.mipCount ||
+					mProduct.sourceTexturePayloadSignatures[index] != upload.pixels.signature() ||
 					mProduct.sourceTexturePointers[index] != (uintptr_t)upload.sourceTexture ||
 					mProduct.sourceTextureIndexed[index] != (upload.indexed ? 1u : 0u))
 				{
@@ -77,11 +81,15 @@ void NRISceneTextureFrameCache::Store(
 	mProduct.sourceTextureKeys.clear();
 	mProduct.sourceTextureWidths.clear();
 	mProduct.sourceTextureHeights.clear();
+	mProduct.sourceTextureMipCounts.clear();
+	mProduct.sourceTexturePayloadSignatures.clear();
 	mProduct.sourceTexturePointers.clear();
 	mProduct.sourceTextureIndexed.clear();
 	mProduct.sourceTextureKeys.reserve(materials.textures.size());
 	mProduct.sourceTextureWidths.reserve(materials.textures.size());
 	mProduct.sourceTextureHeights.reserve(materials.textures.size());
+	mProduct.sourceTextureMipCounts.reserve(materials.textures.size());
+	mProduct.sourceTexturePayloadSignatures.reserve(materials.textures.size());
 	mProduct.sourceTexturePointers.reserve(materials.textures.size());
 	mProduct.sourceTextureIndexed.reserve(materials.textures.size());
 	for (const nri_scene::TextureUpload& upload : materials.textures)
@@ -89,6 +97,8 @@ void NRISceneTextureFrameCache::Store(
 		mProduct.sourceTextureKeys.push_back(upload.key);
 		mProduct.sourceTextureWidths.push_back(upload.width);
 		mProduct.sourceTextureHeights.push_back(upload.height);
+		mProduct.sourceTextureMipCounts.push_back(upload.mipCount);
+		mProduct.sourceTexturePayloadSignatures.push_back(upload.pixels.signature());
 		mProduct.sourceTexturePointers.push_back((uintptr_t)upload.sourceTexture);
 		mProduct.sourceTextureIndexed.push_back(upload.indexed ? 1u : 0u);
 	}

@@ -149,6 +149,109 @@ float4 VisualizeMotionVector(float4 motionSample, float viewZ)
 	return float4(saturate(color), 1.0);
 }
 
+float3 ResolvePrimaryFootprintVertexPosition(HitData hit, float3 localPosition)
+{
+	if (hit.instanceId != 0xffffffffu)
+	{
+		return TransformSceneInstancePoint(
+			GetSceneInstanceData(hit.instanceId), localPosition, false);
+	}
+	return localPosition;
+}
+
+bool TryResolvePrimaryBaseColorLod(
+	HitData hit,
+	MaterialData material,
+	float3 viewRayDirection,
+	out float selectedLod,
+	out uint mipCount)
+{
+	selectedLod = 0.0;
+	mipCount = 0u;
+	if (material.textureIndex == 0xffffffffu)
+	{
+		return false;
+	}
+
+	const uint textureIndex = min(
+		material.textureIndex, MAX_SCENE_TEXTURES - 1u);
+	uint textureWidth = 0u;
+	uint textureHeight = 0u;
+	gSceneTextures[textureIndex].GetDimensions(
+		0u, textureWidth, textureHeight, mipCount);
+	if (textureWidth == 0u || textureHeight == 0u || mipCount == 0u)
+	{
+		mipCount = 0u;
+		return false;
+	}
+	if (mipCount == 1u ||
+		(material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0u)
+	{
+		return true;
+	}
+
+	const PrimitiveData primitive = GetPrimitiveData(
+		hit.dataSource, hit.primitiveIndex);
+	const float3 p0 = ResolvePrimaryFootprintVertexPosition(
+		hit, GetVertexData(hit.dataSource, primitive.indices.x).position);
+	const float3 p1 = ResolvePrimaryFootprintVertexPosition(
+		hit, GetVertexData(hit.dataSource, primitive.indices.y).position);
+	const float3 p2 = ResolvePrimaryFootprintVertexPosition(
+		hit, GetVertexData(hit.dataSource, primitive.indices.z).position);
+	const float3 edge1 = p1 - p0;
+	const float3 edge2 = p2 - p0;
+	const float3 areaVector = cross(edge1, edge2);
+	const float areaSq = dot(areaVector, areaVector);
+	if (areaSq <= 1.0e-12 ||
+		gTraceConstants.RenderHeight == 0u ||
+		hit.distance <= 0.0 ||
+		!all(isfinite(p0)) || !all(isfinite(p1)) || !all(isfinite(p2)) ||
+		!isfinite(hit.distance))
+	{
+		return true;
+	}
+
+	// Gradients of the UV coordinates over the placed triangle. Portal-path
+	// distance remains an approximation until HitData carries the accumulated
+	// presentation transform, but discrete LOD selection is stable and safe.
+	const float3 barycentricGradient1 = cross(edge2, areaVector) / areaSq;
+	const float3 barycentricGradient2 = cross(areaVector, edge1) / areaSq;
+	const float2 uvEdge1 = primitive.uv1 - primitive.uv0;
+	const float2 uvEdge2 = primitive.uv2 - primitive.uv0;
+	const float3 texelGradientU =
+		(uvEdge1.x * barycentricGradient1 +
+			uvEdge2.x * barycentricGradient2) * (float)textureWidth;
+	const float3 texelGradientV =
+		(uvEdge1.y * barycentricGradient1 +
+			uvEdge2.y * barycentricGradient2) * (float)textureHeight;
+	const float gradientUU = dot(texelGradientU, texelGradientU);
+	const float gradientVV = dot(texelGradientV, texelGradientV);
+	const float gradientUV = dot(texelGradientU, texelGradientV);
+	const float gradientDiscriminant = sqrt(max(
+		(gradientUU - gradientVV) * (gradientUU - gradientVV) +
+		4.0 * gradientUV * gradientUV, 0.0));
+	const float texelsPerWorld = sqrt(max(
+		0.5 * (gradientUU + gradientVV + gradientDiscriminant), 0.0));
+
+	const float3 geometricNormal = normalize(areaVector);
+	const float viewCosine = abs(dot(
+		geometricNormal, normalize(-viewRayDirection)));
+	const float primaryPixelCone =
+		2.0 * abs(gTraceConstants.TanHalfFovY) * hit.distance /
+		(float)gTraceConstants.RenderHeight;
+	const float surfaceFootprint = primaryPixelCone / max(viewCosine, 0.125);
+	const float texelFootprint = surfaceFootprint * texelsPerWorld;
+	if (!isfinite(texelFootprint) || texelFootprint <= 0.0)
+	{
+		return true;
+	}
+
+	const float maximumLod = (float)(mipCount - 1u);
+	selectedLod = round(clamp(
+		log2(max(texelFootprint, 1.0)), 0.0, maximumLod));
+	return true;
+}
+
 uint GetLightBounceCount()
 {
 	return gTraceConstants.BounceCounts & 0xfu;
@@ -1330,6 +1433,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float shadowPenumbra = SIGMA_FrontEnd_PackPenumbra(NRD_FP16_MAX, GetDirectionalPlaceholderTanAngularSize());
 		float roughness = 1.0;
 		bool smokeForeground = false;
+		float primaryBaseColorLod = 0.0;
+		uint primaryBaseColorMipCount = 0u;
 		if (bootstrapFlat)
 		{
 			const float primitiveHash = (float)(hit.primitiveIndex % 31u) / 30.0;
@@ -1337,8 +1442,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 		else
 		{
-			albedo = SampleMaterialBaseColor(hit.materialIndex, hit.dataSource, hit.uv);
 			const MaterialData material = GetMaterialData(hit.materialIndex, hit.dataSource);
+			TryResolvePrimaryBaseColorLod(
+				hit,
+				material,
+				visibleRayDirection,
+				primaryBaseColorLod,
+				primaryBaseColorMipCount);
+			albedo = SampleMaterialBaseColorLevel(
+				hit.materialIndex,
+				hit.dataSource,
+				hit.uv,
+				primaryBaseColorLod);
+			RecordSurfaceProbePrimaryPixel(pixelPos, hit, material);
 			smokeForeground = (material.lightingFlags & MATERIAL_LIGHTING_FLAG_SMOKE_FOREGROUND) != 0u;
 			const bool fullbright = (material.flags & MATERIAL_FLAG_FULLBRIGHT) != 0;
 			const bool emissiveMaterial = IsMaterialEmissive(material);

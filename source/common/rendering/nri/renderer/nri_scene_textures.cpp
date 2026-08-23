@@ -1,6 +1,7 @@
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 
+#include "../scene/nri_hash.h"
 #include "../scene/nri_material_bridge.h"
 #include "../system/nri_hwtexture.h"
 #include "../system/nri_renderdevice.h"
@@ -90,7 +91,59 @@ namespace
 			return 0;
 		}
 		const uint64_t bytesPerPixel = upload.indexed ? 1ull : 4ull;
-		return (uint64_t)upload.width * (uint64_t)upload.height * bytesPerPixel;
+		uint32_t mipWidth = upload.width;
+		uint32_t mipHeight = upload.height;
+		uint64_t totalBytes = 0;
+		for (uint32_t mip = 0; mip < (std::max)(1u, upload.mipCount); ++mip)
+		{
+			totalBytes += (uint64_t)mipWidth * (uint64_t)mipHeight * bytesPerPixel;
+			mipWidth = (std::max)(1u, mipWidth / 2u);
+			mipHeight = (std::max)(1u, mipHeight / 2u);
+		}
+		return totalBytes;
+	}
+
+	bool BuildSceneTextureSubresources(
+		const uint8_t* pixels,
+		size_t pixelBytes,
+		uint32_t width,
+		uint32_t height,
+		uint32_t mipCount,
+		bool indexed,
+		std::vector<nri::TextureSubresourceUploadDesc>& subresources)
+	{
+		subresources.clear();
+		if (pixels == nullptr || width == 0 || height == 0 || mipCount == 0)
+		{
+			return false;
+		}
+
+		const uint32_t bytesPerPixel = indexed ? 1u : 4u;
+		subresources.reserve(mipCount);
+		size_t pixelOffset = 0;
+		uint32_t mipWidth = width;
+		uint32_t mipHeight = height;
+		for (uint32_t mip = 0; mip < mipCount; ++mip)
+		{
+			const uint32_t rowPitch = mipWidth * bytesPerPixel;
+			const size_t slicePitch = (size_t)rowPitch * mipHeight;
+			if (pixelOffset > pixelBytes || slicePitch > pixelBytes - pixelOffset || slicePitch > UINT32_MAX)
+			{
+				subresources.clear();
+				return false;
+			}
+
+			nri::TextureSubresourceUploadDesc subresource = {};
+			subresource.slices = pixels + pixelOffset;
+			subresource.sliceNum = 1;
+			subresource.rowPitch = rowPitch;
+			subresource.slicePitch = (uint32_t)slicePitch;
+			subresources.push_back(subresource);
+			pixelOffset += slicePitch;
+			mipWidth = (std::max)(1u, mipWidth / 2u);
+			mipHeight = (std::max)(1u, mipHeight / 2u);
+		}
+		return pixelOffset == pixelBytes;
 	}
 
 	uint64_t NoteTextureFirstUse(
@@ -228,20 +281,37 @@ uint32_t NRIPreservePendingTextureMaterialProxies(
 
 bool NRISceneTextureResidency::EnsurePaletteTexture(NRIRenderDevice& device, const nri_scene::MaterialBridgeData& materials)
 {
+	uint64_t payloadSignature = materials.paletteLookup.signature();
+	if (payloadSignature == 0 && !materials.paletteLookup.empty())
+	{
+		payloadSignature = nri_scene::Fnv1a64(materials.paletteLookup.data(), materials.paletteLookup.size());
+	}
 	if (mPaletteTexture.texture != nullptr &&
 		mPaletteTexture.width == materials.paletteWidth &&
-		mPaletteTexture.height == materials.paletteHeight)
+		mPaletteTexture.height == materials.paletteHeight &&
+		mPalettePayloadSignature == payloadSignature)
 	{
 		return true;
 	}
 
-	device.DestroyTextureResource(mPaletteTexture);
-	if (!device.CreateOwnedTexture(mPaletteTexture, materials.paletteWidth, materials.paletteHeight, nri::Format::BGRA8_UNORM, nri::TextureUsageBits::SHADER_RESOURCE))
+	if (mPaletteTexture.texture == nullptr ||
+		mPaletteTexture.width != materials.paletteWidth ||
+		mPaletteTexture.height != materials.paletteHeight)
+	{
+		device.DestroyTextureResource(mPaletteTexture);
+		mPalettePayloadSignature = 0;
+		if (!device.CreateOwnedTexture(mPaletteTexture, materials.paletteWidth, materials.paletteHeight, nri::Format::BGRA8_UNORM, nri::TextureUsageBits::SHADER_RESOURCE))
+		{
+			return false;
+		}
+	}
+
+	if (!device.UploadTextureData(mPaletteTexture, materials.paletteLookup.data(), materials.paletteWidth, materials.paletteHeight, materials.paletteWidth * 4u))
 	{
 		return false;
 	}
-
-	return device.UploadTextureData(mPaletteTexture, materials.paletteLookup.data(), materials.paletteWidth, materials.paletteHeight, materials.paletteWidth * 4u);
+	mPalettePayloadSignature = payloadSignature;
+	return true;
 }
 
 bool NRISceneTextureResidency::EnsureCacheEntry(NRIRenderDevice& device, const nri_scene::TextureUpload& upload, double* outRealizeMs)
@@ -262,7 +332,15 @@ bool NRISceneTextureResidency::EnsureCacheEntry(NRIRenderDevice& device, const n
 		return true;
 	}
 
-	const uint32_t existingIndex = FindCacheIndex(upload.key);
+	uint32_t existingIndex = FindCacheIndex(upload.key);
+	const uint32_t mipCount = (std::max)(1u, upload.mipCount);
+	if (existingIndex != UINT32_MAX &&
+		existingIndex < mTextureCache.size() &&
+		mTextureCache[existingIndex].resource.mipCount != mipCount)
+	{
+		InvalidateCachedTexture(device, existingIndex);
+		existingIndex = UINT32_MAX;
+	}
 	if (existingIndex != UINT32_MAX)
 	{
 		NRISceneTextureClosureResult existingResult = {};
@@ -282,6 +360,7 @@ bool NRISceneTextureResidency::EnsureCacheEntry(NRIRenderDevice& device, const n
 	uint32_t realizedWidth = upload.width;
 	uint32_t realizedHeight = upload.height;
 	const uint8_t* pixelData = upload.pixels.data();
+	size_t pixelBytes = upload.pixels.size();
 	if (upload.pixels.empty())
 	{
 		if (!nri_scene::RealizeTextureUploadPayload(upload, realizedPixels, realizedWidth, realizedHeight))
@@ -289,6 +368,7 @@ bool NRISceneTextureResidency::EnsureCacheEntry(NRIRenderDevice& device, const n
 			return false;
 		}
 		pixelData = realizedPixels.data();
+		pixelBytes = realizedPixels.size();
 	}
 
 	if (pixelData == nullptr || realizedWidth == 0 || realizedHeight == 0)
@@ -299,9 +379,16 @@ bool NRISceneTextureResidency::EnsureCacheEntry(NRIRenderDevice& device, const n
 	NRISceneCachedTexture cacheEntry = {};
 	cacheEntry.key = upload.key;
 	const nri::Format format = upload.indexed ? nri::Format::R8_UNORM : nri::Format::BGRA8_UNORM;
-	const uint32_t rowPitch = upload.indexed ? realizedWidth : realizedWidth * 4u;
-	if (!device.CreateOwnedTexture(cacheEntry.resource, realizedWidth, realizedHeight, format, nri::TextureUsageBits::SHADER_RESOURCE) ||
-		!device.UploadTextureData(cacheEntry.resource, pixelData, realizedWidth, realizedHeight, rowPitch))
+	std::vector<nri::TextureSubresourceUploadDesc> subresources;
+	if (!BuildSceneTextureSubresources(
+			pixelData, pixelBytes, realizedWidth, realizedHeight, mipCount, upload.indexed, subresources) ||
+		!device.CreateOwnedTexture(
+			cacheEntry.resource, realizedWidth, realizedHeight, format,
+			nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureType::TEXTURE_2D, 1,
+			nri::TextureView::TEXTURE, mipCount) ||
+		!device.UploadTextureSubresources(
+			cacheEntry.resource, subresources.data(), (uint32_t)subresources.size(),
+			realizedWidth, realizedHeight))
 	{
 		device.DestroyTextureResource(cacheEntry.resource);
 		return false;
@@ -410,7 +497,15 @@ bool NRISceneTextureResidency::EnsurePreloadClosure(
 		return false;
 	}
 
-	const uint32_t existingIndex = FindCacheIndex(upload.key);
+	uint32_t existingIndex = FindCacheIndex(upload.key);
+	const uint32_t mipCount = (std::max)(1u, upload.mipCount);
+	if (existingIndex != UINT32_MAX &&
+		existingIndex < mTextureCache.size() &&
+		mTextureCache[existingIndex].resource.mipCount != mipCount)
+	{
+		InvalidateCachedTexture(device, existingIndex);
+		existingIndex = UINT32_MAX;
+	}
 	if (existingIndex != UINT32_MAX)
 	{
 		outResult.estimatedBytes = EstimateSceneTextureUploadBytes(upload);
@@ -432,6 +527,7 @@ bool NRISceneTextureResidency::EnsurePreloadClosure(
 	uint32_t realizedWidth = upload.width;
 	uint32_t realizedHeight = upload.height;
 	const uint8_t* pixelData = upload.pixels.data();
+	size_t pixelBytes = upload.pixels.size();
 	if (upload.pixels.empty())
 	{
 		if (!nri_scene::RealizeTextureUploadPayload(upload, realizedPixels, realizedWidth, realizedHeight))
@@ -444,6 +540,7 @@ bool NRISceneTextureResidency::EnsurePreloadClosure(
 			return false;
 		}
 		pixelData = realizedPixels.data();
+		pixelBytes = realizedPixels.size();
 	}
 	if (pixelData == nullptr || realizedWidth == 0 || realizedHeight == 0)
 	{
@@ -458,9 +555,16 @@ bool NRISceneTextureResidency::EnsurePreloadClosure(
 	NRISceneCachedTexture cacheEntry = {};
 	cacheEntry.key = upload.key;
 	const nri::Format format = upload.indexed ? nri::Format::R8_UNORM : nri::Format::BGRA8_UNORM;
-	const uint32_t rowPitch = upload.indexed ? realizedWidth : realizedWidth * 4u;
-	if (!device.CreateOwnedTexture(cacheEntry.resource, realizedWidth, realizedHeight, format, nri::TextureUsageBits::SHADER_RESOURCE) ||
-		!device.UploadTextureData(cacheEntry.resource, pixelData, realizedWidth, realizedHeight, rowPitch))
+	std::vector<nri::TextureSubresourceUploadDesc> subresources;
+	if (!BuildSceneTextureSubresources(
+			pixelData, pixelBytes, realizedWidth, realizedHeight, mipCount, upload.indexed, subresources) ||
+		!device.CreateOwnedTexture(
+			cacheEntry.resource, realizedWidth, realizedHeight, format,
+			nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureType::TEXTURE_2D, 1,
+			nri::TextureView::TEXTURE, mipCount) ||
+		!device.UploadTextureSubresources(
+			cacheEntry.resource, subresources.data(), (uint32_t)subresources.size(),
+			realizedWidth, realizedHeight))
 	{
 		device.DestroyTextureResource(cacheEntry.resource);
 		outResult = {};
@@ -517,7 +621,15 @@ bool NRISceneTextureResidency::EnsureRuntimeClosure(
 		return false;
 	}
 
-	const uint32_t existingIndex = FindCacheIndex(upload.key);
+	uint32_t existingIndex = FindCacheIndex(upload.key);
+	const uint32_t mipCount = (std::max)(1u, upload.mipCount);
+	if (existingIndex != UINT32_MAX &&
+		existingIndex < mTextureCache.size() &&
+		mTextureCache[existingIndex].resource.mipCount != mipCount)
+	{
+		InvalidateCachedTexture(device, existingIndex);
+		existingIndex = UINT32_MAX;
+	}
 	if (existingIndex != UINT32_MAX && existingIndex < mTextureCache.size())
 	{
 		const CachedTextureReadiness readiness = PollCachedTexture(device, existingIndex, outResult);
@@ -556,6 +668,7 @@ bool NRISceneTextureResidency::EnsureRuntimeClosure(
 	uint32_t realizedWidth = upload.width;
 	uint32_t realizedHeight = upload.height;
 	const uint8_t* pixelData = upload.pixels.data();
+	size_t pixelBytes = upload.pixels.size();
 	if (upload.pixels.empty())
 	{
 		if (!nri_scene::RealizeTextureUploadPayload(upload, realizedPixels, realizedWidth, realizedHeight))
@@ -570,8 +683,22 @@ bool NRISceneTextureResidency::EnsureRuntimeClosure(
 			return false;
 		}
 		pixelData = realizedPixels.data();
+		pixelBytes = realizedPixels.size();
 	}
 	if (pixelData == nullptr || realizedWidth == 0 || realizedHeight == 0)
+	{
+		NoteTextureFirstUse(
+			firstUseEventId, upload.key, rendererFrame, queuedSlot, 0, 0, estimatedBytes,
+			SceneTextureDurationMs(realizeStart, std::chrono::steady_clock::now()),
+			PerfCompactFirstUseStage::IndexedPayload, PerfCompactFirstUseState::Failed,
+			PerfCompactFirstUseEnd);
+		outResult.state = NRISceneTextureClosureState::Failed;
+		outResult.failure = NRISceneTextureClosureFailure::PayloadUnavailable;
+		return false;
+	}
+	std::vector<nri::TextureSubresourceUploadDesc> subresources;
+	if (!BuildSceneTextureSubresources(
+			pixelData, pixelBytes, realizedWidth, realizedHeight, mipCount, upload.indexed, subresources))
 	{
 		NoteTextureFirstUse(
 			firstUseEventId, upload.key, rendererFrame, queuedSlot, 0, 0, estimatedBytes,
@@ -597,9 +724,11 @@ bool NRISceneTextureResidency::EnsureRuntimeClosure(
 	cacheEntry.estimatedUploadBytes = estimatedBytes;
 	cacheEntry.firstUseQueuedSlot = queuedSlot;
 	const nri::Format format = upload.indexed ? nri::Format::R8_UNORM : nri::Format::BGRA8_UNORM;
-	const uint32_t rowPitch = upload.indexed ? realizedWidth : realizedWidth * 4u;
 	const auto resourceStart = std::chrono::steady_clock::now();
-	if (!device.CreateOwnedTexture(cacheEntry.resource, realizedWidth, realizedHeight, format, nri::TextureUsageBits::SHADER_RESOURCE))
+	if (!device.CreateOwnedTexture(
+			cacheEntry.resource, realizedWidth, realizedHeight, format,
+			nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureType::TEXTURE_2D, 1,
+			nri::TextureView::TEXTURE, mipCount))
 	{
 		const double resourceMs = SceneTextureDurationMs(resourceStart, std::chrono::steady_clock::now());
 		NoteTextureFirstUse(
@@ -617,12 +746,12 @@ bool NRISceneTextureResidency::EnsureRuntimeClosure(
 		PerfCompactFirstUseStage::TextureResource, PerfCompactFirstUseState::Instant, 0);
 
 	const auto uploadStart = std::chrono::steady_clock::now();
-	if (!device.UploadTextureDataAsync(
+	if (!device.UploadTextureSubresourcesAsync(
 			cacheEntry.resource,
-			pixelData,
+			subresources.data(),
+			(uint32_t)subresources.size(),
 			realizedWidth,
 			realizedHeight,
-			rowPitch,
 			cacheEntry.uploadFenceValue))
 	{
 		NoteTextureFirstUse(
@@ -630,7 +759,7 @@ bool NRISceneTextureResidency::EnsureRuntimeClosure(
 			SceneTextureDurationMs(uploadStart, std::chrono::steady_clock::now()),
 			PerfCompactFirstUseStage::UploadRecord, PerfCompactFirstUseState::Failed,
 			PerfCompactFirstUseEnd);
-		device.DestroyTextureResource(cacheEntry.resource);
+		device.RetireTextureResource(cacheEntry.resource);
 		outResult.state = NRISceneTextureClosureState::Deferred;
 		outResult.failure = NRISceneTextureClosureFailure::ResourceCreation;
 		return false;
@@ -689,12 +818,12 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 	if (tracePerf)
 	{
 		const auto start = std::chrono::steady_clock::now();
-		cacheIndex = FindCacheIndex(upload.key);
+		cacheIndex = FindCompatibleCacheIndex(upload);
 		outResult.lookupMs += SceneTextureDurationMs(start, std::chrono::steady_clock::now());
 	}
 	else
 	{
-		cacheIndex = FindCacheIndex(upload.key);
+		cacheIndex = FindCompatibleCacheIndex(upload);
 	}
 
 	if (cacheIndex == UINT32_MAX)
@@ -706,7 +835,7 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 			{
 				return false;
 			}
-			cacheIndex = FindReadyCacheIndex(upload.key);
+			cacheIndex = FindCompatibleReadyCacheIndex(upload);
 			outResult.inserted = cacheIndex != UINT32_MAX;
 		}
 		else
@@ -739,7 +868,7 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 				{
 					return false;
 				}
-				cacheIndex = FindReadyCacheIndex(upload.key);
+				cacheIndex = FindCompatibleReadyCacheIndex(upload);
 				outResult.inserted = cacheIndex != UINT32_MAX;
 			}
 			else
@@ -765,7 +894,7 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 			{
 				return false;
 			}
-			cacheIndex = FindReadyCacheIndex(upload.key);
+			cacheIndex = FindCompatibleReadyCacheIndex(upload);
 			outResult.inserted = cacheIndex != UINT32_MAX;
 		}
 		else if (readiness != CachedTextureReadiness::Ready)
@@ -954,7 +1083,7 @@ bool NRISceneTextureResidency::WarmMaterialTextures(NRIRenderDevice& device, con
 		}
 
 		outResult.textureRequests++;
-		const bool wasCached = FindReadyCacheIndex(upload.key) != UINT32_MAX;
+		const bool wasCached = FindCompatibleReadyCacheIndex(upload) != UINT32_MAX;
 		if (wasCached)
 		{
 			outResult.textureHits++;
@@ -969,7 +1098,7 @@ bool NRISceneTextureResidency::WarmMaterialTextures(NRIRenderDevice& device, con
 			return false;
 		}
 		outResult.realizeMs += realizeMs;
-		if (FindReadyCacheIndex(upload.key) != UINT32_MAX)
+		if (FindCompatibleReadyCacheIndex(upload) != UINT32_MAX)
 		{
 			outResult.textureInserts++;
 		}
@@ -1017,7 +1146,7 @@ bool NRISceneTextureResidency::WarmMaterialTexturesBudgeted(
 		}
 
 		outResult.textureRequests++;
-		const bool wasCached = FindReadyCacheIndex(upload.key) != UINT32_MAX;
+		const bool wasCached = FindCompatibleReadyCacheIndex(upload) != UINT32_MAX;
 		if (wasCached)
 		{
 			outResult.textureHits++;
@@ -1050,7 +1179,7 @@ bool NRISceneTextureResidency::WarmMaterialTexturesBudgeted(
 			return false;
 		}
 		outResult.realizeMs += realizeMs;
-		if (FindReadyCacheIndex(upload.key) != UINT32_MAX)
+		if (FindCompatibleReadyCacheIndex(upload) != UINT32_MAX)
 		{
 			outResult.textureInserts++;
 		}
@@ -1862,6 +1991,30 @@ uint32_t NRISceneTextureResidency::FindReadyCacheIndex(uint64_t key) const
 		return UINT32_MAX;
 	}
 
+	const NRISceneCachedTexture& cached = mTextureCache[cacheIndex];
+	return cached.uploadFenceValue == 0 &&
+		cached.resource.texture != nullptr &&
+		cached.resource.shaderView != nullptr ? cacheIndex : UINT32_MAX;
+}
+
+uint32_t NRISceneTextureResidency::FindCompatibleCacheIndex(const nri_scene::TextureUpload& upload) const
+{
+	const uint32_t cacheIndex = FindCacheIndex(upload.key);
+	if (cacheIndex == UINT32_MAX || cacheIndex >= mTextureCache.size())
+	{
+		return UINT32_MAX;
+	}
+	return mTextureCache[cacheIndex].resource.mipCount == (std::max)(1u, upload.mipCount) ?
+		cacheIndex : UINT32_MAX;
+}
+
+uint32_t NRISceneTextureResidency::FindCompatibleReadyCacheIndex(const nri_scene::TextureUpload& upload) const
+{
+	const uint32_t cacheIndex = FindCompatibleCacheIndex(upload);
+	if (cacheIndex == UINT32_MAX)
+	{
+		return UINT32_MAX;
+	}
 	const NRISceneCachedTexture& cached = mTextureCache[cacheIndex];
 	return cached.uploadFenceValue == 0 &&
 		cached.resource.texture != nullptr &&

@@ -311,7 +311,9 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	filteredSceneRanges[1].shaderStages = nri::StageBits::COMPUTE_SHADER;
 	filteredSceneRanges[1].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
 	filteredSceneRanges[2].baseRegisterIndex = 18;
-	filteredSceneRanges[2].descriptorNum = 514;
+	constexpr uint32_t smokeSceneTextureDescriptorCount = 2u + NRI_MAX_SCENE_TEXTURES;
+	constexpr uint32_t smokeWorldTlasRegister = 18u + smokeSceneTextureDescriptorCount;
+	filteredSceneRanges[2].descriptorNum = smokeSceneTextureDescriptorCount;
 	filteredSceneRanges[2].descriptorType = nri::DescriptorType::TEXTURE;
 	filteredSceneRanges[2].shaderStages = nri::StageBits::COMPUTE_SHADER;
 	filteredSceneRanges[2].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
@@ -320,7 +322,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	filteredSceneRanges[3].descriptorType = nri::DescriptorType::SAMPLER;
 	filteredSceneRanges[3].shaderStages = nri::StageBits::COMPUTE_SHADER;
 	filteredSceneRanges[3].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
-	filteredSceneRanges[4].baseRegisterIndex = 532;
+	filteredSceneRanges[4].baseRegisterIndex = smokeWorldTlasRegister;
 	filteredSceneRanges[4].descriptorNum = 1;
 	filteredSceneRanges[4].descriptorType = nri::DescriptorType::ACCELERATION_STRUCTURE;
 	filteredSceneRanges[4].shaderStages = nri::StageBits::COMPUTE_SHADER;
@@ -2200,7 +2202,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		renderer.mSceneDataDescriptors[25],
 	};
 	const bool emissiveBuffersReady = std::all_of(std::begin(emissiveSceneBuffers), std::end(emissiveSceneBuffers), [](const nri::Descriptor* descriptor) { return descriptor != nullptr; });
-	const bool filteredTexturesReady = renderer.mCurrentSceneTextureDescriptors.size() >= 514u && renderer.mCurrentSceneTextureDescriptors[0] != nullptr;
+	constexpr uint32_t smokeSceneTextureDescriptorCount = 2u + NRI_MAX_SCENE_TEXTURES;
+	const bool filteredTexturesReady = renderer.mCurrentSceneTextureDescriptors.size() >= smokeSceneTextureDescriptorCount && renderer.mCurrentSceneTextureDescriptors[0] != nullptr;
 	const NRIWorldTlasFrameSlot& worldTlasFrameSlot = renderer.GetCurrentWorldTlasFrameSlot();
 	const nri::Descriptor* worldTlasDescriptor = worldTlasFrameSlot.accelerationStructure.descriptor;
 	const bool shadowReady = worldTlasDescriptor != nullptr;
@@ -2221,12 +2224,12 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	const bool filteredResourcesReady = filteredBuffersReady && filteredTexturesReady && skyResourceReady && extendedSceneBuffersReady;
 	const bool emissiveResourcesReady = filteredResourcesReady && emissiveBuffersReady && renderer.mBoundEmissivePrimitiveCount > 0u;
 	const bool indirectResourcesReady = filteredResourcesReady && shadowReady && sectorLightResourcesReady && skyResourceReady;
-	std::array<const nri::Descriptor*, 514> smokeSceneTextures = {};
+	std::array<const nri::Descriptor*, smokeSceneTextureDescriptorCount> smokeSceneTextures = {};
 	if (filteredTexturesReady && skyResourceReady)
 	{
 		smokeSceneTextures[0] = renderer.mCurrentSceneTextureDescriptors[0];
 		smokeSceneTextures[1] = smokeSky[0];
-		std::copy(renderer.mCurrentSceneTextureDescriptors.begin() + 2, renderer.mCurrentSceneTextureDescriptors.begin() + 514, smokeSceneTextures.begin() + 2);
+		std::copy(renderer.mCurrentSceneTextureDescriptors.begin() + 2, renderer.mCurrentSceneTextureDescriptors.begin() + smokeSceneTextureDescriptorCount, smokeSceneTextures.begin() + 2);
 	}
 	const nri::Descriptor* filteredSamplers[] = {
 		renderer.mFrameBuffer->mSamplers[(size_t)NRISamplerMode::WrapPoint],

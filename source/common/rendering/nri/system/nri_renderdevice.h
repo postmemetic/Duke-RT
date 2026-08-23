@@ -289,9 +289,10 @@ private:
 	void ReleaseRetiredTextureResources(bool finish);
 	void DestroyTextureResource(NRITextureResource& resource);
 	bool CreateTextureViews(NRITextureResource& resource);
-	bool CreateOwnedTexture(NRITextureResource& resource, uint32_t width, uint32_t height, nri::Format format, nri::TextureUsageBits usage, nri::TextureType type = nri::TextureType::TEXTURE_2D, uint32_t layerNum = 1, nri::TextureView shaderViewType = nri::TextureView::TEXTURE);
+	bool CreateOwnedTexture(NRITextureResource& resource, uint32_t width, uint32_t height, nri::Format format, nri::TextureUsageBits usage, nri::TextureType type = nri::TextureType::TEXTURE_2D, uint32_t layerNum = 1, nri::TextureView shaderViewType = nri::TextureView::TEXTURE, uint32_t mipCount = 1);
 	bool UploadTextureData(NRITextureResource& resource, const void* data, uint32_t width, uint32_t height, uint32_t rowPitch);
 	bool UploadTextureDataAsync(NRITextureResource& resource, const void* data, uint32_t width, uint32_t height, uint32_t rowPitch, uint64_t& outFenceValue);
+	bool UploadTextureSubresourcesAsync(NRITextureResource& resource, const nri::TextureSubresourceUploadDesc* subresources, uint32_t subresourceNum, uint32_t width, uint32_t height, uint64_t& outFenceValue);
 	bool UploadTextureSubresources(NRITextureResource& resource, const nri::TextureSubresourceUploadDesc* subresources, uint32_t subresourceNum, uint32_t width, uint32_t height);
 	bool CopyCurrentTargetToTexture(NRITextureResource& destination);
 	bool LoadShaderBlob(const char* fileName, std::vector<uint8_t>& outBlob);

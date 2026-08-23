@@ -32,6 +32,7 @@ struct NRITextureResource
 	nri::AccessLayoutStage state = {};
 	uint32_t width = 0;
 	uint32_t height = 0;
+	uint32_t mipCount = 1;
 	uint32_t layerNum = 1;
 	nri::Format format = nri::Format::UNKNOWN;
 	uint64_t memorySize = 0;

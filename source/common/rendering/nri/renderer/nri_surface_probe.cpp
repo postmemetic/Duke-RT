@@ -180,6 +180,27 @@ namespace
 			a.textureId == b.textureId &&
 			a.baseTextureId == b.baseTextureId &&
 			a.materialLightingFlags == b.materialLightingFlags &&
+			a.semanticTextureIndex == b.semanticTextureIndex &&
+			a.semanticPaletteIndex == b.semanticPaletteIndex &&
+			a.metadataTextureIndex == b.metadataTextureIndex &&
+			a.metadataPaletteIndex == b.metadataPaletteIndex &&
+			a.gpuTextureIndex == b.gpuTextureIndex &&
+			a.gpuPaletteIndex == b.gpuPaletteIndex &&
+			a.expectedGpuTextureIndex == b.expectedGpuTextureIndex &&
+			a.gpuMaterialValid == b.gpuMaterialValid &&
+			a.expectedGpuTextureValid == b.expectedGpuTextureValid &&
+			a.semanticMetadataMatch == b.semanticMetadataMatch &&
+			a.gpuPaletteMatch == b.gpuPaletteMatch &&
+			a.gpuTextureMatch == b.gpuTextureMatch &&
+			a.textureSlotRevision == b.textureSlotRevision &&
+			a.materialGeneration == b.materialGeneration &&
+			a.shaderMaterialValid == b.shaderMaterialValid &&
+			a.shaderHitMatch == b.shaderHitMatch &&
+			a.shaderDataSource == b.shaderDataSource &&
+			a.shaderPrimitiveIndex == b.shaderPrimitiveIndex &&
+			a.shaderMaterialIndex == b.shaderMaterialIndex &&
+			a.shaderTextureIndex == b.shaderTextureIndex &&
+			a.shaderPaletteIndex == b.shaderPaletteIndex &&
 			a.primitiveFlags == b.primitiveFlags &&
 			a.sceneDataSource == b.sceneDataSource &&
 			a.sceneOwner == b.sceneOwner &&
@@ -214,7 +235,11 @@ namespace
 	}
 }
 
-void NRIRenderer::UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, const nri_scene::MaterialBridgeData* materials, bool allowLogging)
+void NRIRenderer::UpdateSurfaceProbe(
+	const nri_scene::GeometryData& geometry,
+	const nri_scene::MaterialBridgeData* materials,
+	const std::vector<nri_scene::MaterialData>* gpuMaterials,
+	bool allowLogging)
 {
 	ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.surfaceProbeMs);
 	const bool logSurfaceProbe = allowLogging && nri_ptsurfaceprobe > 0;
@@ -289,6 +314,13 @@ void NRIRenderer::UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, co
 		const auto& metadata = materials->lightMetadata[result.materialIndex];
 		const auto& materialData = materials->materials[result.materialIndex];
 		result.materialLightingFlags = metadata.lightingFlags;
+		result.semanticTextureIndex = materialData.textureIndex;
+		result.semanticPaletteIndex = materialData.paletteIndex;
+		result.metadataTextureIndex = metadata.textureIndex;
+		result.metadataPaletteIndex = metadata.paletteIndex;
+		result.semanticMetadataMatch =
+			materialData.textureIndex == metadata.textureIndex &&
+			materialData.paletteIndex == metadata.paletteIndex;
 		result.textureId = metadata.textureId;
 		result.baseTextureId = metadata.baseTextureId != 0 ? metadata.baseTextureId : metadata.textureId;
 		result.materialClass = metadata.materialClass;
@@ -319,6 +351,16 @@ void NRIRenderer::UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, co
 		mSceneLights.ApplyEmissiveMaterialSettings(metadata, effectiveMaterial);
 		result.emissiveMode = effectiveMaterial.emissiveMode;
 		result.emissiveTextureIndex = effectiveMaterial.emissiveTextureIndex;
+	}
+	if (result.hit && gpuMaterials != nullptr && result.materialIndex < gpuMaterials->size())
+	{
+		const auto& gpuMaterial = (*gpuMaterials)[result.materialIndex];
+		result.gpuMaterialValid = true;
+		result.gpuTextureIndex = gpuMaterial.textureIndex;
+		result.gpuPaletteIndex = gpuMaterial.paletteIndex;
+		result.gpuPaletteMatch =
+			result.semanticPaletteIndex != UINT32_MAX &&
+			gpuMaterial.paletteIndex == result.semanticPaletteIndex;
 	}
 
 	if (result.hit)
@@ -362,6 +404,52 @@ void NRIRenderer::UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, co
 				}
 			}
 		}
+	}
+	if (result.hit && result.sceneOwner == nri_diag::SurfaceProbeOwnerStaticMap)
+	{
+		result.gpuMaterialsUseStableTextureSlots = mStaticMapScene.gpuMaterialsUseStableTextureSlots;
+		result.textureSlotRevision = mSceneTextures.SlotTable().MappingRevision();
+		result.materialGeneration = mStaticMapScene.materialGeneration;
+		result.materialBufferPayloadHash = mStaticMaterialBuffer.payloadHash;
+		if (materials != nullptr &&
+			result.semanticTextureIndex < materials->textures.size() &&
+			result.gpuMaterialsUseStableTextureSlots)
+		{
+			const NRISceneTextureSlotHandle slot =
+				mSceneTextures.SlotTable().Lookup(materials->textures[result.semanticTextureIndex].key);
+			if (slot)
+			{
+				result.expectedGpuTextureValid = true;
+				result.expectedGpuTextureIndex = slot.slot;
+			}
+		}
+		else if (!result.gpuMaterialsUseStableTextureSlots && result.semanticTextureIndex != UINT32_MAX)
+		{
+			result.expectedGpuTextureValid = true;
+			result.expectedGpuTextureIndex = result.semanticTextureIndex;
+		}
+	}
+	if (result.gpuMaterialValid && result.expectedGpuTextureValid)
+	{
+		result.gpuTextureMatch = result.gpuTextureIndex == result.expectedGpuTextureIndex;
+	}
+	if (mLastPerfTraceShaderStats.valid && mLastPerfTraceShaderStats.surfaceProbe.valid)
+	{
+		const NRITraceShaderSurfaceProbe& shaderProbe = mLastPerfTraceShaderStats.surfaceProbe;
+		result.shaderMaterialValid = true;
+		result.shaderFrameNumber = mLastPerfTraceShaderStats.frameNumber;
+		result.shaderDataSource = shaderProbe.dataSource;
+		result.shaderInstanceIndex = shaderProbe.instanceId;
+		result.shaderPrimitiveIndex = shaderProbe.primitiveIndex;
+		result.shaderMaterialIndex = shaderProbe.materialIndex;
+		result.shaderTextureIndex = shaderProbe.textureIndex;
+		result.shaderPaletteIndex = shaderProbe.paletteIndex;
+		result.shaderMaterialFlags = shaderProbe.flags;
+		result.shaderLightingFlags = shaderProbe.lightingFlags;
+		result.shaderHitMatch =
+			shaderProbe.dataSource == result.sceneDataSource &&
+			shaderProbe.primitiveIndex == result.primitiveIndex &&
+			shaderProbe.materialIndex == result.materialIndex;
 	}
 
 	mSurfaceProbe.SetLast(result);
@@ -446,7 +534,7 @@ void NRIRenderer::UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, co
 	FString materialTextureName;
 	int32_t materialLegacyTile = -1;
 	ResolveSurfaceProbeTextureDebugInfo(result.baseTextureId, materialTextureName, materialLegacyTile);
-	Printf("NRI PT surface probe: hit source=%s drawlist=%s owner=%s data_source=%s chunk=%d gate_visible=%s flat_drawlist_visible=%s static_resident=%s static_tlas_instanced=%s static_probe_included=%s chunk_replaced=%s chunk_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u local_space=%d portal_graph=%d sector=%d wall=%d nextsector=%d actor=%d cstat=0x%x primitive=%u material=%u texid=%u legacy_tile=%d texture_name=%s material_texid=%u material_legacy_tile=%d material_texture_name=%s distance=%.2f pos=(%.2f, %.2f, %.2f) normal=(%.3f, %.3f, %.3f) flags=0x%x indexed=%s fullbright=%s flat=%s sprite=%s mirror=%s sky=%s portal=%s facing_billboard=%s point_sampled=%s tex_fullbright=%s glowing=%s auto_glow=%s glowmap=%s normalmap=%s metallic=%s roughness=%s normal_tex=%u metallic_tex=%u roughness_tex=%u metalness_hint=%.3f roughness_hint=%.3f material_class=%u emissive_mode=%s emissive_tex=%u light_surface=%s light_mat=%u emissive_surface=%s emissive_prims=%u emissive_hit=%s emissive_flags=0x%x emissive_rule=%u emissive_override=%u emissive_sector=%d sector_scale=%.3f sector_reach=%.3f sector_applied=%s emissive_area=%.2f emissive_power=%.3f emissive_sample_weight=%.3f emissive_pdf=%.6f emissive_intensity=%.3f material_response=%s material_scale=%.3f light=%.3f alpha=%.3f avg=(%.2f, %.2f, %.2f) emissive=(%.2f, %.2f, %.2f) glow=(%.2f, %.2f, %.2f)\n",
+	Printf("NRI PT surface probe: hit source=%s drawlist=%s owner=%s data_source=%s chunk=%d gate_visible=%s flat_drawlist_visible=%s static_resident=%s static_tlas_instanced=%s static_probe_included=%s chunk_replaced=%s chunk_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u local_space=%d portal_graph=%d sector=%d wall=%d nextsector=%d actor=%d cstat=0x%x primitive=%u material=%u cpu_tex=%u metadata_tex=%u gpu_tex=%u expected_gpu_tex=%u cpu_palette=%u metadata_palette=%u gpu_palette=%u gpu_material_valid=%s cpu_metadata_match=%s gpu_palette_match=%s gpu_texture_match=%s stable_texture_slots=%s texture_slot_revision=%llu material_generation=%llu material_buffer_hash=%llu shader_valid=%s shader_hit_match=%s shader_frame=%llu shader_source=%u shader_instance=%u shader_primitive=%u shader_material=%u shader_tex=%u shader_palette=%u shader_flags=0x%x shader_lighting=0x%x texid=%u legacy_tile=%d texture_name=%s material_texid=%u material_legacy_tile=%d material_texture_name=%s distance=%.2f pos=(%.2f, %.2f, %.2f) normal=(%.3f, %.3f, %.3f) flags=0x%x indexed=%s fullbright=%s flat=%s sprite=%s mirror=%s sky=%s portal=%s facing_billboard=%s point_sampled=%s tex_fullbright=%s glowing=%s auto_glow=%s glowmap=%s normalmap=%s metallic=%s roughness=%s normal_tex=%u metallic_tex=%u roughness_tex=%u metalness_hint=%.3f roughness_hint=%.3f material_class=%u emissive_mode=%s emissive_tex=%u light_surface=%s light_mat=%u emissive_surface=%s emissive_prims=%u emissive_hit=%s emissive_flags=0x%x emissive_rule=%u emissive_override=%u emissive_sector=%d sector_scale=%.3f sector_reach=%.3f sector_applied=%s emissive_area=%.2f emissive_power=%.3f emissive_sample_weight=%.3f emissive_pdf=%.6f emissive_intensity=%.3f material_response=%s material_scale=%.3f light=%.3f alpha=%.3f avg=(%.2f, %.2f, %.2f) emissive=(%.2f, %.2f, %.2f) glow=(%.2f, %.2f, %.2f)\n",
 		nri_diag::GetSurfaceSourceTypeName(result.provenance.sourceType),
 		nri_diag::GetDrawListTypeName(result.provenance.drawListType),
 		nri_diag::GetSurfaceProbeSceneOwnerName(result.sceneOwner),
@@ -474,6 +562,32 @@ void NRIRenderer::UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, co
 		result.provenance.cstat,
 		result.primitiveIndex,
 		result.materialIndex,
+		result.semanticTextureIndex != UINT32_MAX ? result.semanticTextureIndex : 0u,
+		result.metadataTextureIndex != UINT32_MAX ? result.metadataTextureIndex : 0u,
+		result.gpuTextureIndex != UINT32_MAX ? result.gpuTextureIndex : 0u,
+		result.expectedGpuTextureIndex != UINT32_MAX ? result.expectedGpuTextureIndex : 0u,
+		result.semanticPaletteIndex != UINT32_MAX ? result.semanticPaletteIndex : 0u,
+		result.metadataPaletteIndex != UINT32_MAX ? result.metadataPaletteIndex : 0u,
+		result.gpuPaletteIndex != UINT32_MAX ? result.gpuPaletteIndex : 0u,
+		YesNo(result.gpuMaterialValid),
+		YesNo(result.semanticMetadataMatch),
+		YesNo(result.gpuPaletteMatch),
+		result.expectedGpuTextureValid ? YesNo(result.gpuTextureMatch) : "n/a",
+		YesNo(result.gpuMaterialsUseStableTextureSlots),
+		(unsigned long long)result.textureSlotRevision,
+		(unsigned long long)result.materialGeneration,
+		(unsigned long long)result.materialBufferPayloadHash,
+		YesNo(result.shaderMaterialValid),
+		YesNo(result.shaderHitMatch),
+		(unsigned long long)result.shaderFrameNumber,
+		result.shaderDataSource != UINT32_MAX ? result.shaderDataSource : 0u,
+		result.shaderInstanceIndex != UINT32_MAX ? result.shaderInstanceIndex : 0u,
+		result.shaderPrimitiveIndex != UINT32_MAX ? result.shaderPrimitiveIndex : 0u,
+		result.shaderMaterialIndex != UINT32_MAX ? result.shaderMaterialIndex : 0u,
+		result.shaderTextureIndex != UINT32_MAX ? result.shaderTextureIndex : 0u,
+		result.shaderPaletteIndex != UINT32_MAX ? result.shaderPaletteIndex : 0u,
+		result.shaderMaterialFlags,
+		result.shaderLightingFlags,
 		result.textureId,
 		legacyTile,
 		textureName.GetChars(),

@@ -1075,6 +1075,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_scene_bridge.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
+	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
 	../libraries/ShaderMake/ShaderMake/ShaderBlob.cpp
 	../libraries/NRD/Source/Wrapper.cpp

@@ -14,7 +14,7 @@
 #define SET_OUTPUTS 4
 #define SET_ROOT 5
 
-#define MAX_SCENE_TEXTURES 512
+#define MAX_SCENE_TEXTURES 1024
 #define NRI_FLAG_USE_JITTER 0x40u
 #define NRI_JITTER_PHASE_SHIFT 16u
 #define NRI_VOXEL_NORMAL_BLEND_SHIFT 24u
@@ -177,8 +177,8 @@ SamplerState gPointClamp : register(s3, space0);
 Texture2D<float4> gPaletteLookup : register(t0, space1);
 TextureCube<float4> gSkyTexture : register(t1, space1);
 Texture2D<float4> gSceneTextures[MAX_SCENE_TEXTURES] : register(t2, space1);
-Texture2D<uint4> gBlueNoiseScramblingRanking : register(t514, space1);
-Texture2D<uint4> gBlueNoiseSobol : register(t515, space1);
+Texture2D<uint4> gBlueNoiseScramblingRanking : register(t1026, space1);
+Texture2D<uint4> gBlueNoiseSobol : register(t1027, space1);
 
 Texture2D<float4> gHistoryInput : register(t0, space3);
 // PT motion contract shared by TraceOpaque, NRD, TAA, and the upscaler:

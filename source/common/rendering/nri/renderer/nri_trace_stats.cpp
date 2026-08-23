@@ -415,6 +415,7 @@ void NRITraceShaderStats::Readback(
 	outStats.referencePixelAttribution = {};
 	outStats.candidateAttribution = {};
 	outStats.finalAttribution = {};
+	outStats.surfaceProbe = {};
 	const auto resolveAttribution = [&](uint32_t instanceId, bool valid) -> NRITraceShaderProbeAttribution
 	{
 		NRITraceShaderProbeAttribution result;
@@ -446,6 +447,19 @@ void NRITraceShaderStats::Readback(
 		outStats.finalAttribution[rayKind] = resolveAttribution(
 			outStats.counters[rayBase + NRI_TRACE_SHADER_PROBE_RAY_FINAL_INSTANCE],
 			outStats.counters[rayBase + NRI_TRACE_SHADER_PROBE_RAY_FINAL_VALID] != 0u);
+	}
+	const uint32_t surfaceProbeBase = NRI_TRACE_SHADER_SURFACE_PROBE_BASE;
+	outStats.surfaceProbe.valid = outStats.counters[surfaceProbeBase] != 0u;
+	if (outStats.surfaceProbe.valid)
+	{
+		outStats.surfaceProbe.dataSource = outStats.counters[surfaceProbeBase + 1u];
+		outStats.surfaceProbe.instanceId = outStats.counters[surfaceProbeBase + 2u];
+		outStats.surfaceProbe.primitiveIndex = outStats.counters[surfaceProbeBase + 3u];
+		outStats.surfaceProbe.materialIndex = outStats.counters[surfaceProbeBase + 4u];
+		outStats.surfaceProbe.textureIndex = outStats.counters[surfaceProbeBase + 5u];
+		outStats.surfaceProbe.paletteIndex = outStats.counters[surfaceProbeBase + 6u];
+		outStats.surfaceProbe.flags = outStats.counters[surfaceProbeBase + 7u];
+		outStats.surfaceProbe.lightingFlags = outStats.counters[surfaceProbeBase + 8u];
 	}
 
 	struct TraceShaderHotCandidate

@@ -3,6 +3,7 @@
 #include "../renderer/nri_cvars.h"
 
 #include "nri_hash.h"
+#include "nri_indexed_mip_chain.h"
 #include "nri_texture_signature.h"
 
 #include "palette.h"
@@ -140,6 +141,52 @@ namespace
 
 	IndexedTexturePayloadCache gIndexedTexturePayloadCache;
 	std::mutex gIndexedTexturePayloadCacheMutex;
+
+	struct IndexedMipVariantIdentity
+	{
+		uint64_t rawContentKey = 0;
+		uint64_t palettePayloadSignature = 0;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		uint32_t paletteIndex = 0;
+		uint32_t alphaPolicy = 0;
+		uint32_t algorithmVersion = PaletteAwareIndexedMipAlgorithmVersion;
+
+		bool operator==(const IndexedMipVariantIdentity& other) const
+		{
+			return rawContentKey == other.rawContentKey &&
+				palettePayloadSignature == other.palettePayloadSignature &&
+				width == other.width &&
+				height == other.height &&
+				paletteIndex == other.paletteIndex &&
+				alphaPolicy == other.alphaPolicy &&
+				algorithmVersion == other.algorithmVersion;
+		}
+	};
+
+	struct IndexedMipVariantIdentityHash
+	{
+		size_t operator()(const IndexedMipVariantIdentity& identity) const
+		{
+			return (size_t)MakePaletteAwareIndexedMipKey(
+				identity.rawContentKey,
+				identity.palettePayloadSignature,
+				identity.width,
+				identity.height,
+				identity.paletteIndex,
+				identity.alphaPolicy != 0);
+		}
+	};
+
+	struct IndexedMipVariantCacheEntry
+	{
+		uint64_t contentKey = 0;
+		uint32_t mipCount = 1;
+		ImmutableBytePayload pixels;
+	};
+
+	std::unordered_map<IndexedMipVariantIdentity, IndexedMipVariantCacheEntry, IndexedMipVariantIdentityHash> gIndexedMipVariantCache;
+	std::mutex gIndexedMipVariantCacheMutex;
 
 	bool TryBuildSharedTextureContentKey(FGameTexture* gameTexture, FTexture* baseTexture, bool indexed, uint64_t& outKey, uint32_t& outWidth, uint32_t& outHeight)
 	{
@@ -315,15 +362,146 @@ namespace
 		return texture != nullptr ? BuildTextureUpload(texture, texture->GetTexture(), indexed, stats) : TextureUpload{};
 	}
 
-	uint32_t EnsureTextureUploadIndex(FGameTexture* texture, bool indexed, std::unordered_map<uint64_t, uint32_t>& textureLookup, MaterialBridgeData& outMaterials)
+	bool ResolvePaletteAwareIndexedMipVariant(
+		TextureUpload& upload,
+		uint32_t paletteIndex,
+		bool alphaClip,
+		MaterialBridgeData& outMaterials)
 	{
-		const uint64_t textureKey = MakeTextureKey(texture, indexed);
+		const auto start = std::chrono::steady_clock::now();
+		const size_t mip0Size = (size_t)upload.width * upload.height;
+		if (!upload.indexed || upload.width == 0 || upload.height == 0 ||
+			upload.pixels.size() < mip0Size ||
+			outMaterials.paletteWidth < 256u ||
+			paletteIndex >= outMaterials.paletteHeight ||
+			outMaterials.paletteLookup.size() <
+				(size_t)outMaterials.paletteWidth * outMaterials.paletteHeight * 4u)
+		{
+			outMaterials.buildStats.indexedMipMs += std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - start).count();
+			return false;
+		}
+
+		const IndexedMipVariantIdentity identity = {
+			upload.key,
+			outMaterials.paletteLookup.signature(),
+			upload.width,
+			upload.height,
+			paletteIndex,
+			alphaClip ? 1u : 0u,
+			PaletteAwareIndexedMipAlgorithmVersion,
+		};
+		IndexedMipVariantCacheEntry cached = {};
+		{
+			std::lock_guard<std::mutex> lock(gIndexedMipVariantCacheMutex);
+			const auto found = gIndexedMipVariantCache.find(identity);
+			if (found != gIndexedMipVariantCache.end())
+			{
+				cached = found->second;
+			}
+		}
+		if (!cached.pixels.empty())
+		{
+			upload.key = cached.contentKey;
+			upload.mipCount = cached.mipCount;
+			upload.pixels = cached.pixels;
+			outMaterials.buildStats.indexedMipVariants++;
+			outMaterials.buildStats.indexedMipReuses++;
+			outMaterials.buildStats.indexedMipVariantBytes += upload.pixels.size();
+			outMaterials.buildStats.indexedMipMs += std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - start).count();
+			return true;
+		}
+
+		const uint8_t* paletteRow = outMaterials.paletteLookup.data() +
+			(size_t)paletteIndex * outMaterials.paletteWidth * 4u;
+		PaletteAwareIndexedMipChain chain = {};
+		if (!BuildPaletteAwareIndexedMipChain(
+			upload.pixels.data(),
+			upload.width,
+			upload.height,
+			paletteRow,
+			outMaterials.paletteWidth,
+			alphaClip,
+			chain))
+		{
+			outMaterials.buildStats.indexedMipMs += std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - start).count();
+			return false;
+		}
+
+		IndexedMipVariantCacheEntry generated = {};
+		generated.contentKey = MakePaletteAwareIndexedMipKey(
+			identity.rawContentKey,
+			identity.palettePayloadSignature,
+			identity.width,
+			identity.height,
+			identity.paletteIndex,
+			alphaClip);
+		generated.mipCount = chain.mipCount;
+		generated.pixels.Assign(std::move(chain.pixels), generated.contentKey);
+
+		bool built = false;
+		{
+			std::lock_guard<std::mutex> lock(gIndexedMipVariantCacheMutex);
+			const auto found = gIndexedMipVariantCache.find(identity);
+			if (found != gIndexedMipVariantCache.end())
+			{
+				cached = found->second;
+			}
+			else
+			{
+				gIndexedMipVariantCache.emplace(identity, generated);
+				cached = generated;
+				built = true;
+			}
+		}
+
+		upload.key = cached.contentKey;
+		upload.mipCount = cached.mipCount;
+		upload.pixels = cached.pixels;
+		outMaterials.buildStats.indexedMipVariants++;
+		outMaterials.buildStats.indexedMipBuilds += built ? 1u : 0u;
+		outMaterials.buildStats.indexedMipReuses += built ? 0u : 1u;
+		outMaterials.buildStats.indexedMipVariantBytes += upload.pixels.size();
+		outMaterials.buildStats.indexedMipMs += std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - start).count();
+		return true;
+	}
+
+	uint32_t EnsureTextureUploadIndex(
+		FGameTexture* texture,
+		bool indexed,
+		uint32_t paletteIndex,
+		uint32_t materialFlags,
+		bool allowPaletteMips,
+		std::unordered_map<uint64_t, uint32_t>& textureLookup,
+		MaterialBridgeData& outMaterials)
+	{
+		const bool paletteMipped =
+			allowPaletteMips && indexed && (materialFlags & MaterialFlag_PointSampled) == 0;
+		const bool alphaClip = (materialFlags & MaterialFlag_AlphaClip) != 0;
+		const uint64_t sourceLookupKey = MakeTextureKey(texture, indexed);
+		const uint64_t textureKey = paletteMipped ?
+			MakePaletteAwareIndexedMipKey(
+				sourceLookupKey,
+				outMaterials.paletteLookup.signature(),
+				0,
+				0,
+				paletteIndex,
+				alphaClip) :
+			sourceLookupKey;
 		auto it = textureLookup.find(textureKey);
 		if (it == textureLookup.end())
 		{
 			const uint32_t textureIndex = (uint32_t)outMaterials.textures.size();
 			textureLookup.emplace(textureKey, textureIndex);
-			outMaterials.textures.push_back(BuildTextureUpload(texture, indexed, outMaterials.buildStats));
+			TextureUpload upload = BuildTextureUpload(texture, indexed, outMaterials.buildStats);
+			if (paletteMipped)
+			{
+				ResolvePaletteAwareIndexedMipVariant(upload, paletteIndex, alphaClip, outMaterials);
+			}
+			outMaterials.textures.push_back(std::move(upload));
 			return textureIndex;
 		}
 
@@ -629,7 +807,18 @@ namespace
 		material.materialClass = ComputeMaterialClass(materialRef);
 
 		const bool indexed = (materialRef.flags & MaterialFlag_Indexed) != 0;
-		material.textureIndex = EnsureTextureUploadIndex(materialRef.texture, indexed, textureLookup, outMaterials);
+		// Voxel palette policies expand this surface into many material rows which
+		// currently share one texture index. Keep that texture single-mip until the
+		// policy rows can own palette-specific indexed mip variants.
+		const bool allowPaletteMips = materialRef.voxelPalettePolicy == nullptr;
+		material.textureIndex = EnsureTextureUploadIndex(
+			materialRef.texture,
+			indexed,
+			material.paletteIndex,
+			material.flags,
+			allowPaletteMips,
+			textureLookup,
+			outMaterials);
 
 		material.sectorIndex = surface.provenance.sectorIndex >= 0 ? (uint32_t)surface.provenance.sectorIndex : UINT32_MAX;
 		outMaterials.materials.push_back(material);
@@ -823,6 +1012,13 @@ bool RealizeTextureUploadPayload(const TextureUpload& upload, std::vector<uint8_
 	outWidth = 0;
 	outHeight = 0;
 
+	// Palette-aware mip variants are immutable packed payloads. Recreating only
+	// mip 0 from the source texture would silently change the upload contract.
+	if (upload.mipCount > 1)
+	{
+		return false;
+	}
+
 	if (upload.sourceTexture == nullptr)
 	{
 		return false;
@@ -959,6 +1155,14 @@ void AppendMaterialBridge(
 void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials)
 {
 	outMaterials = {};
+	const auto paletteStart = std::chrono::steady_clock::now();
+	const bool paletteBuilt = BuildPaletteLookup(outMaterials);
+	outMaterials.buildStats.paletteMs = std::chrono::duration<double, std::milli>(
+		std::chrono::steady_clock::now() - paletteStart).count();
+	outMaterials.buildStats.paletteBuilds = paletteBuilt ? 1u : 0u;
+	outMaterials.buildStats.paletteReuses = paletteBuilt ? 0u : 1u;
+	outMaterials.buildStats.paletteBytesBuilt = paletteBuilt ? outMaterials.paletteLookup.size() : 0u;
+
 	std::unordered_map<uint64_t, uint32_t> textureLookup;
 	const auto materialRowsStart = std::chrono::steady_clock::now();
 
@@ -978,13 +1182,5 @@ void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials
 	}
 	outMaterials.buildStats.materialRowsMs = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - materialRowsStart).count();
-
-	const auto paletteStart = std::chrono::steady_clock::now();
-	const bool paletteBuilt = BuildPaletteLookup(outMaterials);
-	outMaterials.buildStats.paletteMs = std::chrono::duration<double, std::milli>(
-		std::chrono::steady_clock::now() - paletteStart).count();
-	outMaterials.buildStats.paletteBuilds = paletteBuilt ? 1u : 0u;
-	outMaterials.buildStats.paletteReuses = paletteBuilt ? 0u : 1u;
-	outMaterials.buildStats.paletteBytesBuilt = paletteBuilt ? outMaterials.paletteLookup.size() : 0u;
 }
 }

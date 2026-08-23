@@ -2582,7 +2582,11 @@ private:
 	void EmitSelfTestSummary(uint32_t traceFrameIndex, int drawmode, bool portal) const;
 	void TraceRuntimeLinkEvents(HWDrawInfo& di);
 	void TraceSkyState(const nri_scene::SceneView& sceneView, const char* action, uint64_t resolvedKey);
-	void UpdateSurfaceProbe(const nri_scene::GeometryData& geometry, const nri_scene::MaterialBridgeData* materials, bool allowLogging);
+	void UpdateSurfaceProbe(
+		const nri_scene::GeometryData& geometry,
+		const nri_scene::MaterialBridgeData* materials,
+		const std::vector<nri_scene::MaterialData>* gpuMaterials,
+		bool allowLogging);
 	NRISurfaceProbeEmissiveDiagnostics BuildSurfaceProbeEmissiveDiagnostics(const NRISurfaceProbeResult& probe) const;
 	bool BuildSurfaceLightOverlay(
 		nri_scene::SceneView& outSceneView,

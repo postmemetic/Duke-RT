@@ -42,6 +42,7 @@ namespace
 	{
 		return device != nullptr && device->UsesDiagnosticShaderVariant() &&
 			((bool)nri_pt360absenceprobe || (bool)nri_ptfiltercompare ||
+				(int)nri_ptsurfaceprobe > 0 ||
 				(!!nri_ptshaderstats && ShouldTracePtPerf()));
 	}
 

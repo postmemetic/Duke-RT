@@ -55,6 +55,8 @@ struct NRISceneTextureFrameProduct
 	std::vector<uint64_t> sourceTextureKeys;
 	std::vector<uint32_t> sourceTextureWidths;
 	std::vector<uint32_t> sourceTextureHeights;
+	std::vector<uint32_t> sourceTextureMipCounts;
+	std::vector<uint64_t> sourceTexturePayloadSignatures;
 	std::vector<uintptr_t> sourceTexturePointers;
 	std::vector<uint8_t> sourceTextureIndexed;
 	std::vector<nri::Descriptor*> descriptorTemplate;

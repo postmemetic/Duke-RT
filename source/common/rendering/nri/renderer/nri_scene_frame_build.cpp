@@ -2462,7 +2462,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 
 	if (!preserveHistory)
 	{
-		UpdateSurfaceProbe(*activeGeometry, activeMaterialBridge, true);
+		UpdateSurfaceProbe(*activeGeometry, activeMaterialBridge, activeGpuMaterials, true);
 	}
 	if (activeGeometry->primitives.empty())
 	{
