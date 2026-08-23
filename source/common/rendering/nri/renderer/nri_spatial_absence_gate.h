@@ -115,6 +115,9 @@ struct NRISpatialAbsenceCensusInput
 	uint32_t probeExpectedChunk = UINT32_MAX;
 	uint32_t probeTargetPixel = 0;
 	uint32_t probeReferencePixel = 0;
+	// Workload counters and sub-policy timers are collected only for bounded
+	// spatial-absence traces. They are diagnostic state, never policy input.
+	bool collectWorkloadTelemetry = false;
 	std::vector<uint32_t> rootSectorIndices;
 	std::vector<uint32_t> reachedSectorIndices;
 	std::vector<uint32_t> reachedWallIndices;
@@ -126,6 +129,24 @@ struct NRISpatialAbsenceCensusInput
 	// sealing-band carrier. Runtime plane coincidence alone is not sufficient
 	// closure authority.
 	std::vector<uint32_t> authoredClosureSectorIndices;
+};
+
+struct NRISpatialAbsenceWorkloadTelemetry
+{
+	uint32_t structuralProtectionCandidateCount = 0;
+	uint32_t uniqueNegativeChunkCount = 0;
+	uint32_t negativeProtectionMemoHitCount = 0;
+	uint32_t negativeProtectionMemoMissCount = 0;
+	uint32_t frontierIndexBuildCount = 0;
+	uint32_t reachedAuthoredWallVisitCount = 0;
+	uint32_t reciprocalLinkTestCount = 0;
+	uint32_t apertureTestCount = 0;
+	uint32_t closureDescriptorBuildCount = 0;
+	uint32_t closureDescriptorHitCount = 0;
+	uint32_t negativeBandSurfaceVisitCount = 0;
+	double frontierTraversalElapsedMilliseconds = 0.0;
+	double frontierIndexElapsedMilliseconds = 0.0;
+	double negativeProtectionElapsedMilliseconds = 0.0;
 };
 
 struct NRISpatialAbsenceConflictRecord
@@ -202,6 +223,7 @@ struct NRISpatialAbsenceSnapshot
 	uint32_t footprintGridReferenceCount = 0;
 	uint32_t stableCaptureCount = 0;
 	double buildElapsedMilliseconds = 0.0;
+	NRISpatialAbsenceWorkloadTelemetry workload;
 	bool topologyCacheHit = false;
 	uint32_t topologyPairCount = 0;
 	int32_t authoritativeRootSector = -1;

@@ -376,7 +376,8 @@ namespace
 		const nri_scene::PTMapChunk& negativeChunk,
 		int32_t negativeSector,
 		int32_t closureSector,
-		int32_t expectedWall)
+		int32_t expectedWall,
+		NRISpatialAbsenceWorkloadTelemetry* workload = nullptr)
 	{
 		if (expectedWall < 0)
 			return false;
@@ -386,6 +387,7 @@ namespace
 		for (uint64_t surfaceIndex = negativeChunk.firstSurface;
 			surfaceIndex < surfaceEnd; ++surfaceIndex)
 		{
+			if (workload != nullptr) workload->negativeBandSurfaceVisitCount++;
 			const nri_scene::PTMapSurface& surface = mapWorld.surfaces[(size_t)surfaceIndex];
 			const nri_scene::SurfaceProvenance& provenance = surface.surface.provenance;
 			if (provenance.sourceType != nri_scene::SurfaceSourceType::MapWallBand ||
@@ -547,9 +549,12 @@ namespace
 		return protection;
 	}
 
-	MapFrontierPortalEdge BuildMapFrontierPortalEdge(int32_t wallIndex)
+	MapFrontierPortalEdge BuildMapFrontierPortalEdge(
+		int32_t wallIndex,
+		NRISpatialAbsenceWorkloadTelemetry* workload = nullptr)
 	{
 		MapFrontierPortalEdge edge;
+		if (workload != nullptr) workload->reciprocalLinkTestCount++;
 		if (wallIndex < 0 || (unsigned)wallIndex >= wall.Size()) return edge;
 		const walltype& source = wall[(unsigned)wallIndex];
 		const walltype* reciprocal = source.nextWall();
@@ -569,6 +574,7 @@ namespace
 		edge.ordinaryReciprocal = IsOrdinaryReciprocalMapFrontierPortal(sourceLink, reciprocalLink);
 		const sectortype& front = sector[(unsigned)source.sector];
 		const sectortype& back = sector[(unsigned)source.nextsector];
+		if (workload != nullptr) workload->apertureTestCount++;
 		auto apertureAt = [&](double x, double y)
 		{
 			return std::min(getflorzofslopeptr(&front, x, y), getflorzofslopeptr(&back, x, y)) -
@@ -585,7 +591,8 @@ namespace
 		const nri_scene::PTMapWorld& mapWorld,
 		const nri_scene::PTMapChunk& negativeChunk,
 		const std::vector<uint32_t>& reachedSectorIndices,
-		const std::vector<uint32_t>& authoredClosureSectors)
+		const std::vector<uint32_t>& authoredClosureSectors,
+		NRISpatialAbsenceWorkloadTelemetry* workload = nullptr)
 	{
 		if (negativeChunk.sectorIndex < 0 ||
 			(unsigned)negativeChunk.sectorIndex >= sector.Size())
@@ -595,23 +602,28 @@ namespace
 		return FindReachedMapFrontierProtectionImpl(
 			negativeChunk.sectorIndex,
 			reachedSectorIndices,
-			[](int32_t sectorIndex, const auto& visit)
+			[&](int32_t sectorIndex, const auto& visit)
 			{
 				if (sectorIndex < 0 || (unsigned)sectorIndex >= sector.Size()) return;
 				for (const walltype& source : sector[(unsigned)sectorIndex].walls)
+				{
+					if (workload != nullptr) workload->reachedAuthoredWallVisitCount++;
 					visit(wall.IndexOf(&source));
+				}
 			},
-			[](int32_t wallIndex) { return BuildMapFrontierPortalEdge(wallIndex); },
+			[&](int32_t wallIndex) { return BuildMapFrontierPortalEdge(wallIndex, workload); },
 			[&](int32_t closureSector)
 			{
 				MapFrontierClosureDescriptor descriptor;
 				if (closureSector < 0 || (unsigned)closureSector >= sector.Size() ||
 					!std::binary_search(authoredClosureSectors.begin(), authoredClosureSectors.end(),
 						(uint32_t)closureSector)) return descriptor;
+				if (workload != nullptr) workload->closureDescriptorBuildCount++;
 				const ClosureStripTopology closure = BuildClosureStripTopology(closureSector);
 				const ClosureStripAnalysis analysis = AnalyzeClosureStrip(closure);
 				descriptor.sectorIndex = closureSector;
 				descriptor.valid = closure.collapsed && analysis.valid;
+				if (workload != nullptr && descriptor.valid) workload->closureDescriptorHitCount++;
 				for (int portalIndex = 0; portalIndex < 2; ++portalIndex)
 				{
 					descriptor.portalNeighbors[portalIndex] = analysis.portalNeighbors[portalIndex];
@@ -623,14 +635,15 @@ namespace
 			{
 				return HasEmittedOrdinaryWallBand(
 					mapWorld, negativeChunk, negativeChunk.sectorIndex,
-					closureSector, negativeWall);
+					closureSector, negativeWall, workload);
 			});
 	}
 
 	int32_t FindProtectedSealingCarrier(
 		const nri_scene::PTMapWorld& mapWorld,
 		const nri_scene::PTMapChunk& negativeChunk,
-		const std::vector<uint32_t>& authoredClosureSectors)
+		const std::vector<uint32_t>& authoredClosureSectors,
+		NRISpatialAbsenceWorkloadTelemetry* workload = nullptr)
 	{
 		const ClosureStripTopology negative = BuildClosureStripTopology(negativeChunk.sectorIndex);
 		const ClosureStripAnalysis negativeAnalysis = AnalyzeClosureStrip(negative);
@@ -651,7 +664,7 @@ namespace
 				true,
 				HasEmittedOrdinaryWallBand(mapWorld, negativeChunk,
 					negativeChunk.sectorIndex, closureSector,
-					FindPortalWall(negativeAnalysis, closureSector))))
+					FindPortalWall(negativeAnalysis, closureSector), workload)))
 			{
 				return closureSector;
 			}
@@ -2234,6 +2247,9 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		ensureChunkBoundary(chunkIndex);
 		return cached;
 	};
+	std::vector<uint8_t> telemetryNegativeSeen;
+	if (input.collectWorkloadTelemetry)
+		telemetryNegativeSeen.resize(mapWorld.chunks.size(), 0u);
 
 	for (CachedPairTopology& cachedPair : mTopologyCache->pairs)
 	{
@@ -2321,8 +2337,31 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			classification.decision == NRISpatialAbsenceConflictDecision::NearOrdinaryTopology;
 		if (protectionCandidate)
 		{
+			NRISpatialAbsenceWorkloadTelemetry* workload = input.collectWorkloadTelemetry
+				? &mSnapshot.workload : nullptr;
+			std::chrono::steady_clock::time_point protectionStarted;
+			if (workload != nullptr)
+			{
+				workload->structuralProtectionCandidateCount++;
+				workload->negativeProtectionMemoMissCount++;
+				if (negative->chunkIndex < telemetryNegativeSeen.size() &&
+					telemetryNegativeSeen[negative->chunkIndex] == 0u)
+				{
+					telemetryNegativeSeen[negative->chunkIndex] = 1u;
+					workload->uniqueNegativeChunkCount++;
+				}
+				protectionStarted = std::chrono::steady_clock::now();
+			}
+			std::chrono::steady_clock::time_point frontierStarted;
+			if (workload != nullptr) frontierStarted = std::chrono::steady_clock::now();
 			mapFrontierProtection = FindProtectedReachedMapFrontier(
-				mapWorld, *negative, reached, authoredClosureSectors);
+				mapWorld, *negative, reached, authoredClosureSectors, workload);
+			if (workload != nullptr)
+			{
+				workload->frontierTraversalElapsedMilliseconds +=
+					std::chrono::duration<double, std::milli>(
+						std::chrono::steady_clock::now() - frontierStarted).count();
+			}
 			if (mapFrontierProtection.IsValid())
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_REACHED_MAP_FRONTIER;
@@ -2332,7 +2371,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 			// emitted wall band seals an authored closure may fail open here; a
 			// nearby closure on the positive side is not negative-volume evidence.
 			collapsedPortalSector = FindProtectedSealingCarrier(
-				mapWorld, *negative, authoredClosureSectors);
+				mapWorld, *negative, authoredClosureSectors, workload);
 			if (collapsedPortalSector >= 0)
 			{
 				protectionFlags |= NRI_SPATIAL_ABSENCE_PROTECTION_COLLAPSED_PORTAL_ENVELOPE;
@@ -2361,6 +2400,12 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 					classification.decision = NRISpatialAbsenceConflictDecision::ReachedMapFrontier;
 				else if ((protectionFlags & NRI_SPATIAL_ABSENCE_PROTECTION_OPEN_BOUNDARY) != 0)
 					classification.decision = NRISpatialAbsenceConflictDecision::OpenBoundary;
+			}
+			if (workload != nullptr)
+			{
+				workload->negativeProtectionElapsedMilliseconds +=
+					std::chrono::duration<double, std::milli>(
+						std::chrono::steady_clock::now() - protectionStarted).count();
 			}
 		}
 		if (classification.decision == NRISpatialAbsenceConflictDecision::Certified)

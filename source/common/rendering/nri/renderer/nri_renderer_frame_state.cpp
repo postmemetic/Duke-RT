@@ -368,6 +368,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 			((uint32_t)(int)nri_pt360absenceprobetargety << 16u);
 		input.probeReferencePixel = (uint32_t)(int)nri_pt360absenceprobereferencex |
 			((uint32_t)(int)nri_pt360absenceprobereferencey << 16u);
+		input.collectWorkloadTelemetry = spatialAbsenceTraceRequested;
 		input.reachedSectorIndices.reserve(census.reachedSectorCount);
 		for (unsigned sectorIndex = 0; sectorIndex < census.reachedSectors.Size(); ++sectorIndex)
 		{
@@ -416,7 +417,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 					centerDelta[axis] = absence.center[axis] - mPreviousCameraPos[axis];
 				}
 			}
-			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u build_elapsed_ms=%.3f topology_cache_hit=%u topology_pairs=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u protected_open=%u protected_near=%u protected_collapsed=%u protected_inset=%u protected_frontier=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
+			Printf("NRI PT 360 absence: frame=%u capture=%llu complete=%u authority=%u previous_authority=%u authority_transition=%u stable_captures=%u census_fail=0x%x census_observe=0x%x census_hash=0x%016llx previous_census_hash=0x%016llx census_elapsed_ms=%.3f census_scratch_growths=%u build_elapsed_ms=%.3f topology_cache_hit=%u topology_pairs=%u world=%llu gpu_hash=0x%016llx semantic_hash=0x%016llx selection_hash=0x%016llx root_count=%u authoritative_root=%d root_local_space=%d sectors=%u sections=%u walls=%u candidates=%u certified=%u protected_open=%u protected_near=%u protected_collapsed=%u protected_inset=%u protected_frontier=%u authorized_pairs=%u pending_pairs=%u source_witnesses=%u selected_witnesses=%u footprint_triangles=%u grid_cells=%u grid_references=%u structural_candidates=%u unique_negatives=%u protection_memo_hits=%u protection_memo_misses=%u frontier_index_builds=%u frontier_wall_visits=%u frontier_link_tests=%u frontier_aperture_tests=%u frontier_closure_builds=%u frontier_closure_hits=%u frontier_band_surface_visits=%u frontier_traversal_ms=%.3f frontier_index_ms=%.3f negative_protection_ms=%.3f fail_open=0x%x records=%u center=(%.3f,%.3f,%.3f) center_delta=(%.3f,%.3f,%.3f) radius=%.2f\n",
 				mFrameIndex,
 				(unsigned long long)census.captureSerial,
 				census.complete ? 1u : 0u,
@@ -457,6 +458,20 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 				absence.footprintTriangleCount,
 				absence.footprintGridCellCount,
 				absence.footprintGridReferenceCount,
+				absence.workload.structuralProtectionCandidateCount,
+				absence.workload.uniqueNegativeChunkCount,
+				absence.workload.negativeProtectionMemoHitCount,
+				absence.workload.negativeProtectionMemoMissCount,
+				absence.workload.frontierIndexBuildCount,
+				absence.workload.reachedAuthoredWallVisitCount,
+				absence.workload.reciprocalLinkTestCount,
+				absence.workload.apertureTestCount,
+				absence.workload.closureDescriptorBuildCount,
+				absence.workload.closureDescriptorHitCount,
+				absence.workload.negativeBandSurfaceVisitCount,
+				absence.workload.frontierTraversalElapsedMilliseconds,
+				absence.workload.frontierIndexElapsedMilliseconds,
+				absence.workload.negativeProtectionElapsedMilliseconds,
 				absence.failOpenFlags,
 				(uint32_t)absence.gpuRecords.size(),
 				absence.center[0], absence.center[1], absence.center[2],
