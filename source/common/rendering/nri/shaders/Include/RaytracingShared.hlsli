@@ -1880,6 +1880,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 	SpatialAbsenceRecord spatialCandidateHeader = (SpatialAbsenceRecord)0;
 	float3 spatialCandidateCenter = 0.0;
 	float spatialCandidateRadius = 0.0;
+	float spatialActorCandidateRadius = 0.0;
 	#if NRI_SPATIAL_ABSENCE_FORMAT == 1
 	SpatialAbsenceGpuView spatialTypedCandidateView = (SpatialAbsenceGpuView)0;
 	#endif
@@ -1896,6 +1897,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			spatialCandidateChunkCount = spatialTypedCandidateView.chunkCount;
 			spatialCandidateCenter = spatialTypedCandidateView.center;
 			spatialCandidateRadius = spatialTypedCandidateView.radius;
+			spatialActorCandidateRadius = spatialTypedCandidateView.actorRadius;
 		}
 	#else
 		gSpatialAbsenceRecords.GetDimensions(
@@ -1915,11 +1917,14 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				(spatialCandidateHeader.Flags & SPATIAL_ABSENCE_FLAG_RAY_QUERY_VALIDATED) != 0u &&
 				spatialCandidateChunkCount + 1u <= spatialCandidateRecordCount &&
 				all(isfinite(spatialCandidateHeader.Payload0)) &&
-				spatialCandidateHeader.Payload0.w > 0.0;
+				spatialCandidateHeader.Payload0.w > 0.0 &&
+				isfinite(spatialCandidateHeader.Payload1.y) &&
+				spatialCandidateHeader.Payload1.y > 0.0;
 			if (spatialCandidatePayloadValid)
 			{
 				spatialCandidateCenter = spatialCandidateHeader.Payload0.xyz;
 				spatialCandidateRadius = spatialCandidateHeader.Payload0.w;
+				spatialActorCandidateRadius = spatialCandidateHeader.Payload1.y;
 			}
 		}
 	#endif
@@ -2289,7 +2294,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			visibilityChunk < spatialCandidateChunkCount && all(isfinite(committedPosition)))
 		{
 			const float3 actorGateOffset = committedPosition - spatialCandidateCenter;
-			const float actorGateRadius = spatialCandidateRadius;
+			const float actorGateRadius = spatialActorCandidateRadius;
 			if (dot(actorGateOffset, actorGateOffset) <= actorGateRadius * actorGateRadius)
 			{
 				bool ownerChunkReached = false;

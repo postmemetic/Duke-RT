@@ -109,6 +109,7 @@ struct NRISpatialAbsenceCensusInput
 	int32_t authoritativeRootSector = -1;
 	float center[3] = {};
 	float guardRadius = 0.0f;
+	float actorGuardRadius = 0.0f;
 	bool probeEnabled = false;
 	float probeOrigin[3] = {};
 	float probeRadius = 0.0f;
@@ -235,6 +236,7 @@ struct NRISpatialAbsenceSnapshot
 	bool authorityTransition = false;
 	float center[3] = {};
 	float guardRadius = 0.0f;
+	float actorGuardRadius = 0.0f;
 	std::vector<uint32_t> negativeChunkWords;
 	std::vector<uint32_t> reachedChunkWords;
 	std::vector<NRISpatialAbsenceGpuRecord> gpuRecords;

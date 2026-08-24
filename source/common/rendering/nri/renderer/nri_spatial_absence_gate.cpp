@@ -1142,7 +1142,7 @@ namespace
 
 		const NRISpatialAbsenceGpuRecord& header = records[0];
 		uint32_t chunkCount = 0;
-		uint32_t certifiedCount = 0;
+		const uint32_t certifiedCount = snapshot.certifiedCount;
 		uint32_t authorizedPairCount = 0;
 		uint32_t footprintTriangleCount = 0;
 		uint32_t footprintGridCellCount = 0;
@@ -1153,12 +1153,12 @@ namespace
 			!std::isfinite(header.payload[2]) || !std::isfinite(header.payload[3]) ||
 			header.payload[3] <= 0.0f ||
 			!DecodeSerializedUint(header.payload[4], chunkCount) ||
-			!DecodeSerializedUint(header.payload[5], certifiedCount) ||
+			!std::isfinite(header.payload[5]) || header.payload[5] <= 0.0f ||
+			header.payload[5] != snapshot.actorGuardRadius ||
 			!DecodeSerializedUint(header.payload[6], authorizedPairCount) ||
 			!DecodeSerializedUint(header.payload[7], footprintTriangleCount) ||
 			!DecodeSerializedUint(header.payload[8], footprintGridCellCount) ||
 			chunkCount == 0u || !SerializedRangeFits(1u, chunkCount, records.size()) ||
-			certifiedCount != snapshot.certifiedCount ||
 			authorizedPairCount != snapshot.authorizedPairCount ||
 			footprintTriangleCount != snapshot.footprintTriangleCount ||
 			footprintGridCellCount != snapshot.footprintGridCellCount)
@@ -1956,6 +1956,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 		? mPreviousCensusObservationHash
 		: 0;
 	mSnapshot.guardRadius = input.guardRadius;
+	mSnapshot.actorGuardRadius = input.actorGuardRadius;
 	std::memcpy(mSnapshot.center, input.center, sizeof(mSnapshot.center));
 	if (input.worldGeneration == mStableWorldGeneration && input.observationHash != 0 &&
 		input.observationHash == mStableObservationHash)
@@ -2008,7 +2009,8 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	{
 		mSnapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_GENERATION_MISMATCH;
 	}
-	if (!IsFinite3(input.center) || !std::isfinite(input.guardRadius) || input.guardRadius <= 0.0f)
+	if (!IsFinite3(input.center) || !std::isfinite(input.guardRadius) || input.guardRadius <= 0.0f ||
+		!std::isfinite(input.actorGuardRadius) || input.actorGuardRadius <= 0.0f)
 	{
 		mSnapshot.failOpenFlags |= NRI_SPATIAL_ABSENCE_FAIL_INVALID_GUARD;
 	}
@@ -2624,7 +2626,7 @@ const NRISpatialAbsenceSnapshot& NRISpatialAbsenceGate::Build(
 	std::memcpy(header.payload, input.center, sizeof(input.center));
 	header.payload[3] = input.guardRadius;
 	header.payload[4] = (float)mapWorld.chunks.size();
-	header.payload[5] = (float)mSnapshot.certifiedCount;
+	header.payload[5] = input.actorGuardRadius;
 	header.payload[6] = (float)mSnapshot.authorizedPairCount;
 	header.payload[7] = (float)mSnapshot.footprintTriangleCount;
 	header.payload[8] = (float)mSnapshot.footprintGridCellCount;
@@ -3263,6 +3265,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		snapshot.valid = true;
 		snapshot.frameIndex = 17u;
 		snapshot.worldGeneration = 29u;
+		snapshot.actorGuardRadius = 4.0f;
 		snapshot.certifiedCount = 1u;
 		snapshot.authorizedPairCount = 1u;
 		snapshot.footprintTriangleCount = 2u;
@@ -3283,7 +3286,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 		header.data2 = (uint32_t)(snapshot.worldGeneration >> 32u);
 		header.payload[3] = 8.0f;
 		header.payload[4] = 2.0f;
-		header.payload[5] = 1.0f;
+		header.payload[5] = snapshot.actorGuardRadius;
 		header.payload[6] = 1.0f;
 		header.payload[7] = 2.0f;
 		header.payload[8] = 2.0f;
@@ -3448,6 +3451,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	semanticProbe.center[1] = -32.0f;
 	semanticProbe.center[2] = 2048.0f;
 	semanticProbe.guardRadius = 64.0f;
+	semanticProbe.actorGuardRadius = 32.0f;
 	if (HashSnapshotSemantics(semanticProbe) != semanticHash ||
 		HashSnapshotSelections(semanticProbe) != selectionHash)
 	{
@@ -3488,6 +3492,7 @@ bool RunNRISpatialAbsenceGateSelfTests(std::string* failureReason)
 	stableInput.authoritativeRootSector = 0;
 	stableInput.rootSectorIndices.push_back(0);
 	stableInput.guardRadius = 8.0f;
+	stableInput.actorGuardRadius = 4.0f;
 	stableInput.reachedSectorIndices.push_back(0);
 	const NRISpatialAbsenceSnapshot& firstStable = stableGate.Build(stableWorld, stableInput);
 	if (firstStable.stableCaptureCount != 1u ||

@@ -229,7 +229,7 @@ namespace
 
 		const NRISpatialAbsenceGpuRecord& header = records[0];
 		uint32_t chunkCount = 0;
-		uint32_t certifiedCount = 0;
+		const uint32_t certifiedCount = source.certifiedCount;
 		uint32_t pairCount = 0;
 		uint32_t triangleCount = 0;
 		uint32_t cellCount = 0;
@@ -246,12 +246,13 @@ namespace
 			!std::isfinite(header.payload[2]) || !std::isfinite(header.payload[3]) ||
 			header.payload[3] <= 0.0f ||
 			!DecodeSerializedUint(header.payload[4], chunkCount) ||
-			!DecodeSerializedUint(header.payload[5], certifiedCount) ||
+			!std::isfinite(header.payload[5]) || header.payload[5] <= 0.0f ||
+			FloatBits(header.payload[5]) != FloatBits(source.actorGuardRadius) ||
 			!DecodeSerializedUint(header.payload[6], pairCount) ||
 			!DecodeSerializedUint(header.payload[7], triangleCount) ||
 			!DecodeSerializedUint(header.payload[8], cellCount) ||
 			chunkCount == 0u || !RawRangeFits(1u, chunkCount, records.size()) ||
-			certifiedCount != source.certifiedCount || pairCount != source.authorizedPairCount ||
+			pairCount != source.authorizedPairCount ||
 			triangleCount != source.footprintTriangleCount ||
 			cellCount != source.footprintGridCellCount)
 		{
@@ -620,7 +621,7 @@ namespace
 		NRISpatialAbsenceGpuBlock& header4 = snapshot.blocks[4];
 		header4.words[0] = (uint32_t)snapshot.sourcePayloadHash;
 		header4.words[1] = (uint32_t)(snapshot.sourcePayloadHash >> 32u);
-		header4.words[2] = layout.footerOffset;
+		header4.words[2] = FloatBits(snapshot.actorGuardRadius);
 		header4.words[3] = NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_HEADER_BLOCKS;
 
 		NRISpatialAbsenceGpuBlock& header5 = snapshot.blocks[5];
@@ -662,6 +663,7 @@ namespace
 		destination.sourcePayloadHash = source.payloadHash;
 		std::memcpy(destination.center, source.center, sizeof(destination.center));
 		destination.guardRadius = source.guardRadius;
+		destination.actorGuardRadius = source.actorGuardRadius;
 		destination.chunkCount = (uint32_t)parsed.chunks.size();
 		destination.negativeCount = (uint32_t)parsed.negatives.size();
 		destination.pairCount = (uint32_t)parsed.pairs.size();
@@ -820,7 +822,7 @@ namespace
 			header3.words[3] != (uint32_t)(snapshot.captureSerial >> 32u) ||
 			header4.words[0] != (uint32_t)snapshot.sourcePayloadHash ||
 			header4.words[1] != (uint32_t)(snapshot.sourcePayloadHash >> 32u) ||
-			header4.words[2] != layout.footerOffset ||
+			header4.words[2] != FloatBits(snapshot.actorGuardRadius) ||
 			header4.words[3] != NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_HEADER_BLOCKS ||
 			header5.words[0] != FloatBits(snapshot.center[0]) ||
 			header5.words[1] != FloatBits(snapshot.center[1]) ||
@@ -830,7 +832,8 @@ namespace
 			snapshot.sourcePayloadHash == 0u ||
 			!std::isfinite(snapshot.center[0]) || !std::isfinite(snapshot.center[1]) ||
 			!std::isfinite(snapshot.center[2]) || !std::isfinite(snapshot.guardRadius) ||
-			snapshot.guardRadius <= 0.0f)
+			!std::isfinite(snapshot.actorGuardRadius) || snapshot.guardRadius <= 0.0f ||
+			snapshot.actorGuardRadius <= 0.0f)
 		{
 			return false;
 		}
@@ -1044,6 +1047,7 @@ namespace
 		source.center[1] = -3.0f;
 		source.center[2] = 4.0f;
 		source.guardRadius = 8.0f;
+		source.actorGuardRadius = 4.0f;
 		source.reachedSectorIndices = { 0u };
 		source.negativeChunkWords = { withNegative ? 1u << 1u : 0u };
 		source.reachedChunkWords = { 1u };
@@ -1057,6 +1061,7 @@ namespace
 		std::memcpy(header.payload, source.center, sizeof(source.center));
 		header.payload[3] = source.guardRadius;
 		header.payload[4] = 2.0f;
+		header.payload[5] = source.actorGuardRadius;
 
 		source.gpuRecords[1].flags = RawRequiredBaseFlags | NRI_SPATIAL_ABSENCE_GPU_REACHED;
 		if (!withNegative)
@@ -1070,7 +1075,6 @@ namespace
 		source.footprintTriangleCount = 2u;
 		source.footprintGridCellCount = 2u;
 		source.footprintGridReferenceCount = 2u;
-		header.payload[5] = 1.0f;
 		header.payload[6] = 1.0f;
 		header.payload[7] = 2.0f;
 		header.payload[8] = 2.0f;
@@ -1217,7 +1221,8 @@ bool NRISpatialAbsenceGpuSnapshot::HasCensusAuthority(
 		FloatBits(center[0]) == FloatBits(source.center[0]) &&
 		FloatBits(center[1]) == FloatBits(source.center[1]) &&
 		FloatBits(center[2]) == FloatBits(source.center[2]) &&
-		FloatBits(guardRadius) == FloatBits(source.guardRadius);
+		FloatBits(guardRadius) == FloatBits(source.guardRadius) &&
+		FloatBits(actorGuardRadius) == FloatBits(source.actorGuardRadius);
 }
 
 bool NRISpatialAbsenceGpuSnapshot::HasNegativeAuthority(

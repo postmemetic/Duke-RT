@@ -358,6 +358,7 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 		}
 		std::memcpy(input.center, mCurrentCameraPos, sizeof(input.center));
 		input.guardRadius = (float)nri_pt360absenceradius;
+		input.actorGuardRadius = (float)nri_pt360actorabsenceradius;
 		input.probeEnabled = (bool)nri_pt360absenceprobe && (int)nri_pt360absenceprobechunk >= 0;
 		input.probeOrigin[0] = (float)nri_pt360absenceprobeoriginx;
 		input.probeOrigin[1] = (float)nri_pt360absenceprobeoriginy;

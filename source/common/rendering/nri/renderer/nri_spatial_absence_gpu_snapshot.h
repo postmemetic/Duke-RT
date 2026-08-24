@@ -17,7 +17,7 @@ static_assert(sizeof(NRISpatialAbsenceGpuBlock) == 16,
 	"Typed spatial-absence blocks must match HLSL uint4.");
 
 constexpr uint32_t NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_MAGIC = 0x5341474eu; // "NGAS"
-constexpr uint32_t NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_VERSION = 1u;
+constexpr uint32_t NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_VERSION = 2u;
 constexpr uint32_t NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_HEADER_BLOCKS = 6u;
 constexpr uint32_t NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_FOOTER_BLOCKS = 3u;
 constexpr uint32_t NRI_SPATIAL_ABSENCE_GPU_SNAPSHOT_CHUNK_BLOCKS = 1u;
@@ -86,6 +86,7 @@ struct NRISpatialAbsenceGpuSnapshot
 	uint64_t payloadHash = 0;
 	float center[3] = {};
 	float guardRadius = 0.0f;
+	float actorGuardRadius = 0.0f;
 	uint32_t chunkCount = 0;
 	uint32_t negativeCount = 0;
 	uint32_t pairCount = 0;

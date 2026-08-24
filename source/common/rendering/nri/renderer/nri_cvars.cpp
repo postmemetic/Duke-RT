@@ -1650,6 +1650,17 @@ CVAR(Int, nri_pt360absenceformat, 0, 0)
 // Actor occurrence omission consumes the same current logical-player census and
 // remains independently switchable for diagnosis and persistent rollback.
 CVAR(Bool, nri_pt360actorabsencegate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pt360actorabsenceradius, 512.0f, 0)
+{
+	if (!std::isfinite((float)self) || self < 1.0f)
+	{
+		self = 1.0f;
+	}
+	else if (self > 4096.0f)
+	{
+		self = 4096.0f;
+	}
+}
 
 CVAR(Bool, nri_pt360absenceprobe, false, 0)
 

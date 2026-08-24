@@ -154,7 +154,7 @@ namespace
 			(uint32_t)facts.authority.physicalSectorIndex);
 		decision.ownerChunkNegative = IsChunkMarked(snapshot->negativeChunkWords, decision.physicalChunkIndex);
 		decision.insideCensusSphere = CandidateIntersectsCensusSphere(
-			facts.candidate, snapshot->center, snapshot->guardRadius);
+			facts.candidate, snapshot->center, snapshot->actorGuardRadius);
 		if (decision.ownerSectorReachedBy360)
 			return keep(NRIActorOccurrencePolicyReason::OwnerReached);
 		if (!decision.ownerChunkNegative)
@@ -435,7 +435,10 @@ bool RunNRIActorOccurrencePolicySelfTests(std::string* failureReason)
 	sphereFallbackWorld->localSpaces[0].chunkCount = 3u;
 	sphereFallbackSnapshot->authoritativeRootSector = 2;
 	sphereFallbackSnapshot->reachedSectorIndices = { 2u };
-	sphereFallbackSnapshot->guardRadius = 8.0f;
+	// The actor fallback radius is intentionally independent of the static
+	// geometry snapshot radius.
+	sphereFallbackSnapshot->guardRadius = 1024.0f;
+	sphereFallbackSnapshot->actorGuardRadius = 8.0f;
 	decision = EvaluateFacts(facts);
 	if (!decision.suppress || decision.reason != NRIActorOccurrencePolicyReason::CertifiedNegativeWholeOccurrence ||
 		!decision.insideCensusSphere)

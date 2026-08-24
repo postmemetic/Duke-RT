@@ -1,11 +1,12 @@
 #ifndef RAZE_NRI_PT_SPATIAL_ABSENCE_GPU_SNAPSHOT_HLSLI
 #define RAZE_NRI_PT_SPATIAL_ABSENCE_GPU_SNAPSHOT_HLSLI
 
-// Version 1 deliberately preserves the current triangle-vertex predicate.
+// Version 2 publishes an independent actor guard radius while preserving the
+// current triangle-vertex predicate and all section sizes.
 // Precomputed half spaces can be added as a separately versioned section once
 // the typed publication path has demonstrated decision parity.
 static const uint SPATIAL_ABSENCE_GPU_MAGIC = 0x5341474eu; // "NGAS"
-static const uint SPATIAL_ABSENCE_GPU_VERSION = 1u;
+static const uint SPATIAL_ABSENCE_GPU_VERSION = 2u;
 static const uint SPATIAL_ABSENCE_GPU_HEADER_BLOCKS = 6u;
 static const uint SPATIAL_ABSENCE_GPU_FOOTER_BLOCKS = 3u;
 static const uint SPATIAL_ABSENCE_GPU_BLOCK_STRIDE = 16u;
@@ -53,6 +54,7 @@ struct SpatialAbsenceGpuView
 	uint sourceRawHashHi;
 	float3 center;
 	float radius;
+	float actorRadius;
 };
 
 struct SpatialAbsenceGpuFootprint
@@ -135,7 +137,7 @@ bool LoadSpatialAbsenceGpuView(out SpatialAbsenceGpuView view, out uint failureO
 	if (!SpatialAbsenceGpuTryAppend(header2.w, 2u, cursor)) return false;
 	view.footerBase = cursor;
 	if (!SpatialAbsenceGpuTryAppend(1u, SPATIAL_ABSENCE_GPU_FOOTER_BLOCKS, cursor) ||
-		cursor != header0.w || header4.z != view.footerBase)
+		cursor != header0.w)
 		return false;
 
 	const uint4 footer0 = gSpatialAbsenceGpuSnapshot[view.footerBase + 0u];
@@ -145,7 +147,7 @@ bool LoadSpatialAbsenceGpuView(out SpatialAbsenceGpuView view, out uint failureO
 		footer1.x != header1.x || footer1.y != header3.x ||
 		footer1.z != header3.y || footer1.w != header3.z ||
 		footer2.x != header3.w || footer2.y != header4.x ||
-		footer2.z != header4.y || footer2.w != header4.z)
+		footer2.z != header4.y || footer2.w != view.footerBase)
 		return false;
 
 	view.blockCount = header0.w;
@@ -164,11 +166,13 @@ bool LoadSpatialAbsenceGpuView(out SpatialAbsenceGpuView view, out uint failureO
 	view.sourceRawHashHi = header4.y;
 	view.center = asfloat(header5.xyz);
 	view.radius = asfloat(header5.w);
+	view.actorRadius = asfloat(header4.z);
 	if (view.negativeCount > view.chunkCount ||
 		(view.worldGenerationLo | view.worldGenerationHi) == 0u ||
 		(view.captureSerialLo | view.captureSerialHi) == 0u ||
 		(view.sourceRawHashLo | view.sourceRawHashHi) == 0u ||
-		!all(isfinite(view.center)) || !isfinite(view.radius) || view.radius <= 0.0)
+		!all(isfinite(view.center)) || !isfinite(view.radius) || view.radius <= 0.0 ||
+		!isfinite(view.actorRadius) || view.actorRadius <= 0.0)
 		return false;
 
 	return true;
