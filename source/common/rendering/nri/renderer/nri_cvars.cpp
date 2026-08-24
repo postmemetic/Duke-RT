@@ -1714,7 +1714,7 @@ NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR(nri_pt360absenceprobereferencey, 360)
 
 #undef NRI_PT_360_ABSENCE_PROBE_PIXEL_CVAR
 
-CUSTOM_CVAR(Float, nri_pt360absenceradius, 1024.0f, 0)
+CUSTOM_CVAR(Float, nri_pt360absenceradius, 765.0f, 0)
 {
 	if (!std::isfinite((float)self) || self < 1.0f)
 	{
