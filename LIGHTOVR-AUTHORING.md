@@ -51,7 +51,7 @@ Current map-local blocks:
 Current parser fields by block:
 
 - `actorrule`
-  `actorclass`, `shadowreceive`, `shadowcast`, `fullbright`, `emissivestableframes`, `activation`, `tile`, `type`, `color`, `intensity`, `radius`, `range`, `offset`, `nudgefromsurface`, `direction`, `flicker`, `random`, `localspace`
+  `actorclass`, `shadowreceive`, `shadowcast`, `lightshadowcast`, `fullbright`, `emissivestableframes`, `activation`, `tile`, `type`, `color`, `intensity`, `radius`, `range`, `offset`, `nudgefromsurface`, `direction`, `flicker`, `random`, `localspace`
 - `muzzleflashrule`
   `color`, `intensity`, `intensityrandom`, `radius`, `radiusrandom`, `delayseconds`, `delayrandomseconds`, `durationseconds`, `durationrandomseconds`, `offset`
 - `smokestyle`
@@ -87,6 +87,8 @@ Current practical notes:
 - `surfacelight` `position` and `normal` are authored in path-tracing render coordinates because they are captured directly from the aimed PT surface probe
 - `smokeemitter` `position` and `normal` are authored in Build/world coordinates; the editor converts its aimed PT surface result before writing the rule
 - `actorrule fullbright on` forces matching actor sprite and voxel surfaces onto the PT fullbright material path so they ignore scene lighting and render at full brightness
+- `actorrule shadowcast` controls whether the matched actor geometry occludes direct-light shadow rays, while `lightshadowcast` independently controls whether the actor's analytic light traces shadow rays; when `lightshadowcast` is omitted it inherits `shadowcast`, explicit `on` or `default` enables light shadows, and `off` disables them
+- pair `shadowcast off` with `lightshadowcast on` for source effects such as projectiles and explosions whose geometry should not self-occlude but whose emitted analytic light should cast shadows
 - `actorrule emissivestableframes <count>` delays sampled-emissive surface admission until matching actor geometry has been stable for that many consecutive frames; visual fullbright still applies immediately
 - `actorrule activation surface` is the default actor-owned analytic-light behavior and waits for a matching rendered surface before emitting, while `activation immediate` emits as soon as the live actor/rule exists
 - `actorrule nudgefromsurface <distance>` moves an actor overlay point light away from nearby map geometry to reduce wall/floor clipping for impact or surface-adjacent effects

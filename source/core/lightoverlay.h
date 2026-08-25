@@ -69,6 +69,8 @@ struct ParsedLightOverlayActorRule
 	bool shadowReceive = true;
 	bool hasShadowCast = false;
 	bool shadowCast = true;
+	bool hasLightShadowCast = false;
+	bool lightShadowCast = true;
 	bool hasFullbright = false;
 	bool fullbright = false;
 	bool hasEmissiveStableFrames = false;
@@ -457,6 +459,8 @@ struct ResolvedLightOverlayActorRule
 	bool shadowReceive = true;
 	bool hasShadowCast = false;
 	bool shadowCast = true;
+	bool hasLightShadowCast = false;
+	bool lightShadowCast = true;
 	bool hasFullbright = false;
 	bool fullbright = false;
 	bool hasEmissiveStableFrames = false;

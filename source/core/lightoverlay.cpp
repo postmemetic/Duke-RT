@@ -654,6 +654,24 @@ namespace
 						sc.ScriptMessage("Invalid shadowcast value '%s'; expected off/default/on", sc.String);
 					}
 				}
+				else if (sc.Compare("lightshadowcast"))
+				{
+					sc.MustGetString();
+					if (!stricmp(sc.String, "off"))
+					{
+						rule.hasLightShadowCast = true;
+						rule.lightShadowCast = false;
+					}
+					else if (!stricmp(sc.String, "default") || !stricmp(sc.String, "on"))
+					{
+						rule.hasLightShadowCast = true;
+						rule.lightShadowCast = true;
+					}
+					else
+					{
+						sc.ScriptMessage("Invalid lightshadowcast value '%s'; expected off/default/on", sc.String);
+					}
+				}
 				else if (sc.Compare("fullbright"))
 				{
 					sc.MustGetString();
@@ -1902,6 +1920,7 @@ namespace
 		AppendLine(text, 2, FStringf("actorclass %s", QuoteLightOverlayString(rule.actorClassName).GetChars()));
 		if (rule.hasShadowReceive) AppendShadowStateField(text, 2, "shadowreceive", rule.shadowReceive);
 		if (rule.hasShadowCast) AppendShadowStateField(text, 2, "shadowcast", rule.shadowCast);
+		if (rule.hasLightShadowCast) AppendShadowStateField(text, 2, "lightshadowcast", rule.lightShadowCast);
 		if (rule.hasFullbright) AppendShadowStateField(text, 2, "fullbright", rule.fullbright);
 		if (rule.hasEmissiveStableFrames) AppendLine(text, 2, FStringf("emissivestableframes %u", rule.emissiveStableFrames));
 		if (rule.hasActivationPolicy) AppendLine(text, 2, FStringf("activation %s", ActorActivationPolicyName(rule.activationPolicy)));
@@ -2406,12 +2425,13 @@ namespace
 
 		for (const ParsedLightOverlayActorRule* rule : SortRulesByOrder(database.actorRules))
 		{
-			Printf("LIGHTOVR actorrule %s: actorclass=%s type=%s shadowreceive=%s shadowcast=%s fullbright=%s activation=%s source=%s\n",
+			Printf("LIGHTOVR actorrule %s: actorclass=%s type=%s shadowreceive=%s shadowcast=%s lightshadowcast=%s fullbright=%s activation=%s source=%s\n",
 				rule->id.GetChars(),
 				rule->actorClassName.GetChars(),
 				rule->lightType.GetChars(),
 				rule->hasShadowReceive ? (rule->shadowReceive ? "default" : "off") : "(unset)",
 				rule->hasShadowCast ? (rule->shadowCast ? "default" : "off") : "(unset)",
+				rule->hasLightShadowCast ? (rule->lightShadowCast ? "default" : "off") : "(unset)",
 				rule->hasFullbright ? (rule->fullbright ? "on" : "off") : "(unset)",
 				rule->hasActivationPolicy ? ActorActivationPolicyName(rule->activationPolicy) : "(default)",
 				SourceLocationText(rule->source).GetChars());
@@ -2596,13 +2616,14 @@ namespace
 
 		for (const auto& rule : resolved.actorRules)
 		{
-			Printf("LIGHTOVR resolved actorrule %s: actorclass=%s resolved=%s type=%s shadowreceive=%s shadowcast=%s fullbright=%s activation=%s source=%s\n",
+			Printf("LIGHTOVR resolved actorrule %s: actorclass=%s resolved=%s type=%s shadowreceive=%s shadowcast=%s lightshadowcast=%s fullbright=%s activation=%s source=%s\n",
 				rule.id.GetChars(),
 				rule.actorClassName.GetChars(),
 				rule.actorClassResolved ? "yes" : "no",
 				rule.lightType.GetChars(),
 				rule.hasShadowReceive ? (rule.shadowReceive ? "default" : "off") : "(unset)",
 				rule.hasShadowCast ? (rule.shadowCast ? "default" : "off") : "(unset)",
+				rule.hasLightShadowCast ? (rule.lightShadowCast ? "default" : "off") : "(unset)",
 				rule.hasFullbright ? (rule.fullbright ? "on" : "off") : "(unset)",
 				rule.hasActivationPolicy ? ActorActivationPolicyName(rule.activationPolicy) : "(default)",
 				SourceLocationText(rule.source).GetChars());
@@ -2728,6 +2749,8 @@ namespace
 		destination.shadowReceive = source.shadowReceive;
 		destination.hasShadowCast = source.hasShadowCast;
 		destination.shadowCast = source.shadowCast;
+		destination.hasLightShadowCast = source.hasLightShadowCast;
+		destination.lightShadowCast = source.lightShadowCast;
 		destination.hasFullbright = source.hasFullbright;
 		destination.fullbright = source.fullbright;
 		destination.hasEmissiveStableFrames = source.hasEmissiveStableFrames;

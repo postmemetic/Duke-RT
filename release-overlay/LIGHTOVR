@@ -31,6 +31,7 @@ LIGHTOVR
         actorclass "DukeExplosion"
         shadowreceive off
         shadowcast off
+        lightshadowcast on
         fullbright on
         type "point"
         color 1.0 0.7 0.4
@@ -46,6 +47,7 @@ LIGHTOVR
         actorclass "DukeExplosion2"
         shadowreceive off
         shadowcast off
+        lightshadowcast on
         fullbright on
         type "point"
         color 1.0 0.7 0.4
@@ -129,6 +131,7 @@ LIGHTOVR
         actorclass "DukeRPG"
         shadowreceive on
         shadowcast off
+        lightshadowcast on
         activation immediate
         type "point"
         color 1.0 0.7 0.3

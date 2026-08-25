@@ -2017,7 +2017,10 @@ namespace
 		actorRule.ruleName = resolvedRule.id.GetChars();
 		actorRule.hasTileFilter = resolvedRule.hasTileFilter;
 		actorRule.tileFilter = resolvedRule.hasTileFilter && resolvedRule.tileFilter >= 0 ? (uint32_t)resolvedRule.tileFilter : 0u;
-		actorRule.flags = (!resolvedRule.hasShadowCast || resolvedRule.shadowCast) ? SceneAnalyticLightFlag_CastsShadow : SceneAnalyticLightFlag_None;
+		const bool lightCastsShadow = resolvedRule.hasLightShadowCast
+			? resolvedRule.lightShadowCast
+			: (!resolvedRule.hasShadowCast || resolvedRule.shadowCast);
+		actorRule.flags = lightCastsShadow ? SceneAnalyticLightFlag_CastsShadow : SceneAnalyticLightFlag_None;
 		actorRule.materialNoShadowReceive = resolvedRule.hasShadowReceive && !resolvedRule.shadowReceive;
 		actorRule.materialNoShadowCast = resolvedRule.hasShadowCast && !resolvedRule.shadowCast;
 		actorRule.materialFullbright = resolvedRule.hasFullbright && resolvedRule.fullbright;
