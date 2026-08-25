@@ -41,9 +41,12 @@ namespace
 
 	static bool ShouldCollectTraceShaderStats(const NRIRenderDevice* device)
 	{
-		return device != nullptr && device->UsesDiagnosticShaderVariant() &&
+		if (device == nullptr)
+			return false;
+		if ((int)nri_ptmotionaudit > 0)
+			return true;
+		return device->UsesDiagnosticShaderVariant() &&
 			((bool)nri_pt360absenceprobe || (bool)nri_ptfiltercompare ||
-				(int)nri_ptmotionaudit > 0 ||
 				(int)nri_ptsurfaceprobe > 0 ||
 				(!!nri_ptshaderstats && ShouldTracePtPerf()));
 	}
