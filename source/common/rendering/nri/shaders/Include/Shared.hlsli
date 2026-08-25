@@ -15,6 +15,7 @@
 #define SET_ROOT 5
 
 #define MAX_SCENE_TEXTURES 1024
+#define NRI_FLAG_RESET_HISTORY 0x1u
 #define NRI_FLAG_USE_JITTER 0x40u
 #define NRI_JITTER_PHASE_SHIFT 16u
 #define NRI_VOXEL_NORMAL_BLEND_SHIFT 24u
@@ -26,6 +27,7 @@
 #define NRI_FLAG_INDIRECT_RADIANCE_CACHE 0x2000u
 #define NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT 0x4000u
 #define NRI_FLAG_SPATIAL_ABSENCE_GATE 0x8000u
+#define NRI_FLAG_MOTION_ALL_REACTIVE 0x10000u
 #define NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE 0x800000u
 #define NRI_TRACE_AUX_FILTER_COMPARE 0x4000u
 #define NRI_TRACE_AUX_FILTER_QUERY 0x8000u
@@ -203,6 +205,8 @@ Texture2D<float4> gGuideSpecHitInput : register(t10, space3);
 Texture2D<float4> gShadowInput : register(t11, space3);
 Texture2D<float4> gDirectLightingInput : register(t12, space3);
 Texture2D<float4> gDirectEmissionInput : register(t13, space3);
+Texture2D<uint4> gTemporalSurfaceIdInput : register(t14, space3);
+Texture2D<float4> gTemporalGuideInput : register(t15, space3);
 
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gTraceOutput, u, 0, SET_OUTPUTS);
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gComposedOutput, u, 1, SET_OUTPUTS);
@@ -220,7 +224,11 @@ NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gGuideSpecHitOutput, u, 
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gShadowPenumbraOutput, u, 12, SET_OUTPUTS);
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gDirectLightingOutput, u, 13, SET_OUTPUTS);
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gDirectEmissionOutput, u, 14, SET_OUTPUTS);
-RWStructuredBuffer<uint> gTraceShaderStats : register(u15, space4);
+NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<uint4>, gTemporalSurfaceIdOutput, u, 15, SET_OUTPUTS);
+NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gTemporalGuideOutput, u, 16, SET_OUTPUTS);
+NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gTemporalValidityOutput, u, 17, SET_OUTPUTS);
+NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gTemporalReactiveOutput, u, 18, SET_OUTPUTS);
+RWStructuredBuffer<uint> gTraceShaderStats : register(u19, space4);
 
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 #include "IndirectRadianceCache.hlsli"

@@ -1,4 +1,5 @@
 #include "nri_map_world.h"
+#include "nri_map_motion_correspondence.h"
 
 #include <algorithm>
 
@@ -32,9 +33,10 @@ namespace
 		Copy3(preservedSkyView->groundColor, outView.groundColor);
 	}
 
-	void AppendSurfaceToSceneView(const PTMapSurface& surface, SceneView& outView, const SceneView* preservedSkyView)
+	void AppendSurfaceToSceneView(const PTMapSurface& surface, uint64_t mapEpoch, SceneView& outView, const SceneView* preservedSkyView)
 	{
 		SurfaceRef copy = surface.surface;
+		InitializeMapTemporalSurface(surface, mapEpoch, copy);
 		if ((copy.material.flags & MaterialFlag_Sky) != 0 && copy.material.texture != nullptr)
 		{
 			if (preservedSkyView == nullptr)
@@ -108,7 +110,7 @@ void BuildMapSceneView(const PTMapWorld& mapWorld, SceneView& outView, const Sce
 
 	for (const PTMapSurface& surface : mapWorld.surfaces)
 	{
-		AppendSurfaceToSceneView(surface, outView, preservedSkyView);
+		AppendSurfaceToSceneView(surface, mapWorld.buildSerial, outView, preservedSkyView);
 	}
 
 	ApplyPreservedSky(outView, preservedSkyView);
@@ -125,7 +127,7 @@ void BuildMapChunkSceneView(const PTMapWorld& mapWorld, const PTMapChunk& chunk,
 	const uint32_t endSurface = std::min<uint32_t>(chunk.firstSurface + chunk.surfaceCount, (uint32_t)mapWorld.surfaces.size());
 	for (uint32_t surfaceIndex = chunk.firstSurface; surfaceIndex < endSurface; ++surfaceIndex)
 	{
-		AppendSurfaceToSceneView(mapWorld.surfaces[surfaceIndex], outView, preservedSkyView);
+		AppendSurfaceToSceneView(mapWorld.surfaces[surfaceIndex], mapWorld.buildSerial, outView, preservedSkyView);
 	}
 
 	ApplyPreservedSky(outView, preservedSkyView);

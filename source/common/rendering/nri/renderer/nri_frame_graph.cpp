@@ -12,11 +12,11 @@ namespace
 	constexpr uint32_t kSupportedDebugModes[] = {
 		0u, 1u, 2u, 3u, 4u, 5u,
 		9u, 10u, 11u, 12u,
-		16u, 17u, 18u, 19u,
+		16u, 17u, 18u, 19u, 20u,
 		21u, 22u, 24u, 25u,
 		nri_diag::PtDebugAnalyticDirect, nri_diag::PtDebugEmissiveTags, nri_diag::PtDebugEmissiveDirect, nri_diag::PtDebugSectorAmbient,
 		nri_diag::PtDebugEmissiveSampleVisibility, nri_diag::PtDebugUpscalerTraceTransparent, nri_diag::PtDebugTaaPreExposedInput,
-		nri_diag::PtDebugIndirectLobeSelection
+		nri_diag::PtDebugIndirectLobeSelection, nri_diag::PtDebugMotionValidity
 	};
 
 	constexpr NRIPresentRouteInfo kBootstrapRawTraceRoute = {
@@ -210,11 +210,13 @@ bool IsNRIFrameGraphRawTraceDebugMode(uint32_t debugMode)
 		IsInRange(debugMode, 10u, 12u) ||
 		debugMode == 18u ||
 		debugMode == 19u ||
+		debugMode == 20u ||
 		IsInRange(debugMode, 21u, 22u) ||
 		IsInRange(debugMode, 24u, 25u) ||
 		IsInRange(debugMode, nri_diag::PtDebugAnalyticDirect, nri_diag::PtDebugSectorAmbient) ||
 		debugMode == nri_diag::PtDebugEmissiveSampleVisibility ||
-		debugMode == nri_diag::PtDebugIndirectLobeSelection;
+		debugMode == nri_diag::PtDebugIndirectLobeSelection ||
+		debugMode == nri_diag::PtDebugMotionValidity;
 }
 
 bool IsNRIFrameGraphFinalShaderDebugMode(uint32_t)
@@ -298,8 +300,8 @@ bool ExecuteNRIFrameGraph(
 		(useShadowDebugPresent && denoise) ||
 		compositionConsumesNrd ||
 		ptDebugMode == (int)nri_diag::PtDebugIndirectLobeSelection;
-	context.mHistoryInputSlot = (context.mFrame.frameIndex & 1u) == 0 ? FrameTextureSlot::TaaHistoryPing : FrameTextureSlot::TaaHistoryPong;
-	context.mHistoryOutputSlot = (context.mFrame.frameIndex & 1u) == 0 ? FrameTextureSlot::TaaHistoryPong : FrameTextureSlot::TaaHistoryPing;
+	context.mHistoryInputSlot = (context.mFrame.mainTemporalSerial & 1u) == 0 ? FrameTextureSlot::TaaHistoryPing : FrameTextureSlot::TaaHistoryPong;
+	context.mHistoryOutputSlot = (context.mFrame.mainTemporalSerial & 1u) == 0 ? FrameTextureSlot::TaaHistoryPong : FrameTextureSlot::TaaHistoryPing;
 	context.mUpscaledInputSlot = FrameTextureSlot::PostSharpenOutput;
 	context.mUseUpscaledInFinal = false;
 	context.mUseDenoisedCompositionInputs = false;

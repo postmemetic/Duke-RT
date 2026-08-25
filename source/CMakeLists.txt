@@ -948,6 +948,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_map_chunk_diagnostics.cpp
 	common/rendering/nri/renderer/nri_map_chunk_status.cpp
 	common/rendering/nri/renderer/nri_map_movers.cpp
+	common/rendering/nri/renderer/nri_map_motion_history.cpp
 	common/rendering/nri/renderer/nri_map_material_only_route.cpp
 	common/rendering/nri/renderer/nri_map_mover_rigid_route.cpp
 	common/rendering/nri/renderer/nri_map_mover_rigid_route_policy.cpp
@@ -1059,6 +1060,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_world_tlas_policy.cpp
 	common/rendering/nri/renderer/nri_voxel_policy_editor.cpp
 	common/rendering/nri/scene/nri_map_world.cpp
+	common/rendering/nri/scene/nri_map_motion_correspondence.cpp
 	common/rendering/nri/scene/nri_map_builder.cpp
 	common/rendering/nri/scene/nri_map_mover_adapter.cpp
 	common/rendering/nri/scene/nri_map_mover_authored_topology.cpp

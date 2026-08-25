@@ -1,5 +1,6 @@
 #include "nri_pass_dispatch.h"
 
+#include "nri_cvars.h"
 #include "nri_descriptor_sets.h"
 #include "nri_pipeline_state.h"
 #include "nri_scene_upload.h"
@@ -52,7 +53,7 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 		{
 			return NRIDescriptorSetManager::UpdateFrameTextureSet(*static_cast<NRIRenderer*>(user));
 		};
-		service.updateFrameTextureSetWithDescriptors = [](void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 14>& descriptors) -> bool
+		service.updateFrameTextureSetWithDescriptors = [](void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& descriptors) -> bool
 		{
 			return NRIDescriptorSetManager::UpdateFrameTextureSet(*static_cast<NRIRenderer*>(user), descriptorSet, descriptors);
 		};
@@ -60,7 +61,7 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 		{
 			return NRIDescriptorSetManager::UpdateOutputSet(*static_cast<NRIRenderer*>(user));
 		};
-		service.updateOutputSetWithDescriptors = [](void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 15>& descriptors) -> bool
+		service.updateOutputSetWithDescriptors = [](void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& descriptors) -> bool
 		{
 			return NRIDescriptorSetManager::UpdateOutputSet(*static_cast<NRIRenderer*>(user), descriptorSet, descriptors);
 		};
@@ -379,6 +380,7 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.lastPerfTraceShaderStats = &mLastPerfTraceShaderStats;
 	init.lastAutoExposureSettings = &mLastAutoExposureSettings;
 	init.frame.frameIndex = mFrameIndex;
+	init.frame.mainTemporalSerial = mMainTemporalSerial;
 	init.frame.renderWidth = mRenderWidth;
 	init.frame.renderHeight = mRenderHeight;
 	init.frame.outputWidth = mOutputWidth;
@@ -415,7 +417,7 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	std::copy(mSkyColor, mSkyColor + 3, init.frame.skyColor.begin());
 	std::copy(mGroundColor, mGroundColor + 3, init.frame.groundColor.begin());
 	init.frame.guiCaptureActive = mGuiCaptureActive;
-	init.frame.resetHistory = mResetHistory;
+	init.frame.resetHistory = mResetHistory || !!nri_ptmotionreseteveryframe;
 	init.frame.mainViewEligible = mainViewEligible;
 	const NRISpatialAbsenceSnapshot& rawSpatialAbsence = mSpatialAbsenceGate.GetSnapshot();
 	const bool typedSpatialCensusAuthority =

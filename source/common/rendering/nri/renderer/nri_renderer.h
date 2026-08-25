@@ -15,6 +15,7 @@
 #include "nri_renderer_context.h"
 #include "nri_resources.h"
 #include "nri_map_movers.h"
+#include "nri_map_motion_history.h"
 #include "nri_map_material_only_route.h"
 #include "nri_map_mover_rigid_route.h"
 #include "nri_map_mover_shadow.h"
@@ -1995,6 +1996,10 @@ public:
 	bool HasMaterialPreloadPending() const { return mPreloadMaterialStatus.pending; }
 	const PreloadMaterialStatus& GetPreloadMaterialStatus() const { return mPreloadMaterialStatus; }
 	void ResetHistory();
+	// Called by the backend shell immediately after QueueSubmit. CPU map history
+	// follows GPU temporal-consumer submission, never presentation success.
+	void OnMainCommandBufferSubmitResult(bool success, uint64_t commandFenceValue);
+	uint64_t GetMainTemporalSerial() const { return mMainTemporalSerial; }
 	void RequestAutoExposureReset(const char* reason);
 	LevelTransitionSnapshot BuildLevelTransitionSnapshot() const;
 	void TraceStartupMutationProbe(const char* event) const;
@@ -2075,6 +2080,14 @@ public:
 		TraceTransparentOutput,
 		DirectLighting,
 		DirectEmission,
+		TemporalSurfaceIdPing,
+		TemporalSurfaceIdPong,
+		TemporalGuidePing,
+		TemporalGuidePong,
+		TemporalSurfaceScratch,
+		TemporalGuideScratch,
+		TemporalValidity,
+		TemporalReactive,
 		TaaHistoryPing,
 		TaaHistoryPong,
 		Validation,
@@ -2624,6 +2637,8 @@ private:
 	void NoteSuccessfulRealFrame();
 	void CopyTexture(NRITextureResource& source, NRITextureResource& destination);
 	void CopyTextureToActiveTarget(NRITextureResource& source);
+	void ApplyCommittedMapMotion(nri_scene::SceneView& sceneView);
+	bool StagePublishedMapMotion(uint64_t proposedSerial);
 
 	void DestroyCachedTextures();
 	void DestroySceneBuffers();
@@ -2851,6 +2866,7 @@ private:
 	NRIStaticSceneResidency mStaticSceneResidency;
 	NRIStaticSceneDiagnosticsCache mStaticSceneDiagnostics;
 	NRIMapMoverSystem mMapMovers;
+	NRIMapMotionHistory mMapMotionHistory;
 	NRIMapMoverShadow mMapMoverShadow;
 	NRISpatialAbsenceGate mSpatialAbsenceGate;
 	NRISpatialAbsenceGpuSnapshot mSpatialAbsenceGpuSnapshot;
@@ -2904,13 +2920,17 @@ private:
 	// texture set so focused GPU workloads can bind the same resident textures
 	// without duplicating or re-uploading texture payloads.
 	std::vector<nri::Descriptor*> mCurrentSceneTextureDescriptors;
-	std::array<nri::Descriptor*, 14> mFrameInputDescriptors = {};
-	std::array<nri::Descriptor*, 15> mOutputDescriptors = {};
+	std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM> mFrameInputDescriptors = {};
+	std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM> mOutputDescriptors = {};
 	std::vector<SceneInstanceData> mBoundSceneInstances;
 	std::vector<uint32_t> mCurrentVisibleChunkWords;
 	std::vector<uint32_t> mCurrentVisibleFlatPlaneWords;
 	uint32_t mLastResolvedLightOverlayGeneration = 0;
 	uint32_t mFrameIndex = 0;
+	uint64_t mMainTemporalSerial = 0;
+	uint64_t mPendingMainTemporalSerial = 0;
+	uint64_t mPendingMainTemporalCommandFence = 0;
+	bool mPendingMainTemporalSubmission = false;
 	uint32_t mLastCompletedFrameIndex = ~0u;
 	uint64_t mFrameGenerationFrameId = 0;
 	uint32_t mRenderWidth = 0;

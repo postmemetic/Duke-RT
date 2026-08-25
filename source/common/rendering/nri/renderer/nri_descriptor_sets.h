@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../system/nri_local.h"
+#include "nri_shader_contracts.h"
 
 #include <array>
 #include <cstdint>
@@ -14,9 +15,9 @@ public:
 	static bool UpdateSamplerSet(NRIRenderer& renderer);
 	static bool CommitSceneDataDescriptors(NRIRenderer& renderer, const char* reason);
 	static bool UpdateFrameTextureSet(NRIRenderer& renderer);
-	static bool UpdateFrameTextureSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, 14>& descriptors);
+	static bool UpdateFrameTextureSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& descriptors);
 	static bool UpdateOutputSet(NRIRenderer& renderer);
-	static bool UpdateOutputSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, 15>& descriptors);
+	static bool UpdateOutputSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& descriptors);
 
 	static nri::DescriptorSet* GetCurrentSceneTextureSet(const NRIRenderer& renderer);
 	static nri::DescriptorSet* GetCurrentSceneDataSet(const NRIRenderer& renderer);

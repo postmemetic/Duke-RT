@@ -53,6 +53,40 @@ enum PrimitiveFlags : uint32_t
 	PrimitiveFlag_ReflectionOnly = 1u << 16,
 };
 
+// Shared CPU-side reason codes for primary-surface temporal correspondence.
+// Keep these values in sync with shaders/Include/MotionContracts.hlsli.
+enum class MotionValidityReason : uint32_t
+{
+	Valid = 0,
+	NoHistory = 1,
+	TopologyMismatch = 2,
+	AmbiguousCorrespondence = 3,
+	CurrentBehindCamera = 4,
+	PreviousBehindCamera = 5,
+	CurrentNonFinite = 6,
+	PreviousNonFinite = 7,
+	ReprojectedIdentityMismatch = 8,
+	ReprojectedDepthMismatch = 9,
+	ReprojectedNormalMismatch = 10,
+	ReprojectedOutsideViewport = 11,
+	ActorCensusRejected = 12,
+	GlobalReset = 13,
+	UnsupportedSource = 14,
+	Reappeared = 15,
+	DuplicatePublication = 16,
+};
+
+struct TemporalSurfaceMetadata
+{
+	uint64_t occurrenceId = 0;
+	uint64_t topologyKey = 0;
+	uint32_t generation = 0;
+	uint32_t historyAge = 0;
+	MotionValidityReason reason = MotionValidityReason::UnsupportedSource;
+	bool identityValid = false;
+	bool correspondenceValid = false;
+};
+
 struct SurfaceProvenance
 {
 	SurfaceSourceType sourceType = SurfaceSourceType::Unknown;
@@ -86,6 +120,9 @@ struct CapturedVertex
 	float position[3] = {};
 	float prevPosition[3] = {};
 	float uv[2] = {};
+	// CPU-only semantic corner identity. It is intentionally not copied into
+	// SceneVertex; the map motion owner uses it before geometry bridging.
+	uint64_t temporalCornerKey = UINT64_MAX;
 };
 
 struct SurfaceRef
@@ -96,5 +133,6 @@ struct SurfaceRef
 	uint32_t materialRowSpan = 1u;
 	MaterialRef material;
 	SurfaceProvenance provenance;
+	TemporalSurfaceMetadata temporal;
 };
 }

@@ -26,8 +26,11 @@ struct PrimitiveData
 	uint32_t portalIndex = UINT32_MAX;
 	uint32_t reserved0 = UINT32_MAX;
 	uint32_t smoothNormals[2] = {};
+	uint32_t temporalSurfaceId[2] = {};
+	uint32_t temporalGeneration = 0;
+	uint32_t temporalFlags = 0;
 };
-static_assert(sizeof(PrimitiveData) == 72, "PrimitiveData must match Shared.hlsli.");
+static_assert(sizeof(PrimitiveData) == 88, "PrimitiveData must match SceneShadowContracts.hlsli.");
 
 struct GeometryData
 {

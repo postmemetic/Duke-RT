@@ -84,7 +84,7 @@ namespace
 
 	static uint32_t GetEffectivePtDebugMode()
 	{
-		if (nri_ptdebug < 0 || nri_ptdebug > (int)nri_diag::PtDebugIndirectLobeSelection)
+		if (nri_ptdebug < 0 || nri_ptdebug > (int)nri_diag::PtDebugMotionValidity)
 		{
 			return 0u;
 		}
@@ -721,7 +721,7 @@ void NRIRenderer::PrintStatus()
 		GetNrdDenoiserModeName(denoiserSettings.denoiserMode),
 		"2.5D",
 		"interpolated",
-		"16=denoised_diff 17=denoised_spec 18=metalness 19=roughness 20=motion_z 21=live_raw_penumbra 22=live_raw_shadow 23=temporal_sigma_shadow 24=direct_lighting 25=direct_emission 26=analytic_direct 27=emissive_tags 28=emissive_direct 29=sector_ambient 30=emissive_uv 31=emissive_radiance 32=emissive_primitive 33=emissive_visibility 34=trace_transparent 35=sr_input 36=sr_depth 37=vendor_output 38=vendor_output_final 39=rr_input 40=rr_diffuse_albedo 41=rr_specular_albedo 42=rr_normal_roughness 43=rr_specular_hit_distance 44=post_sharpen_output 45=taa_pre_exposed_input 46=indirect_lobe_selection");
+		"16=denoised_diff 17=denoised_spec 18=metalness 19=roughness 20=motion_z 21=live_raw_penumbra 22=live_raw_shadow 23=temporal_sigma_shadow 24=direct_lighting 25=direct_emission 26=analytic_direct 27=emissive_tags 28=emissive_direct 29=sector_ambient 30=emissive_uv 31=emissive_radiance 32=emissive_primitive 33=emissive_visibility 34=trace_transparent 35=sr_input 36=sr_depth 37=vendor_output 38=vendor_output_final 39=rr_input 40=rr_diffuse_albedo 41=rr_specular_albedo 42=rr_normal_roughness 43=rr_specular_hit_distance 44=post_sharpen_output 45=taa_pre_exposed_input 46=indirect_lobe_selection 47=motion_validity");
 	const char* shadowSplitMode =
 		!mUseSplitShadowDenoiser ? "off" :
 		(GetEffectivePtDebugMode() >= 21 && GetEffectivePtDebugMode() <= 23) ? "sigma-debug" :

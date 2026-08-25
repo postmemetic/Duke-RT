@@ -149,6 +149,150 @@ float4 VisualizeMotionVector(float4 motionSample, float viewZ)
 	return float4(saturate(color), 1.0);
 }
 
+float4 VisualizeMotionDepth(float4 motionSample)
+{
+	if (motionSample.w <= 0.0)
+	{
+		return float4(1.0, 0.0, 1.0, 1.0);
+	}
+	const float magnitude = saturate(log2(1.0 + abs(motionSample.z)) / 5.0);
+	return motionSample.z >= 0.0 ? float4(magnitude, 0.15 * magnitude, 0.0, 1.0) : float4(0.0, 0.15 * magnitude, magnitude, 1.0);
+}
+
+float2 EncodeTemporalNormal(float3 normal)
+{
+	float3 oct = normalize(normal);
+	oct /= max(abs(oct.x) + abs(oct.y) + abs(oct.z), 1e-6);
+	if (oct.z < 0.0)
+	{
+		oct.xy = (1.0 - abs(oct.yx)) * float2(oct.x < 0.0 ? -1.0 : 1.0, oct.y < 0.0 ? -1.0 : 1.0);
+	}
+	return oct.xy;
+}
+
+float3 DecodeTemporalNormal(float2 encoded)
+{
+	float3 normal = float3(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+	if (normal.z < 0.0)
+	{
+		normal.xy = (1.0 - abs(normal.yx)) * float2(normal.x < 0.0 ? -1.0 : 1.0, normal.y < 0.0 ? -1.0 : 1.0);
+	}
+	return normalize(normal);
+}
+
+uint4 GetPrimaryTemporalIdentity(HitData hit)
+{
+	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+	return uint4(primitive.temporalSurfaceId, primitive.temporalGeneration, primitive.temporalFlags);
+}
+
+bool IsTemporalHistoryReset()
+{
+	return (gTraceConstants.Flags & NRI_FLAG_RESET_HISTORY) != 0u;
+}
+
+uint EvaluateTemporalCorrespondence(
+	uint2 pixelPos,
+	uint4 currentIdentity,
+	float3 motion,
+	float previousViewZ,
+	float3 predictedPreviousNormal,
+	bool currentProjectionValid,
+	uint currentProjectionReason,
+	bool previousProjectionValid,
+	uint previousProjectionReason)
+{
+	if (IsTemporalHistoryReset())
+	{
+		return MOTION_VALIDITY_GLOBAL_RESET;
+	}
+	if (!currentProjectionValid)
+	{
+		return currentProjectionReason;
+	}
+	if (!previousProjectionValid)
+	{
+		return previousProjectionReason;
+	}
+	if ((currentIdentity.w & TEMPORAL_SURFACE_FLAG_IDENTITY_VALID) == 0u)
+	{
+		return (currentIdentity.w & TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK) != 0u ?
+			MOTION_VALIDITY_VALID : MOTION_VALIDITY_UNSUPPORTED;
+	}
+	if ((currentIdentity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) == 0u)
+	{
+		return (currentIdentity.w >> TEMPORAL_SURFACE_REASON_SHIFT) & 0xffu;
+	}
+
+	const float2 previousPixel = float2(pixelPos) + motion.xy + GetCurrentTemporalJitter() - GetPreviousTemporalJitter();
+	const int2 previousPixelIndex = int2(floor(previousPixel + 0.5));
+	if (any(previousPixelIndex < 0) || previousPixelIndex.x >= (int)gTraceConstants.RenderWidth || previousPixelIndex.y >= (int)gTraceConstants.RenderHeight)
+	{
+		return MOTION_VALIDITY_OUTSIDE_VIEWPORT;
+	}
+
+	const uint4 previousIdentity = gTemporalSurfaceIdInput.Load(int3(previousPixelIndex, 0));
+	if (any(previousIdentity.xyz != currentIdentity.xyz))
+	{
+		return MOTION_VALIDITY_ID_MISMATCH;
+	}
+	const float4 previousGuide = gTemporalGuideInput.Load(int3(previousPixelIndex, 0));
+	const float depthTolerance = max(0.05, abs(previousViewZ) * 0.02);
+	if (!isfinite(previousGuide.x) || abs(previousGuide.x - previousViewZ) > depthTolerance)
+	{
+		return MOTION_VALIDITY_DEPTH_MISMATCH;
+	}
+	const float3 previousNormal = DecodeTemporalNormal(previousGuide.yz);
+	if (dot(previousNormal, predictedPreviousNormal) < 0.85)
+	{
+		return MOTION_VALIDITY_NORMAL_MISMATCH;
+	}
+	return MOTION_VALIDITY_VALID;
+}
+
+uint EvaluateSkyTemporalCorrespondence(uint2 pixelPos, float2 motionPixels, bool projectionValid)
+{
+	if (IsTemporalHistoryReset())
+	{
+		return MOTION_VALIDITY_GLOBAL_RESET;
+	}
+	if (!projectionValid)
+	{
+		return MOTION_VALIDITY_PREVIOUS_BEHIND;
+	}
+	const float2 previousPixel = float2(pixelPos) + motionPixels + GetCurrentTemporalJitter() - GetPreviousTemporalJitter();
+	const int2 previousPixelIndex = int2(floor(previousPixel + 0.5));
+	if (any(previousPixelIndex < 0) || previousPixelIndex.x >= (int)gTraceConstants.RenderWidth || previousPixelIndex.y >= (int)gTraceConstants.RenderHeight)
+	{
+		return MOTION_VALIDITY_OUTSIDE_VIEWPORT;
+	}
+	const uint4 previousIdentity = gTemporalSurfaceIdInput.Load(int3(previousPixelIndex, 0));
+	return all(previousIdentity.xyz == uint3(0xffffffffu, 0xffffffffu, 1u)) ?
+		MOTION_VALIDITY_VALID : MOTION_VALIDITY_ID_MISMATCH;
+}
+
+float4 VisualizeMotionValidity(uint reason)
+{
+	if (reason == MOTION_VALIDITY_VALID) return float4(0.0, 1.0, 0.0, 1.0);
+	if (reason == MOTION_VALIDITY_ID_MISMATCH) return float4(1.0, 0.0, 0.0, 1.0);
+	if (reason == MOTION_VALIDITY_DEPTH_MISMATCH) return float4(1.0, 0.55, 0.0, 1.0);
+	if (reason == MOTION_VALIDITY_NORMAL_MISMATCH) return float4(0.1, 0.35, 1.0, 1.0);
+	if (reason == MOTION_VALIDITY_OUTSIDE_VIEWPORT) return float4(0.0, 0.8, 1.0, 1.0);
+	if (reason == MOTION_VALIDITY_GLOBAL_RESET || reason == MOTION_VALIDITY_NO_HISTORY) return float4(0.65, 0.0, 0.9, 1.0);
+	return float4(1.0, 0.0, 1.0, 1.0);
+}
+
+void WriteTemporalOutputs(uint2 pixelPos, uint4 identity, float viewZ, float3 normal, uint validityReason)
+{
+	const bool historyValid = validityReason == MOTION_VALIDITY_VALID;
+	const float2 encodedNormal = EncodeTemporalNormal(normal);
+	gTemporalSurfaceIdOutput[pixelPos] = identity;
+	gTemporalGuideOutput[pixelPos] = float4(viewZ, encodedNormal, 1.0);
+	gTemporalValidityOutput[pixelPos] = float4(historyValid ? 1.0 : 0.0, (float)validityReason, 0.0, 1.0);
+	const bool forceReactive = (gTraceConstants.Flags & NRI_FLAG_MOTION_ALL_REACTIVE) != 0u;
+	gTemporalReactiveOutput[pixelPos] = float4(forceReactive || !historyValid ? 1.0 : 0.0, 0.0, 0.0, 1.0);
+}
+
 float3 ResolvePrimaryFootprintVertexPosition(HitData hit, float3 localPosition)
 {
 	if (hit.instanceId != 0xffffffffu)
@@ -1330,8 +1474,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (bootstrapFlat || bootstrapBaseColor)
 		{
 			const float3 sentinel = bootstrapFlat ? float3(1.0, 0.0, 1.0) : float3(1.0, 0.5, 0.0);
-			color = gTraceConstants.DebugMode == 5 ? VisualizeMotionVector(float4(0.0, 0.0, 0.0, -1.0), 1.0) : float4(sentinel, 1.0);
+			const uint bootstrapReason = MOTION_VALIDITY_GLOBAL_RESET;
+			color = gTraceConstants.DebugMode == 5 ? VisualizeMotionVector(float4(0.0, 0.0, 0.0, -1.0), 1.0) :
+				(gTraceConstants.DebugMode == 20 ? VisualizeMotionDepth(float4(0.0, 0.0, 0.0, -1.0)) :
+				(gTraceConstants.DebugMode == 47 ? VisualizeMotionValidity(bootstrapReason) : float4(sentinel, 1.0)));
 			gMotionOutput[pixelPos] = float4(0.0, 0.0, 0.0, -1.0);
+			WriteTemporalOutputs(pixelPos, uint4(0u, 0u, 0u, TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK), 1.0, float3(0.0, 0.0, 1.0), bootstrapReason);
 			gViewZOutput[pixelPos] = float4(1.0, 0.0, 0.0, 1.0);
 			gNormalRoughnessOutput[pixelPos] = 0.0;
 			gBaseColorOutput[pixelPos] = float4(sentinel, 1.0);
@@ -1355,9 +1503,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			float missPreviousViewZ = 0.0;
 			ComputeSkyVirtualMotion(rayOrigin, visibleRayDirection, missCurrentUvValid, missPrevUvValid, missCurrentUvRaw, missPrevUvRaw, missMotionPixels, missCurrentViewZ, missPreviousViewZ);
 			const float missMotionZ = (missCurrentUvValid && missPrevUvValid) ? (missPreviousViewZ - missCurrentViewZ) : 0.0;
-			const float4 missMotion = float4(missMotionPixels, missMotionZ, -NRD_INF);
-			color = gTraceConstants.DebugMode == 5 ? VisualizeMotionVector(missMotion, NRD_INF) : color;
+			const bool missProjectionValid = missCurrentUvValid && missPrevUvValid;
+			const uint missValidityReason = EvaluateSkyTemporalCorrespondence(pixelPos, missMotionPixels, missProjectionValid);
+			const float4 missMotion = float4(missMotionPixels, missMotionZ, missProjectionValid ? NRD_INF : -NRD_INF);
+			color = gTraceConstants.DebugMode == 5 ? VisualizeMotionVector(missMotion, NRD_INF) :
+				(gTraceConstants.DebugMode == 20 ? VisualizeMotionDepth(missMotion) :
+				(gTraceConstants.DebugMode == 47 ? VisualizeMotionValidity(missValidityReason) : color));
 			gMotionOutput[pixelPos] = missMotion;
+			WriteTemporalOutputs(pixelPos, uint4(0xffffffffu, 0xffffffffu, 1u, TEMPORAL_SURFACE_FLAG_IDENTITY_VALID | TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID), NRD_INF, float3(0.0, 0.0, 1.0), missValidityReason);
 			gViewZOutput[pixelPos] = float4(NRD_INF, 0.0, 0.0, 1.0);
 			gNormalRoughnessOutput[pixelPos] = 0.0;
 			gBaseColorOutput[pixelPos] = float4(missColor, 0.0);
@@ -1385,8 +1538,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		const float currentViewZ = dot(currentHitPosition - gTraceConstants.CameraPos, gTraceConstants.CameraForward);
 		float2 currentUvRaw = 0.0;
 		float2 prevUvRaw = 0.0;
-		const bool currentUvValid = ProjectWorldToUvMatrixRaw(currentHitPosition, false, currentUvRaw);
-		const bool prevUvValid = ProjectWorldToUvMatrixRaw(previousHitPosition, true, prevUvRaw);
+		uint currentProjectionReason = MOTION_VALIDITY_VALID;
+		uint previousProjectionReason = MOTION_VALIDITY_VALID;
+		const bool currentUvValid = ProjectWorldToUvMatrixRaw(currentHitPosition, false, currentUvRaw, currentProjectionReason);
+		const bool prevUvValid = ProjectWorldToUvMatrixRaw(previousHitPosition, true, prevUvRaw, previousProjectionReason);
 		const float previousViewZ = dot(previousHitPosition - gTraceConstants.PrevCameraPos, gTraceConstants.PrevCameraForward);
 		float3 motion = 0.0;
 		if (currentUvValid && prevUvValid)
@@ -1747,8 +1902,29 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// reprojected into the foreign locality for one frame.
 		const bool actorCensusHistoryInvalid =
 			(hit.temporalFlags & HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED) != 0u;
-		const float4 motionOutput = float4(motion, actorCensusHistoryInvalid ? -1.0 : currentViewZ);
+		const uint4 currentTemporalIdentity = GetPrimaryTemporalIdentity(hit);
+		const bool producerCorrespondenceValid =
+			currentUvValid && prevUvValid &&
+			((currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK) != 0u ||
+				(currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u) &&
+			!actorCensusHistoryInvalid;
+		uint temporalValidityReason = EvaluateTemporalCorrespondence(
+			pixelPos,
+			currentTemporalIdentity,
+			motion,
+			previousViewZ,
+			ResolveHitGeometricNormal(hit, true),
+			currentUvValid,
+			currentProjectionReason,
+			prevUvValid,
+			previousProjectionReason);
+		if (actorCensusHistoryInvalid)
+		{
+			temporalValidityReason = MOTION_VALIDITY_ACTOR_CENSUS;
+		}
+		const float4 motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
 		gMotionOutput[pixelPos] = motionOutput;
+		WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, ResolveHitGeometricNormal(hit, false), temporalValidityReason);
 		gViewZOutput[pixelPos] = float4(currentViewZ, smokeForeground ? 1.0 : 0.0, 0.0, 1.0);
 		const float4 packedDiffuse = PackDiffuseRadiance(diffuse, diffuseHitDistance, currentViewZ);
 		const float4 packedSpecular = PackSpecularRadiance(specular, specularHitDistance, currentViewZ, roughness);
@@ -1787,6 +1963,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			color = VisualizeMotionVector(motionOutput, currentViewZ);
 		}
+		else if (gTraceConstants.DebugMode == 20)
+		{
+			color = VisualizeMotionDepth(motionOutput);
+		}
 		else if (gTraceConstants.DebugMode == 26)
 		{
 			color = float4(analyticDirectLighting, 1.0);
@@ -1811,6 +1991,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		else if (gTraceConstants.DebugMode == 46)
 		{
 			color = float4(indirectDiffuseSelected ? 1.0 : 0.0, indirectSpecularSelected ? 1.0 : 0.0, indirectDiffuseSelectionProbability, 1.0);
+		}
+		else if (gTraceConstants.DebugMode == 47)
+		{
+			color = VisualizeMotionValidity(temporalValidityReason);
 		}
 		else
 		{

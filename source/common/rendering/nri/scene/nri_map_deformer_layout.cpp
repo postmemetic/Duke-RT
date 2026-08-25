@@ -887,6 +887,10 @@ namespace
 					std::begin(currentPrimitive.normal),
 					std::end(currentPrimitive.normal),
 					canonicalPrimitive.normal);
+				canonicalPrimitive.temporalSurfaceId[0] = currentPrimitive.temporalSurfaceId[0];
+				canonicalPrimitive.temporalSurfaceId[1] = currentPrimitive.temporalSurfaceId[1];
+				canonicalPrimitive.temporalGeneration = currentPrimitive.temporalGeneration;
+				canonicalPrimitive.temporalFlags = currentPrimitive.temporalFlags;
 			}
 			return canonical;
 		}
@@ -1316,6 +1320,10 @@ MapDeformerLayoutMapping MapCurrentGeometryToRetainedDeformerLayoutFast(
 			canonicalUv[1] = currentUv[1];
 		}
 		std::copy(std::begin(currentPrimitive.normal), std::end(currentPrimitive.normal), canonicalPrimitive.normal);
+		canonicalPrimitive.temporalSurfaceId[0] = currentPrimitive.temporalSurfaceId[0];
+		canonicalPrimitive.temporalSurfaceId[1] = currentPrimitive.temporalSurfaceId[1];
+		canonicalPrimitive.temporalGeneration = currentPrimitive.temporalGeneration;
+		canonicalPrimitive.temporalFlags = currentPrimitive.temporalFlags;
 		currentPrimitiveUsed[currentPrimitiveIndex] = 1;
 	}
 

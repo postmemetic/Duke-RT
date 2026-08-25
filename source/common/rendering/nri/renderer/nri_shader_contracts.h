@@ -13,8 +13,8 @@ constexpr uint32_t NRI_SCENE_DESCRIPTOR_NUM = NRI_BLUE_NOISE_SOBOL_SLOT + 1;
 constexpr uint32_t NRI_SCENE_DATA_DESCRIPTOR_NUM = 28;
 constexpr uint32_t NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT = 26;
 constexpr uint32_t NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT = 27;
-constexpr uint32_t NRI_INPUT_DESCRIPTOR_NUM = 14;
-constexpr uint32_t NRI_OUTPUT_DESCRIPTOR_NUM = 15;
+constexpr uint32_t NRI_INPUT_DESCRIPTOR_NUM = 16;
+constexpr uint32_t NRI_OUTPUT_DESCRIPTOR_NUM = 19;
 constexpr uint32_t NRI_TRACE_SHADER_STATS_DESCRIPTOR_NUM = 1;
 constexpr uint32_t NRI_SAMPLER_DESCRIPTOR_NUM = 4;
 
@@ -77,6 +77,7 @@ constexpr uint32_t NRI_FLAG_PROBABILISTIC_INDIRECT = 0x1000u;
 constexpr uint32_t NRI_FLAG_INDIRECT_RADIANCE_CACHE = 0x2000u;
 constexpr uint32_t NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT = 0x4000u;
 constexpr uint32_t NRI_FLAG_SPATIAL_ABSENCE_GATE = 0x8000u;
+constexpr uint32_t NRI_FLAG_MOTION_ALL_REACTIVE = 0x10000u;
 // Bit 23 is reserved from the packed jitter phase (current modes require at
 // most 72 phases). Keeping actor gating in TraceOpaque flags avoids reading a
 // stale spatial payload when the independently controlled actor gate is off.

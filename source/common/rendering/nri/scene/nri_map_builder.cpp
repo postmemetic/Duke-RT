@@ -414,7 +414,7 @@ namespace
 		quad.texcoords[PTWallTexCoord_LowerRight].v = setV(desc.bottomLeft, desc.bottomRight, quad.fracRight);
 	}
 
-	void AppendWallVertex(SurfaceRef& surface, float x, float z, float y, const PTWallTexCoord& texcoord)
+	void AppendWallVertex(SurfaceRef& surface, float x, float z, float y, const PTWallTexCoord& texcoord, uint64_t cornerKey)
 	{
 		CapturedVertex vertex = {};
 		vertex.position[0] = x;
@@ -425,6 +425,7 @@ namespace
 		vertex.prevPosition[2] = y;
 		vertex.uv[0] = texcoord.u;
 		vertex.uv[1] = texcoord.v;
+		vertex.temporalCornerKey = cornerKey;
 		surface.vertices.push_back(vertex);
 	}
 
@@ -455,10 +456,10 @@ namespace
 		outSurface.surface.material = MakeMaterialRef(desc.texture, desc.palette, desc.shade, desc.alpha, desc.materialFlags);
 		FillWallProvenance(outSurface.surface.provenance, desc, chunkIndex);
 		outSurface.surface.vertices.reserve(4);
-		AppendWallVertex(outSurface.surface, quad.x1, quad.zBottom[0], quad.y1, quad.texcoords[PTWallTexCoord_LowerLeft]);
-		AppendWallVertex(outSurface.surface, quad.x1, quad.zTop[0], quad.y1, quad.texcoords[PTWallTexCoord_UpperLeft]);
-		AppendWallVertex(outSurface.surface, quad.x2, quad.zTop[1], quad.y2, quad.texcoords[PTWallTexCoord_UpperRight]);
-		AppendWallVertex(outSurface.surface, quad.x2, quad.zBottom[1], quad.y2, quad.texcoords[PTWallTexCoord_LowerRight]);
+		AppendWallVertex(outSurface.surface, quad.x1, quad.zBottom[0], quad.y1, quad.texcoords[PTWallTexCoord_LowerLeft], 0u);
+		AppendWallVertex(outSurface.surface, quad.x1, quad.zTop[0], quad.y1, quad.texcoords[PTWallTexCoord_UpperLeft], 1u);
+		AppendWallVertex(outSurface.surface, quad.x2, quad.zTop[1], quad.y2, quad.texcoords[PTWallTexCoord_UpperRight], 2u);
+		AppendWallVertex(outSurface.surface, quad.x2, quad.zBottom[1], quad.y2, quad.texcoords[PTWallTexCoord_LowerRight], 3u);
 		return true;
 	}
 
@@ -543,6 +544,7 @@ namespace
 			vertex.prevPosition[2] = vertex.position[2];
 			vertex.uv[0] = uv.X;
 			vertex.uv[1] = uv.Y;
+			vertex.temporalCornerKey = (uint64_t)(uint32_t)index;
 			surface.surface.vertices.push_back(vertex);
 		}
 

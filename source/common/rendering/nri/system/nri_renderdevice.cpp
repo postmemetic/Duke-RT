@@ -10296,6 +10296,12 @@ void NRIRenderDevice::EndFrameAndPresent()
 		submitResult = mCore.QueueSubmit(*mGraphicsQueue, submitDesc);
 		submitCallMs = I_msTimeF() - stageStartMs;
 	}
+	if (mRenderer != nullptr)
+	{
+		mRenderer->OnMainCommandBufferSubmitResult(
+			submitResult == nri::Result::SUCCESS,
+			commandFence.value);
+	}
 	if (submitResult == nri::Result::SUCCESS)
 	{
 		mRecordingCommandFenceValue = 0;

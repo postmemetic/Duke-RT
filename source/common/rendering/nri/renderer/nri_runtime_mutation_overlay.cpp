@@ -1748,6 +1748,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		const bool processChunk =
 			!runtimeMutationWorklistEnabled ||
 			worklistValidation.enabled ||
+			mMapMotionHistory.NeedsSettle(mapChunk.chunkIndex) ||
 			(chunkIndex < runtimeMutationCandidateSourceMasks.size() &&
 				runtimeMutationCandidateSourceMasks[chunkIndex] != 0);
 		if (!processChunk)
@@ -1802,6 +1803,14 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			normalizedSectionDirtyCount = 0;
 			normalizedSectorDirty = false;
 			normalizedDragged = false;
+		}
+		const bool motionSettleRequested = mMapMotionHistory.NeedsSettle(mapChunk.chunkIndex);
+		if (motionSettleRequested && normalizedReasonMask == nri_scene::PTMapChunkMutationReason_None)
+		{
+			// Reuse the structural resident refresh lane for the one required
+			// post-motion upload. History consumes this only after QueueSubmit.
+			normalizedReasonMask = nri_scene::PTMapChunkMutationReason_SectionDirty;
+			normalizedSectionDirtyCount = std::max(normalizedSectionDirtyCount, 1u);
 		}
 		replacement.reasonMask = normalizedReasonMask;
 		replacement.sectionDirtyCount = normalizedSectionDirtyCount;
@@ -2071,6 +2080,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			{
 				FilterMaterialOnlyReplacementSceneView(liveChunkView, normalizedReasonMask);
 			}
+			ApplyCommittedMapMotion(liveChunkView);
 
 			havePreparedLiveChunkView = true;
 			return true;

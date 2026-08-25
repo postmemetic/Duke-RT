@@ -265,6 +265,7 @@ struct NRIStaticSceneCacheBuildServices
 	void (*resetMutationCacheForStaticSceneBuild)(void* user, uint32_t chunkCount) = nullptr;
 	void (*initializeStaticChunkReplacement)(void* user, const nri_scene::PTMapChunk& chunk) = nullptr;
 	void (*buildMaterialsWithActorOverrides)(void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label) = nullptr;
+	void (*applyCommittedMapMotion)(void* user, nri_scene::SceneView& sceneView) = nullptr;
 	bool (*chunkHasAnimatedStaticMapSurfaceCandidates)(void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk) = nullptr;
 	double* geometryBuildStaticChunkMs = nullptr;
 	uint32_t* geometryBuildStaticChunkCalls = nullptr;

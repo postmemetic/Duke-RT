@@ -191,6 +191,8 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 	const nri::Format rrGuideAlbedoFormat = nri::Format::R10_G10_B10_A2_UNORM;
 	const nri::Format rrGuideSpecHitDistanceFormat = nri::Format::R16_SFLOAT;
 	const nri::Format rrGuideNormalRoughnessFormat = nri::Format::RGBA16_SFLOAT;
+	const nri::Format temporalSurfaceIdFormat = nri::Format::RGBA32_UINT;
+	const nri::Format temporalGuideFormat = nri::Format::RGBA16_SFLOAT;
 	const bool smokeOutputReady = !nri_ptsmoke ||
 		(CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::PostVolumeOutput, outputWidth, outputHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::SmokeVolumeCurrent, renderWidth, renderHeight, colorFormat) &&
@@ -216,6 +218,14 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TraceTransparentOutput, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::DirectLighting, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::DirectEmission, renderWidth, renderHeight, colorFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalSurfaceIdPing, renderWidth, renderHeight, temporalSurfaceIdFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalSurfaceIdPong, renderWidth, renderHeight, temporalSurfaceIdFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalGuidePing, renderWidth, renderHeight, temporalGuideFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalGuidePong, renderWidth, renderHeight, temporalGuideFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalSurfaceScratch, renderWidth, renderHeight, temporalSurfaceIdFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalGuideScratch, renderWidth, renderHeight, temporalGuideFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalValidity, renderWidth, renderHeight, temporalGuideFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalReactive, renderWidth, renderHeight, temporalGuideFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TaaHistoryPing, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TaaHistoryPong, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::Validation, renderWidth, renderHeight, colorFormat) &&

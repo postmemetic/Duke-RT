@@ -40,6 +40,9 @@ struct PrimitiveData
 	uint portalIndex;
 	uint reserved0;
 	uint2 smoothNormals;
+	uint2 temporalSurfaceId;
+	uint temporalGeneration;
+	uint temporalFlags;
 };
 
 struct MaterialData

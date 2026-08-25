@@ -810,7 +810,7 @@ namespace
 
 	static uint32_t GetEffectivePtDebugMode()
 	{
-		if (nri_ptdebug < 0 || nri_ptdebug > (int)nri_diag::PtDebugIndirectLobeSelection)
+		if (nri_ptdebug < 0 || nri_ptdebug > (int)nri_diag::PtDebugMotionValidity)
 		{
 			return 0u;
 		}

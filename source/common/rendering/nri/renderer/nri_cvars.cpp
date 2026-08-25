@@ -15,10 +15,10 @@ namespace
 	static constexpr int kPtDebugMenuModes[] = {
 		0, 1, 2, 3, 4, 5,
 		9, 10, 11, 12,
-		16, 17, 18, 19,
+		16, 17, 18, 19, 20,
 		21, 22, 24, 25,
 		26, 27, 28, 29,
-		33, 34, 45
+		33, 34, 45, 47
 	};
 
 	int ClampPtDebugMenuIndex(int index)
@@ -786,6 +786,14 @@ CUSTOM_CVAR(Int, nri_ptdebugmenu, 0, CVAR_GLOBALCONFIG)
 	nri_ptdebug = ResolvePtDebugModeFromMenuIndex(self);
 	gSyncingPtDebugMenu = false;
 }
+
+CUSTOM_CVAR(Int, nri_ptmotionaudit, 0, 0)
+{
+	self = std::clamp((int)self, 0, 2);
+}
+
+CVAR(Bool, nri_ptmotionallreactive, false, 0)
+CVAR(Bool, nri_ptmotionreseteveryframe, false, 0)
 
 CVAR(Bool, nri_denoise, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 

@@ -22,6 +22,7 @@ Texture2D<float4> gMotionInput : register(t1, space0);
 Texture2D<float4> gComposedInput : register(t2, space0);
 Texture2D<float4> gExposureStateInput : register(t3, space0);
 Texture2D<float4> gVolumeMetaInput : register(t4, space0);
+Texture2D<float4> gTemporalValidityInput : register(t5, space0);
 
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gHistoryOutput, u, 0, 1);
 
@@ -115,7 +116,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	// TAA consumes the shared PT motion contract from Shared.hlsli:
 	// - xy is pixel-space old-minus-new reprojection, excluding temporal jitter
 	// - w is a Raze-local validity/history signal, not an NRD requirement
-	const bool unreliableHistory = centerMotion.w <= 0.0;
+	const bool unreliableHistory = gTemporalValidityInput.Load(int3(pixelPos, 0)).x < 0.5;
 	const int radius = 1;
 	float sum = 0.0;
 	float3 mean = 0.0;

@@ -29,7 +29,7 @@ bool NRIPassDispatchContext::DescriptorService::UpdateFrameTextureSet() const
 	return updateFrameTextureSet(user);
 }
 
-bool NRIPassDispatchContext::DescriptorService::UpdateFrameTextureSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 14>& descriptors) const
+bool NRIPassDispatchContext::DescriptorService::UpdateFrameTextureSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& descriptors) const
 {
 	return updateFrameTextureSetWithDescriptors(user, descriptorSet, descriptors);
 }
@@ -39,7 +39,7 @@ bool NRIPassDispatchContext::DescriptorService::UpdateOutputSet() const
 	return updateOutputSet(user);
 }
 
-bool NRIPassDispatchContext::DescriptorService::UpdateOutputSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 15>& descriptors) const
+bool NRIPassDispatchContext::DescriptorService::UpdateOutputSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& descriptors) const
 {
 	return updateOutputSetWithDescriptors(user, descriptorSet, descriptors);
 }

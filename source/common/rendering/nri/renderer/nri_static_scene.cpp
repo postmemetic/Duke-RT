@@ -716,6 +716,10 @@ bool NRIRenderer::EnsureStaticMapScene()
 	{
 		static_cast<NRIRenderer*>(user)->BuildMaterialsWithActorOverrides(sceneView, materials, label);
 	};
+	staticSceneCacheBuildServices.applyCommittedMapMotion = [](void* user, nri_scene::SceneView& sceneView)
+	{
+		static_cast<NRIRenderer*>(user)->ApplyCommittedMapMotion(sceneView);
+	};
 	staticSceneCacheBuildServices.chunkHasAnimatedStaticMapSurfaceCandidates = [](void*, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk)
 	{
 		return ChunkHasAnimatedStaticMapSurfaceCandidates(mapWorld, chunk);
@@ -2004,6 +2008,10 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 	if (services.ceilingNudge)
 	{
 		NudgeMapCeilingSections(chunkSceneView, services.ceilingNudgeDistance);
+	}
+	if (services.applyCommittedMapMotion != nullptr)
+	{
+		services.applyCommittedMapMotion(services.user, chunkSceneView);
 	}
 	{
 		Clocker clock(NriPTGeometryBuild);

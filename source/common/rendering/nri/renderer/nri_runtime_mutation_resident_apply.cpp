@@ -347,6 +347,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			{
 				NudgeMapCeilingSections(residentSceneView, (float)nri_ptceilingnudgedistance);
 			}
+			ApplyCommittedMapMotion(residentSceneView);
 		}
 		{
 			Clocker clock(NriPTGeometryBuild);
@@ -490,6 +491,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			{
 				NudgeMapCeilingSections(fullLiveSceneView, (float)nri_ptceilingnudgedistance);
 			}
+			ApplyCommittedMapMotion(fullLiveSceneView);
 		}
 		{
 			Clocker clock(NriPTGeometryBuild);

@@ -673,6 +673,14 @@ const char* NRIRenderer::GetFrameTextureSlotName(FrameTextureSlot slot) const
 	case FrameTextureSlot::TraceTransparentOutput: return "TraceTransparentOutput";
 	case FrameTextureSlot::DirectLighting: return "DirectLighting";
 	case FrameTextureSlot::DirectEmission: return "DirectEmission";
+	case FrameTextureSlot::TemporalSurfaceIdPing: return "TemporalSurfaceIdPing";
+	case FrameTextureSlot::TemporalSurfaceIdPong: return "TemporalSurfaceIdPong";
+	case FrameTextureSlot::TemporalGuidePing: return "TemporalGuidePing";
+	case FrameTextureSlot::TemporalGuidePong: return "TemporalGuidePong";
+	case FrameTextureSlot::TemporalSurfaceScratch: return "TemporalSurfaceScratch";
+	case FrameTextureSlot::TemporalGuideScratch: return "TemporalGuideScratch";
+	case FrameTextureSlot::TemporalValidity: return "TemporalValidity";
+	case FrameTextureSlot::TemporalReactive: return "TemporalReactive";
 	case FrameTextureSlot::TaaHistoryPing: return "TaaHistoryPing";
 	case FrameTextureSlot::TaaHistoryPong: return "TaaHistoryPong";
 	case FrameTextureSlot::Validation: return "Validation";

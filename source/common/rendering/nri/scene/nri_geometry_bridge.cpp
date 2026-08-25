@@ -227,7 +227,19 @@ namespace
 		}
 	}
 
-	void AppendTriangle(const SceneVertex& v0, const SceneVertex& v1, const SceneVertex& v2, uint32_t materialIndex, uint32_t flags, const SurfaceProvenance& provenance, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats)
+	void SetTemporalPrimitiveMetadata(const TemporalSurfaceMetadata& temporal, PrimitiveData& primitive)
+	{
+		primitive.temporalSurfaceId[0] = (uint32_t)temporal.occurrenceId;
+		primitive.temporalSurfaceId[1] = (uint32_t)(temporal.occurrenceId >> 32u);
+		primitive.temporalGeneration = temporal.generation;
+		primitive.temporalFlags =
+			(temporal.identityValid ? 0x1u : 0u) |
+			(temporal.correspondenceValid ? 0x2u : 0u) |
+			(!temporal.identityValid ? 0x4u : 0u) |
+			((uint32_t)temporal.reason << 8u);
+	}
+
+	void AppendTriangle(const SceneVertex& v0, const SceneVertex& v1, const SceneVertex& v2, uint32_t materialIndex, uint32_t flags, const SurfaceProvenance& provenance, const TemporalSurfaceMetadata& temporal, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats)
 	{
 		const uint32_t vertexBase = (uint32_t)outGeometry.vertices.size();
 		if (traceStats != nullptr)
@@ -258,6 +270,7 @@ namespace
 		primitive.uv2[1] = v2.uv[1];
 		primitive.flags = flags;
 		primitive.portalIndex = UINT32_MAX;
+		SetTemporalPrimitiveMetadata(temporal, primitive);
 		ComputeNormal(v0, v1, v2, primitive.normal);
 		if (ShouldFlipFlatNormal(flags, provenance, primitive.normal))
 		{
@@ -342,6 +355,7 @@ namespace
 			primitive.uv2[1] = v2.uv[1];
 			primitive.flags = flags;
 			primitive.portalIndex = UINT32_MAX;
+			SetTemporalPrimitiveMetadata(surface.temporal, primitive);
 			ComputeNormal(v0, v1, v2, primitive.normal);
 			if (ShouldFlipFlatNormal(flags, surface.provenance, primitive.normal))
 			{
@@ -425,7 +439,7 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 			SceneVertex root = MakeVertex(wall.vertices[0]);
 			for (uint32_t i = 1; i + 1 < wall.vertices.size(); ++i)
 			{
-				AppendTriangle(root, MakeVertex(wall.vertices[i]), MakeVertex(wall.vertices[i + 1]), materialIndex, wall.material.flags | scenePrimitiveFlags, wall.provenance, outGeometry, traceStats);
+				AppendTriangle(root, MakeVertex(wall.vertices[i]), MakeVertex(wall.vertices[i + 1]), materialIndex, wall.material.flags | scenePrimitiveFlags, wall.provenance, wall.temporal, outGeometry, traceStats);
 			}
 
 			materialIndex += NormalizeVoxelMaterialRowSpan(wall.materialRowSpan);
@@ -468,7 +482,7 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 			}
 			for (uint32_t i = 0; i + 2 < flat.vertices.size(); i += 3)
 			{
-				AppendTriangle(MakeVertex(flat.vertices[i]), MakeVertex(flat.vertices[i + 1]), MakeVertex(flat.vertices[i + 2]), materialIndex, flat.material.flags | scenePrimitiveFlags, flat.provenance, outGeometry, traceStats);
+				AppendTriangle(MakeVertex(flat.vertices[i]), MakeVertex(flat.vertices[i + 1]), MakeVertex(flat.vertices[i + 2]), materialIndex, flat.material.flags | scenePrimitiveFlags, flat.provenance, flat.temporal, outGeometry, traceStats);
 			}
 
 			materialIndex += NormalizeVoxelMaterialRowSpan(flat.materialRowSpan);
@@ -512,8 +526,8 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 					traceStats->spriteStripSurfaces++;
 				}
 				// Facing sprites come from HWSprite as a 4-vertex triangle strip.
-				AppendTriangle(MakeVertex(sprite.vertices[0]), MakeVertex(sprite.vertices[1]), MakeVertex(sprite.vertices[2]), materialIndex, sprite.material.flags | scenePrimitiveFlags, sprite.provenance, outGeometry, traceStats);
-				AppendTriangle(MakeVertex(sprite.vertices[2]), MakeVertex(sprite.vertices[1]), MakeVertex(sprite.vertices[3]), materialIndex, sprite.material.flags | scenePrimitiveFlags, sprite.provenance, outGeometry, traceStats);
+				AppendTriangle(MakeVertex(sprite.vertices[0]), MakeVertex(sprite.vertices[1]), MakeVertex(sprite.vertices[2]), materialIndex, sprite.material.flags | scenePrimitiveFlags, sprite.provenance, sprite.temporal, outGeometry, traceStats);
+				AppendTriangle(MakeVertex(sprite.vertices[2]), MakeVertex(sprite.vertices[1]), MakeVertex(sprite.vertices[3]), materialIndex, sprite.material.flags | scenePrimitiveFlags, sprite.provenance, sprite.temporal, outGeometry, traceStats);
 				materialIndex += NormalizeVoxelMaterialRowSpan(sprite.materialRowSpan);
 				continue;
 			}
@@ -525,7 +539,7 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 			SceneVertex root = MakeVertex(sprite.vertices[0]);
 			for (uint32_t i = 1; i + 1 < sprite.vertices.size(); ++i)
 			{
-				AppendTriangle(root, MakeVertex(sprite.vertices[i]), MakeVertex(sprite.vertices[i + 1]), materialIndex, sprite.material.flags | scenePrimitiveFlags, sprite.provenance, outGeometry, traceStats);
+				AppendTriangle(root, MakeVertex(sprite.vertices[i]), MakeVertex(sprite.vertices[i + 1]), materialIndex, sprite.material.flags | scenePrimitiveFlags, sprite.provenance, sprite.temporal, outGeometry, traceStats);
 			}
 
 			materialIndex += NormalizeVoxelMaterialRowSpan(sprite.materialRowSpan);

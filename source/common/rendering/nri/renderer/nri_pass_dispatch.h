@@ -69,9 +69,9 @@ public:
 	struct DescriptorService
 	{
 		using UpdateFrameTextureSetFn = bool (*)(void* user);
-		using UpdateFrameTextureSetWithDescriptorsFn = bool (*)(void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 14>& descriptors);
+		using UpdateFrameTextureSetWithDescriptorsFn = bool (*)(void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& descriptors);
 		using UpdateOutputSetFn = bool (*)(void* user);
-		using UpdateOutputSetWithDescriptorsFn = bool (*)(void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 15>& descriptors);
+		using UpdateOutputSetWithDescriptorsFn = bool (*)(void* user, nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& descriptors);
 
 		void* user = nullptr;
 		UpdateFrameTextureSetFn updateFrameTextureSet = nullptr;
@@ -80,9 +80,9 @@ public:
 		UpdateOutputSetWithDescriptorsFn updateOutputSetWithDescriptors = nullptr;
 
 		bool UpdateFrameTextureSet() const;
-		bool UpdateFrameTextureSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 14>& descriptors) const;
+		bool UpdateFrameTextureSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& descriptors) const;
 		bool UpdateOutputSet() const;
-		bool UpdateOutputSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, 15>& descriptors) const;
+		bool UpdateOutputSet(nri::DescriptorSet* descriptorSet, const std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& descriptors) const;
 	};
 
 	struct ResourceService
@@ -259,6 +259,7 @@ public:
 	struct FrameSnapshot
 	{
 		uint32_t frameIndex = 0;
+		uint64_t mainTemporalSerial = 0;
 		uint32_t renderWidth = 0;
 		uint32_t renderHeight = 0;
 		uint32_t outputWidth = 0;
@@ -349,8 +350,8 @@ public:
 		nri::DescriptorSet** finalPresentOutputSet = nullptr;
 		std::array<nri::DescriptorSet*, NRIRenderer::BloomDescriptorSetCount>* bloomInputSets = nullptr;
 		std::array<nri::DescriptorSet*, NRIRenderer::BloomDescriptorSetCount>* bloomOutputSets = nullptr;
-		std::array<nri::Descriptor*, 14>* frameInputDescriptors = nullptr;
-		std::array<nri::Descriptor*, 15>* outputDescriptors = nullptr;
+		std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>* frameInputDescriptors = nullptr;
+		std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>* outputDescriptors = nullptr;
 		NRIExposureController* exposure = nullptr;
 		NRITraceShaderStats* traceShaderStats = nullptr;
 		NRINrdContext* nrd = nullptr;
@@ -405,8 +406,8 @@ public:
 	nri::DescriptorSet*& mFinalPresentOutputSet;
 	std::array<nri::DescriptorSet*, NRIRenderer::BloomDescriptorSetCount>& mBloomInputSets;
 	std::array<nri::DescriptorSet*, NRIRenderer::BloomDescriptorSetCount>& mBloomOutputSets;
-	std::array<nri::Descriptor*, 14>& mFrameInputDescriptors;
-	std::array<nri::Descriptor*, 15>& mOutputDescriptors;
+	std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& mFrameInputDescriptors;
+	std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& mOutputDescriptors;
 	NRIExposureController& mExposure;
 	NRITraceShaderStats& mTraceShaderStats;
 	NRINrdContext& mNrd;

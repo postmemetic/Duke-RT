@@ -2,6 +2,7 @@
 #define RAZE_NRI_PT_RAYTRACING_SHARED_HLSLI
 
 #include "Shared.hlsli"
+#include "MotionContracts.hlsli"
 
 #ifndef NRI_SPATIAL_ABSENCE_FORMAT
 #define NRI_SPATIAL_ABSENCE_FORMAT 0
@@ -644,6 +645,27 @@ float3 ResolveHitVertexPosition(HitData hit, bool previous)
 	return TransformSceneInstancePoint(GetSceneInstanceData(hit.instanceId), localPosition, previous);
 }
 
+float3 ResolveHitGeometricNormal(HitData hit, bool previous)
+{
+	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+	const SceneVertex v0 = GetVertexData(hit.dataSource, primitive.indices.x);
+	const SceneVertex v1 = GetVertexData(hit.dataSource, primitive.indices.y);
+	const SceneVertex v2 = GetVertexData(hit.dataSource, primitive.indices.z);
+	float3 p0 = previous ? v0.prevPosition : v0.position;
+	float3 p1 = previous ? v1.prevPosition : v1.position;
+	float3 p2 = previous ? v2.prevPosition : v2.position;
+	if (hit.instanceId != 0xffffffffu)
+	{
+		const SceneInstanceData instanceData = GetSceneInstanceData(hit.instanceId);
+		p0 = TransformSceneInstancePoint(instanceData, p0, previous);
+		p1 = TransformSceneInstancePoint(instanceData, p1, previous);
+		p2 = TransformSceneInstancePoint(instanceData, p2, previous);
+	}
+	const float3 unnormalized = cross(p1 - p0, p2 - p0);
+	const float lengthSquared = dot(unnormalized, unnormalized);
+	return lengthSquared > 1e-12 ? unnormalized * rsqrt(lengthSquared) : float3(0.0, 0.0, 1.0);
+}
+
 float3 GeneratePrimaryRay(uint2 pixelPos)
 {
 	float2 resolution = float2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight);
@@ -689,8 +711,15 @@ float4 MultiplyVsMatrixPoint(float4 v, float4 matrixColumns[4])
 		dot(v, float4(matrixColumns[0].w, matrixColumns[1].w, matrixColumns[2].w, matrixColumns[3].w)));
 }
 
-bool ProjectWorldToUvMatrixRaw(float3 worldPos, bool previousFrame, out float2 uv)
+bool ProjectWorldToUvMatrixRaw(float3 worldPos, bool previousFrame, out float2 uv, out uint failureReason)
 {
+	failureReason = MOTION_VALIDITY_VALID;
+	if (!all(isfinite(worldPos)))
+	{
+		uv = float2(-1.0, -1.0);
+		failureReason = previousFrame ? MOTION_VALIDITY_PREVIOUS_NONFINITE : MOTION_VALIDITY_CURRENT_NONFINITE;
+		return false;
+	}
 	const ReprojectionData reprojection = gReprojectionDataBuffer[0];
 	const float4 world = float4(worldPos, 1.0);
 	const float4 view = previousFrame
@@ -699,13 +728,31 @@ bool ProjectWorldToUvMatrixRaw(float3 worldPos, bool previousFrame, out float2 u
 	const float4 clip = previousFrame
 		? MultiplyVsMatrixPoint(view, reprojection.previousViewToClipMatrix)
 		: MultiplyVsMatrixPoint(view, reprojection.currentViewToClipMatrix);
+	if (!all(isfinite(view)) || !all(isfinite(clip)))
+	{
+		uv = float2(-1.0, -1.0);
+		failureReason = previousFrame ? MOTION_VALIDITY_PREVIOUS_NONFINITE : MOTION_VALIDITY_CURRENT_NONFINITE;
+		return false;
+	}
 	if (clip.w <= 1e-5)
 	{
 		uv = float2(-1.0, -1.0);
+		failureReason = previousFrame ? MOTION_VALIDITY_PREVIOUS_BEHIND : MOTION_VALIDITY_CURRENT_BEHIND;
 		return false;
 	}
 
 	uv = ResolveProjectedUvRaw(clip);
+	return true;
+}
+
+bool ProjectWorldToUvMatrixRaw(float3 worldPos, bool previousFrame, out float2 uv)
+{
+	uint failureReason = MOTION_VALIDITY_VALID;
+	return ProjectWorldToUvMatrixRaw(worldPos, previousFrame, uv, failureReason);
+}
+
+bool IsProjectedUvInViewport(float2 uv)
+{
 	return all(uv >= 0.0) && all(uv <= 1.0);
 }
 

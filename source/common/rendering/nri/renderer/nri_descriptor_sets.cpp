@@ -203,7 +203,7 @@ bool NRIDescriptorSetManager::UpdateFrameTextureSet(NRIRenderer& renderer)
 	return UpdateFrameTextureSet(renderer, renderer.mFrameTextureSet, renderer.mFrameInputDescriptors);
 }
 
-bool NRIDescriptorSetManager::UpdateFrameTextureSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, 14>& descriptors)
+bool NRIDescriptorSetManager::UpdateFrameTextureSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, NRI_INPUT_DESCRIPTOR_NUM>& descriptors)
 {
 	const nri::Descriptor* rawDescriptors[NRI_INPUT_DESCRIPTOR_NUM] = {};
 	for (size_t i = 0; i < NRI_INPUT_DESCRIPTOR_NUM; ++i)
@@ -225,7 +225,7 @@ bool NRIDescriptorSetManager::UpdateOutputSet(NRIRenderer& renderer)
 	return UpdateOutputSet(renderer, renderer.mOutputSet, renderer.mOutputDescriptors);
 }
 
-bool NRIDescriptorSetManager::UpdateOutputSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, 15>& descriptors)
+bool NRIDescriptorSetManager::UpdateOutputSet(NRIRenderer& renderer, nri::DescriptorSet* set, const std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& descriptors)
 {
 	if (!renderer.mTraceShaderStats.Ensure(renderer.BuildResourceServices()))
 	{

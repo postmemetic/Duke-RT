@@ -613,6 +613,71 @@ bool NRIRenderer::DispatchSelectedRenderScene(const RenderSceneDispatchInputs& i
 		NRIPassDispatcher::DispatchFrameGraph(passContext, *inputs.drawInfo, *inputs.activeGeometry, *inputs.activeGpuMaterials, inputs.drawmode);
 }
 
+void NRIRenderer::ApplyCommittedMapMotion(nri_scene::SceneView& sceneView)
+{
+	mMapMotionHistory.ApplyCommitted(sceneView, mMapWorld.valid ? mMapWorld.buildSerial : 0ull);
+}
+
+bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
+{
+	if (!mMapWorld.valid || !mStaticMapScene.valid)
+	{
+		return false;
+	}
+	mMapMotionHistory.BeginStage(proposedSerial, mMapWorld.buildSerial);
+	bool valid = true;
+	std::unordered_set<uint32_t> stagedChunks;
+	const ResidentMapChunkRegistry& registry = mStaticSceneResidency.Registry();
+	for (const SceneInstanceData& instance : mBoundSceneInstances)
+	{
+		if (instance.dataSource != nri_diag::SceneDataSourceStatic ||
+			instance.metadata0 == UINT32_MAX || !stagedChunks.insert(instance.metadata0).second)
+		{
+			continue;
+		}
+		if (instance.metadata0 >= registry.entries.size())
+		{
+			valid = false;
+			continue;
+		}
+		const ResidentMapChunkRegistry::Entry& entry = registry.entries[instance.metadata0];
+		if (!entry.valid || !entry.active || !entry.mappedInStaticScene ||
+			entry.staticSceneChunkListIndex >= mStaticMapScene.lightChunkViews.size())
+		{
+			valid = false;
+			continue;
+		}
+		valid &= mMapMotionHistory.StagePublishedView(
+			mStaticMapScene.lightChunkViews[entry.staticSceneChunkListIndex]);
+	}
+	mMapMotionHistory.FinalizeStage();
+	return valid;
+}
+
+void NRIRenderer::OnMainCommandBufferSubmitResult(bool success, uint64_t commandFenceValue)
+{
+	if (!mPendingMainTemporalSubmission)
+	{
+		return;
+	}
+	const bool fenceMatches = mPendingMainTemporalCommandFence == 0 ||
+		commandFenceValue == 0 || mPendingMainTemporalCommandFence == commandFenceValue;
+	if (success && fenceMatches &&
+		mMapMotionHistory.CommitSubmitted(mPendingMainTemporalSerial))
+	{
+		mMainTemporalSerial = mPendingMainTemporalSerial;
+	}
+	else
+	{
+		mMapMotionHistory.DiscardStaged();
+		mMapMotionHistory.Reset(success ? "submit-fence-mismatch" : "queue-submit-failed");
+		RequestHistoryReset(success ? "motion-submit-fence-mismatch" : "motion-queue-submit-failed");
+	}
+	mPendingMainTemporalSubmission = false;
+	mPendingMainTemporalSerial = 0;
+	mPendingMainTemporalCommandFence = 0;
+}
+
 void NRIRenderer::LogRenderSceneFailureReasons(bool paletteReady, bool texturesReady, bool buffersReady, bool accelerationReady, bool dispatched, bool bootstrapCapturedView)
 {
 	if (!paletteReady)
@@ -1130,6 +1195,30 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 	dispatchInputs.drawmode = drawmode;
 	const bool dispatched = DispatchSelectedRenderScene(dispatchInputs);
 	const bool success = sceneFrame.paletteReady && sceneFrame.texturesReady && sceneFrame.buffersReady && sceneFrame.accelerationReady && dispatched;
+	if (success && dispatchInputs.mainViewEligible)
+	{
+		if (mPendingMainTemporalSubmission)
+		{
+			mMapMotionHistory.DiscardStaged();
+			RequestHistoryReset("multiple-main-temporal-recordings");
+		}
+		mPendingMainTemporalSerial = mMainTemporalSerial + 1u;
+		if (StagePublishedMapMotion(mPendingMainTemporalSerial))
+		{
+			mPendingMainTemporalCommandFence = GetRecordingCommandFenceValue();
+			mPendingMainTemporalSubmission = true;
+		}
+		else
+		{
+			mPendingMainTemporalSerial = 0;
+			mPendingMainTemporalCommandFence = 0;
+			RequestHistoryReset("map-motion-stage-failed");
+		}
+	}
+	else if (dispatchInputs.mainViewEligible)
+	{
+		mMapMotionHistory.DiscardStaged();
+	}
 	LogRenderSceneFailureReasons(sceneFrame.paletteReady, sceneFrame.texturesReady, sceneFrame.buffersReady, sceneFrame.accelerationReady, dispatched, bootstrapCapturedView);
 
 	RenderSceneCompletionInputs completionInputs = {};
