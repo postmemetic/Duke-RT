@@ -789,7 +789,11 @@ CUSTOM_CVAR(Int, nri_ptdebugmenu, 0, CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Int, nri_ptmotionaudit, 0, 0)
 {
-	self = std::clamp((int)self, 0, 2);
+	const int clampedMode = std::clamp((int)self, 0, 2);
+	if (self != clampedMode)
+	{
+		self = clampedMode;
+	}
 }
 
 CVAR(Bool, nri_ptmotionallreactive, false, 0)
