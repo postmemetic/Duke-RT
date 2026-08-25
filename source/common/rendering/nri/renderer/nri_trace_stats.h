@@ -103,9 +103,15 @@ static constexpr uint32_t NRI_TRACE_SHADER_SURFACE_PROBE_TEXTURE = NRI_TRACE_SHA
 static constexpr uint32_t NRI_TRACE_SHADER_SURFACE_PROBE_PALETTE = NRI_TRACE_SHADER_SURFACE_PROBE_BASE + 6;
 static constexpr uint32_t NRI_TRACE_SHADER_SURFACE_PROBE_FLAGS = NRI_TRACE_SHADER_SURFACE_PROBE_BASE + 7;
 static constexpr uint32_t NRI_TRACE_SHADER_SURFACE_PROBE_LIGHTING_FLAGS = NRI_TRACE_SHADER_SURFACE_PROBE_BASE + 8;
+static constexpr uint32_t NRI_TRACE_SHADER_MOTION_AUDIT_BASE =
+	NRI_TRACE_SHADER_SURFACE_PROBE_BASE + NRI_TRACE_SHADER_SURFACE_PROBE_COUNT;
+static constexpr uint32_t NRI_TRACE_SHADER_MOTION_AUDIT_COUNT = 64;
+static constexpr uint32_t NRI_TRACE_SHADER_MOTION_AUDIT_VALID = NRI_TRACE_SHADER_MOTION_AUDIT_BASE + 0;
+static constexpr uint32_t NRI_TRACE_SHADER_MOTION_REASON_COUNTER_BASE = NRI_TRACE_SHADER_MOTION_AUDIT_BASE + 40;
+static constexpr uint32_t NRI_TRACE_SHADER_MOTION_REASON_COUNTER_COUNT = 17;
 static constexpr uint32_t NRI_TRACE_SHADER_INSTANCE_BUCKET_COUNT = 1024;
 static constexpr uint32_t NRI_TRACE_SHADER_INSTANCE_COMMITTED_BASE =
-	NRI_TRACE_SHADER_SURFACE_PROBE_BASE + NRI_TRACE_SHADER_SURFACE_PROBE_COUNT;
+	NRI_TRACE_SHADER_MOTION_AUDIT_BASE + NRI_TRACE_SHADER_MOTION_AUDIT_COUNT;
 static constexpr uint32_t NRI_TRACE_SHADER_INSTANCE_ACCEPTED_BASE = NRI_TRACE_SHADER_INSTANCE_COMMITTED_BASE + NRI_TRACE_SHADER_INSTANCE_BUCKET_COUNT;
 static constexpr uint32_t NRI_TRACE_SHADER_INSTANCE_KIND_COMMITTED_BASE = NRI_TRACE_SHADER_INSTANCE_ACCEPTED_BASE + NRI_TRACE_SHADER_INSTANCE_BUCKET_COUNT;
 static constexpr uint32_t NRI_TRACE_SHADER_STAT_COUNT =
@@ -155,6 +161,30 @@ struct NRITraceShaderSurfaceProbe
 	uint32_t lightingFlags = 0;
 };
 
+struct NRITraceShaderMotionAudit
+{
+	bool valid = false;
+	uint32_t dataSource = UINT32_MAX;
+	uint32_t instanceId = UINT32_MAX;
+	uint32_t primitiveIndex = UINT32_MAX;
+	float currentWorld[3] = {};
+	float previousWorld[3] = {};
+	float currentUv[2] = {};
+	float previousUv[2] = {};
+	float currentViewZ = 0.0f;
+	float previousViewZ = 0.0f;
+	float motion[4] = {};
+	uint64_t surfaceId = 0;
+	uint32_t generation = 0;
+	uint32_t temporalFlags = 0;
+	uint32_t validityReason = 0;
+	uint32_t currentProjectionReason = 0;
+	uint32_t previousProjectionReason = 0;
+	uint32_t motionSource = 0;
+	std::array<uint32_t, 4> sourceCounters = {};
+	std::array<uint32_t, NRI_TRACE_SHADER_MOTION_REASON_COUNTER_COUNT> reasonCounters = {};
+};
+
 struct NRITraceShaderStatsSnapshot
 {
 	struct ObserverStats
@@ -182,6 +212,7 @@ struct NRITraceShaderStatsSnapshot
 	std::array<NRITraceShaderProbeAttribution, NRI_TRACE_SHADER_RAY_KIND_COUNT> candidateAttribution = {};
 	std::array<NRITraceShaderProbeAttribution, NRI_TRACE_SHADER_RAY_KIND_COUNT> finalAttribution = {};
 	NRITraceShaderSurfaceProbe surfaceProbe;
+	NRITraceShaderMotionAudit motionAudit;
 	ObserverStats observer = {};
 };
 

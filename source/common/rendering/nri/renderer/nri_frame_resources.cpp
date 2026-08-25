@@ -226,6 +226,7 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalGuideScratch, renderWidth, renderHeight, temporalGuideFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalValidity, renderWidth, renderHeight, temporalGuideFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalReactive, renderWidth, renderHeight, temporalGuideFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TemporalReactiveCombined, renderWidth, renderHeight, temporalGuideFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TaaHistoryPing, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TaaHistoryPong, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::Validation, renderWidth, renderHeight, colorFormat) &&

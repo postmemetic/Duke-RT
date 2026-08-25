@@ -360,6 +360,8 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.upscalerPrepassOutputSet = &mUpscalerPrepassOutputSet;
 	init.taaFrameTextureSet = &mTaaFrameTextureSet;
 	init.taaOutputSet = &mTaaOutputSet;
+	init.temporalReactiveInputSet = &mTemporalReactiveInputSet;
+	init.temporalReactiveOutputSet = &mTemporalReactiveOutputSet;
 	init.rawPresentFrameTextureSet = &mRawPresentFrameTextureSet;
 	init.rawPresentOutputSet = &mRawPresentOutputSet;
 	init.finalPresentFrameTextureSet = &mFinalPresentFrameTextureSet;
@@ -370,6 +372,7 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.outputDescriptors = &mOutputDescriptors;
 	init.exposure = &mExposure;
 	init.traceShaderStats = &mTraceShaderStats;
+	init.mapMotionHistory = &mMapMotionHistory;
 	init.nrd = &mNrd;
 	init.upscaler = &mUpscaler;
 	init.persistentVoxels = &mPersistentVoxels;

@@ -4,6 +4,7 @@
 #include "runtime_map_mover.h"
 
 #include <cstdint>
+#include <string>
 
 enum NRIMapMoverRigidRouteRejectBits : uint32_t
 {
@@ -102,3 +103,4 @@ void PatchNRIMapMoverRigidRouteInstance(
 }
 
 const char* GetNRIMapMoverRigidRouteRejectName(uint32_t rejectBit);
+bool RunNRIMapMoverRigidRoutePolicySelfTests(std::string* failureReason = nullptr);

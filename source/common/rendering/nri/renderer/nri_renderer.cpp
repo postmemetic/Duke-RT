@@ -1855,6 +1855,8 @@ void NRIRenderer::Shutdown()
 	mUpscalerPrepassOutputSet = nullptr;
 	mTaaFrameTextureSet = nullptr;
 	mTaaOutputSet = nullptr;
+	mTemporalReactiveInputSet = nullptr;
+	mTemporalReactiveOutputSet = nullptr;
 	mRawPresentFrameTextureSet = nullptr;
 	mRawPresentOutputSet = nullptr;
 	mFinalPresentFrameTextureSet = nullptr;

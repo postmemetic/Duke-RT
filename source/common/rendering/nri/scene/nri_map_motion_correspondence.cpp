@@ -153,6 +153,7 @@ bool BuildMapTemporalSurfacePayload(
 	outPayload.generation = surface.temporal.generation;
 	outPayload.chunkIndex = surface.provenance.mapChunkIndex >= 0 ?
 		(uint32_t)surface.provenance.mapChunkIndex : UINT32_MAX;
+	outPayload.provenance = surface.provenance;
 	outPayload.corners.reserve(uniqueCorners.size());
 	for (const auto& entry : uniqueCorners)
 	{
@@ -224,6 +225,7 @@ bool RunNRIMapMotionCorrespondenceSelfTests(std::string* failureReason)
 		vertex.temporalCornerKey = i;
 		mapSurface.surface.vertices.push_back(vertex);
 	}
+	mapSurface.surface.indices = { 0u, 1u, 2u, 0u, 2u, 3u };
 	InitializeMapTemporalSurface(mapSurface, 9u, mapSurface.surface);
 	PTMapTemporalSurfacePayload payload;
 	MotionValidityReason reason;
@@ -232,6 +234,25 @@ bool RunNRIMapMotionCorrespondenceSelfTests(std::string* failureReason)
 	for (CapturedVertex& vertex : moved.vertices) vertex.position[1] += 4.0f;
 	if (!ApplyMapTemporalSurfacePayload(payload, moved, reason)) return fail("stable wall correspondence failed");
 	if (moved.vertices[0].prevPosition[1] != mapSurface.surface.vertices[0].position[1]) return fail("previous position mismatch");
+	SurfaceRef reordered = moved;
+	const std::vector<CapturedVertex> oldVertices = reordered.vertices;
+	const uint32_t permutation[4] = { 2u, 0u, 3u, 1u };
+	for (uint32_t i = 0; i < 4u; ++i) reordered.vertices[i] = oldVertices[permutation[i]];
+	const uint32_t inverse[4] = { 1u, 3u, 0u, 2u };
+	for (uint32_t& index : reordered.indices) index = inverse[index];
+	InitializeMapTemporalSurface(mapSurface, 9u, reordered);
+	if (reordered.temporal.topologyKey != payload.topologyKey ||
+		!ApplyMapTemporalSurfacePayload(payload, reordered, reason))
+		return fail("certified vertex reordering failed");
+	if (reordered.vertices[0].prevPosition[0] != mapSurface.surface.vertices[2].position[0])
+		return fail("semantic corner mapping followed emitted order");
+	SurfaceRef duplicate = mapSurface.surface;
+	duplicate.vertices[1].temporalCornerKey = duplicate.vertices[0].temporalCornerKey;
+	duplicate.vertices[1].position[0] += 8.0f;
+	InitializeMapTemporalSurface(mapSurface, 9u, duplicate);
+	PTMapTemporalSurfacePayload duplicatePayload;
+	if (BuildMapTemporalSurfacePayload(duplicate, duplicatePayload, reason))
+		return fail("ambiguous duplicate corner accepted");
 	moved.temporal.topologyKey++;
 	if (ApplyMapTemporalSurfacePayload(payload, moved, reason) || reason != MotionValidityReason::TopologyMismatch) return fail("topology mismatch accepted");
 	if (failureReason != nullptr) failureReason->clear();

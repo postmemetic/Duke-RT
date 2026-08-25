@@ -681,6 +681,7 @@ const char* NRIRenderer::GetFrameTextureSlotName(FrameTextureSlot slot) const
 	case FrameTextureSlot::TemporalGuideScratch: return "TemporalGuideScratch";
 	case FrameTextureSlot::TemporalValidity: return "TemporalValidity";
 	case FrameTextureSlot::TemporalReactive: return "TemporalReactive";
+	case FrameTextureSlot::TemporalReactiveCombined: return "TemporalReactiveCombined";
 	case FrameTextureSlot::TaaHistoryPing: return "TaaHistoryPing";
 	case FrameTextureSlot::TaaHistoryPong: return "TaaHistoryPong";
 	case FrameTextureSlot::Validation: return "Validation";

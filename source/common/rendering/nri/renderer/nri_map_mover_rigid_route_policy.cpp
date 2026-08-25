@@ -240,3 +240,65 @@ const char* GetNRIMapMoverRigidRouteRejectName(uint32_t rejectBit)
 	default: return "multiple-or-unknown";
 	}
 }
+
+bool RunNRIMapMoverRigidRoutePolicySelfTests(std::string* failureReason)
+{
+	auto fail = [&](const char* reason)
+	{
+		if (failureReason != nullptr) *failureReason = reason;
+		return false;
+	};
+	RuntimeMapMoverSnapshot snapshot;
+	snapshot.stableGroupId = 7u;
+	snapshot.mapEpoch = 3u;
+	snapshot.effectorLotag = 15;
+	snapshot.capability = RuntimeMapMoverCapability::RigidTranslation;
+	RuntimeMapMoverMember member;
+	member.flags = GeometryMemberFlags;
+	snapshot.members.Push(member);
+
+	NRIMapMoverShadowRecord record;
+	record.key = { snapshot.stableGroupId, 11u };
+	record.quarantineMask = NRIMapMoverShadowQuarantine_AdjacencyUnproven;
+	record.canonical.valid = true;
+	record.canonical.resourceKey = 99u;
+	record.consecutiveRigidCount = 1u;
+	record.lastComparison.classification = nri_scene::MapMoverGeometryClassification::RigidTranslation;
+
+	NRIMapMoverRigidRouteResource resource;
+	resource.key = record.key;
+	resource.mapEpoch = snapshot.mapEpoch;
+	resource.canonicalResourceKey = record.canonical.resourceKey;
+	resource.atlasResident = true;
+	resource.blasResident = true;
+	resource.registryResident = true;
+	resource.capturedBaseTransform = nri_scene::MakeIdentityMapMoverLocalToWorldTransform();
+
+	NRIMapMoverRigidRouteAdmissionInput input;
+	input.snapshot = &snapshot;
+	input.shadowRecord = &record;
+	input.resource = &resource;
+	input.wholeChunkOwnershipProven = true;
+	input.hasCurrentPresentationTransforms = true;
+	input.currentPreviousTransform = resource.capturedBaseTransform;
+	input.currentCurrentTransform = resource.capturedBaseTransform;
+	input.currentCurrentTransform.translation[0] = 2.0;
+	input.provenSafeBoundaryMask = NRIMapMoverShadowQuarantine_AdjacencyUnproven;
+	const NRIMapMoverRigidRouteAdmissionResult admitted = EvaluateNRIMapMoverRigidRouteAdmission(input);
+	if (!admitted.admitted || admitted.rejectMask != 0u) return fail("certified SE15 route rejected");
+	if (std::fabs(admitted.transforms.current[3] - 2.0f) > 1.0e-6f) return fail("relative translation mismatch");
+
+	input.hasCurrentPresentationTransforms = false;
+	const NRIMapMoverRigidRouteAdmissionResult missingPresentation = EvaluateNRIMapMoverRigidRouteAdmission(input);
+	if (missingPresentation.admitted ||
+		(missingPresentation.rejectMask & NRIMapMoverRigidRouteReject_InvalidTransform) == 0u)
+		return fail("missing presentation transforms accepted");
+	input.hasCurrentPresentationTransforms = true;
+	input.wholeChunkOwnershipProven = false;
+	input.provenSafeBoundaryMask = 0u;
+	const NRIMapMoverRigidRouteAdmissionResult partial = EvaluateNRIMapMoverRigidRouteAdmission(input);
+	if (partial.admitted || (partial.rejectMask & NRIMapMoverRigidRouteReject_PartialChunkOwnership) == 0u)
+		return fail("partial chunk ownership accepted");
+	if (failureReason != nullptr) failureReason->clear();
+	return true;
+}

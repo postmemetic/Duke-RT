@@ -344,6 +344,8 @@ public:
 		nri::DescriptorSet** upscalerPrepassOutputSet = nullptr;
 		nri::DescriptorSet** taaFrameTextureSet = nullptr;
 		nri::DescriptorSet** taaOutputSet = nullptr;
+		nri::DescriptorSet** temporalReactiveInputSet = nullptr;
+		nri::DescriptorSet** temporalReactiveOutputSet = nullptr;
 		nri::DescriptorSet** rawPresentFrameTextureSet = nullptr;
 		nri::DescriptorSet** rawPresentOutputSet = nullptr;
 		nri::DescriptorSet** finalPresentFrameTextureSet = nullptr;
@@ -354,6 +356,7 @@ public:
 		std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>* outputDescriptors = nullptr;
 		NRIExposureController* exposure = nullptr;
 		NRITraceShaderStats* traceShaderStats = nullptr;
+		NRIMapMotionHistory* mapMotionHistory = nullptr;
 		NRINrdContext* nrd = nullptr;
 		NRIUpscalerContext* upscaler = nullptr;
 		NRIPersistentVoxelResidency* persistentVoxels = nullptr;
@@ -400,6 +403,8 @@ public:
 	nri::DescriptorSet*& mUpscalerPrepassOutputSet;
 	nri::DescriptorSet*& mTaaFrameTextureSet;
 	nri::DescriptorSet*& mTaaOutputSet;
+	nri::DescriptorSet*& mTemporalReactiveInputSet;
+	nri::DescriptorSet*& mTemporalReactiveOutputSet;
 	nri::DescriptorSet*& mRawPresentFrameTextureSet;
 	nri::DescriptorSet*& mRawPresentOutputSet;
 	nri::DescriptorSet*& mFinalPresentFrameTextureSet;
@@ -410,6 +415,7 @@ public:
 	std::array<nri::Descriptor*, NRI_OUTPUT_DESCRIPTOR_NUM>& mOutputDescriptors;
 	NRIExposureController& mExposure;
 	NRITraceShaderStats& mTraceShaderStats;
+	NRIMapMotionHistory& mMapMotionHistory;
 	NRINrdContext& mNrd;
 	NRIUpscalerContext& mUpscaler;
 	NRIPersistentVoxelResidency& mPersistentVoxels;

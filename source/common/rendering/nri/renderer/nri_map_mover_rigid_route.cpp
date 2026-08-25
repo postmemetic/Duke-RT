@@ -79,6 +79,52 @@ namespace
 		return surfacesHaveEmission(view.opaqueWalls) || surfacesHaveEmission(view.opaqueFlats);
 	}
 
+	bool HasExactWholeChunkOwnership(
+		const nri_scene::PTMapWorld& mapWorld,
+		const nri_scene::PTMapChunk& chunk,
+		const nri_scene::CanonicalLocalMapMoverGeometry& canonical)
+	{
+		if (!canonical.valid || chunk.firstSurface > mapWorld.surfaces.size() ||
+			chunk.surfaceCount > mapWorld.surfaces.size() - chunk.firstSurface ||
+			canonical.surfaces.size() != chunk.surfaceCount)
+		{
+			return false;
+		}
+
+		std::vector<nri_scene::MapMoverSurfaceProvenance> expected;
+		std::vector<nri_scene::MapMoverSurfaceProvenance> captured;
+		expected.reserve(chunk.surfaceCount);
+		captured.reserve(canonical.surfaces.size());
+		for (uint32_t offset = 0; offset < chunk.surfaceCount; ++offset)
+		{
+			const nri_scene::PTMapSurface& source = mapWorld.surfaces[chunk.firstSurface + offset];
+			const nri_scene::SurfaceProvenance& provenance = source.surface.provenance;
+			if ((provenance.mapChunkIndex >= 0 && (uint32_t)provenance.mapChunkIndex != chunk.chunkIndex) ||
+				(provenance.sectorIndex >= 0 && provenance.sectorIndex != chunk.sectorIndex))
+				return false;
+			nri_scene::MapMoverSurfaceProvenance identity;
+			identity.sourceType = (uint32_t)provenance.sourceType;
+			identity.sectorIndex = provenance.sectorIndex;
+			identity.wallIndex = provenance.wallIndex;
+			identity.sectionIndex = provenance.sectionIndex;
+			identity.surfaceKind = (uint32_t)source.kind;
+			identity.stableSubSurfaceId = source.key.secondary;
+			if ((source.kind == nri_scene::PTMapSurfaceKind::Floor || source.kind == nri_scene::PTMapSurfaceKind::Ceiling) &&
+				(provenance.sectionIndex < 0 || source.key.primary != (uint32_t)provenance.sectionIndex))
+				return false;
+			if (source.kind != nri_scene::PTMapSurfaceKind::Floor && source.kind != nri_scene::PTMapSurfaceKind::Ceiling &&
+				(provenance.wallIndex < 0 || source.key.primary != (uint32_t)provenance.wallIndex))
+				return false;
+			expected.push_back(identity);
+		}
+		for (const nri_scene::CanonicalLocalMapMoverSurface& surface : canonical.surfaces)
+			captured.push_back(surface.provenance);
+		std::sort(expected.begin(), expected.end());
+		std::sort(captured.begin(), captured.end());
+		return expected == captured &&
+			std::adjacent_find(expected.begin(), expected.end()) == expected.end();
+	}
+
 	bool BuildPresentationTransform(
 		const RuntimeMapMoverPose& pose,
 		nri_scene::MapMoverLocalToWorldTransform& outTransform)
@@ -209,8 +255,8 @@ void NRIMapMoverRigidRoute::Update(const NRIMapMoverRigidRouteFrameInput& input)
 		{
 			hasEmissive |= ViewHasEmissiveSurface(input.staticScene->lightChunkViews[staticChunkListIndex]);
 		}
-		const bool wholeChunkOwnership = validSurfaceRange &&
-			shadowRecord.canonical.surfaces.size() == mapChunk->surfaceCount;
+		const bool wholeChunkOwnership = validSurfaceRange && mapChunk != nullptr &&
+			HasExactWholeChunkOwnership(*input.mapWorld, *mapChunk, shadowRecord.canonical);
 
 		ResidentFingerprint fingerprint;
 		if (registryReady && atlasReady && blasReady && replacementSettled)
@@ -268,19 +314,16 @@ void NRIMapMoverRigidRoute::Update(const NRIMapMoverRigidRouteFrameInput& input)
 		admission.resource = retained != m_resources.end() ? &retained->second.policyResource : nullptr;
 		admission.currentPreviousTransform = previousTransform;
 		admission.currentCurrentTransform = currentTransform;
+		admission.hasCurrentPresentationTransforms = presentationValid;
 		admission.wholeChunkOwnershipProven = wholeChunkOwnership;
 		admission.hasOverlappingOwner =
 			(shadowRecord.quarantineMask & NRIMapMoverShadowQuarantine_OverlappingGeometryOwner) != 0;
 		admission.hasPortalSurface = hasPortal;
 		admission.hasEmissiveSurface = hasEmissive;
-		admission.provenSafeBoundaryMask = SupportedBoundaryMask;
+		admission.provenSafeBoundaryMask = wholeChunkOwnership ?
+			(shadowRecord.quarantineMask & SupportedBoundaryMask) : 0u;
 		NRIMapMoverRigidRouteAdmissionResult result =
 			EvaluateNRIMapMoverRigidRouteAdmission(admission);
-		if (!presentationValid)
-		{
-			result.admitted = false;
-			result.rejectMask |= NRIMapMoverRigidRouteReject_InvalidTransform;
-		}
 
 		for (uint32_t bit = 0; bit < m_frameStats.rejectBitCounts.size(); ++bit)
 		{

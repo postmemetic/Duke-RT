@@ -122,6 +122,8 @@ bool NRIDescriptorSetManager::AllocateDescriptorSets(NRIRenderer& renderer)
 		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mPipelineLayout, 4, &renderer.mUpscalerPrepassOutputSet, 1, 0) == nri::Result::SUCCESS &&
 		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mTaaPipelineLayout, 0, &renderer.mTaaFrameTextureSet, 1, 0) == nri::Result::SUCCESS &&
 		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mTaaPipelineLayout, 1, &renderer.mTaaOutputSet, 1, 0) == nri::Result::SUCCESS &&
+		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mTaaPipelineLayout, 0, &renderer.mTemporalReactiveInputSet, 1, 0) == nri::Result::SUCCESS &&
+		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mTaaPipelineLayout, 1, &renderer.mTemporalReactiveOutputSet, 1, 0) == nri::Result::SUCCESS &&
 		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mPresentPipelineLayout, 0, &renderer.mRawPresentFrameTextureSet, 1, 0) == nri::Result::SUCCESS &&
 		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mPresentPipelineLayout, 1, &renderer.mRawPresentOutputSet, 1, 0) == nri::Result::SUCCESS &&
 		renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *renderer.mPresentPipelineLayout, 0, &renderer.mFinalPresentFrameTextureSet, 1, 0) == nri::Result::SUCCESS &&

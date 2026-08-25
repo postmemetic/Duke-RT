@@ -293,6 +293,98 @@ void WriteTemporalOutputs(uint2 pixelPos, uint4 identity, float viewZ, float3 no
 	gTemporalReactiveOutput[pixelPos] = float4(forceReactive || !historyValid ? 1.0 : 0.0, 0.0, 0.0, 1.0);
 }
 
+uint ClassifyMotionSource(HitData hit, uint4 identity, uint validityReason)
+{
+	if (validityReason == MOTION_VALIDITY_NO_HISTORY || validityReason == MOTION_VALIDITY_TOPOLOGY_MISMATCH ||
+		validityReason == MOTION_VALIDITY_REAPPEARED || validityReason == MOTION_VALIDITY_DUPLICATE_PUBLICATION)
+	{
+		return 3u; // newly seeded or discontinuous
+	}
+	if ((identity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u)
+	{
+		const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+		const SceneVertex v0 = GetVertexData(hit.dataSource, primitive.indices.x);
+		const SceneVertex v1 = GetVertexData(hit.dataSource, primitive.indices.y);
+		const SceneVertex v2 = GetVertexData(hit.dataSource, primitive.indices.z);
+		const float3 weights = ResolveHitBarycentricWeights(hit);
+		const float3 currentLocal = v0.position * weights.x + v1.position * weights.y + v2.position * weights.z;
+		const float3 previousLocal = v0.prevPosition * weights.x + v1.prevPosition * weights.y + v2.prevPosition * weights.z;
+		if (any(abs(currentLocal - previousLocal) > 1e-5))
+		{
+			return 0u; // exact vertex history
+		}
+		if (hit.instanceId != 0xffffffffu)
+		{
+			const SceneInstanceData instanceData = GetSceneInstanceData(hit.instanceId);
+			const float3 currentInstancePoint = TransformSceneInstancePoint(instanceData, currentLocal, false);
+			const float3 previousInstancePoint = TransformSceneInstancePoint(instanceData, previousLocal, true);
+			if (any(abs(currentInstancePoint - previousInstancePoint) > 1e-5))
+			{
+				return 1u; // exact instance history
+			}
+		}
+	}
+	return 2u; // static or legacy fallback
+}
+
+void RecordMotionAudit(
+	uint2 pixelPos,
+	HitData hit,
+	float3 currentWorld,
+	float3 previousWorld,
+	float2 currentUv,
+	float2 previousUv,
+	float currentViewZ,
+	float previousViewZ,
+	float4 motion,
+	uint4 identity,
+	uint validityReason,
+	uint currentProjectionReason,
+	uint previousProjectionReason)
+{
+	if (!TraceShaderStatsEnabled())
+	{
+		return;
+	}
+	const uint motionSource = ClassifyMotionSource(hit, identity, validityReason);
+	TraceShaderStatAdd(TRACE_STAT_MOTION_SOURCE_COUNTER_BASE + min(motionSource, 3u), 1u);
+	TraceShaderStatAdd(TRACE_STAT_MOTION_REASON_COUNTER_BASE + min(validityReason, 16u), 1u);
+	if (any(pixelPos != uint2(gTraceConstants.RenderWidth / 2u, gTraceConstants.RenderHeight / 2u)))
+	{
+		return;
+	}
+
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 1u] = hit.dataSource;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 2u] = hit.instanceId;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 3u] = hit.primitiveIndex;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 4u] = asuint(currentWorld.x);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 5u] = asuint(currentWorld.y);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 6u] = asuint(currentWorld.z);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 7u] = asuint(previousWorld.x);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 8u] = asuint(previousWorld.y);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 9u] = asuint(previousWorld.z);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 10u] = asuint(currentUv.x);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 11u] = asuint(currentUv.y);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 12u] = asuint(previousUv.x);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 13u] = asuint(previousUv.y);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 14u] = asuint(currentViewZ);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 15u] = asuint(previousViewZ);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 16u] = asuint(motion.x);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 17u] = asuint(motion.y);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 18u] = asuint(motion.z);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 19u] = asuint(motion.w);
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 20u] = identity.x;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 21u] = identity.y;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 22u] = identity.z;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 23u] = identity.w;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 24u] = validityReason;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 25u] = currentProjectionReason;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 26u] = previousProjectionReason;
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_BASE + 27u] = motionSource;
+	DeviceMemoryBarrier();
+	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_VALID] = 1u;
+}
+
 float3 ResolvePrimaryFootprintVertexPosition(HitData hit, float3 localPosition)
 {
 	if (hit.instanceId != 0xffffffffu)
@@ -1925,6 +2017,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		const float4 motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
 		gMotionOutput[pixelPos] = motionOutput;
 		WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, ResolveHitGeometricNormal(hit, false), temporalValidityReason);
+		RecordMotionAudit(
+			pixelPos,
+			hit,
+			currentHitPosition,
+			previousHitPosition,
+			currentUvRaw,
+			prevUvRaw,
+			currentViewZ,
+			previousViewZ,
+			motionOutput,
+			currentTemporalIdentity,
+			temporalValidityReason,
+			currentProjectionReason,
+			previousProjectionReason);
 		gViewZOutput[pixelPos] = float4(currentViewZ, smokeForeground ? 1.0 : 0.0, 0.0, 1.0);
 		const float4 packedDiffuse = PackDiffuseRadiance(diffuse, diffuseHitDistance, currentViewZ);
 		const float4 packedSpecular = PackSpecularRadiance(specular, specularHitDistance, currentViewZ, roughness);

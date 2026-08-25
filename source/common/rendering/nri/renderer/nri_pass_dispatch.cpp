@@ -2,6 +2,7 @@
 #include "nri_cvars.h"
 
 #include "nri_descriptor_sets.h"
+#include "nri_diagnostic_names.h"
 #include "nri_exposure.h"
 #include "nri_frame_graph.h"
 #include "nri_renderer_settings.h"
@@ -118,6 +119,22 @@ namespace
 	static uint32_t GetDispatchSize(uint32_t value)
 	{
 		return (value + 7u) / 8u;
+	}
+
+	static const char* GetMotionValidityReasonName(uint32_t reason)
+	{
+		static const char* names[] = {
+			"valid", "no-history", "topology", "ambiguous", "current-behind", "previous-behind",
+			"current-nonfinite", "previous-nonfinite", "id-mismatch", "depth-mismatch", "normal-mismatch",
+			"outside-viewport", "actor-census", "global-reset", "unsupported", "reappeared", "duplicate"
+		};
+		return reason < (uint32_t)std::size(names) ? names[reason] : "unknown";
+	}
+
+	static const char* GetMotionSourceName(uint32_t source)
+	{
+		static const char* names[] = { "vertex", "instance", "static", "new" };
+		return source < (uint32_t)std::size(names) ? names[source] : "unknown";
 	}
 
 	static uint64_t AppendTraceWorkloadHash(uint64_t hash, uint64_t value)
@@ -422,6 +439,49 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 			context.mLastPerfTraceShaderStats);
 		context.mExposureService.ReadbackAutoExposureStats();
 		context.mIndirectRadianceCacheService.ReadbackTelemetry(!!nri_ptindirectradiancecache);
+	}
+	if ((int)nri_ptmotionaudit > 0 && context.mLastPerfTraceShaderStats.valid &&
+		context.mLastPerfTraceShaderStats.motionAudit.valid)
+	{
+		const NRITraceShaderMotionAudit& audit = context.mLastPerfTraceShaderStats.motionAudit;
+		static uint64_t lastSurfaceId = UINT64_MAX;
+		static uint32_t lastGeneration = UINT32_MAX;
+		static uint32_t lastReason = UINT32_MAX;
+		const bool changed = audit.surfaceId != lastSurfaceId || audit.generation != lastGeneration ||
+			audit.validityReason != lastReason;
+		if ((int)nri_ptmotionaudit >= 2 || changed)
+		{
+			const NRIMapMotionHistory::DiagnosticRecord cpu = context.mMapMotionHistory.FindCommitted(audit.surfaceId);
+			const NRIMapMotionHistory::Stats& history = context.mMapMotionHistory.GetStats();
+			Printf("NRI PT motion audit: gpu_frame=%llu temporal_serial=%llu source=%s data=%u instance=%u primitive=%u id=0x%016llx generation=%u flags=0x%x valid=%s reason=%s current=(%.5f,%.5f,%.5f) previous=(%.5f,%.5f,%.5f) current_uv=(%.7f,%.7f) previous_uv=(%.7f,%.7f) view_z=(%.5f,%.5f) motion=(%.5f,%.5f,%.5f,%.5f) projection=(%s,%s) cpu_match=%s topology=0x%016llx age=%u chunk=%u provenance=%s sector=%d wall=%d section=%d committed=%u staged=%u settle=%u\n",
+				(unsigned long long)context.mLastPerfTraceShaderStats.frameNumber,
+				(unsigned long long)history.mainTemporalSerial,
+				GetMotionSourceName(audit.motionSource), audit.dataSource, audit.instanceId, audit.primitiveIndex,
+				(unsigned long long)audit.surfaceId, audit.generation, audit.temporalFlags,
+				audit.validityReason == 0u ? "yes" : "no", GetMotionValidityReasonName(audit.validityReason),
+				audit.currentWorld[0], audit.currentWorld[1], audit.currentWorld[2],
+				audit.previousWorld[0], audit.previousWorld[1], audit.previousWorld[2],
+				audit.currentUv[0], audit.currentUv[1], audit.previousUv[0], audit.previousUv[1],
+				audit.currentViewZ, audit.previousViewZ,
+				audit.motion[0], audit.motion[1], audit.motion[2], audit.motion[3],
+				GetMotionValidityReasonName(audit.currentProjectionReason),
+				GetMotionValidityReasonName(audit.previousProjectionReason),
+				cpu.valid ? "yes" : "no", (unsigned long long)cpu.topologyKey, cpu.historyAge, cpu.chunkIndex,
+				cpu.valid ? nri_diag::GetSurfaceSourceTypeName(cpu.provenance.sourceType) : "unknown",
+				cpu.provenance.sectorIndex, cpu.provenance.wallIndex, cpu.provenance.sectionIndex,
+				history.committedSurfaceCount, history.stagedSurfaceCount, history.settleChunkCount);
+			Printf("NRI PT motion counters: gpu_frame=%llu source_vertex=%u source_instance=%u source_static=%u source_new=%u valid=%u no_history=%u topology=%u ambiguous=%u current_behind=%u previous_behind=%u current_nonfinite=%u previous_nonfinite=%u id_mismatch=%u depth_mismatch=%u normal_mismatch=%u outside=%u actor_census=%u reset=%u unsupported=%u reappeared=%u duplicate=%u\n",
+				(unsigned long long)context.mLastPerfTraceShaderStats.frameNumber,
+				audit.sourceCounters[0], audit.sourceCounters[1], audit.sourceCounters[2], audit.sourceCounters[3],
+				audit.reasonCounters[0], audit.reasonCounters[1], audit.reasonCounters[2], audit.reasonCounters[3],
+				audit.reasonCounters[4], audit.reasonCounters[5], audit.reasonCounters[6], audit.reasonCounters[7],
+				audit.reasonCounters[8], audit.reasonCounters[9], audit.reasonCounters[10], audit.reasonCounters[11],
+				audit.reasonCounters[12], audit.reasonCounters[13], audit.reasonCounters[14], audit.reasonCounters[15],
+				audit.reasonCounters[16]);
+			lastSurfaceId = audit.surfaceId;
+			lastGeneration = audit.generation;
+			lastReason = audit.validityReason;
+		}
 	}
 	if (ShouldTracePtPerf())
 	{
@@ -1194,6 +1254,11 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		NRIRenderer::FrameTextureSlot::TraceTransparentOutput;
 	NRITextureResource& historyInput = context.mTextures.Get(context.mHistoryInputSlot);
 	NRITextureResource& historyOutput = context.mTextures.Get(context.mHistoryOutputSlot);
+	const NRIRenderer::FrameTextureSlot volumeMetaSlot = context.mSmokeService.GetVolumeSlot(true);
+	NRITextureResource* volumeMeta = volumeMetaSlot != NRIRenderer::FrameTextureSlot::Count ?
+		&context.mTextures.Get(volumeMetaSlot) : nullptr;
+	const bool volumeMetaValid = volumeMeta != nullptr && volumeMeta->shaderView != nullptr &&
+		volumeMeta->width == context.mFrame.renderWidth && volumeMeta->height == context.mFrame.renderHeight;
 	context.mUpscalerService.TraceTemporalState("upscale-entry", mainKind, postSharpenKind, runAppTaa, context.mHistoryOutputSlot, vendorSourceSlot);
 
 	if (runAppTaa)
@@ -1225,10 +1290,6 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		constants.Flags |=
 			(context.mExposure.GetSettings().enabled ? NRI_TEMPORAL_FLAG_AUTO_EXPOSURE : 0u) |
 			(exposureStateTextureValid ? NRI_TEMPORAL_FLAG_EXPOSURE_TEXTURE_VALID : 0u);
-		const NRIRenderer::FrameTextureSlot volumeMetaSlot = context.mSmokeService.GetVolumeSlot(true);
-		NRITextureResource* volumeMeta = volumeMetaSlot != NRIRenderer::FrameTextureSlot::Count ? &context.mTextures.Get(volumeMetaSlot) : nullptr;
-		const bool volumeMetaValid = volumeMeta != nullptr && volumeMeta->shaderView != nullptr &&
-			volumeMeta->width == context.mFrame.renderWidth && volumeMeta->height == context.mFrame.renderHeight;
 		if (volumeMetaValid)
 			constants.Flags |= NRI_TEMPORAL_FLAG_VOLUME_REACTIVE;
 
@@ -1311,6 +1372,51 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		if (temporalReactive != nullptr && (temporalReactive->shaderView == nullptr ||
 			temporalReactive->width != context.mFrame.renderWidth || temporalReactive->height != context.mFrame.renderHeight))
 			temporalReactive = nullptr;
+		if (temporalReactive != nullptr && volumeMetaValid)
+		{
+			NRITextureResource& combinedReactive = context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalReactiveCombined);
+			if (combinedReactive.shaderView != nullptr && combinedReactive.storageView != nullptr &&
+				combinedReactive.width == context.mFrame.renderWidth && combinedReactive.height == context.mFrame.renderHeight)
+			{
+				context.mResources.TransitionTexture(*temporalReactive, NRIComputeShaderResourceState());
+				context.mResources.TransitionTexture(*volumeMeta, NRIComputeShaderResourceState());
+				context.mResources.TransitionTexture(combinedReactive, NRIComputeStorageState());
+
+				const nri::Descriptor* reactiveInputs[6] = {
+					temporalReactive->shaderView,
+					volumeMeta->shaderView,
+					temporalReactive->shaderView,
+					temporalReactive->shaderView,
+					temporalReactive->shaderView,
+					temporalReactive->shaderView
+				};
+				nri::UpdateDescriptorRangeDesc reactiveInputUpdate = {};
+				reactiveInputUpdate.descriptorSet = context.mTemporalReactiveInputSet;
+				reactiveInputUpdate.rangeIndex = 0;
+				reactiveInputUpdate.descriptors = reactiveInputs;
+				reactiveInputUpdate.descriptorNum = (uint32_t)std::size(reactiveInputs);
+				context.mCommands.UpdateDescriptorRanges(&reactiveInputUpdate, 1);
+
+				const nri::Descriptor* reactiveOutputs[1] = { combinedReactive.storageView };
+				nri::UpdateDescriptorRangeDesc reactiveOutputUpdate = {};
+				reactiveOutputUpdate.descriptorSet = context.mTemporalReactiveOutputSet;
+				reactiveOutputUpdate.rangeIndex = 0;
+				reactiveOutputUpdate.descriptors = reactiveOutputs;
+				reactiveOutputUpdate.descriptorNum = (uint32_t)std::size(reactiveOutputs);
+				context.mCommands.UpdateDescriptorRanges(&reactiveOutputUpdate, 1);
+
+				NRITemporalConstants reactiveConstants = {};
+				reactiveConstants.RenderWidth = context.mFrame.renderWidth;
+				reactiveConstants.RenderHeight = context.mFrame.renderHeight;
+				context.mCommands.SetPipelineLayout(context.mTaaPipelineLayout);
+				context.mCommands.SetRootConstants(&reactiveConstants, sizeof(reactiveConstants));
+				context.mCommands.SetDescriptorSet(0, context.mTemporalReactiveInputSet);
+				context.mCommands.SetDescriptorSet(1, context.mTemporalReactiveOutputSet);
+				context.mCommands.SetPipeline(context.mPipelines.Get(NRIRenderer::PipelineSlot::TemporalReactiveCombine));
+				context.mCommands.Dispatch(GetDispatchSize(context.mFrame.renderWidth), GetDispatchSize(context.mFrame.renderHeight), 1);
+				temporalReactive = &combinedReactive;
+			}
+		}
 		NRITextureResource* vendorExposure = nullptr;
 		if (!fsr && context.mExposure.GetSettings().enabled)
 		{

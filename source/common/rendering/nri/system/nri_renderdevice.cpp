@@ -7,6 +7,7 @@
 #include "../renderer/nri_renderer.h"
 #include "../renderer/nri_renderstate.h"
 #include "../scene/nri_voxel_palette_policy.h"
+#include "../scene/nri_motion_projection.h"
 #include "nri_hwbuffer.h"
 #include "nri_hwtexture.h"
 #include "c_cvars.h"
@@ -1967,6 +1968,21 @@ CCMD(nri_pt360absence_selftest)
 	Printf("NRI PT 360 absence selftest: result=%s reason=%s\n",
 		passed ? "pass" : "fail",
 		failure.empty() ? "none" : failure.c_str());
+}
+
+CCMD(nri_ptmotion_selftest)
+{
+	std::string projectionFailure;
+	std::string historyFailure;
+	std::string rigidFailure;
+	const bool projectionPassed = nri_scene::RunNRIMotionProjectionSelfTests(&projectionFailure);
+	const bool historyPassed = RunNRIMapMotionHistorySelfTests(&historyFailure);
+	const bool rigidPassed = RunNRIMapMoverRigidRoutePolicySelfTests(&rigidFailure);
+	Printf("NRI PT motion selftest: result=%s projection=%s history=%s rigid=%s\n",
+		projectionPassed && historyPassed && rigidPassed ? "pass" : "fail",
+		projectionFailure.empty() ? "pass" : projectionFailure.c_str(),
+		historyFailure.empty() ? "pass" : historyFailure.c_str(),
+		rigidFailure.empty() ? "pass" : rigidFailure.c_str());
 }
 
 // Compact diagnostic command used by the deterministic motion harness. A

@@ -227,16 +227,21 @@ void NRIRenderer::UpdatePerFrameState(HWDrawInfo& di, bool logicalMainView)
 {
 	ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.updateStateMs);
 	Clocker clock(NriPTUpdateState);
-	mMapMovers.CaptureFrame(gi, di.Viewpoint.TicFrac, mMapWorld.buildSerial);
-	mMapMoverShadow.CaptureChangedGroups(
-		mMapMovers,
-		mMapWorld,
-		mFrameIndex,
-		(int)nri_ptmapmovershadow);
-	if ((int)nri_ptmapmovertrace > 0)
+	// Presentation history is owned by submitted logical main frames. Portal,
+	// mirror, and other auxiliary views must not age it before the main view.
+	if (logicalMainView)
 	{
-		MapMoverPrintfSink sink;
-		mMapMovers.EmitPerfTrace(mFrameIndex, sink, (int)nri_ptmapmovertrace >= 2);
+		mMapMovers.CaptureFrame(gi, di.Viewpoint.TicFrac, mMapWorld.buildSerial);
+		mMapMoverShadow.CaptureChangedGroups(
+			mMapMovers,
+			mMapWorld,
+			mFrameIndex,
+			(int)nri_ptmapmovershadow);
+		if ((int)nri_ptmapmovertrace > 0)
+		{
+			MapMoverPrintfSink sink;
+			mMapMovers.EmitPerfTrace(mFrameIndex, sink, (int)nri_ptmapmovertrace >= 2);
+		}
 	}
 
 	if (mHasPreviousCameraState)

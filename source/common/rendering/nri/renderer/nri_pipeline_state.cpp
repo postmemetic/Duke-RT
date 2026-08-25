@@ -544,6 +544,7 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 	const std::string composition = "Composition.cs." + suffix;
 	const std::string traceTransparent = "TraceTransparent.cs." + suffix;
 	const std::string taa = "Taa.cs." + suffix;
+	const std::string temporalReactiveCombine = "TemporalReactiveCombine.cs." + suffix;
 	const std::string rawPresent = "RawPresent.cs." + suffix;
 	const std::string finalPresent = "FinalPresent.cs." + suffix;
 	const std::string dlssSrBefore = "DlssSrBefore.cs." + suffix;
@@ -572,6 +573,7 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 		createPipeline(exposureHistogramBuild.c_str(), NRIRenderer::PipelineSlot::ExposureHistogramBuild, renderer.mExposurePipelineLayout) &&
 		createPipeline(exposureResolve.c_str(), NRIRenderer::PipelineSlot::ExposureResolve, renderer.mExposurePipelineLayout) &&
 		createPipeline(taa.c_str(), NRIRenderer::PipelineSlot::Taa, renderer.mTaaPipelineLayout) &&
+		createPipeline(temporalReactiveCombine.c_str(), NRIRenderer::PipelineSlot::TemporalReactiveCombine, renderer.mTaaPipelineLayout) &&
 		createPipeline(rawPresent.c_str(), NRIRenderer::PipelineSlot::RawPresent, renderer.mPresentPipelineLayout) &&
 		createPipeline(finalPresent.c_str(), NRIRenderer::PipelineSlot::FinalPresent, renderer.mPresentPipelineLayout) &&
 		createPipeline(dlssSrBefore.c_str(), NRIRenderer::PipelineSlot::DlssSrBefore, renderer.mPipelineLayout) &&

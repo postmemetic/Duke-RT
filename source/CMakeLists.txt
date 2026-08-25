@@ -1061,6 +1061,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_voxel_policy_editor.cpp
 	common/rendering/nri/scene/nri_map_world.cpp
 	common/rendering/nri/scene/nri_map_motion_correspondence.cpp
+	common/rendering/nri/scene/nri_motion_projection.cpp
 	common/rendering/nri/scene/nri_map_builder.cpp
 	common/rendering/nri/scene/nri_map_mover_adapter.cpp
 	common/rendering/nri/scene/nri_map_mover_authored_topology.cpp
@@ -1695,6 +1696,8 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/RawPresent.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/RawPresent.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/FinalPresent.cs.dxil"
@@ -1884,6 +1887,8 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/RawPresent.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/RawPresent.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/RawPresent.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/RawPresent.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/FinalPresent.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/FinalPresent.cs.hlsl"
@@ -2013,6 +2018,7 @@ if (HAVE_NRI)
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
+			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/RawPresent.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/FinalPresent.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/DlssSrBefore.cs.hlsl"
@@ -2185,6 +2191,8 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/RawPresent.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/RawPresent.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/FinalPresent.cs.dxil"

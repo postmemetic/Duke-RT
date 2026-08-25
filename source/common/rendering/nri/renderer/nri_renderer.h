@@ -2088,6 +2088,7 @@ public:
 		TemporalGuideScratch,
 		TemporalValidity,
 		TemporalReactive,
+		TemporalReactiveCombined,
 		TaaHistoryPing,
 		TaaHistoryPong,
 		Validation,
@@ -2147,6 +2148,7 @@ public:
 		ExposureHistogramBuild,
 		ExposureResolve,
 		Taa,
+		TemporalReactiveCombine,
 		RawPresent,
 		FinalPresent,
 		DlssSrBefore,
@@ -2735,6 +2737,8 @@ private:
 	nri::DescriptorSet* mUpscalerPrepassOutputSet = nullptr;
 	nri::DescriptorSet* mTaaFrameTextureSet = nullptr;
 	nri::DescriptorSet* mTaaOutputSet = nullptr;
+	nri::DescriptorSet* mTemporalReactiveInputSet = nullptr;
+	nri::DescriptorSet* mTemporalReactiveOutputSet = nullptr;
 	nri::DescriptorSet* mRawPresentFrameTextureSet = nullptr;
 	nri::DescriptorSet* mRawPresentOutputSet = nullptr;
 	nri::DescriptorSet* mFinalPresentFrameTextureSet = nullptr;

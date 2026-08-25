@@ -416,6 +416,7 @@ void NRITraceShaderStats::Readback(
 	outStats.candidateAttribution = {};
 	outStats.finalAttribution = {};
 	outStats.surfaceProbe = {};
+	outStats.motionAudit = {};
 	const auto resolveAttribution = [&](uint32_t instanceId, bool valid) -> NRITraceShaderProbeAttribution
 	{
 		NRITraceShaderProbeAttribution result;
@@ -461,6 +462,46 @@ void NRITraceShaderStats::Readback(
 		outStats.surfaceProbe.flags = outStats.counters[surfaceProbeBase + 7u];
 		outStats.surfaceProbe.lightingFlags = outStats.counters[surfaceProbeBase + 8u];
 	}
+	const uint32_t motionBase = NRI_TRACE_SHADER_MOTION_AUDIT_BASE;
+	outStats.motionAudit.valid = outStats.counters[motionBase] != 0u;
+	const auto decodeFloat = [&](uint32_t index)
+	{
+		float value = 0.0f;
+		std::memcpy(&value, &outStats.counters[index], sizeof(value));
+		return value;
+	};
+	if (outStats.motionAudit.valid)
+	{
+		outStats.motionAudit.dataSource = outStats.counters[motionBase + 1u];
+		outStats.motionAudit.instanceId = outStats.counters[motionBase + 2u];
+		outStats.motionAudit.primitiveIndex = outStats.counters[motionBase + 3u];
+		for (uint32_t axis = 0; axis < 3u; ++axis)
+		{
+			outStats.motionAudit.currentWorld[axis] = decodeFloat(motionBase + 4u + axis);
+			outStats.motionAudit.previousWorld[axis] = decodeFloat(motionBase + 7u + axis);
+		}
+		for (uint32_t axis = 0; axis < 2u; ++axis)
+		{
+			outStats.motionAudit.currentUv[axis] = decodeFloat(motionBase + 10u + axis);
+			outStats.motionAudit.previousUv[axis] = decodeFloat(motionBase + 12u + axis);
+		}
+		outStats.motionAudit.currentViewZ = decodeFloat(motionBase + 14u);
+		outStats.motionAudit.previousViewZ = decodeFloat(motionBase + 15u);
+		for (uint32_t axis = 0; axis < 4u; ++axis)
+			outStats.motionAudit.motion[axis] = decodeFloat(motionBase + 16u + axis);
+		outStats.motionAudit.surfaceId = (uint64_t)outStats.counters[motionBase + 20u] |
+			((uint64_t)outStats.counters[motionBase + 21u] << 32u);
+		outStats.motionAudit.generation = outStats.counters[motionBase + 22u];
+		outStats.motionAudit.temporalFlags = outStats.counters[motionBase + 23u];
+		outStats.motionAudit.validityReason = outStats.counters[motionBase + 24u];
+		outStats.motionAudit.currentProjectionReason = outStats.counters[motionBase + 25u];
+		outStats.motionAudit.previousProjectionReason = outStats.counters[motionBase + 26u];
+		outStats.motionAudit.motionSource = outStats.counters[motionBase + 27u];
+	}
+	for (uint32_t i = 0; i < outStats.motionAudit.sourceCounters.size(); ++i)
+		outStats.motionAudit.sourceCounters[i] = outStats.counters[motionBase + 32u + i];
+	for (uint32_t i = 0; i < outStats.motionAudit.reasonCounters.size(); ++i)
+		outStats.motionAudit.reasonCounters[i] = outStats.counters[NRI_TRACE_SHADER_MOTION_REASON_COUNTER_BASE + i];
 
 	struct TraceShaderHotCandidate
 	{

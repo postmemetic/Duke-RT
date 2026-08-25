@@ -24,6 +24,16 @@ public:
 		uint32_t commitCount = 0;
 		uint32_t discardCount = 0;
 	};
+	struct DiagnosticRecord
+	{
+		bool valid = false;
+		uint64_t occurrenceId = 0;
+		uint64_t topologyKey = 0;
+		uint32_t generation = 0;
+		uint32_t historyAge = 0;
+		uint32_t chunkIndex = UINT32_MAX;
+		nri_scene::SurfaceProvenance provenance;
+	};
 
 	void Reset(const char* reason = nullptr);
 	void BeginMapEpoch(uint64_t mapEpoch);
@@ -36,6 +46,7 @@ public:
 	bool NeedsSettle(uint32_t chunkIndex) const;
 	bool HasFinalizedStage() const { return m_stageFinalized; }
 	const Stats& GetStats() const { return m_stats; }
+	DiagnosticRecord FindCommitted(uint64_t occurrenceId) const;
 	const char* GetLastResetReason() const { return m_lastResetReason.c_str(); }
 
 private:

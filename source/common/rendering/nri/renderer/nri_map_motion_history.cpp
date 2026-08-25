@@ -50,6 +50,22 @@ bool NRIMapMotionHistory::PayloadEqual(
 	return true;
 }
 
+NRIMapMotionHistory::DiagnosticRecord NRIMapMotionHistory::FindCommitted(uint64_t occurrenceId) const
+{
+	DiagnosticRecord result;
+	const auto found = m_committed.find(occurrenceId);
+	if (found == m_committed.end() || !found->second.valid)
+		return result;
+	result.valid = true;
+	result.occurrenceId = occurrenceId;
+	result.topologyKey = found->second.payload.topologyKey;
+	result.generation = found->second.payload.generation;
+	result.historyAge = found->second.historyAge;
+	result.chunkIndex = found->second.payload.chunkIndex;
+	result.provenance = found->second.payload.provenance;
+	return result;
+}
+
 bool NRIMapMotionHistory::SurfaceHasMotion(const nri_scene::SurfaceRef& surface)
 {
 	for (const nri_scene::CapturedVertex& vertex : surface.vertices)
@@ -286,6 +302,31 @@ bool RunNRIMapMotionHistorySelfTests(std::string* failureReason)
 	history.StagePublishedView(moved);
 	history.FinalizeStage();
 	if (!history.CommitSubmitted(2u) || !history.NeedsSettle(4u)) return fail("settle was not armed");
+	nri_scene::SceneView unchanged = moved;
+	history.ApplyCommitted(unchanged, 3u);
+	for (const auto& vertex : unchanged.opaqueWalls[0].vertices)
+		for (uint32_t axis = 0; axis < 3u; ++axis)
+			if (std::fabs(vertex.position[axis] - vertex.prevPosition[axis]) > 1.0e-5f)
+				return fail("settle frame retained motion");
+	history.BeginStage(3u, 3u);
+	history.StagePublishedView(unchanged);
+	history.FinalizeStage();
+	if (!history.CommitSubmitted(3u) || history.NeedsSettle(4u)) return fail("settle was not cleared");
+	nri_scene::SceneView discarded = unchanged;
+	for (auto& vertex : discarded.opaqueWalls[0].vertices) vertex.position[1] += 5.0f;
+	history.BeginStage(4u, 3u);
+	history.StagePublishedView(discarded);
+	history.FinalizeStage();
+	history.DiscardStaged();
+	nri_scene::SceneView afterDiscard = unchanged;
+	history.ApplyCommitted(afterDiscard, 3u);
+	if (afterDiscard.opaqueWalls[0].vertices[0].prevPosition[1] != unchanged.opaqueWalls[0].vertices[0].position[1])
+		return fail("discarded publication advanced history");
+	history.BeginStage(4u, 3u);
+	if (!history.StagePublishedView(unchanged) || !history.StagePublishedView(unchanged))
+		return fail("identical duplicate publication rejected");
+	history.FinalizeStage();
+	if (!history.CommitSubmitted(4u)) return fail("duplicate publication commit failed");
 	if (failureReason != nullptr) failureReason->clear();
 	return true;
 }
