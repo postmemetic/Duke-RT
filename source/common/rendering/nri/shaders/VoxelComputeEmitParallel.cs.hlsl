@@ -44,6 +44,10 @@ NRIVoxelComputePrimitiveData MakePrimitive(uint3 indices, uint materialIndex, fl
 	primitive.SmoothNormals = uint2(
 		smoothNormals.x | (smoothNormals.y << 16u),
 		smoothNormals.z | 0x80000000u);
+	primitive.TemporalSurfaceId = 0u;
+	primitive.TemporalGeneration = 0u;
+	primitive.TemporalFlags = TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK |
+		(MOTION_VALIDITY_UNSUPPORTED << TEMPORAL_SURFACE_REASON_SHIFT);
 	return primitive;
 }
 

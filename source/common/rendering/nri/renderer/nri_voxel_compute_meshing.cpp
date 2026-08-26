@@ -491,13 +491,14 @@ namespace
 		return hash;
 	}
 
-	bool DirectPublishBufferReady(const NRIBufferResource* resource, nri::BufferUsageBits usage)
+	bool DirectPublishBufferReady(const NRIBufferResource* resource, nri::BufferUsageBits usage, uint32_t expectedStride)
 	{
 		return
 			resource != nullptr &&
 			resource->buffer != nullptr &&
 			resource->shaderView != nullptr &&
 			resource->storageView != nullptr &&
+			resource->stride == expectedStride &&
 			NRIResourceUsageIncludes(resource->usage, usage);
 	}
 
@@ -884,6 +885,10 @@ namespace
 			target.reserved0 = source.Reserved0;
 			target.smoothNormals[0] = source.SmoothNormals[0];
 			target.smoothNormals[1] = source.SmoothNormals[1];
+			target.temporalSurfaceId[0] = source.TemporalSurfaceId[0];
+			target.temporalSurfaceId[1] = source.TemporalSurfaceId[1];
+			target.temporalGeneration = source.TemporalGeneration;
+			target.temporalFlags = source.TemporalFlags;
 		}
 
 		outGenerated.geometry = std::move(geometry);
@@ -1626,9 +1631,9 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 		const uint64_t directKey = BuildDirectPublishKey(request.meshResourceKey, request.generation);
 		if (request.meshResourceKey == 0 || request.generation == 0 || request.model == nullptr ||
 			request.outputKind == NRIVoxelComputeDirectPublishOutputKind::None ||
-			!DirectPublishBufferReady(request.outputBuffers.vertices, NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE_STORAGE, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT)) ||
-			!DirectPublishBufferReady(request.outputBuffers.indices, NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE_STORAGE, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT)) ||
-			!DirectPublishBufferReady(request.outputBuffers.primitives, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE))
+			!DirectPublishBufferReady(request.outputBuffers.vertices, NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE_STORAGE, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT), sizeof(NRIVoxelComputeSceneVertex)) ||
+			!DirectPublishBufferReady(request.outputBuffers.indices, NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE_STORAGE, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT), sizeof(uint32_t)) ||
+			!DirectPublishBufferReady(request.outputBuffers.primitives, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE, sizeof(NRIVoxelComputePrimitiveData)))
 		{
 			outResult.status = NRIVoxelComputeGeneratedGeometryStatus::Failed;
 			outResult.failure = NRIVoxelComputeDirectPublishFailure::InvalidRequest;

@@ -2,6 +2,7 @@
 #define RAZE_NRI_VOXEL_COMPUTE_CONSTANTS_HLSLI
 
 #include "NRI.hlsl"
+#include "MotionContracts.hlsli"
 
 #define NRI_VOXEL_COMPUTE_SET_INPUTS 0
 #define NRI_VOXEL_COMPUTE_SET_OUTPUTS 1
@@ -133,6 +134,9 @@ struct NRIVoxelComputePrimitiveData
 	uint PortalIndex;
 	uint Reserved0;
 	uint2 SmoothNormals;
+	uint2 TemporalSurfaceId;
+	uint TemporalGeneration;
+	uint TemporalFlags;
 };
 
 NRI_ROOT_CONSTANTS(NRIVoxelComputeConstants, gVoxelComputeConstants, NRI_VOXEL_COMPUTE_ROOT_REGISTER, NRI_VOXEL_COMPUTE_SET_ROOT);
