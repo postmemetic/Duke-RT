@@ -3540,6 +3540,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				replacement.exactGeometrySignature == residentEntry->exactGeometrySignature &&
 				replacement.animatedMaterialSignature == residentEntry->animatedMaterialSignature;
 			const bool residentNoopExactMatch =
+				!motionSettleRequested &&
 				replacement.residentAuthoritative &&
 				residentNoopResidentAvailable &&
 				replacement.valid &&

@@ -211,22 +211,37 @@ bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
 		DiscardStaged();
 		return false;
 	}
+	struct ChunkSettleObservation
+	{
+		bool comparable = false;
+		bool moved = false;
+		bool publishedWithMotion = false;
+	};
+	std::map<uint32_t, ChunkSettleObservation> chunkObservations;
 	for (const auto& entry : m_staged)
 	{
 		const Record& current = entry.second;
 		const auto previous = m_committed.find(entry.first);
 		if (current.payload.chunkIndex == UINT32_MAX) continue;
+		ChunkSettleObservation& observation = chunkObservations[current.payload.chunkIndex];
+		observation.publishedWithMotion |= current.publishedWithMotion;
 		if (previous != m_committed.end() && previous->second.valid && current.valid)
 		{
-			const bool moved = !PayloadEqual(previous->second.payload, current.payload);
-			if (moved)
-			{
-				m_settleChunks.insert(current.payload.chunkIndex);
-			}
-			else if (!current.publishedWithMotion)
-			{
-				m_settleChunks.erase(current.payload.chunkIndex);
-			}
+			observation.comparable = true;
+			observation.moved |= !PayloadEqual(previous->second.payload, current.payload);
+		}
+	}
+	for (const auto& entry : chunkObservations)
+	{
+		const uint32_t chunkIndex = entry.first;
+		const ChunkSettleObservation& observation = entry.second;
+		if (observation.moved)
+		{
+			m_settleChunks.insert(chunkIndex);
+		}
+		else if (observation.comparable && !observation.publishedWithMotion)
+		{
+			m_settleChunks.erase(chunkIndex);
 		}
 	}
 	m_committed = std::move(m_staged);
@@ -327,6 +342,48 @@ bool RunNRIMapMotionHistorySelfTests(std::string* failureReason)
 		return fail("identical duplicate publication rejected");
 	history.FinalizeStage();
 	if (!history.CommitSubmitted(4u)) return fail("duplicate publication commit failed");
+	auto validateMixedChunkSettle = [&](bool movingSurfaceSortsFirst)
+	{
+		nri_scene::SurfaceRef movingSurface = mapSurface.surface;
+		nri_scene::SurfaceRef stationarySurface = mapSurface.surface;
+		movingSurface.temporal.occurrenceId = movingSurfaceSortsFirst ? 100u : 200u;
+		stationarySurface.temporal.occurrenceId = movingSurfaceSortsFirst ? 200u : 100u;
+		stationarySurface.temporal.topologyKey ^= 0x9e3779b97f4a7c15ull;
+		for (auto& vertex : stationarySurface.vertices) vertex.position[0] += 32.0f;
+		nri_scene::SceneView mixedSeed;
+		mixedSeed.opaqueWalls.push_back(movingSurface);
+		mixedSeed.opaqueWalls.push_back(stationarySurface);
+		NRIMapMotionHistory mixedHistory;
+		mixedHistory.ApplyCommitted(mixedSeed, 3u);
+		mixedHistory.BeginStage(1u, 3u);
+		if (!mixedHistory.StagePublishedView(mixedSeed)) return false;
+		mixedHistory.FinalizeStage();
+		if (!mixedHistory.CommitSubmitted(1u)) return false;
+
+		nri_scene::SceneView mixedMoved = mixedSeed;
+		for (auto& vertex : mixedMoved.opaqueWalls[0].vertices) vertex.position[1] += 2.0f;
+		mixedHistory.ApplyCommitted(mixedMoved, 3u);
+		mixedHistory.BeginStage(2u, 3u);
+		if (!mixedHistory.StagePublishedView(mixedMoved)) return false;
+		mixedHistory.FinalizeStage();
+		if (!mixedHistory.CommitSubmitted(2u) || !mixedHistory.NeedsSettle(4u)) return false;
+
+		// Republishing the moved payload without the required resident refresh
+		// must preserve settlement even though current positions are unchanged.
+		mixedHistory.BeginStage(3u, 3u);
+		if (!mixedHistory.StagePublishedView(mixedMoved)) return false;
+		mixedHistory.FinalizeStage();
+		if (!mixedHistory.CommitSubmitted(3u) || !mixedHistory.NeedsSettle(4u)) return false;
+
+		nri_scene::SceneView mixedSettled = mixedMoved;
+		mixedHistory.ApplyCommitted(mixedSettled, 3u);
+		mixedHistory.BeginStage(4u, 3u);
+		if (!mixedHistory.StagePublishedView(mixedSettled)) return false;
+		mixedHistory.FinalizeStage();
+		return mixedHistory.CommitSubmitted(4u) && !mixedHistory.NeedsSettle(4u);
+	};
+	if (!validateMixedChunkSettle(true) || !validateMixedChunkSettle(false))
+		return fail("mixed-surface chunk settlement was order-dependent");
 	if (failureReason != nullptr) failureReason->clear();
 	return true;
 }
