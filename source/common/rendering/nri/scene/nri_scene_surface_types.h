@@ -82,9 +82,14 @@ struct TemporalSurfaceMetadata
 	uint64_t topologyKey = 0;
 	uint32_t generation = 0;
 	uint32_t historyAge = 0;
+	// Build wall V coordinates are anchored by referenceHeight + position.y.
+	// Preserve that material-space anchor so moving clip boundaries do not get
+	// mistaken for motion of the wall texture itself.
+	float materialVerticalReference = 0.0f;
 	MotionValidityReason reason = MotionValidityReason::UnsupportedSource;
 	bool identityValid = false;
 	bool correspondenceValid = false;
+	bool materialVerticalReferenceValid = false;
 };
 
 struct SurfaceProvenance

@@ -153,6 +153,14 @@ bool BuildMapTemporalSurfacePayload(
 	outPayload.generation = surface.temporal.generation;
 	outPayload.chunkIndex = surface.provenance.mapChunkIndex >= 0 ?
 		(uint32_t)surface.provenance.mapChunkIndex : UINT32_MAX;
+	if (surface.temporal.materialVerticalReferenceValid &&
+		!std::isfinite(surface.temporal.materialVerticalReference))
+	{
+		outReason = MotionValidityReason::CurrentNonFinite;
+		return false;
+	}
+	outPayload.materialVerticalReference = surface.temporal.materialVerticalReference;
+	outPayload.materialVerticalReferenceValid = surface.temporal.materialVerticalReferenceValid;
 	outPayload.provenance = surface.provenance;
 	outPayload.corners.reserve(uniqueCorners.size());
 	for (const auto& entry : uniqueCorners)
@@ -186,6 +194,27 @@ bool ApplyMapTemporalSurfacePayload(
 	{
 		return false;
 	}
+	if (previous.materialVerticalReferenceValid != current.temporal.materialVerticalReferenceValid)
+	{
+		outReason = MotionValidityReason::TopologyMismatch;
+		return false;
+	}
+	float materialVerticalDelta = 0.0f;
+	if (previous.materialVerticalReferenceValid)
+	{
+		if (!std::isfinite(previous.materialVerticalReference))
+		{
+			outReason = MotionValidityReason::PreviousNonFinite;
+			return false;
+		}
+		if (!std::isfinite(current.temporal.materialVerticalReference))
+		{
+			outReason = MotionValidityReason::CurrentNonFinite;
+			return false;
+		}
+		materialVerticalDelta =
+			current.temporal.materialVerticalReference - previous.materialVerticalReference;
+	}
 
 	for (CapturedVertex& vertex : current.vertices)
 	{
@@ -198,6 +227,18 @@ bool ApplyMapTemporalSurfacePayload(
 			return false;
 		}
 		std::memcpy(vertex.prevPosition, found->position, sizeof(vertex.prevPosition));
+		if (previous.materialVerticalReferenceValid)
+		{
+			// At a fixed wall UV, referenceHeight + renderer-space Y is
+			// invariant. Reconstruct the previous material point from that
+			// invariant instead of following a top/bottom clip corner.
+			vertex.prevPosition[1] = vertex.position[1] + materialVerticalDelta;
+			if (!std::isfinite(vertex.prevPosition[1]))
+			{
+				outReason = MotionValidityReason::PreviousNonFinite;
+				return false;
+			}
+		}
 	}
 	outReason = MotionValidityReason::Valid;
 	return true;
@@ -253,6 +294,35 @@ bool RunNRIMapMotionCorrespondenceSelfTests(std::string* failureReason)
 	PTMapTemporalSurfacePayload duplicatePayload;
 	if (BuildMapTemporalSurfacePayload(duplicate, duplicatePayload, reason))
 		return fail("ambiguous duplicate corner accepted");
+
+	SurfaceRef clippedWall = mapSurface.surface;
+	clippedWall.temporal.materialVerticalReferenceValid = true;
+	clippedWall.temporal.materialVerticalReference = 10.0f;
+	clippedWall.vertices[0].position[1] = -10.0f;
+	clippedWall.vertices[1].position[1] = -2.0f;
+	clippedWall.vertices[2].position[1] = -2.0f;
+	clippedWall.vertices[3].position[1] = -10.0f;
+	PTMapTemporalSurfacePayload clippedPayload;
+	if (!BuildMapTemporalSurfacePayload(clippedWall, clippedPayload, reason))
+		return fail("wall material-anchor payload build failed");
+	SurfaceRef clippedCurrent = clippedWall;
+	clippedCurrent.vertices[0].position[1] = -6.0f;
+	clippedCurrent.vertices[3].position[1] = -6.0f;
+	if (!ApplyMapTemporalSurfacePayload(clippedPayload, clippedCurrent, reason))
+		return fail("wall clip-boundary correspondence failed");
+	for (const CapturedVertex& vertex : clippedCurrent.vertices)
+		if (vertex.prevPosition[1] != vertex.position[1])
+			return fail("fixed wall material inherited clip-boundary motion");
+
+	SurfaceRef liftedCurrent = clippedWall;
+	liftedCurrent.temporal.materialVerticalReference = 14.0f;
+	for (CapturedVertex& vertex : liftedCurrent.vertices) vertex.position[1] -= 4.0f;
+	if (!ApplyMapTemporalSurfacePayload(clippedPayload, liftedCurrent, reason))
+		return fail("moving wall material-anchor correspondence failed");
+	for (const CapturedVertex& vertex : liftedCurrent.vertices)
+		if (vertex.prevPosition[1] != vertex.position[1] + 4.0f)
+			return fail("moving wall material did not receive uniform vertical motion");
+
 	moved.temporal.topologyKey++;
 	if (ApplyMapTemporalSurfacePayload(payload, moved, reason) || reason != MotionValidityReason::TopologyMismatch) return fail("topology mismatch accepted");
 	if (failureReason != nullptr) failureReason->clear();

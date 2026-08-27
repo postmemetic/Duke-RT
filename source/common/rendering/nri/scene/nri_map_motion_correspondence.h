@@ -20,6 +20,8 @@ struct PTMapTemporalSurfacePayload
 	uint64_t topologyKey = 0;
 	uint32_t generation = 0;
 	uint32_t chunkIndex = UINT32_MAX;
+	float materialVerticalReference = 0.0f;
+	bool materialVerticalReferenceValid = false;
 	SurfaceProvenance provenance;
 	std::vector<PTMapTemporalCorner> corners;
 };

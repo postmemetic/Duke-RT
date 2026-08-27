@@ -455,6 +455,9 @@ namespace
 		outSurface.chunkIndex = (uint32_t)chunkIndex;
 		outSurface.surface.material = MakeMaterialRef(desc.texture, desc.palette, desc.shade, desc.alpha, desc.materialFlags);
 		FillWallProvenance(outSurface.surface.provenance, desc, chunkIndex);
+		outSurface.surface.temporal.materialVerticalReference = desc.referenceHeight;
+		outSurface.surface.temporal.materialVerticalReferenceValid =
+			desc.texture != nullptr && desc.refWall != nullptr && std::isfinite(desc.referenceHeight);
 		outSurface.surface.vertices.reserve(4);
 		AppendWallVertex(outSurface.surface, quad.x1, quad.zBottom[0], quad.y1, quad.texcoords[PTWallTexCoord_LowerLeft], 0u);
 		AppendWallVertex(outSurface.surface, quad.x1, quad.zTop[0], quad.y1, quad.texcoords[PTWallTexCoord_UpperLeft], 1u);

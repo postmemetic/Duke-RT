@@ -35,6 +35,10 @@ bool NRIMapMotionHistory::PayloadEqual(
 {
 	if (a.occurrenceId != b.occurrenceId || a.topologyKey != b.topologyKey ||
 		a.generation != b.generation || a.chunkIndex != b.chunkIndex ||
+		a.materialVerticalReferenceValid != b.materialVerticalReferenceValid ||
+		(a.materialVerticalReferenceValid &&
+			std::memcmp(&a.materialVerticalReference, &b.materialVerticalReference,
+				sizeof(a.materialVerticalReference)) != 0) ||
 		a.corners.size() != b.corners.size())
 	{
 		return false;
