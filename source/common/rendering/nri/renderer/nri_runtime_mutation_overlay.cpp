@@ -1805,11 +1805,14 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			normalizedDragged = false;
 		}
 		const bool motionSettleRequested = mMapMotionHistory.NeedsSettle(mapChunk.chunkIndex);
-		if (motionSettleRequested && normalizedReasonMask == nri_scene::PTMapChunkMutationReason_None)
+		if (motionSettleRequested)
 		{
 			// Reuse the structural resident refresh lane for the one required
-			// post-motion upload. History consumes this only after QueueSubmit.
-			normalizedReasonMask = nri_scene::PTMapChunkMutationReason_SectionDirty;
+			// post-motion upload. Keep the structural reason even when a material
+			// change coincides with settlement; otherwise the material-only fast
+			// path may preserve the stale resident vertex payload. History consumes
+			// this only after QueueSubmit.
+			normalizedReasonMask |= nri_scene::PTMapChunkMutationReason_SectionDirty;
 			normalizedSectionDirtyCount = std::max(normalizedSectionDirtyCount, 1u);
 		}
 		replacement.reasonMask = normalizedReasonMask;
@@ -2839,7 +2842,13 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		const bool structuralExcludeStaticFlip =
 			useOverlayReplacementState &&
 			replacement.excludeStaticChunk != desiredExcludeStaticChunk;
-		bool effectiveForceTopologyInvalidation = forceTopologyInvalidation;
+		// A settle request changes only the temporal half of resident vertices:
+		// authored positions and exact-geometry signatures are intentionally
+		// unchanged. Force that one refresh through the structural upload lane so
+		// the material/animation sync-skip paths cannot retain stale prevPosition
+		// data indefinitely after a mover stops.
+		bool effectiveForceTopologyInvalidation =
+			forceTopologyInvalidation || motionSettleRequested;
 		bool effectiveStructuralReplacementDelta = structuralReplacementDelta;
 		if (forceTopologyInvalidation)
 		{
