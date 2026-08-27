@@ -342,7 +342,7 @@ void RecordMotionAudit(
 	uint currentProjectionReason,
 	uint previousProjectionReason)
 {
-	if (!TraceShaderStatsEnabled())
+	if (!MotionAuditStatsEnabled())
 	{
 		return;
 	}

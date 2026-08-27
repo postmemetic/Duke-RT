@@ -240,6 +240,15 @@ bool TraceShaderStatsEnabled()
 #endif
 }
 
+// The center-pixel motion audit is a bounded, explicitly requested validation
+// path. Keep it available in production shaders without enabling the much
+// broader diagnostic counter instrumentation compiled behind
+// NRI_SHADER_DIAGNOSTICS.
+bool MotionAuditStatsEnabled()
+{
+	return (gTraceConstants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u;
+}
+
 void RecordSurfaceProbePrimaryPixel(uint2 pixelPosition, HitData hit, MaterialData material)
 {
 	if (!TraceShaderStatsEnabled() ||
