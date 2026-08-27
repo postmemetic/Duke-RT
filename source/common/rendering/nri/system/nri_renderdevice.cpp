@@ -1985,6 +1985,29 @@ CCMD(nri_ptmotion_selftest)
 		rigidFailure.empty() ? "pass" : rigidFailure.c_str());
 }
 
+// Deterministic input hook for motion-vector repro saves. Normal Windows
+// automation cannot drive Raze's Raw Input keyboard path, so validation
+// scripts need an explicit press/release pair that still traverses the normal
+// gamefunc_Open input state and gameplay activation code.
+CCMD(nri_ptmotion_test_use)
+{
+	if (argv.argc() != 2 || (argv[1][0] != '0' && argv[1][0] != '1') || argv[1][1] != '\0')
+	{
+		Printf("Usage: nri_ptmotion_test_use <0|1>\n");
+		return;
+	}
+	const bool pressed = argv[1][0] == '1';
+	if (pressed)
+	{
+		buttonMap.ButtonSet(gamefunc_Open);
+	}
+	else
+	{
+		buttonMap.ClearButton(gamefunc_Open);
+	}
+	Printf("NRI PT motion test input: use=%s tic=%d\n", pressed ? "down" : "up", gametic);
+}
+
 // Compact diagnostic command used by the deterministic motion harness. A
 // single command keeps a per-frame arbitrary-pixel GPU probe replay below the
 // Windows process command-line limit while still going through the validated
