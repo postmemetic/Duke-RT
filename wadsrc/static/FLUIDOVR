@@ -1,0 +1,32 @@
+// Initial appearance-first fluid bindings for the classic Duke material
+// families. Mounted mods may replace these rule IDs or add map-local rules.
+FLUIDOVR
+{
+	material "duke.water.flat"
+	{
+		tilefamily 336
+		surfaceclass flat
+		profile "water.waves"
+	}
+
+	material "duke.slime.flat"
+	{
+		tilefamily 200
+		surfaceclass flat
+		profile "sludge.viscous"
+	}
+
+	material "duke.lava.flat"
+	{
+		tilefamily 1082
+		surfaceclass flat
+		profile "lava"
+	}
+
+	material "duke.falling-sheet.wall"
+	{
+		tilefamily 889
+		surfaceclass wall
+		profile "water.fall"
+	}
+}
