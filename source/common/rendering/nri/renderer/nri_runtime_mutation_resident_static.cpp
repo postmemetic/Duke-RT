@@ -89,6 +89,7 @@ namespace
             hash = ResidentStaticHashCombine64(hash, (uint64_t)material.emissiveMode);
             hash = ResidentStaticHashCombine64(hash, (uint64_t)material.emissiveTextureIndex);
             hash = ResidentStaticHashCombine64(hash, (uint64_t)ResidentStaticFloatBits(material.alpha));
+            hash = ResidentStaticHashCombine64(hash, (uint64_t)material.fluidBindingIndex);
         }
 
         for (const auto& metadata : materials.lightMetadata)

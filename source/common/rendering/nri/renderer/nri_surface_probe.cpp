@@ -323,6 +323,8 @@ void NRIRenderer::UpdateSurfaceProbe(
 			materialData.paletteIndex == metadata.paletteIndex;
 		result.textureId = metadata.textureId;
 		result.baseTextureId = metadata.baseTextureId != 0 ? metadata.baseTextureId : metadata.textureId;
+		result.authoredTextureId = metadata.authoredTextureId;
+		result.fluidBindingIndex = materialData.fluidBindingIndex;
 		result.materialClass = metadata.materialClass;
 		result.lightLevel = metadata.lightLevel;
 		result.alpha = metadata.alpha;
@@ -534,6 +536,24 @@ void NRIRenderer::UpdateSurfaceProbe(
 	FString materialTextureName;
 	int32_t materialLegacyTile = -1;
 	ResolveSurfaceProbeTextureDebugInfo(result.baseTextureId, materialTextureName, materialLegacyTile);
+	FString authoredTextureName;
+	int32_t authoredLegacyTile = -1;
+	ResolveSurfaceProbeTextureDebugInfo(result.authoredTextureId, authoredTextureName, authoredLegacyTile);
+	int32_t authoredFamilyTile = authoredLegacyTile;
+	if (result.authoredTextureId != UINT32_MAX && authoredLegacyTile >= 0)
+	{
+		const auto& authoredPicanm = GetExtInfo(FSetTextureID((int)result.authoredTextureId)).picanm;
+		if (authoredPicanm.type() == PICANM_ANIMTYPE_BACK)
+		{
+			authoredFamilyTile -= (int32_t)authoredPicanm.num;
+		}
+	}
+	Printf("NRI PT fluid probe: authored_texid=%u authored_tile=%d authored_family=%d authored_texture=%s binding=%u\n",
+		result.authoredTextureId != UINT32_MAX ? result.authoredTextureId : 0u,
+		authoredLegacyTile,
+		authoredFamilyTile,
+		authoredTextureName.GetChars(),
+		result.fluidBindingIndex);
 	Printf("NRI PT surface probe: hit source=%s drawlist=%s owner=%s data_source=%s chunk=%d gate_visible=%s flat_drawlist_visible=%s static_resident=%s static_tlas_instanced=%s static_probe_included=%s chunk_replaced=%s chunk_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u local_space=%d portal_graph=%d sector=%d wall=%d nextsector=%d actor=%d cstat=0x%x primitive=%u material=%u cpu_tex=%u metadata_tex=%u gpu_tex=%u expected_gpu_tex=%u cpu_palette=%u metadata_palette=%u gpu_palette=%u gpu_material_valid=%s cpu_metadata_match=%s gpu_palette_match=%s gpu_texture_match=%s stable_texture_slots=%s texture_slot_revision=%llu material_generation=%llu material_buffer_hash=%llu shader_valid=%s shader_hit_match=%s shader_frame=%llu shader_source=%u shader_instance=%u shader_primitive=%u shader_material=%u shader_tex=%u shader_palette=%u shader_flags=0x%x shader_lighting=0x%x texid=%u legacy_tile=%d texture_name=%s material_texid=%u material_legacy_tile=%d material_texture_name=%s distance=%.2f pos=(%.2f, %.2f, %.2f) normal=(%.3f, %.3f, %.3f) flags=0x%x indexed=%s fullbright=%s flat=%s sprite=%s mirror=%s sky=%s portal=%s facing_billboard=%s point_sampled=%s tex_fullbright=%s glowing=%s auto_glow=%s glowmap=%s normalmap=%s metallic=%s roughness=%s normal_tex=%u metallic_tex=%u roughness_tex=%u metalness_hint=%.3f roughness_hint=%.3f material_class=%u emissive_mode=%s emissive_tex=%u light_surface=%s light_mat=%u emissive_surface=%s emissive_prims=%u emissive_hit=%s emissive_flags=0x%x emissive_rule=%u emissive_override=%u emissive_sector=%d sector_scale=%.3f sector_reach=%.3f sector_applied=%s emissive_area=%.2f emissive_power=%.3f emissive_sample_weight=%.3f emissive_pdf=%.6f emissive_intensity=%.3f material_response=%s material_scale=%.3f light=%.3f alpha=%.3f avg=(%.2f, %.2f, %.2f) emissive=(%.2f, %.2f, %.2f) glow=(%.2f, %.2f, %.2f)\n",
 		nri_diag::GetSurfaceSourceTypeName(result.provenance.sourceType),
 		nri_diag::GetDrawListTypeName(result.provenance.drawListType),

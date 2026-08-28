@@ -1,6 +1,7 @@
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
+#include "Include/FluidSurface.hlsli"
 #include "Include/AnalyticLightSampling.hlsli"
 #include "Include/DirectionalLightSampling.hlsli"
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
@@ -393,6 +394,21 @@ float3 ResolvePrimaryFootprintVertexPosition(HitData hit, float3 localPosition)
 			GetSceneInstanceData(hit.instanceId), localPosition, false);
 	}
 	return localPosition;
+}
+
+float ResolvePrimaryWorldFootprint(HitData hit, float3 viewRayDirection)
+{
+	if (gTraceConstants.RenderHeight == 0u || hit.distance <= 0.0 || !isfinite(hit.distance))
+	{
+		return 0.0;
+	}
+	const float3 geometricNormal = ResolveHitGeometricNormal(hit, false);
+	const float viewCosine = abs(dot(
+		FluidSafeNormalize(geometricNormal, float3(0.0, 0.0, 1.0)),
+		FluidSafeNormalize(-viewRayDirection, geometricNormal)));
+	const float primaryPixelCone = 2.0 * abs(gTraceConstants.TanHalfFovY) *
+		hit.distance / (float)gTraceConstants.RenderHeight;
+	return primaryPixelCone / max(viewCosine, 0.125);
 }
 
 bool TryResolvePrimaryBaseColorLod(
@@ -1686,6 +1702,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		bool smokeForeground = false;
 		float primaryBaseColorLod = 0.0;
 		uint primaryBaseColorMipCount = 0u;
+		FluidSurfaceEvaluation fluidSurface = (FluidSurfaceEvaluation)0;
 		if (bootstrapFlat)
 		{
 			const float primitiveHash = (float)(hit.primitiveIndex % 31u) / 30.0;
@@ -1705,6 +1722,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				hit.dataSource,
 				hit.uv,
 				primaryBaseColorLod);
+			TryEvaluateFluidSurface(
+				material,
+				hit.position,
+				ResolveHitGeometricNormal(hit, false),
+				visibleRayDirection,
+				albedo.rgb,
+				ResolvePrimaryWorldFootprint(hit, visibleRayDirection),
+				!directSceneTrace && !plainMirrorPrimaryReplacement,
+				fluidSurface);
+			if (fluidSurface.active != 0u)
+			{
+				albedo.rgb = fluidSurface.baseColor;
+				guideNormal = fluidSurface.shadingNormal;
+			}
 			RecordSurfaceProbePrimaryPixel(pixelPos, hit, material);
 			smokeForeground = (material.lightingFlags & MATERIAL_LIGHTING_FLAG_SMOKE_FOREGROUND) != 0u;
 			const bool fullbright = (material.flags & MATERIAL_FLAG_FULLBRIGHT) != 0;
@@ -1719,8 +1750,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				TraceShaderStatAdd(TRACE_STAT_MATERIAL_EMISSIVE, 1u);
 			}
 			const bool receivesShadow = MaterialReceivesShadow(material);
-			roughness = GetSurfaceRoughness(material, hit.uv);
-			const float metalness = GetSurfaceMetalness(material, hit.uv);
+			roughness = fluidSurface.active != 0u ?
+				fluidSurface.roughness : GetSurfaceRoughness(material, hit.uv);
+			const float metalness = fluidSurface.active != 0u ?
+				0.0 : GetSurfaceMetalness(material, hit.uv);
 			const float3 diffuseAlbedo = GetSurfaceDiffuseColor(albedo.rgb, metalness);
 			const float materialID = GetSurfaceMaterialID(material);
 			if (bootstrapBaseColor)
@@ -1748,7 +1781,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const float3 directionalLightColor = GetDirectionalPlaceholderColor();
 				const float3 viewDir = normalize(-visibleRayDirection);
 				const float3 nrdViewDir = plainMirrorPrimaryReplacement ? normalize(-primaryRayDirection) : viewDir;
-				const float3 shadingNormal = ResolveViewFacingShadingNormal(material, hit.normal, viewDir);
+				const float3 shadingNormal = fluidSurface.active != 0u ?
+					fluidSurface.shadingNormal : ResolveViewFacingShadingNormal(material, hit.normal, viewDir);
 				float3 nrdDiffuseFactor = 1.0;
 				float3 nrdSpecularFactor = 1.0;
 				GetNrdPrimaryMaterialFactors(guideNormal, nrdViewDir, albedo.rgb, metalness, roughness, nrdDiffuseFactor, nrdSpecularFactor);
@@ -1762,13 +1796,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const float3 centerLightDir = normalize(gTraceConstants.LightDirection);
 				const float3 shadowSampleDir = directSceneTrace ? centerLightDir : SampleSunDirection(centerLightDir, pixelPos, gTraceConstants.FrameIndex);
 				const float3 shadowShadingNormal = ResolveLightFacingShadingNormal(material, shadingNormal, shadowSampleDir);
+				const float3 shadowBiasNormal = fluidSurface.active != 0u ?
+					FluidFaceCarrierNormalToDirection(fluidSurface.carrierNormal, shadowSampleDir) : shadowShadingNormal;
 				const float3 directionalShadingNormal = ResolveLightFacingShadingNormal(material, shadingNormal, centerLightDir);
 				float shadowHitDistance = 0.0;
 				if (useDirectionalLight && useDirectionalShadow && !directSceneTrace)
 				{
 					TraceShaderStatAdd(TRACE_STAT_DIRECTIONAL_SHADOW_TESTS, 1u);
 				}
-				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, shadowShadingNormal, shadowSampleDir, shadowHitDistance, spatialProbeTargetPixel)) : 0.0;
+				const float shadow = useDirectionalLight ? ((directSceneTrace || !useDirectionalShadow) ? 1.0 : ComputeSunShadow(hit.position, shadowBiasNormal, shadowSampleDir, shadowHitDistance, spatialProbeTargetPixel)) : 0.0;
 				if (useDirectionalLight && useDirectionalShadow && !directSceneTrace)
 				{
 					shadowPenumbra = SIGMA_FrontEnd_PackPenumbra(shadowHitDistance, GetDirectionalPlaceholderTanAngularSize());
@@ -1834,6 +1870,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					const float lightDistance = sqrt(lightDistanceSq);
 					const float3 runtimeLightDir = toSampledLight / lightDistance;
 					const float3 runtimeShadingNormal = ResolveLightFacingShadingNormal(material, shadingNormal, runtimeLightDir);
+					const float3 runtimeBiasNormal = fluidSurface.active != 0u ?
+						FluidFaceCarrierNormalToDirection(fluidSurface.carrierNormal, runtimeLightDir) : runtimeShadingNormal;
 					const float lambert = max(dot(runtimeShadingNormal, runtimeLightDir), 0.0);
 					if (lambert <= 0.0)
 					{
@@ -1845,7 +1883,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					{
 						TraceShaderStatAdd(TRACE_STAT_RUNTIME_SHADOW_RAYS, 1u);
 					}
-					const float runtimeShadow = (directSceneTrace || !receivesShadow || !runtimeLightCastsShadow) ? 1.0 : ComputePointLightShadow(hit.position, runtimeShadingNormal, runtimeLightDir, lightDistance, spatialProbeTargetPixel);
+					const float runtimeShadow = (directSceneTrace || !receivesShadow || !runtimeLightCastsShadow) ? 1.0 : ComputePointLightShadow(hit.position, runtimeBiasNormal, runtimeLightDir, lightDistance, spatialProbeTargetPixel);
 					if (runtimeShadow <= 0.0)
 					{
 						TraceShaderStatAdd(TRACE_STAT_RUNTIME_SHADOW_OCCLUDED, 1u);
@@ -1893,7 +1931,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					EvaluateSampledEmissiveLighting(
 						hit.position,
 						material,
-						shadingNormal,
+						fluidSurface.active != 0u ? fluidSurface.carrierNormal : shadingNormal,
 						viewDir,
 						albedo.rgb,
 						metalness,
@@ -1985,6 +2023,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				directEmission *= plainMirrorThroughput;
 				deferredDirectionalLighting *= plainMirrorThroughput;
 			}
+			directEmission += fluidSurface.emission;
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);
 		}
@@ -2017,6 +2056,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		const float4 motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
 		gMotionOutput[pixelPos] = motionOutput;
 		WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, ResolveHitGeometricNormal(hit, false), temporalValidityReason);
+		if (fluidSurface.active != 0u)
+		{
+			const float existingReactive = gTemporalReactiveOutput[pixelPos].x;
+			gTemporalReactiveOutput[pixelPos] = float4(
+				max(existingReactive, fluidSurface.reactive), 0.0, 0.0, 1.0);
+		}
 		RecordMotionAudit(
 			pixelPos,
 			hit,

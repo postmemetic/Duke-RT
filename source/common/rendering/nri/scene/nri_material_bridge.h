@@ -223,7 +223,11 @@ struct MaterialData
 	float emissiveMaskScale = 0.0f;
 	uint32_t emissiveMode = MaterialEmissiveMode_None;
 	float emissiveReserved = 0.0f;
+	uint32_t fluidBindingIndex = UINT32_MAX;
 };
+
+static_assert(sizeof(MaterialData) == 88u,
+	"MaterialData must match the GPU-facing HLSL contract.");
 
 struct MaterialLightingMetadata
 {
@@ -236,6 +240,7 @@ struct MaterialLightingMetadata
 	uint64_t roughnessContentKey = 0;
 	uint32_t textureId = 0;
 	uint32_t baseTextureId = 0;
+	uint32_t authoredTextureId = UINT32_MAX;
 	uint32_t textureIndex = 0;
 	uint32_t glowmapTextureIndex = UINT32_MAX;
 	uint32_t normalTextureIndex = UINT32_MAX;

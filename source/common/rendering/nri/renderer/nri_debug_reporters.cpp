@@ -130,6 +130,7 @@ namespace
 			hash = nri_scene::HashCombine64(hash, (uint64_t)material.emissiveMode);
 			hash = nri_scene::HashCombine64(hash, (uint64_t)material.emissiveTextureIndex);
 			hash = nri_scene::HashCombine64(hash, (uint64_t)CoherencyFloatBits(material.alpha));
+			hash = nri_scene::HashCombine64(hash, (uint64_t)material.fluidBindingIndex);
 		}
 
 		for (const auto& metadata : materials.lightMetadata)

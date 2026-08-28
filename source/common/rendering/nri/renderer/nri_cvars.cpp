@@ -215,6 +215,23 @@ CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
 CVAR(Bool, nri_ptwaitpresent, true, 0)
 
+// Session-only while the visually displaced fluid surface is being evaluated.
+// The renderer snapshots these into FluidFrameData so shaders never consume
+// console state or expand the validated trace root constants.
+CVAR(Bool, nri_ptfluidvirtualheight, false, 0)
+
+CUSTOM_CVAR(Int, nri_ptfluidvirtualheightsteps, 6, 0)
+{
+	if (self < 2)
+	{
+		self = 2;
+	}
+	else if (self > 12)
+	{
+		self = 12;
+	}
+}
+
 CVAR(Bool, nri_ptslowdowntrace, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Int, nri_pttraceframes, 0, 0)

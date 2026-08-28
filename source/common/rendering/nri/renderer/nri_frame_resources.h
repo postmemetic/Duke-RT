@@ -100,7 +100,11 @@ struct SceneUploadBufferRingSlot
 	NRIBufferResource indexBuffer;
 	NRIBufferResource primitiveBuffer;
 	NRIBufferResource materialBuffer;
+	NRIBufferResource fluidBindingBuffer;
+	NRIBufferResource fluidFrameBuffer;
 	NRIAccelerationStructureResource dynamicBottomLevelAS;
+	SceneBufferDebugStats fluidBindingStats = { "FluidBinding" };
+	SceneBufferDebugStats fluidFrameStats = { "FluidFrame" };
 	std::vector<uint8_t> vertexMirror;
 	std::vector<uint8_t> indexMirror;
 	std::vector<uint8_t> primitiveMirror;

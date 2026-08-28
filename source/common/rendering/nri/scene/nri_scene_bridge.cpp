@@ -6652,10 +6652,11 @@ bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
 	}
 }
 
-MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags)
+MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags, int32_t authoredTextureId)
 {
 	MaterialRef material = {};
 	material.texture = texture;
+	material.authoredTextureId = authoredTextureId;
 	material.palette = palette;
 	material.shade = shade;
 	material.alpha = alpha;

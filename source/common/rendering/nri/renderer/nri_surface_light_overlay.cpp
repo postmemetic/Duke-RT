@@ -193,6 +193,7 @@ namespace
 		{
 			return left.texture == right.texture &&
 				left.emissiveSourceTexture == right.emissiveSourceTexture &&
+				left.authoredTextureId == right.authoredTextureId &&
 				left.palette == right.palette && left.shade == right.shade &&
 				left.alpha == right.alpha && left.flags == right.flags;
 		};

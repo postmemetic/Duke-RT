@@ -465,7 +465,7 @@ struct ActorSpriteSceneCaptureResult
 };
 
 SceneDebugStats CollectDebugStats(HWDrawInfo& di);
-MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags);
+MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags, int32_t authoredTextureId = -1);
 void UpdateSceneSky(SceneView& outView, FGameTexture* texture, uint32_t fallbackColor, PTSkySourceType sourceType);
 void ResetSkyPerfStats();
 SkyPerfStats ConsumeSkyPerfStats();

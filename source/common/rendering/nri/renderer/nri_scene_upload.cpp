@@ -3243,6 +3243,11 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->sectorLightBuffer : renderer.mSectorLightBuffer;
 	const NRIBufferResource& sceneInstanceDescriptorBuffer =
 		sceneInstanceUsesFrameSlot ? sceneDataSnapshot->sceneInstanceBuffer : renderer.mSceneInstanceBuffer;
+	SceneUploadBufferRingSlot& fluidUploadSlot = renderer.GetCurrentSceneUploadBufferRingSlot();
+	if (!renderer.UpdateFluidSurfaceResources(fluidUploadSlot))
+	{
+		return false;
+	}
 	{
 		ScopedPtPerfTimer descriptorBuildTimer(renderer.mLastPerfShellTraceStats.sceneDataSetDescriptorBuildMs);
 		renderer.mSceneDataDescriptors.fill(nullptr);
@@ -3276,6 +3281,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSceneDataDescriptors[25] = renderer.mEmissiveMaterialResponseBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT] = spatialAbsenceDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT] = spatialAbsenceTypedDescriptorBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_FLUID_BINDING_SLOT] = fluidUploadSlot.fluidBindingBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_FLUID_FRAME_SLOT] = fluidUploadSlot.fluidFrameBuffer.shaderView;
 	}
 
 	{

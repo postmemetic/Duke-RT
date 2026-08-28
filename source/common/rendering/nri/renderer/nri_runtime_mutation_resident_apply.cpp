@@ -37,51 +37,12 @@ namespace
 
 	static FTextureID ResolveAuthoredTextureIdForStaticMapSurface(const nri_scene::PTMapSurface& surface)
 	{
-		switch (surface.kind)
+		const int32_t authoredTextureId = surface.surface.material.authoredTextureId;
+		if (authoredTextureId >= 0)
 		{
-		case nri_scene::PTMapSurfaceKind::Floor:
-		{
-			const int32_t sectorIndex = surface.surface.provenance.sectorIndex;
-			return sectorIndex >= 0 && (unsigned)sectorIndex < sector.Size() ? sector[(unsigned)sectorIndex].floortexture : FNullTextureID();
+			return FSetTextureID(authoredTextureId);
 		}
-		case nri_scene::PTMapSurfaceKind::Ceiling:
-		{
-			const int32_t sectorIndex = surface.surface.provenance.sectorIndex;
-			return sectorIndex >= 0 && (unsigned)sectorIndex < sector.Size() ? sector[(unsigned)sectorIndex].ceilingtexture : FNullTextureID();
-		}
-		case nri_scene::PTMapSurfaceKind::WallOneSided:
-		{
-			const int32_t wallIndex = surface.surface.provenance.wallIndex;
-			if (wallIndex < 0 || (unsigned)wallIndex >= wall.Size())
-			{
-				return FNullTextureID();
-			}
-			const walltype& wal = wall[(unsigned)wallIndex];
-			return ((wal.cstat & CSTAT_WALL_1WAY) != 0 && wal.nextwall != -1) ? wal.overtexture : wal.walltexture;
-		}
-		case nri_scene::PTMapSurfaceKind::WallUpper:
-		case nri_scene::PTMapSurfaceKind::WallMiddle:
-		{
-			const int32_t wallIndex = surface.surface.provenance.wallIndex;
-			return wallIndex >= 0 && (unsigned)wallIndex < wall.Size() ? wall[(unsigned)wallIndex].overtexture : FNullTextureID();
-		}
-		case nri_scene::PTMapSurfaceKind::WallLower:
-		{
-			const int32_t wallIndex = surface.surface.provenance.wallIndex;
-			if (wallIndex < 0 || (unsigned)wallIndex >= wall.Size())
-			{
-				return FNullTextureID();
-			}
-			const walltype& wal = wall[(unsigned)wallIndex];
-			if ((wal.cstat & CSTAT_WALL_BOTTOM_SWAP) != 0 && wal.nextwall >= 0 && (unsigned)wal.nextwall < wall.Size())
-			{
-				return wall[(unsigned)wal.nextwall].walltexture;
-			}
-			return wal.walltexture;
-		}
-		default:
-			return FNullTextureID();
-		}
+		return FNullTextureID();
 	}
 
 	static bool IsAnimatedStaticMapSurfaceCandidate(const nri_scene::PTMapSurface& surface)

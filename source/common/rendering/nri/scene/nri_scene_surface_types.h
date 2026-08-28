@@ -112,6 +112,9 @@ struct MaterialRef
 {
 	FGameTexture* texture = nullptr;
 	FGameTexture* emissiveSourceTexture = nullptr;
+	// Untranslated map-authored identity. Unlike texture, this does not advance
+	// when Build resolves an animated tile for the current gameplay tic.
+	int32_t authoredTextureId = -1;
 	int palette = 0;
 	int shade = 0;
 	float alpha = 1.0f;

@@ -5,10 +5,12 @@
 #include "nri_runtime_mutation_trace.h"
 #include "../system/nri_renderdevice.h"
 #include "../scene/nri_hash.h"
+#include "../scene/nri_fluid_material_binding.h"
 
 #include "c_cvars.h"
 #include "coreactor.h"
 #include "lightoverlay.h"
+#include "fluidoverlay.h"
 #include "texinfo.h"
 
 #include <algorithm>
@@ -756,6 +758,7 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 	AccumulateMaterialTextureAttribution(
 		materialTraceEntry,
 		GatherMaterialTextureAttribution(outMaterials.materials, outMaterials.lightMetadata, outMaterials.textures.size()));
+	nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), outMaterials);
 	TraceActorSpriteMaterialAssignments(sceneView, outMaterials, traceLabel);
 }
 
@@ -1182,7 +1185,8 @@ bool nri_material_policy::MaterialDataEqual(
 		a.emissiveIntensity == b.emissiveIntensity &&
 		a.emissiveMaskScale == b.emissiveMaskScale &&
 		a.emissiveMode == b.emissiveMode &&
-		a.emissiveReserved == b.emissiveReserved;
+		a.emissiveReserved == b.emissiveReserved &&
+		a.fluidBindingIndex == b.fluidBindingIndex;
 }
 
 bool nri_material_policy::MaterialDataVectorEqual(

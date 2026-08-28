@@ -109,6 +109,7 @@ namespace nri_runtime_mutation
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)material.emissiveMode);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)material.emissiveTextureIndex);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(material.alpha));
+			hash = RuntimeMutationHashCombine64(hash, (uint64_t)material.fluidBindingIndex);
 		}
 
 		for (const auto& metadata : materials.lightMetadata)
@@ -163,6 +164,7 @@ namespace nri_runtime_mutation
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(material.emissiveMaskScale));
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)material.emissiveMode);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(material.emissiveReserved));
+			hash = RuntimeMutationHashCombine64(hash, (uint64_t)material.fluidBindingIndex);
 		}
 
 		for (const auto& metadata : materials.lightMetadata)
@@ -483,6 +485,7 @@ namespace nri_runtime_mutation
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)(surface.provenance.actorIndex + 1));
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)surface.provenance.cstat);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)surface.material.flags);
+			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)(surface.material.authoredTextureId + 1));
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.material.palette);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.material.shade);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(surface.material.alpha));

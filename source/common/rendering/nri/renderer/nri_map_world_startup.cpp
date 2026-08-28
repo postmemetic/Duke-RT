@@ -44,6 +44,7 @@ namespace
 			a.vertices.size() != b.vertices.size() ||
 			a.material.flags != b.material.flags ||
 			a.material.texture != b.material.texture ||
+			a.material.authoredTextureId != b.material.authoredTextureId ||
 			a.material.palette != b.material.palette ||
 			a.provenance.sourceType != b.provenance.sourceType ||
 			a.provenance.sectorIndex != b.provenance.sectorIndex ||

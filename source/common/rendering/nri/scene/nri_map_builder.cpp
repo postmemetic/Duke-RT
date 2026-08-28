@@ -69,6 +69,7 @@ namespace
 		sectortype* frontSector = nullptr;
 		sectortype* backSector = nullptr;
 		FGameTexture* texture = nullptr;
+		int32_t authoredTextureId = -1;
 		int shade = 0;
 		int palette = 0;
 		float alpha = 1.0f;
@@ -453,7 +454,7 @@ namespace
 		outSurface.key.primary = desc.wall != nullptr ? (uint32_t)wall.IndexOf(desc.wall) : UINT32_MAX;
 		outSurface.key.secondary = (uint32_t)desc.bandKind;
 		outSurface.chunkIndex = (uint32_t)chunkIndex;
-		outSurface.surface.material = MakeMaterialRef(desc.texture, desc.palette, desc.shade, desc.alpha, desc.materialFlags);
+		outSurface.surface.material = MakeMaterialRef(desc.texture, desc.palette, desc.shade, desc.alpha, desc.materialFlags, desc.authoredTextureId);
 		FillWallProvenance(outSurface.surface.provenance, desc, chunkIndex);
 		outSurface.surface.temporal.materialVerticalReference = desc.referenceHeight;
 		outSurface.surface.temporal.materialVerticalReferenceValid =
@@ -527,7 +528,9 @@ namespace
 		surface.key.primary = (uint32_t)sectionIndex;
 		surface.key.secondary = (uint32_t)plane;
 		surface.chunkIndex = chunk.chunkIndex;
-		surface.surface.material = MakeMaterialRef(texture, plane == 0 ? sec->floorpal : sec->ceilingpal, plane == 0 ? sec->floorshade : sec->ceilingshade, 1.0f, materialFlags);
+		const FTextureID authoredTextureId = plane == 0 ? sec->floortexture : sec->ceilingtexture;
+		surface.surface.material = MakeMaterialRef(texture, plane == 0 ? sec->floorpal : sec->ceilingpal, plane == 0 ? sec->floorshade : sec->ceilingshade, 1.0f, materialFlags,
+			authoredTextureId.isValid() ? authoredTextureId.GetIndex() : -1);
 		FillPlaneProvenance(surface.surface.provenance, sec, plane, sectionIndex, (int)chunk.chunkIndex, surface.surface.material.flags);
 		surface.surface.vertices.reserve((uint32_t)indices->Size());
 
@@ -646,6 +649,7 @@ namespace
 			desc.refWall = wal;
 			desc.frontSector = frontSector;
 			desc.texture = texture;
+			desc.authoredTextureId = tileNum.isValid() ? tileNum.GetIndex() : -1;
 			desc.shade = wal->shade;
 			desc.palette = wal->pal;
 			desc.materialFlags = (wal->cstat & CSTAT_WALL_1WAY) != 0 ? (MaterialFlag_OneWay | MaterialFlag_AlphaClip) : MaterialFlag_None;
@@ -691,6 +695,7 @@ namespace
 					desc.frontSector = frontSector;
 					desc.backSector = backSector;
 					desc.texture = texture;
+					desc.authoredTextureId = wal->walltexture.isValid() ? wal->walltexture.GetIndex() : -1;
 					desc.shade = wal->shade;
 					desc.palette = wal->pal;
 					desc.topLeft = frontCeilingLeft;
@@ -744,6 +749,7 @@ namespace
 					desc.frontSector = frontSector;
 					desc.backSector = backSector;
 					desc.texture = texture;
+					desc.authoredTextureId = wal->overtexture.isValid() ? wal->overtexture.GetIndex() : -1;
 					desc.shade = wal->shade;
 					desc.palette = wal->pal;
 					desc.materialFlags = MaterialFlag_AlphaClip;
@@ -795,6 +801,7 @@ namespace
 					desc.frontSector = frontSector;
 					desc.backSector = backSector;
 					desc.texture = texture;
+					desc.authoredTextureId = referenceWall->walltexture.isValid() ? referenceWall->walltexture.GetIndex() : -1;
 					desc.shade = referenceWall->shade;
 					desc.palette = referenceWall->pal;
 					desc.topLeft = adjustedBackFloorLeft;

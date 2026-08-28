@@ -164,6 +164,7 @@ namespace
 		uint64_t hash = HashOffset;
 		hash = HashValue(hash, textureIdentity);
 		hash = HashValue(hash, emissiveIdentity);
+		hash = HashValue(hash, material.authoredTextureId);
 		hash = HashValue(hash, material.palette);
 		hash = HashValue(hash, material.shade);
 		hash = HashValue(hash, alphaBits);

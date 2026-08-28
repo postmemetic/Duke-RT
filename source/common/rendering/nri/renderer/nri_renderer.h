@@ -2459,6 +2459,8 @@ private:
 		const nri_scene::GeometryData& geometry,
 		const std::vector<nri_scene::MaterialData>& materials,
 		const std::vector<SceneBufferUploadDomainSpan>* domainSpans = nullptr);
+	bool UpdateFluidSurfaceResources(SceneUploadBufferRingSlot& uploadSlot);
+	void SyncFluidSurfaceOverlayState();
 	bool BuildStaticMapAccelerationStructures();
 	bool BuildStaticMapAccelerationStructures(
 		StaticMapSceneCache& staticScene,
@@ -2930,6 +2932,12 @@ private:
 	std::vector<uint32_t> mCurrentVisibleChunkWords;
 	std::vector<uint32_t> mCurrentVisibleFlatPlaneWords;
 	uint32_t mLastResolvedLightOverlayGeneration = 0;
+	uint32_t mLastResolvedFluidOverlayGeneration = 0;
+	uint32_t mBoundFluidBindingCount = 0;
+	float mPreviousFluidGameplaySeconds = 0.0f;
+	bool mFluidTimeInitialized = false;
+	bool mFluidVirtualHeightStateInitialized = false;
+	bool mLastFluidVirtualHeightEnabled = false;
 	uint32_t mFrameIndex = 0;
 	uint64_t mMainTemporalSerial = 0;
 	uint64_t mPendingMainTemporalSerial = 0;

@@ -1762,6 +1762,10 @@ void NRIRenderer::Shutdown()
 	mWeaponEventBatch.Reset();
 	ResetMuzzleFlashOverlayState("renderer-shutdown");
 	mLastResolvedLightOverlayGeneration = 0;
+	mLastResolvedFluidOverlayGeneration = 0;
+	mBoundFluidBindingCount = 0;
+	mFluidTimeInitialized = false;
+	mFluidVirtualHeightStateInitialized = false;
 
 	if (mFrameBuffer == nullptr || mFrameBuffer->mDevice == nullptr)
 	{
@@ -1937,6 +1941,10 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mWeaponEventBatch.Reset();
 	ResetMuzzleFlashOverlayState("level-unload");
 	mLastResolvedLightOverlayGeneration = 0;
+	mLastResolvedFluidOverlayGeneration = 0;
+	mBoundFluidBindingCount = 0;
+	mFluidTimeInitialized = false;
+	mFluidVirtualHeightStateInitialized = false;
 
 	ClearRuntimePointLights();
 	ClearRuntimeDebugSpheres();
@@ -2595,6 +2603,8 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 		accumulateBuffer(slot.indexBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.primitiveBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.materialBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.fluidBindingBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.fluidFrameBuffer, telemetry.sceneBufferBytes);
 		accumulateAs(slot.dynamicBottomLevelAS, telemetry.accelerationStructureBytes);
 	}
 	accumulateBuffer(mStaticVertexBuffer, telemetry.sceneBufferBytes);

@@ -236,6 +236,8 @@ void NRIRenderer::DestroySceneBuffers()
 		DestroyBufferResource(slot.indexBuffer);
 		DestroyBufferResource(slot.primitiveBuffer);
 		DestroyBufferResource(slot.materialBuffer);
+		DestroyBufferResource(slot.fluidBindingBuffer);
+		DestroyBufferResource(slot.fluidFrameBuffer);
 	}
 	mSceneUploadBufferRing.clear();
 	for (SceneDataFrameSlot& slot : mSceneDataFrameRing)

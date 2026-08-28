@@ -533,6 +533,7 @@ bool NRIRenderer::BeginRenderSceneFrame(HWDrawInfo& di, const NRIRendererFrameCo
 	UpdateFrameGenerationHistoryPolicy(frameContext.debugMode, mFrameBuffer->mFrameGeneration.GetPolicy(), frameContext.preserveHistory);
 
 	RefreshMapWorld();
+	SyncFluidSurfaceOverlayState();
 	if (!ApplyStartupMapWorldCorrectionIfNeeded("render-frame-start"))
 	{
 		LogFallback("PT startup world correction failed.");

@@ -944,6 +944,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_frame_diagnostics_policy.cpp
 	common/rendering/nri/renderer/nri_frame_output.cpp
 	common/rendering/nri/renderer/nri_frame_resources.cpp
+	common/rendering/nri/renderer/nri_fluid_surfaces.cpp
 	common/rendering/nri/renderer/nri_indirect_radiance_cache.cpp
 	common/rendering/nri/renderer/nri_map_chunk_diagnostics.cpp
 	common/rendering/nri/renderer/nri_map_chunk_status.cpp
@@ -1079,6 +1080,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_scene_bridge.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
+	common/rendering/nri/scene/nri_fluid_material_binding.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
 	../libraries/ShaderMake/ShaderMake/ShaderBlob.cpp
@@ -1152,6 +1154,7 @@ set (PCH_SOURCES
 	core/gamefuncs.cpp
 	core/gameinput.cpp
 	core/g_mapinfo.cpp
+	core/fluidoverlay.cpp
 	core/lightoverlay.cpp
 	core/lightoverlay_editor.cpp
 	core/lightoverlay_smoke_editor.cpp

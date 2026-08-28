@@ -2,6 +2,7 @@
 #include "nri_cvars.h"
 
 #include "../scene/nri_hash.h"
+#include "../scene/nri_fluid_material_binding.h"
 #include "../scene/nri_material_bridge.h"
 #include "../system/nri_hwtexture.h"
 #include "../system/nri_renderdevice.h"
@@ -11,6 +12,7 @@
 #include "../../../engine/perf_capture.h"
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
+#include "fluidoverlay.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -1448,6 +1450,7 @@ bool NRIRenderer::EnsureSceneTextures(
 	outGpuMaterials = gpuMaterialSource->materials;
 	ApplyEmissiveMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
 	ApplyActorShadowMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
+	nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), *gpuMaterialSource, outGpuMaterials);
 	if (mSceneTextureStableSlotsActive)
 	{
 		if (gpuMaterialSource == &materials)

@@ -532,6 +532,7 @@ namespace
 		Fnv1a64Append(key, &metadata.metallicContentKey, sizeof(metadata.metallicContentKey));
 		Fnv1a64Append(key, &metadata.roughnessContentKey, sizeof(metadata.roughnessContentKey));
 		Fnv1a64Append(key, &metadata.textureId, sizeof(metadata.textureId));
+		Fnv1a64Append(key, &metadata.authoredTextureId, sizeof(metadata.authoredTextureId));
 		Fnv1a64Append(key, &metadata.paletteIndex, sizeof(metadata.paletteIndex));
 		Fnv1a64Append(key, &metadata.materialFlags, sizeof(metadata.materialFlags));
 		Fnv1a64Append(key, &metadata.lightingFlags, sizeof(metadata.lightingFlags));
@@ -596,6 +597,7 @@ namespace
 		metadata.roughnessTextureIndex = roughnessTextureIndex;
 		metadata.paletteIndex = material.paletteIndex;
 		metadata.materialFlags = material.flags;
+		metadata.authoredTextureId = materialRef.authoredTextureId >= 0 ? (uint32_t)materialRef.authoredTextureId : UINT32_MAX;
 		metadata.sourceType = surface.provenance.sourceType;
 		metadata.sectorIndex = surface.provenance.sectorIndex;
 		metadata.actorIndex = surface.provenance.actorIndex;

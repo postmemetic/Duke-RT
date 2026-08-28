@@ -53,6 +53,8 @@ struct NRISurfaceProbeResult
 	uint32_t shaderLightingFlags = 0;
 	uint32_t textureId = 0;
 	uint32_t baseTextureId = 0;
+	uint32_t authoredTextureId = UINT32_MAX;
+	uint32_t fluidBindingIndex = UINT32_MAX;
 	uint32_t materialClass = 0;
 	uint32_t emissiveMode = 0;
 	uint32_t emissiveTextureIndex = UINT32_MAX;
