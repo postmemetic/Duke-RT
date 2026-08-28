@@ -244,33 +244,35 @@ bool TryEvaluateFluidSurface(
 		abs(signedViewCosine) >= minimumCosine && binding.virtualParams.x != 0.0;
 	if (useVirtualHeight)
 	{
-		// Two low-cost macro samples approximate a bounded ray/height-field
-		// intersection. This moves only the procedural sample position.
+		// Iterate only inside the thin shading slab. This refines the field's
+		// sample position; the accepted triangle hit remains authoritative.
 		const float macroFrequency = max(abs(binding.spectrum.y), 1.0e-4);
-		const float macroPhase = domain.x * macroFrequency +
-			domain.y * macroFrequency * 0.37 + gameplaySeconds * binding.motion.x;
-		const float macroHeight = binding.spectrum.x * frame.globalAmplitudeScale * sin(macroPhase);
 		const float heightBound = max(abs(binding.virtualParams.y * binding.virtualParams.x), 1.0e-3);
 		const float travelBound = max(abs(binding.virtualParams.z), 0.0);
 		const float maximumTravel = min(travelBound, heightBound / max(abs(signedViewCosine), minimumCosine));
-		const float predictedOffset = clamp(
-			macroHeight * binding.virtualParams.x / signedViewCosine,
-			-maximumTravel, maximumTravel);
-		const float3 predictedPosition = carrierPosition + viewRayDirection * predictedOffset;
-		const float3 predictedLocal = predictedPosition - binding.domainOriginScale.xyz;
-		float2 predictedDomain = float2(
-			dot(predictedLocal, axisU), dot(predictedLocal, axisV)) * domainScale;
-		predictedDomain += domain - float2(
-			dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
-		const float correctedPhase = predictedDomain.x * macroFrequency +
-			predictedDomain.y * macroFrequency * 0.37 + gameplaySeconds * binding.motion.x;
-		const float correctedHeight = binding.spectrum.x * frame.globalAmplitudeScale * sin(correctedPhase);
-		const float correctedOffset = clamp(
-			correctedHeight * binding.virtualParams.x / signedViewCosine,
-			-maximumTravel, maximumTravel);
-		const float correctionWeight = saturate(
-			((float)clamp(frame.virtualStepCount, 2u, 12u) - 2.0) * 0.1);
-		virtualOffset = lerp(predictedOffset, correctedOffset, correctionWeight);
+		const uint virtualStepCount = clamp(frame.virtualStepCount, 2u, 12u);
+		[loop]
+		for (uint virtualStep = 0u; virtualStep < 12u; ++virtualStep)
+		{
+			if (virtualStep >= virtualStepCount)
+			{
+				break;
+			}
+			const float3 virtualPosition = carrierPosition + viewRayDirection * virtualOffset;
+			const float3 virtualLocal = virtualPosition - binding.domainOriginScale.xyz;
+			float2 virtualDomain = float2(
+				dot(virtualLocal, axisU), dot(virtualLocal, axisV)) * domainScale;
+			virtualDomain += domain - float2(
+				dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
+			const float macroPhase = virtualDomain.x * macroFrequency +
+				virtualDomain.y * macroFrequency * 0.37 + gameplaySeconds * binding.motion.x;
+			const float macroHeight = binding.spectrum.x * frame.globalAmplitudeScale * sin(macroPhase);
+			const float targetOffset = clamp(
+				macroHeight * binding.virtualParams.x / signedViewCosine,
+				-maximumTravel, maximumTravel);
+			virtualOffset = lerp(virtualOffset, targetOffset,
+				virtualStep + 1u == virtualStepCount ? 1.0 : 0.65);
+		}
 	}
 
 	const float3 samplePosition = carrierPosition + viewRayDirection * virtualOffset;

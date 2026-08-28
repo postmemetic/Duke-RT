@@ -30,6 +30,7 @@ Assert-Contains $evaluator 'NRI_FLUID_STYLE_CRUST_EMISSION' 'Lava crust/emission
 
 Assert-Contains $evaluator 'allowVirtualHeight\s*&&[\s\S]*?NRI_FLUID_FRAME_FLAG_VIRTUAL_HEIGHT' 'Virtual height is not gated by both the caller and runtime frame flag.'
 Assert-Contains $evaluator 'virtualStepCount,\s*2u,\s*12u' 'Virtual-height quality input is not bounded.'
+Assert-Contains $evaluator 'for \(uint virtualStep = 0u; virtualStep < 12u;' 'Virtual-height refinement is not visibly bounded to twelve iterations.'
 Assert-Contains $evaluator 'maximumTravel\s*=\s*min' 'Virtual-height grazing travel is not clamped.'
 Assert-Contains $evaluator 'evaluation\.samplePosition\s*=\s*samplePosition' 'Virtual height does not publish its shading-only sample position.'
 Assert-Contains $evaluator 'evaluation\.carrierNormal\s*=\s*carrierNormal' 'The authoritative carrier normal is not kept separate.'
