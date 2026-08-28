@@ -90,6 +90,8 @@ struct FluidOverlayParameters
 	float warp = 0.0f;
 	float choppiness = 0.35f;
 	float normalStrength = 0.75f;
+	// Optional Phase 2C visual-only half-height in renderer world units.
+	// Zero disables virtual-height refinement for this profile.
 	float virtualHeight = 0.0f;
 	int32_t seed = 0;
 	uint32_t octaves = 3;
@@ -209,4 +211,3 @@ bool ResolveFluidOverlayMaterial(
 bool ParseFluidOverlays(bool verbose = false);
 bool ApplyParsedFluidOverlayDatabase(const ParsedFluidOverlayDatabase& database, bool verbose = false);
 FString SerializeFluidOverlayDatabase(const ParsedFluidOverlayDatabase& database);
-

@@ -89,11 +89,11 @@ namespace
 		result.crust[2] = 1.35f;
 		result.crust[3] = source.style == FluidOverlayStyle::Lava ? 0.72f : 0.0f;
 
-		const float virtualHeightScale = source.virtualHeight != 0.0f ? source.virtualHeight : 1.0f;
-		result.virtualParams[0] = virtualHeightScale;
-		result.virtualParams[1] = std::max(std::abs(source.amplitude), 0.001f);
-		result.virtualParams[2] = std::max(std::abs(source.amplitude) * 1.5f, 0.002f);
-		result.virtualParams[3] = 0.10f;
+		constexpr float minimumVirtualViewCosine = 0.10f;
+		const float virtualHalfHeight = std::max(source.virtualHeight, 0.0f);
+		result.virtualParams[0] = virtualHalfHeight;
+		result.virtualParams[1] = virtualHalfHeight / minimumVirtualViewCosine;
+		result.virtualParams[3] = minimumVirtualViewCosine;
 		return result;
 	}
 }

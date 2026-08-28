@@ -117,7 +117,7 @@ void FluidEvaluateOctaves(
 		amplitude *= gain;
 	}
 
-	const float maxHeight = max(abs(binding.virtualParams.y), 0.0);
+	const float maxHeight = max(abs(binding.spectrum.x), 0.0);
 	if (maxHeight > 0.0)
 	{
 		height = clamp(height, -maxHeight, maxHeight);
@@ -130,6 +130,42 @@ void FluidEvaluateOctaves(
 	}
 	signal = amplitudeSum > 1.0e-5 ? signal / amplitudeSum : 0.0;
 	crest = amplitudeSum > 1.0e-5 ? crest / amplitudeSum : 0.0;
+}
+
+// Keep the optional ray-offset solve intentionally cheaper than the final
+// four-octave shading evaluation. It follows the same authored domain, seed,
+// time, warp, viscosity, and ridge controls, but uses a normalized two-wave
+// carrier so increasing the iteration count does not multiply the full fluid
+// evaluator inside TraceOpaque.
+float FluidEvaluateVirtualHeightRatio(
+	FluidBindingData binding,
+	float2 domain,
+	float gameplaySeconds)
+{
+	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
+	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
+	const float angle = 6.28318530718 * FluidHash01(binding.seed);
+	const float2 direction = normalize(float2(cos(angle) * anisotropy, sin(angle)));
+	const float2 crossDirection = float2(-direction.y, direction.x);
+	const float warp = clamp(binding.motion.w, -1.5, 1.5);
+	const float crossPhase = dot(domain, crossDirection) * frequency * 0.41 +
+		gameplaySeconds * binding.motion.x * 0.31;
+	const float primaryPhase = dot(domain, direction) * frequency +
+		warp * sin(crossPhase) + gameplaySeconds * binding.motion.x +
+		6.28318530718 * FluidHash01(binding.seed ^ 0xa511e9b3u);
+	const float secondaryPhase =
+		dot(domain, normalize(crossDirection + 0.31 * direction)) *
+		frequency * max(abs(binding.spectrum.z), 1.01) +
+		gameplaySeconds * binding.motion.x * 1.17 +
+		6.28318530718 * FluidHash01(binding.seed ^ 0x63d83595u);
+	const float secondaryWeight = saturate(abs(binding.spectrum.w));
+	float wave = (sin(primaryPhase) + secondaryWeight * sin(secondaryPhase)) /
+		max(1.0 + secondaryWeight, 1.0e-4);
+	const float viscosity = (binding.styleFlags & NRI_FLUID_STYLE_VISCOUS) != 0u ?
+		saturate(binding.shaping.x) : 0.0;
+	wave = lerp(wave, wave * wave * wave, viscosity);
+	const float ridgedWave = 1.0 - 2.0 * abs(wave);
+	return clamp(lerp(wave, ridgedWave, saturate(binding.shaping.z)), -1.0, 1.0);
 }
 
 bool TryEvaluateFluidSurface(
@@ -241,15 +277,16 @@ bool TryEvaluateFluidSurface(
 	const bool useVirtualHeight = allowVirtualHeight &&
 		(frame.flags & NRI_FLUID_FRAME_FLAG_VIRTUAL_HEIGHT) != 0u &&
 		(binding.flags & NRI_FLUID_BINDING_FLAG_DISABLE_VIRTUAL_HEIGHT) == 0u &&
-		abs(signedViewCosine) >= minimumCosine && binding.virtualParams.x != 0.0;
+		abs(signedViewCosine) >= minimumCosine && binding.virtualParams.x > 0.0;
 	if (useVirtualHeight)
 	{
 		// Iterate only inside the thin shading slab. This refines the field's
 		// sample position; the accepted triangle hit remains authoritative.
-		const float macroFrequency = max(abs(binding.spectrum.y), 1.0e-4);
-		const float heightBound = max(abs(binding.virtualParams.y * binding.virtualParams.x), 1.0e-3);
-		const float travelBound = max(abs(binding.virtualParams.z), 0.0);
-		const float maximumTravel = min(travelBound, heightBound / max(abs(signedViewCosine), minimumCosine));
+		const float virtualHalfHeight = max(binding.virtualParams.x, 0.0);
+		const float travelBound = max(binding.virtualParams.y, 0.0);
+		const float maximumTravel = min(
+			travelBound,
+			virtualHalfHeight / max(abs(signedViewCosine), minimumCosine));
 		const uint virtualStepCount = clamp(frame.virtualStepCount, 2u, 12u);
 		[loop]
 		for (uint virtualStep = 0u; virtualStep < 12u; ++virtualStep)
@@ -264,11 +301,10 @@ bool TryEvaluateFluidSurface(
 				dot(virtualLocal, axisU), dot(virtualLocal, axisV)) * domainScale;
 			virtualDomain += domain - float2(
 				dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
-			const float macroPhase = virtualDomain.x * macroFrequency +
-				virtualDomain.y * macroFrequency * 0.37 + gameplaySeconds * binding.motion.x;
-			const float macroHeight = binding.spectrum.x * frame.globalAmplitudeScale * sin(macroPhase);
+			const float targetHeight = FluidEvaluateVirtualHeightRatio(
+				binding, virtualDomain, gameplaySeconds) * virtualHalfHeight;
 			const float targetOffset = clamp(
-				macroHeight * binding.virtualParams.x / signedViewCosine,
+				targetHeight / signedViewCosine,
 				-maximumTravel, maximumTravel);
 			virtualOffset = lerp(virtualOffset, targetOffset,
 				virtualStep + 1u == virtualStepCount ? 1.0 : 0.65);

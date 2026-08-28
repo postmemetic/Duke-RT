@@ -200,7 +200,7 @@ struct NRIPresentConstants
 	uint32_t NightVisionPackedControls = 0;
 };
 
-static_assert(sizeof(NRITraceSceneConstants) <= 224, "NRITraceSceneConstants must stay within the validated shared root-constant budget.");
+static_assert(sizeof(NRITraceSceneConstants) == 224, "NRITraceSceneConstants must match the validated shared root-constant budget.");
 static_assert(sizeof(NRITemporalConstants) <= 32, "NRITemporalConstants must stay compact.");
 static_assert(sizeof(NRIPresentConstants) <= 96, "NRIPresentConstants must stay compact.");
 

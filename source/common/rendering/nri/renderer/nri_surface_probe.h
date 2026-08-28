@@ -30,12 +30,14 @@ struct NRISurfaceProbeResult
 	uint32_t metadataPaletteIndex = UINT32_MAX;
 	uint32_t gpuTextureIndex = UINT32_MAX;
 	uint32_t gpuPaletteIndex = UINT32_MAX;
+	uint32_t gpuFluidBindingIndex = UINT32_MAX;
 	uint32_t expectedGpuTextureIndex = UINT32_MAX;
 	bool gpuMaterialValid = false;
 	bool expectedGpuTextureValid = false;
 	bool semanticMetadataMatch = false;
 	bool gpuPaletteMatch = false;
 	bool gpuTextureMatch = false;
+	bool gpuFluidBindingMatch = false;
 	bool gpuMaterialsUseStableTextureSlots = false;
 	uint64_t textureSlotRevision = 0;
 	uint64_t materialGeneration = 0;
@@ -51,6 +53,8 @@ struct NRISurfaceProbeResult
 	uint32_t shaderPaletteIndex = UINT32_MAX;
 	uint32_t shaderMaterialFlags = 0;
 	uint32_t shaderLightingFlags = 0;
+	uint32_t shaderFluidBindingIndex = UINT32_MAX;
+	bool shaderFluidActive = false;
 	uint32_t textureId = 0;
 	uint32_t baseTextureId = 0;
 	uint32_t authoredTextureId = UINT32_MAX;

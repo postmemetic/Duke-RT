@@ -461,6 +461,8 @@ void NRITraceShaderStats::Readback(
 		outStats.surfaceProbe.paletteIndex = outStats.counters[surfaceProbeBase + 6u];
 		outStats.surfaceProbe.flags = outStats.counters[surfaceProbeBase + 7u];
 		outStats.surfaceProbe.lightingFlags = outStats.counters[surfaceProbeBase + 8u];
+		outStats.surfaceProbe.fluidBindingIndex = outStats.counters[surfaceProbeBase + 9u];
+		outStats.surfaceProbe.fluidActive = outStats.counters[surfaceProbeBase + 10u] != 0u;
 	}
 	const uint32_t motionBase = NRI_TRACE_SHADER_MOTION_AUDIT_BASE;
 	outStats.motionAudit.valid = outStats.counters[motionBase] != 0u;

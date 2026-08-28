@@ -6,6 +6,8 @@ $implementation = Get-Content (Join-Path $root 'source\core\fluidoverlay.cpp') -
 $cmake = Get-Content (Join-Path $root 'source\CMakeLists.txt') -Raw
 $gameControl = Get-Content (Join-Path $root 'source\core\gamecontrol.cpp') -Raw
 $releaseOverlayPath = Join-Path $root 'release-overlay\FLUIDOVR'
+$developmentOverlayDirectory = Join-Path $root 'full-voxel-overlay'
+$developmentOverlayPath = Join-Path $developmentOverlayDirectory 'FLUIDOVR'
 $packagedOverlayPath = Join-Path $root 'wadsrc\static\FLUIDOVR'
 
 if (Test-Path $packagedOverlayPath) {
@@ -15,9 +17,42 @@ if (-not (Test-Path $releaseOverlayPath)) {
     throw 'Missing distributable release-overlay/FLUIDOVR.'
 }
 $releaseOverlay = Get-Content $releaseOverlayPath -Raw
+if (Test-Path $developmentOverlayDirectory) {
+    if (-not (Test-Path $developmentOverlayPath)) {
+        throw 'The local full-voxel-overlay exists but is missing its FLUIDOVR mirror.'
+    }
+    $developmentOverlay = Get-Content $developmentOverlayPath -Raw
+    if ($developmentOverlay -cne $releaseOverlay) {
+        throw 'full-voxel-overlay/FLUIDOVR must exactly mirror release-overlay/FLUIDOVR.'
+    }
+}
 
 function Assert-Contains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
+}
+
+function Get-ProfileBlock([string]$Text, [string]$ProfileId) {
+    $escapedId = [regex]::Escape($ProfileId)
+    $match = [regex]::Match(
+        $Text,
+        '(?ms)^\s*profile\s+"' + $escapedId + '"\s*\{\s*(?<body>.*?)^\s*\}')
+    if (-not $match.Success) {
+        throw "Missing complete overlay profile: $ProfileId"
+    }
+    return $match.Groups['body'].Value
+}
+
+function Get-ProfileScalar([string]$Body, [string]$Field, [string]$ProfileId) {
+    $number = '[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+    $matches = [regex]::Matches(
+        $Body,
+        '(?m)^\s*' + [regex]::Escape($Field) + '\s+(?<value>' + $number + ')\s*$')
+    if ($matches.Count -ne 1) {
+        throw "Profile '$ProfileId' must declare exactly one numeric '$Field' value."
+    }
+    return [double]::Parse(
+        $matches[0].Groups['value'].Value,
+        [Globalization.CultureInfo]::InvariantCulture)
 }
 
 foreach ($type in @(
@@ -83,6 +118,53 @@ Assert-Contains $gameControl '#include\s+"fluidoverlay\.h"' 'FLUIDOVR startup in
 Assert-Contains $gameControl 'ParseLightOverlays\(\);\s*ParseFluidOverlays\(\);' 'FLUIDOVR is not parsed beside LIGHTOVR at startup.'
 
 Assert-Contains $releaseOverlay '(?m)^FLUIDOVR\s*$' 'Release overlay is missing its FLUIDOVR root block.'
+$shippedProfiles = [ordered]@{
+    'water.waves' = 'waves'
+    'sludge.viscous' = 'viscous'
+    'lava' = 'lava'
+    'water.fall' = 'fall'
+}
+$profileDefinitions = [regex]::Matches(
+    $releaseOverlay,
+    '(?m)^\s*profile\s+"[^"\r\n]+"\s*\r?\n\s*\{').Count
+if ($profileDefinitions -ne $shippedProfiles.Count) {
+    throw "Release FLUIDOVR must define exactly $($shippedProfiles.Count) complete shipped profiles; found $profileDefinitions."
+}
+$completeProfileFields = @(
+    'bodycolor', 'undersidecolor', 'crestcolor', 'emissioncolor', 'emission',
+    'roughness', 'undersideroughness', 'opacity', 'scale', 'amplitude',
+    'frequency', 'timescale', 'speed', 'flow', 'anisotropy', 'warp',
+    'choppiness', 'normalstrength', 'virtualheight', 'seed', 'octaves')
+foreach ($entry in $shippedProfiles.GetEnumerator()) {
+    $profileId = $entry.Key
+    $body = Get-ProfileBlock $releaseOverlay $profileId
+    Assert-Contains $body ('(?m)^\s*style\s+' + [regex]::Escape($entry.Value) + '\s*$') `
+        "Profile '$profileId' must explicitly declare style '$($entry.Value)'."
+    foreach ($field in $completeProfileFields) {
+        $fieldCount = [regex]::Matches(
+            $body,
+            '(?m)^\s*' + [regex]::Escape($field) + '\s+').Count
+        if ($fieldCount -ne 1) {
+            throw "Profile '$profileId' must explicitly declare '$field' exactly once."
+        }
+    }
+    $scale = Get-ProfileScalar $body 'scale' $profileId
+    $amplitude = Get-ProfileScalar $body 'amplitude' $profileId
+    $frequency = Get-ProfileScalar $body 'frequency' $profileId
+    $normalStrength = Get-ProfileScalar $body 'normalstrength' $profileId
+    $virtualHeight = Get-ProfileScalar $body 'virtualheight' $profileId
+    if ([double]::IsNaN($scale) -or [double]::IsInfinity($scale) -or $scale -le 0 -or
+        [double]::IsNaN($amplitude) -or [double]::IsInfinity($amplitude) -or $amplitude -le 0 -or
+        [double]::IsNaN($frequency) -or [double]::IsInfinity($frequency) -or $frequency -le 0 -or
+        [double]::IsNaN($normalStrength) -or [double]::IsInfinity($normalStrength) -or $normalStrength -le 0 -or
+        [double]::IsNaN($virtualHeight) -or [double]::IsInfinity($virtualHeight) -or $virtualHeight -le 0) {
+        throw "Profile '$profileId' must use finite, positive spatial controls."
+    }
+    $baseSlope = $amplitude * $frequency * $normalStrength / $scale
+    if ($baseSlope -lt 0.05) {
+        throw "Profile '$profileId' base slope $baseSlope is below the visible world-scale floor."
+    }
+}
 foreach ($binding in @(
     'tilefamily\s+336[\s\S]*?profile\s+"water\.waves"',
     'tilefamily\s+200[\s\S]*?profile\s+"sludge\.viscous"',

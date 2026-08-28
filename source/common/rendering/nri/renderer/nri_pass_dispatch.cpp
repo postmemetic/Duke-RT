@@ -39,7 +39,7 @@ namespace
 		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
 	}
 
-	static bool ShouldCollectTraceShaderStats(const NRIRenderDevice* device)
+	static bool ShouldEnableTraceShaderStats(const NRIRenderDevice* device)
 	{
 		if (device == nullptr)
 			return false;
@@ -47,8 +47,13 @@ namespace
 			return true;
 		return device->UsesDiagnosticShaderVariant() &&
 			((bool)nri_pt360absenceprobe || (bool)nri_ptfiltercompare ||
-				(int)nri_ptsurfaceprobe > 0 ||
 				(!!nri_ptshaderstats && ShouldTracePtPerf()));
+	}
+
+	static bool ShouldCollectTraceShaderStats(const NRIRenderDevice* device)
+	{
+		return device != nullptr &&
+			((int)nri_ptsurfaceprobe > 0 || ShouldEnableTraceShaderStats(device));
 	}
 
 	static NRITraceShaderStatsFenceServices BuildTraceShaderStatsFenceServices(NRIRenderDevice* device)
@@ -585,7 +590,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		(context.mDirectionalLightState.enabled && context.mDirectionalLightState.shadow ? NRI_FLAG_DIRECTIONAL_LIGHT_SHADOW : 0u) |
 		(nri_ptemissivefastshadow ? NRI_FLAG_FAST_EMISSIVE_SHADOW : 0u) |
 		(nri_ptvisiblechunkgate ? NRI_FLAG_GATE_PRIMARY_VISIBLE_CHUNKS : 0u) |
-		(ShouldCollectTraceShaderStats(context.mResources.frameBuffer) ? NRI_FLAG_TRACE_SHADER_STATS : 0u) |
+		(ShouldEnableTraceShaderStats(context.mResources.frameBuffer) ? NRI_FLAG_TRACE_SHADER_STATS : 0u) |
 		(context.mActiveIndirectSamplingMode != 0u ? NRI_FLAG_PROBABILISTIC_INDIRECT : 0u) |
 		(indirectRadianceCacheActive ? NRI_FLAG_INDIRECT_RADIANCE_CACHE : 0u) |
 		(indirectRadianceCacheAccept ? NRI_FLAG_INDIRECT_RADIANCE_CACHE_ACCEPT : 0u) |

@@ -210,7 +210,7 @@ static const uint TRACE_STAT_FILTER_COMPARE_PORTAL = TRACE_STAT_FILTER_QUERY_BAS
 static const uint TRACE_STAT_FILTER_COMPARE_TEMPORAL = TRACE_STAT_FILTER_QUERY_BASE + 14u;
 static const uint TRACE_STAT_FILTER_COMPARE_SKIP_LIMIT = TRACE_STAT_FILTER_QUERY_BASE + 15u;
 static const uint TRACE_STAT_SURFACE_PROBE_BASE = TRACE_STAT_FILTER_QUERY_BASE + TRACE_STAT_FILTER_QUERY_COUNT;
-static const uint TRACE_STAT_SURFACE_PROBE_COUNT = 9u;
+static const uint TRACE_STAT_SURFACE_PROBE_COUNT = 11u;
 static const uint TRACE_STAT_SURFACE_PROBE_VALID = TRACE_STAT_SURFACE_PROBE_BASE + 0u;
 static const uint TRACE_STAT_SURFACE_PROBE_SOURCE = TRACE_STAT_SURFACE_PROBE_BASE + 1u;
 static const uint TRACE_STAT_SURFACE_PROBE_INSTANCE = TRACE_STAT_SURFACE_PROBE_BASE + 2u;
@@ -220,6 +220,8 @@ static const uint TRACE_STAT_SURFACE_PROBE_TEXTURE = TRACE_STAT_SURFACE_PROBE_BA
 static const uint TRACE_STAT_SURFACE_PROBE_PALETTE = TRACE_STAT_SURFACE_PROBE_BASE + 6u;
 static const uint TRACE_STAT_SURFACE_PROBE_FLAGS = TRACE_STAT_SURFACE_PROBE_BASE + 7u;
 static const uint TRACE_STAT_SURFACE_PROBE_LIGHTING_FLAGS = TRACE_STAT_SURFACE_PROBE_BASE + 8u;
+static const uint TRACE_STAT_SURFACE_PROBE_FLUID_BINDING = TRACE_STAT_SURFACE_PROBE_BASE + 9u;
+static const uint TRACE_STAT_SURFACE_PROBE_FLUID_ACTIVE = TRACE_STAT_SURFACE_PROBE_BASE + 10u;
 static const uint TRACE_STAT_MOTION_AUDIT_BASE = TRACE_STAT_SURFACE_PROBE_BASE + TRACE_STAT_SURFACE_PROBE_COUNT;
 static const uint TRACE_STAT_MOTION_AUDIT_COUNT = 64u;
 static const uint TRACE_STAT_MOTION_AUDIT_VALID = TRACE_STAT_MOTION_AUDIT_BASE + 0u;
@@ -249,10 +251,17 @@ bool MotionAuditStatsEnabled()
 	return (gTraceConstants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u;
 }
 
-void RecordSurfaceProbePrimaryPixel(uint2 pixelPosition, HitData hit, MaterialData material)
+void RecordSurfaceProbePrimaryPixel(
+	uint2 pixelPosition,
+	HitData hit,
+	MaterialData material,
+	uint fluidActive)
 {
-	if (!TraceShaderStatsEnabled() ||
-		any(pixelPosition != uint2(gTraceConstants.RenderWidth / 2u, gTraceConstants.RenderHeight / 2u)) ||
+	// The stats UAV is always resident. Publishing these eleven words for the
+	// single center pixel is cheap and lets the CPU decide whether to reset,
+	// copy, and consume them without widening the full root-constant block or
+	// enabling broad diagnostic counters in production shaders.
+	if (any(pixelPosition != uint2(gTraceConstants.RenderWidth / 2u, gTraceConstants.RenderHeight / 2u)) ||
 		!hit.hit)
 	{
 		return;
@@ -266,6 +275,8 @@ void RecordSurfaceProbePrimaryPixel(uint2 pixelPosition, HitData hit, MaterialDa
 	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_PALETTE] = material.paletteIndex;
 	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_FLAGS] = material.flags;
 	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_LIGHTING_FLAGS] = material.lightingFlags;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_FLUID_BINDING] = material.fluidBindingIndex;
+	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_FLUID_ACTIVE] = fluidActive;
 	gTraceShaderStats[TRACE_STAT_SURFACE_PROBE_VALID] = 1u;
 }
 

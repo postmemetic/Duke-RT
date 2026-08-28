@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 $cpuContract = Get-Content (Join-Path $root 'source\common\rendering\nri\renderer\nri_fluid_surface_gpu.h') -Raw
 $shaderContract = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\Include\FluidSurfaceContracts.hlsli') -Raw
+$gpuBuilder = Get-Content (Join-Path $root 'source\common\rendering\nri\renderer\nri_fluid_surfaces.cpp') -Raw
 $evaluator = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\Include\FluidSurface.hlsli') -Raw
 $trace = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\TraceOpaque.cs.hlsl') -Raw
 $shaderSlots = Get-Content (Join-Path $root 'source\common\rendering\nri\renderer\nri_shader_contracts.h') -Raw
@@ -32,10 +33,16 @@ Assert-Contains $evaluator 'allowVirtualHeight\s*&&[\s\S]*?NRI_FLUID_FRAME_FLAG_
 Assert-Contains $evaluator 'virtualStepCount,\s*2u,\s*12u' 'Virtual-height quality input is not bounded.'
 Assert-Contains $evaluator 'for \(uint virtualStep = 0u; virtualStep < 12u;' 'Virtual-height refinement is not visibly bounded to twelve iterations.'
 Assert-Contains $evaluator 'maximumTravel\s*=\s*min' 'Virtual-height grazing travel is not clamped.'
+Assert-Contains $gpuBuilder 'virtualHalfHeight\s*=\s*std::max\(source\.virtualHeight,\s*0\.0f\)' 'Virtual height must remain an authored non-negative world-unit half-height.'
+Assert-Contains $gpuBuilder 'virtualParams\[0\]\s*=\s*virtualHalfHeight' 'The authored world-unit virtual height is not uploaded directly.'
+Assert-Contains $gpuBuilder 'virtualParams\[1\]\s*=\s*virtualHalfHeight\s*/\s*minimumVirtualViewCosine' 'The virtual-height ray-travel bound is not derived in world units.'
+Assert-Contains $evaluator 'binding\.virtualParams\.x\s*>\s*0\.0' 'A zero authored virtual height must disable refinement.'
+Assert-Contains $evaluator 'same authored domain, seed,[\s\S]*?time, warp, viscosity, and ridge controls,[\s\S]*?FluidEvaluateVirtualHeightRatio\(' 'Virtual-height refinement must use a bounded carrier driven by the authored procedural controls.'
 Assert-Contains $evaluator 'evaluation\.samplePosition\s*=\s*samplePosition' 'Virtual height does not publish its shading-only sample position.'
 Assert-Contains $evaluator 'evaluation\.carrierNormal\s*=\s*carrierNormal' 'The authoritative carrier normal is not kept separate.'
 
 Assert-Contains $trace 'TryEvaluateFluidSurface\(' 'TraceOpaque does not invoke the fluid evaluator.'
+Assert-Contains $trace 'RecordSurfaceProbePrimaryPixel\(pixelPos,\s*hit,\s*material,\s*fluidSurface\.active\)' 'The surface probe does not publish actual shader-side fluid activation.'
 Assert-Contains $trace 'guideNormal\s*=\s*fluidSurface\.shadingNormal' 'The procedural normal is not supplied to the temporal/NRD guide.'
 Assert-Contains $trace 'FluidFaceCarrierNormalToDirection\(fluidSurface\.carrierNormal' 'Fluid shadow origins are not biased from the carrier normal.'
 Assert-Contains $trace 'directEmission\s*\+=\s*fluidSurface\.emission' 'Surface-only fluid emission is not composed at the accepted hit.'

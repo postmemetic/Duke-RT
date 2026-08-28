@@ -1736,7 +1736,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				albedo.rgb = fluidSurface.baseColor;
 				guideNormal = fluidSurface.shadingNormal;
 			}
-			RecordSurfaceProbePrimaryPixel(pixelPos, hit, material);
+			RecordSurfaceProbePrimaryPixel(pixelPos, hit, material, fluidSurface.active);
 			smokeForeground = (material.lightingFlags & MATERIAL_LIGHTING_FLAG_SMOKE_FOREGROUND) != 0u;
 			const bool fullbright = (material.flags & MATERIAL_FLAG_FULLBRIGHT) != 0;
 			const bool emissiveMaterial = IsMaterialEmissive(material);

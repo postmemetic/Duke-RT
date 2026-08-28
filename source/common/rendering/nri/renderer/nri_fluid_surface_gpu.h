@@ -72,8 +72,8 @@ struct NRIFluidBindingGpuData
 	// x = hot-crack threshold, y = softness, z = response power,
 	// w = body-color crust darkening.
 	float crust[4] = {};
-	// x = height scale, y = maximum absolute height, z = maximum ray travel,
-	// w = minimum absolute view/carrier cosine.
+	// x = authored virtual half-height in world units, y = maximum ray travel
+	// in world units, z = reserved, w = minimum absolute view/carrier cosine.
 	float virtualParams[4] = {};
 };
 
