@@ -5,6 +5,16 @@ $header = Get-Content (Join-Path $root 'source\core\fluidoverlay.h') -Raw
 $implementation = Get-Content (Join-Path $root 'source\core\fluidoverlay.cpp') -Raw
 $cmake = Get-Content (Join-Path $root 'source\CMakeLists.txt') -Raw
 $gameControl = Get-Content (Join-Path $root 'source\core\gamecontrol.cpp') -Raw
+$releaseOverlayPath = Join-Path $root 'release-overlay\FLUIDOVR'
+$packagedOverlayPath = Join-Path $root 'wadsrc\static\FLUIDOVR'
+
+if (Test-Path $packagedOverlayPath) {
+    throw 'FLUIDOVR must be distributed from release-overlay, not embedded in raze.pk3.'
+}
+if (-not (Test-Path $releaseOverlayPath)) {
+    throw 'Missing distributable release-overlay/FLUIDOVR.'
+}
+$releaseOverlay = Get-Content $releaseOverlayPath -Raw
 
 function Assert-Contains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
@@ -71,5 +81,14 @@ foreach ($command in @(
 Assert-Contains $cmake 'core/fluidoverlay\.cpp' 'FLUIDOVR owner is not registered in source/CMakeLists.txt.'
 Assert-Contains $gameControl '#include\s+"fluidoverlay\.h"' 'FLUIDOVR startup integration is missing its header.'
 Assert-Contains $gameControl 'ParseLightOverlays\(\);\s*ParseFluidOverlays\(\);' 'FLUIDOVR is not parsed beside LIGHTOVR at startup.'
+
+Assert-Contains $releaseOverlay '(?m)^FLUIDOVR\s*$' 'Release overlay is missing its FLUIDOVR root block.'
+foreach ($binding in @(
+    'tilefamily\s+336[\s\S]*?profile\s+"water\.waves"',
+    'tilefamily\s+200[\s\S]*?profile\s+"sludge\.viscous"',
+    'tilefamily\s+1082[\s\S]*?profile\s+"lava"',
+    'tilefamily\s+889[\s\S]*?profile\s+"water\.fall"')) {
+    Assert-Contains $releaseOverlay $binding "Release overlay is missing expected fluid binding: $binding"
+}
 
 Write-Host 'FLUIDOVR schema static validation passed.'
