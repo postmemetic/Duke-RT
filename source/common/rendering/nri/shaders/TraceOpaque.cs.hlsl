@@ -1843,7 +1843,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				float3 nrdDiffuseFactor = 1.0;
 				float3 nrdSpecularFactor = 1.0;
 				GetNrdPrimaryMaterialFactors(guideNormal, nrdViewDir, albedo.rgb, metalness, roughness, nrdDiffuseFactor, nrdSpecularFactor);
-				const bool useProbabilisticIndirect = UseProbabilisticIndirectSampling() && !plainMirrorPrimaryReplacement;
+				// Animated fluid normals move a narrow specular signal across the static carrier plane.
+				// Rotating the primary diffuse/specular lobe selection makes that signal disappear and
+				// receive reciprocal weighting on alternating frames, which RELAX cannot reproject as
+				// ordinary carrier motion. Keep both fluid lobes present every frame; DLRR already takes
+				// this complete-signal path because probabilistic sampling is only enabled when NRD owns
+				// indirect reconstruction.
+				const bool useProbabilisticIndirect =
+					UseProbabilisticIndirectSampling() &&
+					!plainMirrorPrimaryReplacement &&
+					fluidSurface.active == 0u;
 				if (useProbabilisticIndirect)
 				{
 					indirectDiffuseSelectionProbability = GetDiffuseIndirectSelectionProbability(nrdDiffuseFactor, nrdSpecularFactor);

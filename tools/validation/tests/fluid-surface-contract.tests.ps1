@@ -108,6 +108,9 @@ Assert-Contains $indirectSpecular `
 
 $primaryIndirect = Get-SourceSlice $trace 'const float3 shadingNormal = fluidSurface.active != 0u ?' 'const float3 stochasticDiffuse =' 'primary indirect-light handoff'
 Assert-Contains $primaryIndirect `
+    'useProbabilisticIndirect\s*=\s*[\s\S]*?UseProbabilisticIndirectSampling\s*\(\s*\)[\s\S]*?fluidSurface\.active\s*==\s*0u' `
+    'Animated fluid surfaces must retain diffuse and specular transport every frame instead of rotating the NRD lobe selector.'
+Assert-Contains $primaryIndirect `
     'rayOriginNormal\s*=\s*fluidSurface\.active\s*!=\s*0u\s*\?[\s\S]*?fluidSurface\.carrierNormal[\s\S]*?:\s*hit\.normal' `
     'The primary fluid path must select its carrier normal as the indirect-specular ray-origin bias.'
 Assert-Contains $primaryIndirect `
