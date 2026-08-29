@@ -55,8 +55,8 @@ struct NRIActorWorkloadMaskDecision
 {
 	NRIActorWorkloadMaskReason reason = NRIActorWorkloadMaskReason::AmbiguousOccurrence;
 	uint32_t requestedMask = 0;
-	uint32_t diagnosticMask = 0;
-	uint32_t diagnosticRemovedMask = 0;
+	uint32_t publishedMask = 0;
+	uint32_t removedMask = 0;
 	bool certified = false;
 };
 

@@ -3182,6 +3182,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		}
 		if (workloadMaskDecision.certified)
 		{
+			persistentVoxelInstance.mask = workloadMaskDecision.publishedMask;
 			outStats.actorWorkloadMaskCertifiedCount++;
 			outStats.actorWorkloadMaskCertifiedPrimitiveCount += actor.primitiveCount;
 		}
@@ -3193,7 +3194,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		if (services.actorWorkloadMaskDiagnosticsEnabled &&
 			outStats.actorWorkloadMaskDiagnosticRows < services.actorWorkloadMaskDiagnosticLimit)
 		{
-			Printf("PERF pt actor workload mask NRI: frame=%u actor=%d actor_key=0x%llx pic=%d voxel=%d prims=%u intent_no_shadow=%u certified=%u reason=%s requested_mask=0x%x diagnostic_mask=0x%x removed_mask=0x%x production_mask=0x%x material_signature=0x%llx closure_generation=%llu expected_closure_generation=%llu slot_generation=%llu expected_slot_generation=%llu binding_generation=%llu expected_binding_generation=%llu row_span=%u declared_rows=%u material_rows=%u metadata_rows=%u palette_policy=%u single_actor=%u final_no_shadow=%u\n",
+			Printf("PERF pt actor workload mask NRI: frame=%u actor=%d actor_key=0x%llx pic=%d voxel=%d prims=%u intent_no_shadow=%u certified=%u reason=%s requested_mask=0x%x published_mask=0x%x removed_mask=0x%x production_mask=0x%x material_signature=0x%llx closure_generation=%llu expected_closure_generation=%llu slot_generation=%llu expected_slot_generation=%llu binding_generation=%llu expected_binding_generation=%llu row_span=%u declared_rows=%u material_rows=%u metadata_rows=%u palette_policy=%u single_actor=%u final_no_shadow=%u\n",
 				frameIndex,
 				actor.actorIndex,
 				(unsigned long long)actor.identityKey,
@@ -3204,8 +3205,8 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 				workloadMaskDecision.certified ? 1u : 0u,
 				GetNRIActorWorkloadMaskReasonName(workloadMaskDecision.reason),
 				workloadMaskDecision.requestedMask,
-				workloadMaskDecision.diagnosticMask,
-				workloadMaskDecision.diagnosticRemovedMask,
+				workloadMaskDecision.publishedMask,
+				workloadMaskDecision.removedMask,
 				(uint32_t)persistentVoxelInstance.mask,
 				(unsigned long long)workloadMaskFacts.materialSignature,
 				(unsigned long long)workloadMaskFacts.materialClosureGeneration,

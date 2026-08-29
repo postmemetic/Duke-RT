@@ -7,7 +7,7 @@ NRIActorWorkloadMaskDecision EvaluateNRIActorWorkloadMaskPolicy(
 {
 	NRIActorWorkloadMaskDecision decision = {};
 	decision.requestedMask = facts.requestedMask;
-	decision.diagnosticMask = facts.requestedMask;
+	decision.publishedMask = facts.requestedMask;
 
 	auto reject = [&](NRIActorWorkloadMaskReason reason)
 	{
@@ -80,8 +80,8 @@ NRIActorWorkloadMaskDecision EvaluateNRIActorWorkloadMaskPolicy(
 
 	constexpr uint32_t CandidateRemovalMask = NRI_TLAS_MASK_SHADOW | NRI_TLAS_MASK_GI;
 	decision.reason = NRIActorWorkloadMaskReason::Certified;
-	decision.diagnosticMask = facts.requestedMask & ~CandidateRemovalMask;
-	decision.diagnosticRemovedMask = facts.requestedMask & CandidateRemovalMask;
+	decision.publishedMask = facts.requestedMask & ~CandidateRemovalMask;
+	decision.removedMask = facts.requestedMask & CandidateRemovalMask;
 	decision.certified = true;
 	return decision;
 }
