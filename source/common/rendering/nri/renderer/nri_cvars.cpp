@@ -1378,7 +1378,7 @@ CUSTOM_CVAR(Float, nri_ptanalyticsoftshadowradius, 4.0f, 0)
 	NotifyActiveAnalyticLightSettingsChange();
 }
 
-CUSTOM_CVAR(Int, nri_ptanalyticshadowbudget, 64, 0)
+CUSTOM_CVAR(Int, nri_ptanalyticshadowbudget, 8, 0)
 {
 	if (self < 0)
 	{
