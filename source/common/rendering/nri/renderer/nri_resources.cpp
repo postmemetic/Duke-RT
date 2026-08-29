@@ -331,6 +331,13 @@ void NRIRenderer::DestroySceneBuffers()
 	mBoundRuntimeLightTileSize = 0;
 	mBoundRuntimeLightTileIndexCount = 0;
 	mBoundRuntimeLightMaxTileOccupancy = 0;
+	mBoundRuntimeLightShadowBudget = 0;
+	mBoundRuntimeLightShadowCandidateReferenceCount = 0;
+	mBoundRuntimeLightShadowSelectedReferenceCount = 0;
+	mBoundRuntimeLightShadowOverflowReferenceCount = 0;
+	mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
+	mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
+	mBoundRuntimeLightShadowSelectionHash = 0;
 	mRuntimeLightPayloadCacheValid = false;
 	mRuntimeLightPayloadHash = 0;
 	mRuntimeLightClusterCacheValid = false;

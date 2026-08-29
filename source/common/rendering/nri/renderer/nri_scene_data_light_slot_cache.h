@@ -84,6 +84,13 @@ struct NRISceneDataRuntimeLightClusterSlotIdentity
 	uint32_t tileCountY = 0;
 	uint32_t tileIndexCount = 0;
 	uint32_t maxTileOccupancy = 0;
+	uint32_t shadowBudget = 0;
+	uint32_t shadowCandidateReferenceCount = 0;
+	uint32_t shadowSelectedReferenceCount = 0;
+	uint32_t shadowOverflowReferenceCount = 0;
+	uint32_t maxShadowCandidatesPerTile = 0;
+	uint32_t maxShadowSelectedPerTile = 0;
+	uint64_t shadowSelectionHash = 0;
 	bool valid = false;
 
 	bool CanReuse(
@@ -113,6 +120,13 @@ struct NRISceneDataRuntimeLightClusterSlotIdentity
 		uint32_t newTileCountY,
 		uint32_t newTileIndexCount,
 		uint32_t newMaxTileOccupancy,
+		uint32_t newShadowBudget,
+		uint32_t newShadowCandidateReferenceCount,
+		uint32_t newShadowSelectedReferenceCount,
+		uint32_t newShadowOverflowReferenceCount,
+		uint32_t newMaxShadowCandidatesPerTile,
+		uint32_t newMaxShadowSelectedPerTile,
+		uint64_t newShadowSelectionHash,
 		const NRISceneDataLightBufferReuseView& headerBuffer,
 		const NRISceneDataLightBufferReuseView& indexBuffer)
 	{
@@ -121,6 +135,13 @@ struct NRISceneDataRuntimeLightClusterSlotIdentity
 		tileCountY = newTileCountY;
 		tileIndexCount = newTileIndexCount;
 		maxTileOccupancy = newMaxTileOccupancy;
+		shadowBudget = newShadowBudget;
+		shadowCandidateReferenceCount = newShadowCandidateReferenceCount;
+		shadowSelectedReferenceCount = newShadowSelectedReferenceCount;
+		shadowOverflowReferenceCount = newShadowOverflowReferenceCount;
+		maxShadowCandidatesPerTile = newMaxShadowCandidatesPerTile;
+		maxShadowSelectedPerTile = newMaxShadowSelectedPerTile;
+		shadowSelectionHash = newShadowSelectionHash;
 		headerResourceIdentity = headerBuffer.resourceIdentity;
 		headerDescriptorIdentity = headerBuffer.descriptorIdentity;
 		indexResourceIdentity = indexBuffer.resourceIdentity;

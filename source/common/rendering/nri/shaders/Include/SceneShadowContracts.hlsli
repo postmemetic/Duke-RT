@@ -116,4 +116,17 @@ struct RuntimeLightTileHeaderData
 	uint indexCount;
 };
 
+#define RUNTIME_LIGHT_TILE_INDEX_SHADOW_SELECTED 0x80000000u
+#define RUNTIME_LIGHT_TILE_INDEX_MASK 0x7fffffffu
+
+uint RuntimeLightTileEntryLightIndex(uint packedEntry)
+{
+	return packedEntry & RUNTIME_LIGHT_TILE_INDEX_MASK;
+}
+
+bool RuntimeLightTileEntryShadowSelected(uint packedEntry)
+{
+	return (packedEntry & RUNTIME_LIGHT_TILE_INDEX_SHADOW_SELECTED) != 0u;
+}
+
 #endif

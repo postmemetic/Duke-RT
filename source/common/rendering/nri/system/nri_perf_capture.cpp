@@ -120,6 +120,13 @@ void NRIRenderDevice::CaptureCompactPerfRendererStats(bool rendered)
 	stats.traceRuntimeLightTileSize = shell.traceRuntimeLightTileSize;
 	stats.traceRuntimeLightTileIndices = shell.traceRuntimeLightTileIndexCount;
 	stats.traceRuntimeLightMaxOccupancy = shell.traceRuntimeLightMaxTileOccupancy;
+	stats.traceRuntimeLightShadowBudget = shell.traceRuntimeLightShadowBudget;
+	stats.traceRuntimeLightShadowCandidates = shell.traceRuntimeLightShadowCandidateReferenceCount;
+	stats.traceRuntimeLightShadowSelected = shell.traceRuntimeLightShadowSelectedReferenceCount;
+	stats.traceRuntimeLightShadowOverflow = shell.traceRuntimeLightShadowOverflowReferenceCount;
+	stats.traceRuntimeLightShadowTileMax = shell.traceRuntimeLightMaxShadowCandidatesPerTile;
+	stats.traceRuntimeLightShadowSelectedTileMax = shell.traceRuntimeLightMaxShadowSelectedPerTile;
+	stats.traceRuntimeLightShadowSelectionHash = shell.traceRuntimeLightShadowSelectionHash;
 	stats.traceEmissivePrimitiveCount = shell.traceEmissivePrimitiveCount;
 	stats.traceEmissiveTotalPower = shell.traceEmissiveTotalPower;
 	stats.traceFlags = shell.traceFlags;

@@ -319,12 +319,24 @@ public:
 		uint32_t renderHeight = 0;
 		uint32_t tileSize = 1;
 		uint32_t maxRuntimeLights = 0;
+		uint32_t shadowBudget = NRI_MAX_RUNTIME_POINT_LIGHTS;
 		float currentCameraPos[3] = {};
 		float currentCameraForward[3] = { 0.0f, 0.0f, 1.0f };
 		float currentCameraRight[3] = { 1.0f, 0.0f, 0.0f };
 		float currentCameraUp[3] = { 0.0f, 1.0f, 0.0f };
 		float tanHalfFovX = 0.0f;
 		float tanHalfFovY = 0.0f;
+	};
+
+	struct RuntimeLightClusterBuildStats
+	{
+		uint32_t shadowBudget = NRI_MAX_RUNTIME_POINT_LIGHTS;
+		uint32_t shadowCandidateReferenceCount = 0;
+		uint32_t shadowSelectedReferenceCount = 0;
+		uint32_t shadowOverflowReferenceCount = 0;
+		uint32_t maxShadowCandidatesPerTile = 0;
+		uint32_t maxShadowSelectedPerTile = 0;
+		uint64_t shadowSelectionHash = 0;
 	};
 
 	struct EmissiveSamplingBuildContext
@@ -861,7 +873,8 @@ public:
 		uint32_t& outTileCountX,
 		uint32_t& outTileCountY,
 		uint32_t& outTileIndexCount,
-		uint32_t& outMaxTileOccupancy) const;
+		uint32_t& outMaxTileOccupancy,
+		RuntimeLightClusterBuildStats& outStats) const;
 
 	struct EmissiveSamplingUploadStats
 	{

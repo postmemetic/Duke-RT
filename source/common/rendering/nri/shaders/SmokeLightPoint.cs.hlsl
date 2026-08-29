@@ -58,6 +58,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		const uint selectionCapacity = min(gSmokeConstants.MaxLightCandidates, NRI_SMOKE_MAX_SELECTED_LIGHTS);
 		uint selectedLightIndices[NRI_SMOKE_MAX_SELECTED_LIGHTS];
 		float selectedLightScores[NRI_SMOKE_MAX_SELECTED_LIGHTS];
+		uint selectedLightShadowFlags[NRI_SMOKE_MAX_SELECTED_LIGHTS];
 		uint selectedLightCount = 0u;
 
 		[loop]
@@ -66,7 +67,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			const uint packedIndex = tileHeader.indexOffset + tileCandidate;
 			if (packedIndex >= lightIndexCount)
 				break;
-			const uint lightIndex = gSmokeRuntimeLightTileIndices[packedIndex];
+			const uint tileEntry = gSmokeRuntimeLightTileIndices[packedIndex];
+			const uint lightIndex = RuntimeLightTileEntryLightIndex(tileEntry);
 			if (lightIndex >= runtimeLightCount)
 				continue;
 			if (lightingDiagnostics)
@@ -85,6 +87,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			{
 				selectedLightIndices[selectedLightCount] = lightIndex;
 				selectedLightScores[selectedLightCount] = score;
+				selectedLightShadowFlags[selectedLightCount] = RuntimeLightTileEntryShadowSelected(tileEntry) ? 1u : 0u;
 				selectedLightCount++;
 			}
 			else
@@ -100,6 +103,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				{
 					selectedLightIndices[weakestIndex] = lightIndex;
 					selectedLightScores[weakestIndex] = score;
+					selectedLightShadowFlags[weakestIndex] = RuntimeLightTileEntryShadowSelected(tileEntry) ? 1u : 0u;
 				}
 			}
 		}
@@ -154,7 +158,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const float sampledDistance = sqrt(sampledDistanceSquared);
 				const float3 lightDirection = toSampledLight / sampledDistance;
 				float visibility = 1.0;
-				const bool castsShadow = (light.flags & NRI_SMOKE_RUNTIME_LIGHT_FLAG_CASTS_SHADOW) != 0u;
+				const bool castsShadow =
+					(light.flags & NRI_SMOKE_RUNTIME_LIGHT_FLAG_CASTS_SHADOW) != 0u &&
+					selectedLightShadowFlags[selectedIndex] != 0u;
 				if (gSmokeConstants.LightMode >= 2u && castsShadow)
 				{
 					if (!SmokeShadowTracingReady())

@@ -58,6 +58,9 @@ struct PerfCompactNriStats
 	uint32_t traceHitDistanceReconstructionMode = 0;
 	uint32_t traceRuntimeLights = 0, traceRuntimeLightTilesX = 0, traceRuntimeLightTilesY = 0;
 	uint32_t traceRuntimeLightTileSize = 0, traceRuntimeLightTileIndices = 0, traceRuntimeLightMaxOccupancy = 0;
+	uint32_t traceRuntimeLightShadowBudget = 0, traceRuntimeLightShadowCandidates = 0, traceRuntimeLightShadowSelected = 0;
+	uint32_t traceRuntimeLightShadowOverflow = 0, traceRuntimeLightShadowTileMax = 0, traceRuntimeLightShadowSelectedTileMax = 0;
+	uint64_t traceRuntimeLightShadowSelectionHash = 0;
 	uint32_t traceEmissivePrimitiveCount = 0;
 	double traceEmissiveTotalPower = 0.0;
 	uint32_t traceFlags = 0, traceDebugMode = 0, traceBootstrapMode = 0;

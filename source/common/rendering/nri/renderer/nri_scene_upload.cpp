@@ -2893,6 +2893,7 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 	uint32_t runtimeLightTileCountY = 0;
 	uint32_t runtimeLightTileIndexCount = 0;
 	uint32_t runtimeLightMaxTileOccupancy = 0;
+	SceneLightSystem::RuntimeLightClusterBuildStats runtimeLightClusterStats = {};
 	uint64_t runtimeLightClusterCameraHash = 0;
 	{
 		ScopedPtPerfTimer runtimeLightClusterTimer(renderer.mLastPerfShellTraceStats.sceneDataSetRuntimeLightClusterMs);
@@ -2945,7 +2946,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 				runtimeLightTileCountX,
 				runtimeLightTileCountY,
 				runtimeLightTileIndexCount,
-				runtimeLightMaxTileOccupancy);
+				runtimeLightMaxTileOccupancy,
+				runtimeLightClusterStats);
 		}
 		if (!ensureSceneDataBatched(
 			runtimeLightTileHeaderBuffer,
@@ -2989,6 +2991,13 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 				runtimeLightTileCountY,
 				runtimeLightTileIndexCount,
 				runtimeLightMaxTileOccupancy,
+				runtimeLightClusterStats.shadowBudget,
+				runtimeLightClusterStats.shadowCandidateReferenceCount,
+				runtimeLightClusterStats.shadowSelectedReferenceCount,
+				runtimeLightClusterStats.shadowOverflowReferenceCount,
+				runtimeLightClusterStats.maxShadowCandidatesPerTile,
+				runtimeLightClusterStats.maxShadowSelectedPerTile,
+				runtimeLightClusterStats.shadowSelectionHash,
 				BuildSceneDataLightBufferReuseView(runtimeLightTileHeaderBuffer),
 				BuildSceneDataLightBufferReuseView(runtimeLightTileIndexBuffer));
 		}
@@ -3007,6 +3016,13 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 			runtimeLightTileCountY = sceneDataFrameSlot->lightReuse.runtimeLightCluster.tileCountY;
 			runtimeLightTileIndexCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.tileIndexCount;
 			runtimeLightMaxTileOccupancy = sceneDataFrameSlot->lightReuse.runtimeLightCluster.maxTileOccupancy;
+			runtimeLightClusterStats.shadowBudget = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowBudget;
+			runtimeLightClusterStats.shadowCandidateReferenceCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowCandidateReferenceCount;
+			runtimeLightClusterStats.shadowSelectedReferenceCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowSelectedReferenceCount;
+			runtimeLightClusterStats.shadowOverflowReferenceCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowOverflowReferenceCount;
+			runtimeLightClusterStats.maxShadowCandidatesPerTile = sceneDataFrameSlot->lightReuse.runtimeLightCluster.maxShadowCandidatesPerTile;
+			runtimeLightClusterStats.maxShadowSelectedPerTile = sceneDataFrameSlot->lightReuse.runtimeLightCluster.maxShadowSelectedPerTile;
+			runtimeLightClusterStats.shadowSelectionHash = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowSelectionHash;
 		}
 		else
 		{
@@ -3014,6 +3030,13 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 			runtimeLightTileCountY = renderer.mBoundRuntimeLightTileCountY;
 			runtimeLightTileIndexCount = renderer.mBoundRuntimeLightTileIndexCount;
 			runtimeLightMaxTileOccupancy = renderer.mBoundRuntimeLightMaxTileOccupancy;
+			runtimeLightClusterStats.shadowBudget = renderer.mBoundRuntimeLightShadowBudget;
+			runtimeLightClusterStats.shadowCandidateReferenceCount = renderer.mBoundRuntimeLightShadowCandidateReferenceCount;
+			runtimeLightClusterStats.shadowSelectedReferenceCount = renderer.mBoundRuntimeLightShadowSelectedReferenceCount;
+			runtimeLightClusterStats.shadowOverflowReferenceCount = renderer.mBoundRuntimeLightShadowOverflowReferenceCount;
+			runtimeLightClusterStats.maxShadowCandidatesPerTile = renderer.mBoundRuntimeLightMaxShadowCandidatesPerTile;
+			runtimeLightClusterStats.maxShadowSelectedPerTile = renderer.mBoundRuntimeLightMaxShadowSelectedPerTile;
+			runtimeLightClusterStats.shadowSelectionHash = renderer.mBoundRuntimeLightShadowSelectionHash;
 		}
 		renderer.mLastPerfShellTraceStats.sceneDataSetRuntimeLightClusterCacheHits++;
 	}
@@ -3336,6 +3359,13 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 	renderer.mBoundRuntimeLightTileSize = NRI_RUNTIME_LIGHT_TILE_SIZE;
 	renderer.mBoundRuntimeLightTileIndexCount = runtimeLightTileIndexCount;
 	renderer.mBoundRuntimeLightMaxTileOccupancy = runtimeLightMaxTileOccupancy;
+	renderer.mBoundRuntimeLightShadowBudget = runtimeLightClusterStats.shadowBudget;
+	renderer.mBoundRuntimeLightShadowCandidateReferenceCount = runtimeLightClusterStats.shadowCandidateReferenceCount;
+	renderer.mBoundRuntimeLightShadowSelectedReferenceCount = runtimeLightClusterStats.shadowSelectedReferenceCount;
+	renderer.mBoundRuntimeLightShadowOverflowReferenceCount = runtimeLightClusterStats.shadowOverflowReferenceCount;
+	renderer.mBoundRuntimeLightMaxShadowCandidatesPerTile = runtimeLightClusterStats.maxShadowCandidatesPerTile;
+	renderer.mBoundRuntimeLightMaxShadowSelectedPerTile = runtimeLightClusterStats.maxShadowSelectedPerTile;
+	renderer.mBoundRuntimeLightShadowSelectionHash = runtimeLightClusterStats.shadowSelectionHash;
 	renderer.mRuntimeLightSceneDataDirty = false;
 	return true;
 }
@@ -3441,6 +3471,7 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 	uint32_t runtimeLightTileCountY = 0;
 	uint32_t runtimeLightTileIndexCount = 0;
 	uint32_t runtimeLightMaxTileOccupancy = 0;
+	SceneLightSystem::RuntimeLightClusterBuildStats runtimeLightClusterStats = {};
 	uint64_t runtimeLightClusterCameraHash = 0;
 	{
 		ScopedPtPerfTimer runtimeLightClusterTimer(renderer.mLastPerfShellTraceStats.sceneDataSetRuntimeLightClusterMs);
@@ -3493,7 +3524,8 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 				runtimeLightTileCountX,
 				runtimeLightTileCountY,
 				runtimeLightTileIndexCount,
-				runtimeLightMaxTileOccupancy);
+				runtimeLightMaxTileOccupancy,
+				runtimeLightClusterStats);
 		}
 		if (!ensureSceneDataBatched(
 			runtimeLightTileHeaderBuffer,
@@ -3537,6 +3569,13 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 				runtimeLightTileCountY,
 				runtimeLightTileIndexCount,
 				runtimeLightMaxTileOccupancy,
+				runtimeLightClusterStats.shadowBudget,
+				runtimeLightClusterStats.shadowCandidateReferenceCount,
+				runtimeLightClusterStats.shadowSelectedReferenceCount,
+				runtimeLightClusterStats.shadowOverflowReferenceCount,
+				runtimeLightClusterStats.maxShadowCandidatesPerTile,
+				runtimeLightClusterStats.maxShadowSelectedPerTile,
+				runtimeLightClusterStats.shadowSelectionHash,
 				BuildSceneDataLightBufferReuseView(runtimeLightTileHeaderBuffer),
 				BuildSceneDataLightBufferReuseView(runtimeLightTileIndexBuffer));
 		}
@@ -3555,6 +3594,13 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 			runtimeLightTileCountY = sceneDataFrameSlot->lightReuse.runtimeLightCluster.tileCountY;
 			runtimeLightTileIndexCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.tileIndexCount;
 			runtimeLightMaxTileOccupancy = sceneDataFrameSlot->lightReuse.runtimeLightCluster.maxTileOccupancy;
+			runtimeLightClusterStats.shadowBudget = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowBudget;
+			runtimeLightClusterStats.shadowCandidateReferenceCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowCandidateReferenceCount;
+			runtimeLightClusterStats.shadowSelectedReferenceCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowSelectedReferenceCount;
+			runtimeLightClusterStats.shadowOverflowReferenceCount = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowOverflowReferenceCount;
+			runtimeLightClusterStats.maxShadowCandidatesPerTile = sceneDataFrameSlot->lightReuse.runtimeLightCluster.maxShadowCandidatesPerTile;
+			runtimeLightClusterStats.maxShadowSelectedPerTile = sceneDataFrameSlot->lightReuse.runtimeLightCluster.maxShadowSelectedPerTile;
+			runtimeLightClusterStats.shadowSelectionHash = sceneDataFrameSlot->lightReuse.runtimeLightCluster.shadowSelectionHash;
 		}
 		else
 		{
@@ -3562,6 +3608,13 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 			runtimeLightTileCountY = renderer.mBoundRuntimeLightTileCountY;
 			runtimeLightTileIndexCount = renderer.mBoundRuntimeLightTileIndexCount;
 			runtimeLightMaxTileOccupancy = renderer.mBoundRuntimeLightMaxTileOccupancy;
+			runtimeLightClusterStats.shadowBudget = renderer.mBoundRuntimeLightShadowBudget;
+			runtimeLightClusterStats.shadowCandidateReferenceCount = renderer.mBoundRuntimeLightShadowCandidateReferenceCount;
+			runtimeLightClusterStats.shadowSelectedReferenceCount = renderer.mBoundRuntimeLightShadowSelectedReferenceCount;
+			runtimeLightClusterStats.shadowOverflowReferenceCount = renderer.mBoundRuntimeLightShadowOverflowReferenceCount;
+			runtimeLightClusterStats.maxShadowCandidatesPerTile = renderer.mBoundRuntimeLightMaxShadowCandidatesPerTile;
+			runtimeLightClusterStats.maxShadowSelectedPerTile = renderer.mBoundRuntimeLightMaxShadowSelectedPerTile;
+			runtimeLightClusterStats.shadowSelectionHash = renderer.mBoundRuntimeLightShadowSelectionHash;
 		}
 		renderer.mLastPerfShellTraceStats.sceneDataSetRuntimeLightClusterCacheHits++;
 	}
@@ -3701,6 +3754,13 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 	renderer.mBoundRuntimeLightTileSize = NRI_RUNTIME_LIGHT_TILE_SIZE;
 	renderer.mBoundRuntimeLightTileIndexCount = runtimeLightTileIndexCount;
 	renderer.mBoundRuntimeLightMaxTileOccupancy = runtimeLightMaxTileOccupancy;
+	renderer.mBoundRuntimeLightShadowBudget = runtimeLightClusterStats.shadowBudget;
+	renderer.mBoundRuntimeLightShadowCandidateReferenceCount = runtimeLightClusterStats.shadowCandidateReferenceCount;
+	renderer.mBoundRuntimeLightShadowSelectedReferenceCount = runtimeLightClusterStats.shadowSelectedReferenceCount;
+	renderer.mBoundRuntimeLightShadowOverflowReferenceCount = runtimeLightClusterStats.shadowOverflowReferenceCount;
+	renderer.mBoundRuntimeLightMaxShadowCandidatesPerTile = runtimeLightClusterStats.maxShadowCandidatesPerTile;
+	renderer.mBoundRuntimeLightMaxShadowSelectedPerTile = runtimeLightClusterStats.maxShadowSelectedPerTile;
+	renderer.mBoundRuntimeLightShadowSelectionHash = runtimeLightClusterStats.shadowSelectionHash;
 	renderer.mRuntimeLightSceneDataDirty = false;
 	renderer.mLastPerfShellTraceStats.sceneDataDescriptorGeneration = renderer.mSceneDataDescriptorGeneration;
 	return true;
@@ -3760,6 +3820,7 @@ bool NRIRenderer::PreGrowLevelSceneResourcesForLoading()
 	uint32_t runtimeLightTileCountY = 0;
 	uint32_t runtimeLightTileIndexCount = 0;
 	uint32_t runtimeLightMaxTileOccupancy = 0;
+	SceneLightSystem::RuntimeLightClusterBuildStats runtimeLightClusterStats = {};
 	std::vector<NRIRuntimeLightTileHeaderGpuData> runtimeLightTileHeaders;
 	std::vector<uint32_t> runtimeLightTileIndices;
 	mSceneLights.BuildRuntimeLightClusterUpload(
@@ -3769,7 +3830,8 @@ bool NRIRenderer::PreGrowLevelSceneResourcesForLoading()
 		runtimeLightTileCountX,
 		runtimeLightTileCountY,
 		runtimeLightTileIndexCount,
-		runtimeLightMaxTileOccupancy);
+		runtimeLightMaxTileOccupancy,
+		runtimeLightClusterStats);
 
 	NRIEmissivePrimitiveHeaderGpuData emissiveHeader = {};
 	std::vector<NRIEmissivePrimitiveGpuData> emissivePrimitives;

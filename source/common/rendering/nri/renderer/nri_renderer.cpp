@@ -1986,6 +1986,13 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mBoundRuntimeLightTileSize = 0;
 	mBoundRuntimeLightTileIndexCount = 0;
 	mBoundRuntimeLightMaxTileOccupancy = 0;
+	mBoundRuntimeLightShadowBudget = 0;
+	mBoundRuntimeLightShadowCandidateReferenceCount = 0;
+	mBoundRuntimeLightShadowSelectedReferenceCount = 0;
+	mBoundRuntimeLightShadowOverflowReferenceCount = 0;
+	mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
+	mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
+	mBoundRuntimeLightShadowSelectionHash = 0;
 	mRuntimeLightPayloadCacheValid = false;
 	mRuntimeLightPayloadHash = 0;
 	mRuntimeLightClusterCacheValid = false;
@@ -2467,6 +2474,13 @@ void NRIRenderer::InvalidateRuntimeLightSceneData()
 	mBoundRuntimeLightTileSize = 0;
 	mBoundRuntimeLightTileIndexCount = 0;
 	mBoundRuntimeLightMaxTileOccupancy = 0;
+	mBoundRuntimeLightShadowBudget = 0;
+	mBoundRuntimeLightShadowCandidateReferenceCount = 0;
+	mBoundRuntimeLightShadowSelectedReferenceCount = 0;
+	mBoundRuntimeLightShadowOverflowReferenceCount = 0;
+	mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
+	mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
+	mBoundRuntimeLightShadowSelectionHash = 0;
 	mRuntimeLightPayloadCacheValid = false;
 	mRuntimeLightPayloadHash = 0;
 	mRuntimeLightClusterCacheValid = false;
@@ -2498,7 +2512,7 @@ void NRIRenderer::PrintRuntimeLightClusterStatus() const
 		}
 	}
 
-	Printf("NRI PT light clusters: tile_size=%u grid=%ux%u tiles=%u active_lights=%u used_indices=%u max_occupancy=%u center_tile=(%u,%u) center_count=%u debug_mode=%u\n",
+	Printf("NRI PT light clusters: tile_size=%u grid=%ux%u tiles=%u active_lights=%u used_indices=%u max_occupancy=%u shadow_budget=%u shadow_candidates=%u shadow_selected=%u shadow_overflow=%u shadow_tile_max=%u shadow_selected_tile_max=%u shadow_selection_hash=0x%016llx center_tile=(%u,%u) center_count=%u debug_mode=%u\n",
 		mBoundRuntimeLightTileSize,
 		mBoundRuntimeLightTileCountX,
 		mBoundRuntimeLightTileCountY,
@@ -2506,6 +2520,13 @@ void NRIRenderer::PrintRuntimeLightClusterStatus() const
 		mBoundRuntimeLightCount,
 		mBoundRuntimeLightTileIndexCount,
 		mBoundRuntimeLightMaxTileOccupancy,
+		mBoundRuntimeLightShadowBudget,
+		mBoundRuntimeLightShadowCandidateReferenceCount,
+		mBoundRuntimeLightShadowSelectedReferenceCount,
+		mBoundRuntimeLightShadowOverflowReferenceCount,
+		mBoundRuntimeLightMaxShadowCandidatesPerTile,
+		mBoundRuntimeLightMaxShadowSelectedPerTile,
+		(unsigned long long)mBoundRuntimeLightShadowSelectionHash,
 		centerTileX,
 		centerTileY,
 		centerTileCount,
@@ -3378,6 +3399,7 @@ SceneLightSystem::RuntimeLightClusterBuildInput NRIRenderer::BuildRuntimeLightCl
 	input.renderHeight = mRenderHeight;
 	input.tileSize = NRI_RUNTIME_LIGHT_TILE_SIZE;
 	input.maxRuntimeLights = NRI_MAX_RUNTIME_POINT_LIGHTS;
+	input.shadowBudget = (uint32_t)std::clamp((int)nri_ptanalyticshadowbudget, 0, (int)NRI_MAX_RUNTIME_POINT_LIGHTS);
 	Copy3(mCurrentCameraPos, input.currentCameraPos);
 	Copy3(mCurrentCameraForward, input.currentCameraForward);
 	Copy3(mCurrentCameraRight, input.currentCameraRight);

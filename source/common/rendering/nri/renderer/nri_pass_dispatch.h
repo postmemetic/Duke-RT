@@ -314,6 +314,13 @@ public:
 		uint32_t runtimeLightTileSize = 0;
 		uint32_t runtimeLightTileIndexCount = 0;
 		uint32_t runtimeLightMaxTileOccupancy = 0;
+		uint32_t runtimeLightShadowBudget = 0;
+		uint32_t runtimeLightShadowCandidateReferenceCount = 0;
+		uint32_t runtimeLightShadowSelectedReferenceCount = 0;
+		uint32_t runtimeLightShadowOverflowReferenceCount = 0;
+		uint32_t runtimeLightMaxShadowCandidatesPerTile = 0;
+		uint32_t runtimeLightMaxShadowSelectedPerTile = 0;
+		uint64_t runtimeLightShadowSelectionHash = 0;
 		uint32_t emissivePrimitiveCount = 0;
 		float emissiveTotalPower = 0.0f;
 	};

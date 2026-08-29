@@ -1460,7 +1460,8 @@ float3 EvaluatePlainMirrorSurfaceGlint(HitData mirrorHit, float3 mirrorPlaneNorm
 	[loop]
 	for (uint runtimeLightCandidate = 0u; runtimeLightCandidate < runtimeLightTile.indexCount; ++runtimeLightCandidate)
 	{
-		const uint runtimeLightIndex = gRuntimeLightTileIndices[runtimeLightTile.indexOffset + runtimeLightCandidate];
+		const uint runtimeLightTileEntry = gRuntimeLightTileIndices[runtimeLightTile.indexOffset + runtimeLightCandidate];
+		const uint runtimeLightIndex = RuntimeLightTileEntryLightIndex(runtimeLightTileEntry);
 		if (runtimeLightIndex >= gTraceConstants.RuntimeLightCount)
 		{
 			continue;
@@ -1483,7 +1484,9 @@ float3 EvaluatePlainMirrorSurfaceGlint(HitData mirrorHit, float3 mirrorPlaneNorm
 		const float3 lightDir = toLight / lightDistance;
 		const float3 lightNormal = ResolveLightFacingShadingNormal(mirrorMaterial, mirrorPlaneNormal, lightDir);
 		const float lightFacing = saturate(dot(lightNormal, lightDir));
-		const bool runtimeLightCastsShadow = (runtimeLight.flags & RUNTIME_POINT_LIGHT_FLAG_CASTS_SHADOW) != 0u;
+		const bool runtimeLightCastsShadow =
+			(runtimeLight.flags & RUNTIME_POINT_LIGHT_FLAG_CASTS_SHADOW) != 0u &&
+			RuntimeLightTileEntryShadowSelected(runtimeLightTileEntry);
 		const float runtimeShadow = (receivesShadow && runtimeLightCastsShadow) ? ComputePointLightShadow(mirrorHit.position, lightNormal, lightDir, lightDistance) : 1.0;
 		if (runtimeShadow <= 0.0)
 		{
@@ -1793,7 +1796,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				for (uint runtimeLightCandidate = 0u; runtimeLightCandidate < runtimeLightCandidateCount; ++runtimeLightCandidate)
 				{
 					TraceShaderStatAdd(TRACE_STAT_RUNTIME_CANDIDATES, 1u);
-					const uint runtimeLightIndex = gRuntimeLightTileIndices[runtimeLightTile.indexOffset + runtimeLightCandidate];
+					const uint runtimeLightTileEntry = gRuntimeLightTileIndices[runtimeLightTile.indexOffset + runtimeLightCandidate];
+					const uint runtimeLightIndex = RuntimeLightTileEntryLightIndex(runtimeLightTileEntry);
 					if (runtimeLightIndex >= gTraceConstants.RuntimeLightCount)
 					{
 						continue;
@@ -1815,7 +1819,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					TraceShaderStatAdd(TRACE_STAT_RUNTIME_DISTANCE, 1u);
 
 					const float3 centerLightDir = toLightCenter / centerLightDistance;
-					const bool runtimeLightCastsShadow = (runtimeLight.flags & RUNTIME_POINT_LIGHT_FLAG_CASTS_SHADOW) != 0u;
+					const bool runtimeLightCastsShadow =
+						(runtimeLight.flags & RUNTIME_POINT_LIGHT_FLAG_CASTS_SHADOW) != 0u &&
+						RuntimeLightTileEntryShadowSelected(runtimeLightTileEntry);
 					const bool useSoftRuntimeShadow = !directSceneTrace && receivesShadow && runtimeLightCastsShadow && runtimeLight.emitterRadius > 0.0;
 					const uint runtimeLightStableSeed = Hash32(runtimeLight.stableKeyLo ^ Hash32(runtimeLight.stableKeyHi + 0x9e3779b9u));
 					uint runtimeLightRng = pixelPos.x * 1973u ^ pixelPos.y * 9277u ^ (gTraceConstants.FrameIndex + 1u) * 26699u ^ runtimeLightStableSeed;

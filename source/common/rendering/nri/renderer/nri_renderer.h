@@ -1753,6 +1753,13 @@ public:
 		uint32_t traceRuntimeLightTileSize = 0;
 		uint32_t traceRuntimeLightTileIndexCount = 0;
 		uint32_t traceRuntimeLightMaxTileOccupancy = 0;
+		uint32_t traceRuntimeLightShadowBudget = 0;
+		uint32_t traceRuntimeLightShadowCandidateReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowSelectedReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowOverflowReferenceCount = 0;
+		uint32_t traceRuntimeLightMaxShadowCandidatesPerTile = 0;
+		uint32_t traceRuntimeLightMaxShadowSelectedPerTile = 0;
+		uint64_t traceRuntimeLightShadowSelectionHash = 0;
 		uint32_t traceEmissivePrimitiveCount = 0;
 		double traceEmissiveTotalPower = 0.0;
 		uint32_t traceFlags = 0;
@@ -3030,6 +3037,13 @@ private:
 	uint32_t mBoundRuntimeLightTileSize = 0;
 	uint32_t mBoundRuntimeLightTileIndexCount = 0;
 	uint32_t mBoundRuntimeLightMaxTileOccupancy = 0;
+	uint32_t mBoundRuntimeLightShadowBudget = 0;
+	uint32_t mBoundRuntimeLightShadowCandidateReferenceCount = 0;
+	uint32_t mBoundRuntimeLightShadowSelectedReferenceCount = 0;
+	uint32_t mBoundRuntimeLightShadowOverflowReferenceCount = 0;
+	uint32_t mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
+	uint32_t mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
+	uint64_t mBoundRuntimeLightShadowSelectionHash = 0;
 	std::vector<uint8_t> mSceneDataDescriptorsInitialized;
 	std::vector<uint64_t> mSceneDataDescriptorMapEpochs;
 	std::vector<uint64_t> mSceneDataDescriptorBuildEpochs;

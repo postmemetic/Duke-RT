@@ -114,6 +114,8 @@ static_assert(NRIPackTemporalJitterPhaseCount(72u) == 0x480000u);
 static_assert((NRIPackTemporalJitterPhaseCount(127u) & NRI_FLAG_SPATIAL_ACTOR_OCCURRENCE_GATE) == 0u);
 
 constexpr uint32_t NRI_RUNTIME_LIGHT_TILE_SIZE = 64u;
+constexpr uint32_t NRI_RUNTIME_LIGHT_TILE_INDEX_SHADOW_SELECTED = 0x80000000u;
+constexpr uint32_t NRI_RUNTIME_LIGHT_TILE_INDEX_MASK = 0x7fffffffu;
 constexpr uint32_t NRI_PORTAL_FLAG_RUNTIME_BOUND = 0x1u;
 constexpr uint32_t NRI_PORTAL_TRAVERSAL_CLASS_NONE = 0u;
 constexpr uint32_t NRI_PORTAL_TRAVERSAL_CLASS_REFLECTIVE = 1u;
