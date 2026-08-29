@@ -62,6 +62,17 @@ namespace nri_material_policy
 		ActorOverlayMaterialRuleMap rules;
 	};
 
+	// The actor-dependent inputs which can change the material bridge result for
+	// one sprite surface. This intentionally contains no actor identity so callers
+	// can compare equivalent presentations owned by different actors.
+	struct ActorMaterialPresentationPolicy
+	{
+		ActorMaterialOverrideState overrideState = {};
+		uint32_t resolvedGeneration = 0;
+		uint32_t actorOverlayRuleCount = 0;
+		uint32_t actorOverlayRuleIds[nri_scene::MaxActorOverlayRuleIdsPerSurface] = {};
+	};
+
 	bool HasActorMaterialOverrideRules(const ResolvedLightOverlaySet& resolved);
 	bool HasActorFullbrightOverrides(const ResolvedLightOverlaySet& resolved);
 	void BuildActorMaterialOverrideMap(

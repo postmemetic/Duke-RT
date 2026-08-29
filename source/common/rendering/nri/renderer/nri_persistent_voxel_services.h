@@ -17,6 +17,11 @@ struct NRIPersistentVoxelMaterialClosureTelemetry
 	uint32_t preloadSeedReuses = 0;
 	uint32_t runtimeSeedReuses = 0;
 	uint32_t runtimeBroadMaterialBuilds = 0;
+	uint32_t materialPresentationAttempts = 0;
+	uint32_t materialPresentationHits = 0;
+	uint32_t materialPresentationMisses = 0;
+	uint32_t materialPresentationFailOpen = 0;
+	uint32_t materialPresentationRows = 0;
 	uint32_t textureRequests = 0;
 	uint32_t textureRealizations = 0;
 	uint32_t textureReuses = 0;

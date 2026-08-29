@@ -1408,6 +1408,11 @@ public:
 		uint32_t persistentVoxelInstanceRecordCount = 0;
 		uint32_t persistentVoxelPendingInstanceCount = 0;
 		uint32_t persistentVoxelMaterialVariantResourceCount = 0;
+		uint32_t persistentVoxelMaterialPresentationAttempts = 0;
+		uint32_t persistentVoxelMaterialPresentationHits = 0;
+		uint32_t persistentVoxelMaterialPresentationMisses = 0;
+		uint32_t persistentVoxelMaterialPresentationFailOpen = 0;
+		uint32_t persistentVoxelMaterialPresentationRows = 0;
 		uint32_t persistentVoxelZeroRefMeshResourceCount = 0;
 		uint32_t persistentVoxelZeroRefMaterialResourceCount = 0;
 		uint32_t persistentVoxelAdmissionQueueCount = 0;
@@ -2623,6 +2628,9 @@ private:
 	void ResetPersistentDynamicEmissiveCache();
 	SceneLightSystem::PersistentDynamicEmissiveCacheBuildServices BuildPersistentDynamicEmissiveCacheServices();
 	void BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials, const char* traceLabel = nullptr);
+	bool ResolveActorMaterialPresentationPolicy(
+		const nri_scene::SurfaceRef& surface,
+		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
 	void ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials) const;
 	void ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials);
 	uint64_t ComputeChunkActorOverrideHash(const nri_scene::MaterialBridgeData& materials);

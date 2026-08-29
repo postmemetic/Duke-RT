@@ -759,6 +759,86 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 	TraceActorSpriteMaterialAssignments(sceneView, outMaterials, traceLabel);
 }
 
+bool NRIRenderer::ResolveActorMaterialPresentationPolicy(
+	const nri_scene::SurfaceRef& surface,
+	nri_material_policy::ActorMaterialPresentationPolicy& outPolicy)
+{
+	outPolicy = {};
+	if (surface.provenance.actorIndex < 0 ||
+		(surface.material.flags & nri_scene::MaterialFlag_Sprite) == 0 ||
+		(mFrameBuffer != nullptr && mFrameBuffer->IsPathTracingLevelPreloadPending()))
+	{
+		return false;
+	}
+
+	const ResolvedLightOverlaySet& resolved = GetResolvedLightOverlaySet();
+	outPolicy.resolvedGeneration = resolved.resolvedGeneration;
+	if (nri_material_policy::HasActorMaterialOverrideRules(resolved))
+	{
+		const auto& overrides = GetActorMaterialOverrideMapForFrame(
+			ResolveMaterialBuildTraceSlot("persistent_voxel_material_variant"));
+		const auto overrideIt = overrides.find(surface.provenance.actorIndex);
+		if (overrideIt != overrides.end())
+		{
+			outPolicy.overrideState = overrideIt->second;
+		}
+	}
+
+	outPolicy.actorOverlayRuleCount = std::min<uint32_t>(
+		surface.provenance.actorOverlayRuleCount,
+		nri_scene::MaxActorOverlayRuleIdsPerSurface);
+	std::copy_n(
+		surface.provenance.actorOverlayRuleIds,
+		outPolicy.actorOverlayRuleCount,
+		outPolicy.actorOverlayRuleIds);
+
+	if (resolved.actorRules.Size() == 0)
+	{
+		return true;
+	}
+
+	bool built = false;
+	bool cacheHit = false;
+	const auto& actorRules = GetActorOverlayMaterialRulesForFrame(
+		resolved,
+		mFrameIndex,
+		mActorOverlayMaterialRuleCache,
+		built,
+		cacheHit);
+	const auto actorRuleIt = actorRules.find(surface.provenance.actorIndex);
+	if (actorRuleIt == actorRules.end())
+	{
+		return true;
+	}
+
+	uint32_t textureId = 0;
+	if (surface.material.texture != nullptr)
+	{
+		const FTextureID id = surface.material.texture->GetID();
+		textureId = id.isValid() ? (uint32_t)id.GetIndex() : 0u;
+	}
+	outPolicy.actorOverlayRuleCount = 0;
+	std::fill(
+		std::begin(outPolicy.actorOverlayRuleIds),
+		std::end(outPolicy.actorOverlayRuleIds),
+		0u);
+	for (const auto& rule : actorRuleIt->second)
+	{
+		// BuildMaterialsWithActorOverrides applies rule material bits actor-wide,
+		// while provenance IDs retain the rule's optional tile filter.
+		outPolicy.overrideState.bits |= rule.overrideBits;
+		if (rule.hasTileFilter && rule.tileFilter != textureId)
+		{
+			continue;
+		}
+		if (outPolicy.actorOverlayRuleCount < nri_scene::MaxActorOverlayRuleIdsPerSurface)
+		{
+			outPolicy.actorOverlayRuleIds[outPolicy.actorOverlayRuleCount++] = rule.ruleId;
+		}
+	}
+	return true;
+}
+
 void NRIRenderer::ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials)
 {
 	const ResolvedLightOverlaySet& resolvedLightOverlays = GetResolvedLightOverlaySet();
