@@ -103,6 +103,15 @@ namespace
 		target.pendingRemoval = source.pendingRemoval;
 	}
 
+	uint32_t ResolvePersistentVoxelMaterialRowSpan(
+		const nri_scene::PersistentVoxelCacheEntryView& entry)
+	{
+		const nri_scene::SurfaceRef* materialSurface = entry.lightSurface != nullptr ?
+			entry.lightSurface :
+			(entry.surface != nullptr ? entry.surface : &entry.materialSurface);
+		return materialSurface != nullptr ? materialSurface->materialRowSpan : 0u;
+	}
+
 	uint64_t BuildPersistentVoxelActorBindingGeneration(
 		const PersistentVoxelBatch::ActorEntry& actor)
 	{
@@ -1103,6 +1112,12 @@ NRIVoxelRepresentationDecision NRIPersistentVoxelTlasServices::EvaluateRepresent
 	decision.capturedThisFrame = facts.capturedThisFrame;
 	decision.routedThroughSharedBlas = facts.routedThroughSharedBlas;
 	return decision;
+}
+
+bool NRIPersistentVoxelTlasServices::HasFinalActorNoShadowCastIntent(int32_t actorIndex) const
+{
+	return hasFinalActorNoShadowCastIntent != nullptr &&
+		hasFinalActorNoShadowCastIntent(user, actorIndex);
 }
 
 NRIPersistentVoxelOverlayStats NRIPersistentVoxelResidency::BuildOverlayStats() const
@@ -3110,6 +3125,104 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 		persistentVoxelInstance.mask = instanceVisibility.tlasMask;
 		persistentVoxelInstance.shaderBindingTableLocalOffset = 0;
 		persistentVoxelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+
+		NRIActorWorkloadMaskFacts workloadMaskFacts = {};
+		workloadMaskFacts.requestedMask = persistentVoxelInstance.mask;
+		workloadMaskFacts.occurrenceKind = NRIActorWorkloadOccurrenceKind::DedicatedPersistentActor;
+		workloadMaskFacts.actorIndex = actor.actorIndex;
+		workloadMaskFacts.finalActorNoShadowCastIntent =
+			services.HasFinalActorNoShadowCastIntent(actor.actorIndex);
+		workloadMaskFacts.materialSignature = materialResourceIt->second.materialSignature;
+		workloadMaskFacts.expectedMaterialSignature =
+			actor.materialSignature != 0 ? actor.materialSignature : actor.materialKeyHash;
+		workloadMaskFacts.materialClosureGeneration = materialResourceIt->second.materialBridgeBuildSerial;
+		workloadMaskFacts.expectedMaterialClosureGeneration = residencyLastBuildSerial;
+		workloadMaskFacts.materialSlotGeneration = actor.materialSlotGeneration;
+		workloadMaskFacts.expectedMaterialSlotGeneration = materialResourceIt->second.materialSlotGeneration;
+		workloadMaskFacts.bindingGeneration = actor.bindingGeneration;
+		workloadMaskFacts.expectedBindingGeneration = BuildPersistentVoxelActorBindingGeneration(actor);
+		workloadMaskFacts.effectiveMaterialRowSpan = actor.materialRowSpan;
+		workloadMaskFacts.declaredMaterialRowCount = actor.materialCount;
+		workloadMaskFacts.materialRowCount = (uint32_t)actor.materialBridge.materials.size();
+		workloadMaskFacts.metadataRowCount = (uint32_t)actor.materialBridge.lightMetadata.size();
+		workloadMaskFacts.singleActorProvenance =
+			!actor.materialBridge.lightMetadata.empty();
+		workloadMaskFacts.allRowsFinalNoShadowCast =
+			!actor.materialBridge.materials.empty() &&
+			actor.materialBridge.materials.size() == actor.materialBridge.lightMetadata.size();
+		for (const nri_scene::MaterialLightingMetadata& metadata : actor.materialBridge.lightMetadata)
+		{
+			workloadMaskFacts.singleActorProvenance =
+				workloadMaskFacts.singleActorProvenance && metadata.actorIndex == actor.actorIndex;
+			workloadMaskFacts.anyVoxelPalettePolicyApplied =
+				workloadMaskFacts.anyVoxelPalettePolicyApplied || metadata.voxelPalettePolicyApplied;
+		}
+		const uint32_t workloadMaterialCount = (uint32_t)std::min(
+			actor.materialBridge.materials.size(),
+			actor.materialBridge.lightMetadata.size());
+		for (uint32_t materialIndex = 0; materialIndex < workloadMaterialCount; ++materialIndex)
+		{
+			const uint32_t materialLightingFlags =
+				actor.materialBridge.materials[materialIndex].lightingFlags;
+			const uint32_t metadataLightingFlags =
+				actor.materialBridge.lightMetadata[materialIndex].lightingFlags;
+			workloadMaskFacts.allRowsFinalNoShadowCast =
+				workloadMaskFacts.allRowsFinalNoShadowCast &&
+				(materialLightingFlags & nri_scene::MaterialLightingFlag_NoShadowCast) != 0u &&
+				(metadataLightingFlags & nri_scene::MaterialLightingFlag_NoShadowCast) != 0u;
+		}
+
+		const NRIActorWorkloadMaskDecision workloadMaskDecision =
+			EvaluateNRIActorWorkloadMaskPolicy(workloadMaskFacts);
+		outStats.actorWorkloadMaskCandidateCount++;
+		outStats.actorWorkloadMaskCandidatePrimitiveCount += actor.primitiveCount;
+		if (workloadMaskFacts.finalActorNoShadowCastIntent)
+		{
+			outStats.actorWorkloadMaskIntentCount++;
+		}
+		if (workloadMaskDecision.certified)
+		{
+			outStats.actorWorkloadMaskCertifiedCount++;
+			outStats.actorWorkloadMaskCertifiedPrimitiveCount += actor.primitiveCount;
+		}
+		const uint32_t workloadReasonIndex = (uint32_t)workloadMaskDecision.reason;
+		if (workloadReasonIndex < outStats.actorWorkloadMaskReasonCounts.size())
+		{
+			outStats.actorWorkloadMaskReasonCounts[workloadReasonIndex]++;
+		}
+		if (services.actorWorkloadMaskDiagnosticsEnabled &&
+			outStats.actorWorkloadMaskDiagnosticRows < services.actorWorkloadMaskDiagnosticLimit)
+		{
+			Printf("PERF pt actor workload mask NRI: frame=%u actor=%d actor_key=0x%llx pic=%d voxel=%d prims=%u intent_no_shadow=%u certified=%u reason=%s requested_mask=0x%x diagnostic_mask=0x%x removed_mask=0x%x production_mask=0x%x material_signature=0x%llx closure_generation=%llu expected_closure_generation=%llu slot_generation=%llu expected_slot_generation=%llu binding_generation=%llu expected_binding_generation=%llu row_span=%u declared_rows=%u material_rows=%u metadata_rows=%u palette_policy=%u single_actor=%u final_no_shadow=%u\n",
+				frameIndex,
+				actor.actorIndex,
+				(unsigned long long)actor.identityKey,
+				actor.sourcePicnum,
+				actor.resolvedVoxelIndex,
+				actor.primitiveCount,
+				workloadMaskFacts.finalActorNoShadowCastIntent ? 1u : 0u,
+				workloadMaskDecision.certified ? 1u : 0u,
+				GetNRIActorWorkloadMaskReasonName(workloadMaskDecision.reason),
+				workloadMaskDecision.requestedMask,
+				workloadMaskDecision.diagnosticMask,
+				workloadMaskDecision.diagnosticRemovedMask,
+				(uint32_t)persistentVoxelInstance.mask,
+				(unsigned long long)workloadMaskFacts.materialSignature,
+				(unsigned long long)workloadMaskFacts.materialClosureGeneration,
+				(unsigned long long)workloadMaskFacts.expectedMaterialClosureGeneration,
+				(unsigned long long)workloadMaskFacts.materialSlotGeneration,
+				(unsigned long long)workloadMaskFacts.expectedMaterialSlotGeneration,
+				(unsigned long long)workloadMaskFacts.bindingGeneration,
+				(unsigned long long)workloadMaskFacts.expectedBindingGeneration,
+				workloadMaskFacts.effectiveMaterialRowSpan,
+				workloadMaskFacts.declaredMaterialRowCount,
+				workloadMaskFacts.materialRowCount,
+				workloadMaskFacts.metadataRowCount,
+				workloadMaskFacts.anyVoxelPalettePolicyApplied ? 1u : 0u,
+				workloadMaskFacts.singleActorProvenance ? 1u : 0u,
+				workloadMaskFacts.allRowsFinalNoShadowCast ? 1u : 0u);
+			outStats.actorWorkloadMaskDiagnosticRows++;
+		}
 		if ((bool)nri_ptfilterquery && PersistentVoxelRangeNeedsFilterCandidateTraversal(
 			actor.materialOffset,
 			actor.materialCount,
@@ -7688,6 +7801,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			actor.indexCount = indexCount;
 			actor.materialOffset = materialResource.materialOffset;
 			actor.materialCount = materialResource.materialCount;
+			actor.materialRowSpan = ResolvePersistentVoxelMaterialRowSpan(cacheEntry);
 			actor.materialSlotGeneration = materialResource.materialSlotGeneration;
 			CopyPersistentVoxelActorAuthority(cacheEntry, actor);
 			actor.bindingGeneration = BuildPersistentVoxelActorBindingGeneration(actor);
@@ -8159,6 +8273,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		actor.indexCount = (uint32_t)actorGeometry.indices.size();
 		actor.materialOffset = materialResource.materialOffset;
 		actor.materialCount = materialResource.materialCount;
+		actor.materialRowSpan = ResolvePersistentVoxelMaterialRowSpan(cacheEntry);
 		actor.materialSlotGeneration = materialResource.materialSlotGeneration;
 		CopyPersistentVoxelActorAuthority(cacheEntry, actor);
 		actor.bindingGeneration = BuildPersistentVoxelActorBindingGeneration(actor);
