@@ -48,6 +48,13 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_VirtualHeight = 1ull << 19,
 	FluidOverlayParameter_Seed = 1ull << 20,
 	FluidOverlayParameter_Octaves = 1ull << 21,
+	FluidOverlayParameter_Lacunarity = 1ull << 22,
+	FluidOverlayParameter_Gain = 1ull << 23,
+	FluidOverlayParameter_OctaveRotation = 1ull << 24,
+	FluidOverlayParameter_ChoppyRelaxation = 1ull << 25,
+	FluidOverlayParameter_NoiseScale = 1ull << 26,
+	FluidOverlayParameter_MaxSlope = 1ull << 27,
+	FluidOverlayParameter_CrestGain = 1ull << 28,
 };
 
 struct FluidOverlaySourceLocation
@@ -83,12 +90,19 @@ struct FluidOverlayParameters
 	float scale = 96.0f;
 	float amplitude = 0.10f;
 	float frequency = 1.0f;
+	float lacunarity = 1.90f;
+	float gain = 0.28f;
 	float timeScale = 1.0f;
 	float speed = 0.25f;
 	float flow[2] = { 1.0f, 0.0f };
 	float anisotropy = 1.0f;
 	float warp = 0.0f;
-	float choppiness = 0.35f;
+	float choppiness = 1.0f;
+	float octaveRotation = 37.0f;
+	float choppyRelaxation = 0.20f;
+	float noiseScale = 0.65f;
+	float maxSlope = 1.25f;
+	float crestGain = 0.35f;
 	float normalStrength = 0.75f;
 	// Optional Phase 2C visual-only half-height in renderer world units.
 	// Zero disables virtual-height refinement for this profile.

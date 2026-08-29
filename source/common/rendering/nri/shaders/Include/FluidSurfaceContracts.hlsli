@@ -34,12 +34,16 @@ struct FluidBindingData
 	float4 topColorBaseMix;
 	float4 undersideColorBaseMix;
 	float4 surfaceResponse;
+	// amplitude, frequency, lacunarity, gain
 	float4 spectrum;
+	// phase speed, time scale, anisotropy, value-noise phase warp
 	float4 motion;
+	// choppiness, choppy relaxation, noise scale, octave rotation radians
 	float4 shaping;
 	float4 crestColorOpacity;
 	float4 emissionColorIntensity;
 	float4 crust;
+	// virtual half-height, maximum travel, crest-color gain, minimum view cosine
 	float4 virtualParams;
 };
 

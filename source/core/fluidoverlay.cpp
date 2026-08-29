@@ -195,16 +195,24 @@ namespace
 		case FluidOverlayStyle::Still:
 			result.amplitude = 0.035f;
 			result.speed = 0.08f;
-			result.warp = 0.08f;
-			result.choppiness = 0.12f;
+			result.lacunarity = 1.70f;
+			result.gain = 0.25f;
+			result.warp = 0.35f;
+			result.choppiness = 1.20f;
+			result.octaveRotation = 29.0f;
+			result.choppyRelaxation = 0.35f;
+			result.noiseScale = 0.55f;
+			result.maxSlope = 0.40f;
+			result.crestGain = 0.20f;
 			result.normalStrength = 0.42f;
 			result.octaves = 2;
 			break;
 		case FluidOverlayStyle::Waves:
 			result.amplitude = 0.18f;
 			result.speed = 0.32f;
-			result.warp = 0.15f;
-			result.choppiness = 0.48f;
+			result.warp = 0.80f;
+			result.choppiness = 3.20f;
+			result.maxSlope = 1.25f;
 			result.normalStrength = 0.90f;
 			result.octaves = 4;
 			break;
@@ -213,8 +221,11 @@ namespace
 			result.amplitude = 0.12f;
 			result.speed = 0.85f;
 			result.anisotropy = 1.8f;
-			result.warp = 0.25f;
-			result.choppiness = 0.55f;
+			result.warp = 0.70f;
+			result.choppiness = 3.0f;
+			result.octaveRotation = 24.0f;
+			result.noiseScale = 0.70f;
+			result.maxSlope = 1.40f;
 			result.normalStrength = 0.95f;
 			result.octaves = 4;
 			break;
@@ -225,8 +236,15 @@ namespace
 			result.flow[0] = 0.0f;
 			result.flow[1] = -1.0f;
 			result.anisotropy = 2.4f;
-			result.warp = 0.18f;
-			result.choppiness = 0.40f;
+			result.lacunarity = 2.0f;
+			result.gain = 0.26f;
+			result.warp = 0.65f;
+			result.choppiness = 3.20f;
+			result.octaveRotation = 12.0f;
+			result.choppyRelaxation = 0.15f;
+			result.noiseScale = 0.70f;
+			result.maxSlope = 1.40f;
+			result.crestGain = 0.28f;
 			result.normalStrength = 0.90f;
 			result.octaves = 4;
 			break;
@@ -241,16 +259,26 @@ namespace
 			result.amplitude = 0.09f;
 			result.speed = 0.11f;
 			result.anisotropy = 1.25f;
-			result.warp = 0.60f;
-			result.choppiness = 0.20f;
+			result.lacunarity = 1.70f;
+			result.gain = 0.35f;
+			result.warp = 0.90f;
+			result.choppiness = 1.60f;
+			result.octaveRotation = 31.0f;
+			result.choppyRelaxation = 0.35f;
+			result.noiseScale = 0.45f;
+			result.maxSlope = 0.80f;
+			result.crestGain = 0.40f;
 			result.normalStrength = 0.65f;
 			result.octaves = 4;
 			break;
 		case FluidOverlayStyle::Authored:
 			result.amplitude = 0.045f;
 			result.speed = 0.0f;
-			result.warp = 0.10f;
-			result.choppiness = 0.12f;
+			result.gain = 0.20f;
+			result.warp = 0.30f;
+			result.choppiness = 1.20f;
+			result.octaveRotation = 29.0f;
+			result.maxSlope = 0.45f;
 			result.normalStrength = 0.50f;
 			result.octaves = 2;
 			break;
@@ -267,8 +295,15 @@ namespace
 			result.amplitude = 0.08f;
 			result.speed = 0.10f;
 			result.anisotropy = 1.2f;
-			result.warp = 0.68f;
-			result.choppiness = 0.22f;
+			result.lacunarity = 1.80f;
+			result.gain = 0.30f;
+			result.warp = 1.0f;
+			result.choppiness = 2.40f;
+			result.octaveRotation = 41.0f;
+			result.choppyRelaxation = 0.28f;
+			result.noiseScale = 0.50f;
+			result.maxSlope = 0.90f;
+			result.crestGain = 0.70f;
 			result.normalStrength = 0.70f;
 			result.octaves = 4;
 			break;
@@ -298,6 +333,8 @@ namespace
 		if (mask & FluidOverlayParameter_Scale) destination.scale = source.scale;
 		if (mask & FluidOverlayParameter_Amplitude) destination.amplitude = source.amplitude;
 		if (mask & FluidOverlayParameter_Frequency) destination.frequency = source.frequency;
+		if (mask & FluidOverlayParameter_Lacunarity) destination.lacunarity = source.lacunarity;
+		if (mask & FluidOverlayParameter_Gain) destination.gain = source.gain;
 		if (mask & FluidOverlayParameter_TimeScale) destination.timeScale = source.timeScale;
 		if (mask & FluidOverlayParameter_Speed) destination.speed = source.speed;
 		if (mask & FluidOverlayParameter_Flow)
@@ -308,6 +345,11 @@ namespace
 		if (mask & FluidOverlayParameter_Anisotropy) destination.anisotropy = source.anisotropy;
 		if (mask & FluidOverlayParameter_Warp) destination.warp = source.warp;
 		if (mask & FluidOverlayParameter_Choppiness) destination.choppiness = source.choppiness;
+		if (mask & FluidOverlayParameter_OctaveRotation) destination.octaveRotation = source.octaveRotation;
+		if (mask & FluidOverlayParameter_ChoppyRelaxation) destination.choppyRelaxation = source.choppyRelaxation;
+		if (mask & FluidOverlayParameter_NoiseScale) destination.noiseScale = source.noiseScale;
+		if (mask & FluidOverlayParameter_MaxSlope) destination.maxSlope = source.maxSlope;
+		if (mask & FluidOverlayParameter_CrestGain) destination.crestGain = source.crestGain;
 		if (mask & FluidOverlayParameter_NormalStrength) destination.normalStrength = source.normalStrength;
 		if (mask & FluidOverlayParameter_VirtualHeight) destination.virtualHeight = source.virtualHeight;
 		if (mask & FluidOverlayParameter_Seed) destination.seed = source.seed;
@@ -335,16 +377,23 @@ namespace
 		value.scale = std::max(0.001f, finiteOr(value.scale, 96.0f));
 		value.amplitude = std::max(0.0f, finiteOr(value.amplitude, 0.0f));
 		value.frequency = std::max(0.0f, finiteOr(value.frequency, 1.0f));
+		value.lacunarity = std::clamp(finiteOr(value.lacunarity, 1.90f), 1.01f, 4.0f);
+		value.gain = std::clamp(finiteOr(value.gain, 0.28f), 0.0f, 1.0f);
 		value.timeScale = finiteOr(value.timeScale, 1.0f);
 		value.speed = finiteOr(value.speed, 0.0f);
 		value.flow[0] = finiteOr(value.flow[0], 1.0f);
 		value.flow[1] = finiteOr(value.flow[1], 0.0f);
 		value.anisotropy = std::max(0.0f, finiteOr(value.anisotropy, 1.0f));
-		value.warp = std::max(0.0f, finiteOr(value.warp, 0.0f));
-		value.choppiness = std::clamp(finiteOr(value.choppiness, 0.0f), 0.0f, 4.0f);
+		value.warp = std::clamp(finiteOr(value.warp, 0.0f), 0.0f, 4.0f);
+		value.choppiness = std::clamp(finiteOr(value.choppiness, 1.0f), 0.05f, 4.0f);
+		value.octaveRotation = std::remainder(finiteOr(value.octaveRotation, 37.0f), 360.0f);
+		value.choppyRelaxation = std::clamp(finiteOr(value.choppyRelaxation, 0.20f), 0.0f, 1.0f);
+		value.noiseScale = std::clamp(finiteOr(value.noiseScale, 0.65f), 0.05f, 4.0f);
+		value.maxSlope = std::clamp(finiteOr(value.maxSlope, 1.25f), 0.0f, 4.0f);
+		value.crestGain = std::clamp(finiteOr(value.crestGain, 0.35f), 0.0f, 4.0f);
 		value.normalStrength = std::max(0.0f, finiteOr(value.normalStrength, 0.0f));
 		value.virtualHeight = std::max(0.0f, finiteOr(value.virtualHeight, 0.0f));
-		value.octaves = std::clamp(value.octaves, 1u, 8u);
+		value.octaves = std::clamp(value.octaves, 1u, 4u);
 		value.presentMask = 0;
 	}
 
@@ -358,9 +407,11 @@ namespace
 		for (float component : value.emissionColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		const float scalarValues[] = {
 			value.emission, value.roughness, value.undersideRoughness, value.opacity,
-			value.scale, value.amplitude, value.frequency, value.timeScale, value.speed,
+			value.scale, value.amplitude, value.frequency, value.lacunarity, value.gain,
+			value.timeScale, value.speed,
 			value.flow[0], value.flow[1], value.anisotropy, value.warp, value.choppiness,
-			value.normalStrength, value.virtualHeight,
+			value.octaveRotation, value.choppyRelaxation, value.noiseScale, value.maxSlope,
+			value.crestGain, value.normalStrength, value.virtualHeight,
 		};
 		for (float scalar : scalarValues) hash = HashValue(hash, CanonicalFloatBits(scalar));
 		hash = HashValue(hash, value.seed);
@@ -381,13 +432,15 @@ namespace
 		}
 		const float aScalars[] = {
 			a.emission, a.roughness, a.undersideRoughness, a.opacity, a.scale, a.amplitude,
-			a.frequency, a.timeScale, a.speed, a.flow[0], a.flow[1], a.anisotropy,
-			a.warp, a.choppiness, a.normalStrength, a.virtualHeight,
+			a.frequency, a.lacunarity, a.gain, a.timeScale, a.speed, a.flow[0], a.flow[1],
+			a.anisotropy, a.warp, a.choppiness, a.octaveRotation, a.choppyRelaxation,
+			a.noiseScale, a.maxSlope, a.crestGain, a.normalStrength, a.virtualHeight,
 		};
 		const float bScalars[] = {
 			b.emission, b.roughness, b.undersideRoughness, b.opacity, b.scale, b.amplitude,
-			b.frequency, b.timeScale, b.speed, b.flow[0], b.flow[1], b.anisotropy,
-			b.warp, b.choppiness, b.normalStrength, b.virtualHeight,
+			b.frequency, b.lacunarity, b.gain, b.timeScale, b.speed, b.flow[0], b.flow[1],
+			b.anisotropy, b.warp, b.choppiness, b.octaveRotation, b.choppyRelaxation,
+			b.noiseScale, b.maxSlope, b.crestGain, b.normalStrength, b.virtualHeight,
 		};
 		for (size_t i = 0; i < std::size(aScalars); ++i)
 		{
@@ -401,7 +454,7 @@ namespace
 		if (a.style != b.style) return (uint8_t)a.style < (uint8_t)b.style;
 		const auto getFloatBits = [](const FluidOverlayParameters& value)
 		{
-			std::array<uint32_t, 28> bits = {};
+			std::array<uint32_t, 35> bits = {};
 			size_t index = 0;
 			const float* vectors[] = { value.bodyColor, value.undersideColor, value.crestColor, value.emissionColor };
 			for (const float* vector : vectors)
@@ -410,9 +463,11 @@ namespace
 			}
 			const float scalars[] = {
 				value.emission, value.roughness, value.undersideRoughness, value.opacity,
-				value.scale, value.amplitude, value.frequency, value.timeScale, value.speed,
+				value.scale, value.amplitude, value.frequency, value.lacunarity, value.gain,
+				value.timeScale, value.speed,
 				value.flow[0], value.flow[1], value.anisotropy, value.warp, value.choppiness,
-				value.normalStrength, value.virtualHeight,
+				value.octaveRotation, value.choppyRelaxation, value.noiseScale, value.maxSlope,
+				value.crestGain, value.normalStrength, value.virtualHeight,
 			};
 			for (float scalar : scalars) bits[index++] = CanonicalFloatBits(scalar);
 			return bits;
@@ -621,11 +676,18 @@ namespace
 				{ "scale", FluidOverlayParameter_Scale, &parameters.scale },
 				{ "amplitude", FluidOverlayParameter_Amplitude, &parameters.amplitude },
 				{ "frequency", FluidOverlayParameter_Frequency, &parameters.frequency },
+				{ "lacunarity", FluidOverlayParameter_Lacunarity, &parameters.lacunarity },
+				{ "gain", FluidOverlayParameter_Gain, &parameters.gain },
 				{ "timescale", FluidOverlayParameter_TimeScale, &parameters.timeScale },
 				{ "speed", FluidOverlayParameter_Speed, &parameters.speed },
 				{ "anisotropy", FluidOverlayParameter_Anisotropy, &parameters.anisotropy },
 				{ "warp", FluidOverlayParameter_Warp, &parameters.warp },
 				{ "choppiness", FluidOverlayParameter_Choppiness, &parameters.choppiness },
+				{ "octaverotation", FluidOverlayParameter_OctaveRotation, &parameters.octaveRotation },
+				{ "choppyrelaxation", FluidOverlayParameter_ChoppyRelaxation, &parameters.choppyRelaxation },
+				{ "noisescale", FluidOverlayParameter_NoiseScale, &parameters.noiseScale },
+				{ "maxslope", FluidOverlayParameter_MaxSlope, &parameters.maxSlope },
+				{ "crestgain", FluidOverlayParameter_CrestGain, &parameters.crestGain },
 				{ "normalstrength", FluidOverlayParameter_NormalStrength, &parameters.normalStrength },
 				{ "virtualheight", FluidOverlayParameter_VirtualHeight, &parameters.virtualHeight },
 			};
@@ -649,7 +711,7 @@ namespace
 			if (sc.Compare("octaves"))
 			{
 				sc.MustGetNumber();
-				parameters.octaves = (uint32_t)std::clamp(sc.Number, 1, 8);
+				parameters.octaves = (uint32_t)std::clamp(sc.Number, 1, 4);
 				parameters.presentMask |= FluidOverlayParameter_Octaves;
 				return true;
 			}
@@ -795,7 +857,9 @@ namespace
 
 	static FString FormatFloat(float value)
 	{
-		FString text = FStringf("%.7g", value);
+		// Nine significant digits are sufficient to round-trip every finite
+		// IEEE-754 float through the normalized text form.
+		FString text = FStringf("%.9g", value);
 		if (text.IndexOf('.') < 0 && text.IndexOf('e') < 0 && text.IndexOf('E') < 0) text << ".0";
 		return text;
 	}
@@ -842,6 +906,8 @@ namespace
 			{ FluidOverlayParameter_Scale, "scale", parameters.scale },
 			{ FluidOverlayParameter_Amplitude, "amplitude", parameters.amplitude },
 			{ FluidOverlayParameter_Frequency, "frequency", parameters.frequency },
+			{ FluidOverlayParameter_Lacunarity, "lacunarity", parameters.lacunarity },
+			{ FluidOverlayParameter_Gain, "gain", parameters.gain },
 			{ FluidOverlayParameter_TimeScale, "timescale", parameters.timeScale },
 			{ FluidOverlayParameter_Speed, "speed", parameters.speed },
 		};
@@ -854,6 +920,11 @@ namespace
 			{ FluidOverlayParameter_Anisotropy, "anisotropy", parameters.anisotropy },
 			{ FluidOverlayParameter_Warp, "warp", parameters.warp },
 			{ FluidOverlayParameter_Choppiness, "choppiness", parameters.choppiness },
+			{ FluidOverlayParameter_OctaveRotation, "octaverotation", parameters.octaveRotation },
+			{ FluidOverlayParameter_ChoppyRelaxation, "choppyrelaxation", parameters.choppyRelaxation },
+			{ FluidOverlayParameter_NoiseScale, "noisescale", parameters.noiseScale },
+			{ FluidOverlayParameter_MaxSlope, "maxslope", parameters.maxSlope },
+			{ FluidOverlayParameter_CrestGain, "crestgain", parameters.crestGain },
 			{ FluidOverlayParameter_NormalStrength, "normalstrength", parameters.normalStrength },
 			{ FluidOverlayParameter_VirtualHeight, "virtualheight", parameters.virtualHeight },
 		};
@@ -1106,6 +1177,12 @@ namespace
 			Printf("FLUIDOVR resolved profile: index=%u id=%s builtin=%s style=%s key=%llu source=%s:%d\n",
 				i, profile.id.GetChars(), profile.builtIn ? "yes" : "no", StyleName(profile.parameters.style),
 				(unsigned long long)profile.contentKey, profile.source.sourceName.GetChars(), profile.source.lineStart);
+			const auto& p = profile.parameters;
+			Printf("FLUIDOVR resolved field: id=%s scale=%.4f amplitude=%.4f frequency=%.4f lacunarity=%.4f gain=%.4f speed=%.4f timescale=%.4f anisotropy=%.4f warp=%.4f choppiness=%.4f octaverotation=%.4f choppyrelaxation=%.4f noisescale=%.4f maxslope=%.4f crestgain=%.4f normalstrength=%.4f virtualheight=%.4f seed=%d octaves=%u\n",
+				profile.id.GetChars(), p.scale, p.amplitude, p.frequency, p.lacunarity, p.gain,
+				p.speed, p.timeScale, p.anisotropy, p.warp, p.choppiness, p.octaveRotation,
+				p.choppyRelaxation, p.noiseScale, p.maxSlope, p.crestGain, p.normalStrength,
+				p.virtualHeight, p.seed, p.octaves);
 		}
 		for (uint32_t i = 0; i < (uint32_t)resolved.materialRules.Size(); ++i)
 		{

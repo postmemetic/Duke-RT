@@ -79,9 +79,36 @@ foreach ($selector in @('tile', 'tilerange', 'tilefamily', 'texture', 'palette',
 foreach ($parameter in @(
     'bodycolor', 'undersidecolor', 'crestcolor', 'emissioncolor', 'emission', 'roughness',
     'undersideroughness', 'opacity', 'scale', 'amplitude', 'frequency', 'timescale', 'speed',
-    'flow', 'anisotropy', 'warp', 'choppiness', 'normalstrength', 'virtualheight', 'seed', 'octaves')) {
+    'lacunarity', 'gain', 'flow', 'anisotropy', 'warp', 'choppiness', 'octaverotation',
+    'choppyrelaxation', 'noisescale', 'maxslope', 'crestgain', 'normalstrength',
+    'virtualheight', 'seed', 'octaves')) {
     Assert-Contains $implementation ('"' + $parameter + '"') "FLUIDOVR parser/serializer is missing parameter: $parameter"
 }
+
+$newFieldContracts = [ordered]@{
+    'Lacunarity' = 'lacunarity'
+    'Gain' = 'gain'
+    'OctaveRotation' = 'octaveRotation'
+    'ChoppyRelaxation' = 'choppyRelaxation'
+    'NoiseScale' = 'noiseScale'
+    'MaxSlope' = 'maxSlope'
+    'CrestGain' = 'crestGain'
+}
+foreach ($entry in $newFieldContracts.GetEnumerator()) {
+    $bit = 'FluidOverlayParameter_' + $entry.Key
+    $member = $entry.Value
+    Assert-Contains $header ([regex]::Escape($bit) + '\s*=\s*1ull\s*<<') `
+        "Missing present-mask bit for $member."
+    Assert-Contains $implementation ('if \(mask & ' + [regex]::Escape($bit) + `
+        '\) destination\.' + [regex]::Escape($member) + '\s*=\s*source\.' + [regex]::Escape($member)) `
+        "Resolved overrides do not apply $member."
+    Assert-Contains $implementation ('value\.' + [regex]::Escape($member) + '\s*=\s*std::') `
+        "Sanitization does not bound $member."
+    Assert-Contains $implementation ('parameters\.' + [regex]::Escape($member)) `
+        "Parser/serializer does not retain $member."
+}
+Assert-Contains $implementation 'std::clamp\(sc\.Number,\s*1,\s*4\)' `
+    'FLUIDOVR octave authoring range must match the four-layer GPU contract.'
 
 foreach ($style in @('still', 'waves', 'flow', 'fall', 'viscous', 'authored', 'lava')) {
     Assert-Contains $implementation ('"' + $style + '"') "FLUIDOVR is missing motion style: $style"
@@ -133,8 +160,10 @@ if ($profileDefinitions -ne $shippedProfiles.Count) {
 $completeProfileFields = @(
     'bodycolor', 'undersidecolor', 'crestcolor', 'emissioncolor', 'emission',
     'roughness', 'undersideroughness', 'opacity', 'scale', 'amplitude',
-    'frequency', 'timescale', 'speed', 'flow', 'anisotropy', 'warp',
-    'choppiness', 'normalstrength', 'virtualheight', 'seed', 'octaves')
+    'frequency', 'lacunarity', 'gain', 'timescale', 'speed', 'flow',
+    'anisotropy', 'warp', 'choppiness', 'octaverotation', 'choppyrelaxation',
+    'noisescale', 'maxslope', 'crestgain', 'normalstrength', 'virtualheight',
+    'seed', 'octaves')
 foreach ($entry in $shippedProfiles.GetEnumerator()) {
     $profileId = $entry.Key
     $body = Get-ProfileBlock $releaseOverlay $profileId
@@ -151,14 +180,33 @@ foreach ($entry in $shippedProfiles.GetEnumerator()) {
     $scale = Get-ProfileScalar $body 'scale' $profileId
     $amplitude = Get-ProfileScalar $body 'amplitude' $profileId
     $frequency = Get-ProfileScalar $body 'frequency' $profileId
+    $lacunarity = Get-ProfileScalar $body 'lacunarity' $profileId
+    $gain = Get-ProfileScalar $body 'gain' $profileId
+    $choppiness = Get-ProfileScalar $body 'choppiness' $profileId
+    $choppyRelaxation = Get-ProfileScalar $body 'choppyrelaxation' $profileId
+    $noiseScale = Get-ProfileScalar $body 'noisescale' $profileId
+    $maxSlope = Get-ProfileScalar $body 'maxslope' $profileId
+    $crestGain = Get-ProfileScalar $body 'crestgain' $profileId
     $normalStrength = Get-ProfileScalar $body 'normalstrength' $profileId
     $virtualHeight = Get-ProfileScalar $body 'virtualheight' $profileId
+    $octaves = Get-ProfileScalar $body 'octaves' $profileId
     if ([double]::IsNaN($scale) -or [double]::IsInfinity($scale) -or $scale -le 0 -or
         [double]::IsNaN($amplitude) -or [double]::IsInfinity($amplitude) -or $amplitude -le 0 -or
         [double]::IsNaN($frequency) -or [double]::IsInfinity($frequency) -or $frequency -le 0 -or
+        [double]::IsNaN($lacunarity) -or [double]::IsInfinity($lacunarity) -or $lacunarity -lt 1.01 -or $lacunarity -gt 4 -or
+        [double]::IsNaN($gain) -or [double]::IsInfinity($gain) -or $gain -lt 0 -or $gain -gt 1 -or
+        [double]::IsNaN($choppiness) -or [double]::IsInfinity($choppiness) -or $choppiness -lt 0.05 -or $choppiness -gt 4 -or
+        [double]::IsNaN($choppyRelaxation) -or [double]::IsInfinity($choppyRelaxation) -or $choppyRelaxation -lt 0 -or $choppyRelaxation -gt 1 -or
+        [double]::IsNaN($noiseScale) -or [double]::IsInfinity($noiseScale) -or $noiseScale -lt 0.05 -or $noiseScale -gt 4 -or
+        [double]::IsNaN($maxSlope) -or [double]::IsInfinity($maxSlope) -or $maxSlope -le 0 -or $maxSlope -gt 4 -or
+        [double]::IsNaN($crestGain) -or [double]::IsInfinity($crestGain) -or $crestGain -lt 0 -or $crestGain -gt 4 -or
         [double]::IsNaN($normalStrength) -or [double]::IsInfinity($normalStrength) -or $normalStrength -le 0 -or
-        [double]::IsNaN($virtualHeight) -or [double]::IsInfinity($virtualHeight) -or $virtualHeight -le 0) {
+        [double]::IsNaN($virtualHeight) -or [double]::IsInfinity($virtualHeight) -or $virtualHeight -le 0 -or
+        $octaves -lt 1 -or $octaves -gt 4 -or $octaves -ne [Math]::Floor($octaves)) {
         throw "Profile '$profileId' must use finite, positive spatial controls."
+    }
+    if (($gain * $lacunarity) -ge 1) {
+        throw "Profile '$profileId' must reduce derivative energy across octaves (gain*lacunarity < 1)."
     }
     $baseSlope = $amplitude * $frequency * $normalStrength / $scale
     if ($baseSlope -lt 0.05) {

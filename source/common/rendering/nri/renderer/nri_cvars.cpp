@@ -220,15 +220,11 @@ CVAR(Bool, nri_ptwaitpresent, true, 0)
 // console state or expand the validated trace root constants.
 CVAR(Bool, nri_ptfluidvirtualheight, false, 0)
 
-CUSTOM_CVAR(Int, nri_ptfluidvirtualheightsteps, 6, 0)
+CUSTOM_CVAR(Int, nri_ptfluidvirtualheightsteps, 1, 0)
 {
-	if (self < 2)
+	if (self != 1)
 	{
-		self = 2;
-	}
-	else if (self > 12)
-	{
-		self = 12;
+		self = 1;
 	}
 }
 

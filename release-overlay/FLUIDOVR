@@ -3,9 +3,9 @@
 FLUIDOVR
 {
 	// scale is the world-unit domain divisor; base wavelength is
-	// approximately 2*pi*scale/frequency. amplitude and virtualheight are
-	// world-unit half-heights. All shipped values are explicit so this file is
-	// the appearance authority and can be tuned without rebuilding the engine.
+	// approximately 2*pi*scale/frequency. amplitude is the normalized aggregate
+	// shading-field height and virtualheight is the optional parallax half-height,
+	// both in world units. All values are explicit for overlay-only tuning.
 	profile "water.waves"
 	{
 		style waves
@@ -14,18 +14,25 @@ FLUIDOVR
 		crestcolor 0.18 0.28 0.32
 		emissioncolor 0 0 0
 		emission 0
-		roughness 0.08
+		roughness 0.1
 		undersideroughness 0.16
 		opacity 0.94
 		scale 64
-		amplitude 4
+		amplitude 8
 		frequency 2
-		timescale 1
+		lacunarity 1.9
+		gain 0.28
+		timescale 4
 		speed 0.5
 		flow 1 0
 		anisotropy 1
-		warp 0.2
-		choppiness 0.48
+		warp 1.05
+		choppiness 3.6
+		octaverotation 37
+		choppyrelaxation 0.2
+		noisescale 0.65
+		maxslope 1.25
+		crestgain 0.32
 		normalstrength 1.1
 		virtualheight 4
 		seed 13
@@ -46,12 +53,19 @@ FLUIDOVR
 		scale 64
 		amplitude 4
 		frequency 1.6
+		lacunarity 1.7
+		gain 0.35
 		timescale 1
 		speed 0.65
 		flow 1 0
 		anisotropy 1.25
-		warp 0.6
-		choppiness 0.24
+		warp 0.9
+		choppiness 1.6
+		octaverotation 31
+		choppyrelaxation 0.35
+		noisescale 0.45
+		maxslope 0.8
+		crestgain 0.4
 		normalstrength 1
 		virtualheight 3
 		seed 23
@@ -72,12 +86,19 @@ FLUIDOVR
 		scale 56
 		amplitude 3.5
 		frequency 1.8
+		lacunarity 1.8
+		gain 0.3
 		timescale 1
 		speed 0.55
 		flow 1 0
 		anisotropy 1.2
-		warp 0.68
-		choppiness 0.24
+		warp 1
+		choppiness 2.4
+		octaverotation 41
+		choppyrelaxation 0.28
+		noisescale 0.5
+		maxslope 0.9
+		crestgain 0.7
 		normalstrength 1
 		virtualheight 3
 		seed 29
@@ -98,12 +119,19 @@ FLUIDOVR
 		scale 48
 		amplitude 3
 		frequency 2
+		lacunarity 2
+		gain 0.26
 		timescale 1
 		speed 1.25
 		flow 0 -1
 		anisotropy 2.4
-		warp 0.2
-		choppiness 0.45
+		warp 0.65
+		choppiness 3.2
+		octaverotation 12
+		choppyrelaxation 0.15
+		noisescale 0.7
+		maxslope 1.4
+		crestgain 0.28
 		normalstrength 1
 		virtualheight 2
 		seed 19

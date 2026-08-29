@@ -60,10 +60,11 @@ struct NRIFluidBindingGpuData
 	// x = base amplitude, y = base angular frequency, z = lacunarity,
 	// w = amplitude gain.
 	float spectrum[4] = {};
-	// x = phase speed, y = gameplay-time scale, z = anisotropy, w = warp.
+	// x = phase speed, y = gameplay-time scale, z = anisotropy,
+	// w = deterministic value-noise phase-warp strength.
 	float motion[4] = {};
-	// x = perceptual viscosity, y = crest gain, z = ridge mix,
-	// w = high-frequency detail scale.
+	// x = choppiness, y = per-octave relaxation toward a sine wave,
+	// z = value-noise scale, w = per-octave domain rotation in radians.
 	float shaping[4] = {};
 	// rgb = crest color, a = fluid body opacity/body-color blend.
 	float crestColorOpacity[4] = {};
@@ -73,7 +74,8 @@ struct NRIFluidBindingGpuData
 	// w = body-color crust darkening.
 	float crust[4] = {};
 	// x = authored virtual half-height in world units, y = maximum ray travel
-	// in world units, z = reserved, w = minimum absolute view/carrier cosine.
+	// in world units, z = crest-color gain,
+	// w = minimum absolute view/carrier cosine.
 	float virtualParams[4] = {};
 };
 
@@ -89,7 +91,7 @@ struct NRIFluidFrameGpuData
 	uint32_t firstSpecularLayerCap = 2u;
 	uint32_t deeperLayerCap = 1u;
 
-	uint32_t virtualStepCount = 6u;
+	uint32_t virtualStepCount = 1u;
 	uint32_t debugMode = 0u;
 	uint32_t reserved0 = 0u;
 	uint32_t reserved1 = 0u;

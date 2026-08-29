@@ -71,19 +71,19 @@ namespace
 		result.surfaceResponse[0] = Saturate(source.roughness);
 		result.surfaceResponse[1] = Saturate(source.undersideRoughness);
 		result.surfaceResponse[2] = std::clamp(source.normalStrength, 0.0f, 4.0f);
-		result.surfaceResponse[3] = std::clamp(0.30f + source.choppiness, 0.20f, 1.25f);
+		result.surfaceResponse[3] = std::clamp(source.maxSlope, 0.0f, 4.0f);
 		result.spectrum[0] = std::max(source.amplitude, 0.0f);
 		result.spectrum[1] = std::max(source.frequency, 0.001f);
-		result.spectrum[2] = 1.92f;
-		result.spectrum[3] = source.style == FluidOverlayStyle::Viscous ? 0.43f : 0.52f;
+		result.spectrum[2] = std::clamp(source.lacunarity, 1.01f, 4.0f);
+		result.spectrum[3] = std::clamp(source.gain, 0.0f, 1.0f);
 		result.motion[0] = source.speed;
 		result.motion[1] = source.timeScale;
 		result.motion[2] = std::max(source.anisotropy, 0.05f);
 		result.motion[3] = source.warp;
-		result.shaping[0] = source.style == FluidOverlayStyle::Viscous || source.style == FluidOverlayStyle::Lava ? 0.86f : 0.08f;
-		result.shaping[1] = std::max(source.choppiness, 0.0f);
-		result.shaping[2] = source.style == FluidOverlayStyle::Lava ? 0.82f : 0.30f;
-		result.shaping[3] = source.style == FluidOverlayStyle::Authored ? 0.45f : 1.0f;
+		result.shaping[0] = std::clamp(source.choppiness, 0.05f, 4.0f);
+		result.shaping[1] = std::clamp(source.choppyRelaxation, 0.0f, 1.0f);
+		result.shaping[2] = std::clamp(source.noiseScale, 0.05f, 4.0f);
+		result.shaping[3] = source.octaveRotation * 0.01745329251994329577f;
 		result.crust[0] = 0.54f;
 		result.crust[1] = 0.16f;
 		result.crust[2] = 1.35f;
@@ -93,6 +93,7 @@ namespace
 		const float virtualHalfHeight = std::max(source.virtualHeight, 0.0f);
 		result.virtualParams[0] = virtualHalfHeight;
 		result.virtualParams[1] = virtualHalfHeight / minimumVirtualViewCosine;
+		result.virtualParams[2] = std::clamp(source.crestGain, 0.0f, 4.0f);
 		result.virtualParams[3] = minimumVirtualViewCosine;
 		return result;
 	}
@@ -169,7 +170,7 @@ bool NRIRenderer::UpdateFluidSurfaceResources(SceneUploadBufferRingSlot& uploadS
 	{
 		frame.flags |= NRI_FLUID_FRAME_FLAG_VIRTUAL_HEIGHT;
 	}
-	frame.virtualStepCount = (uint32_t)std::clamp((int)nri_ptfluidvirtualheightsteps, 2, 12);
+	frame.virtualStepCount = 1u;
 
 	const bool bindingsReady = EnsureStructuredBuffer(
 		uploadSlot.fluidBindingBuffer,
