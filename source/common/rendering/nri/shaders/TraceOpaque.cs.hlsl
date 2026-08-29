@@ -86,6 +86,29 @@ float3 SampleSpecularLobe(float3 reflectionDir, float roughness, inout uint rngS
 	return normalize(lerp(reflectionDir, blurred, blurAmount));
 }
 
+float3 ConstrainDirectionToCarrierHemisphere(float3 direction, float3 carrierNormal)
+{
+	const float minimumCarrierCosine = 0.01;
+	carrierNormal = FluidSafeNormalize(carrierNormal, float3(0.0, 0.0, 1.0));
+	direction = FluidSafeNormalize(direction, carrierNormal);
+	const float carrierCosine = dot(direction, carrierNormal);
+	if (isfinite(carrierCosine) && carrierCosine >= minimumCarrierCosine)
+	{
+		return direction;
+	}
+
+	const float3 tangent = direction - carrierNormal * carrierCosine;
+	const float tangentLengthSq = dot(tangent, tangent);
+	if (!(tangentLengthSq > 1.0e-10) || !all(isfinite(tangent)))
+	{
+		return carrierNormal;
+	}
+
+	return tangent * rsqrt(tangentLengthSq) *
+		sqrt(1.0 - minimumCarrierCosine * minimumCarrierCosine) +
+		carrierNormal * minimumCarrierCosine;
+}
+
 bool IsFacingBillboardMaterial(MaterialData material)
 {
 	return (material.flags & MATERIAL_FLAG_FACING_BILLBOARD) != 0;
@@ -928,7 +951,8 @@ bool ResolveSampledEmissiveTransportGeometry(
 void EvaluateSampledEmissiveLighting(
 	float3 position,
 	MaterialData receiverMaterial,
-	float3 normal,
+	float3 shadingNormal,
+	float3 rayOriginNormal,
 	float3 viewDir,
 	float3 albedo,
 	float metalness,
@@ -972,7 +996,7 @@ void EvaluateSampledEmissiveLighting(
 	if (!ResolveSampledEmissiveTransportGeometry(
 		position,
 		receiverMaterial,
-		normal,
+		shadingNormal,
 		lightPosition,
 		lightNormal,
 		lightDistanceSq,
@@ -1001,9 +1025,10 @@ void EvaluateSampledEmissiveLighting(
 		{
 			TraceShaderStatAdd(TRACE_STAT_TRACED_EMISSIVE_SHADOW_CALLS, 1u);
 		}
+		const float3 visibilityOriginNormal = FluidFaceCarrierNormalToDirection(rayOriginNormal, lightDir);
 		const float visibility = UseFastEmissiveShadow() ?
-			ComputeFastPointLightShadow(position, receiverLightNormal, lightDir, lightDistance, forceSpatialProbeRay) :
-			ComputePointLightShadowTagged(position, receiverLightNormal, lightDir, lightDistance, TRACE_STATS_KIND_EMISSIVE, forceSpatialProbeRay);
+			ComputeFastPointLightShadow(position, visibilityOriginNormal, lightDir, lightDistance, forceSpatialProbeRay) :
+			ComputePointLightShadowTagged(position, visibilityOriginNormal, lightDir, lightDistance, TRACE_STATS_KIND_EMISSIVE, forceSpatialProbeRay);
 		if (visibility <= 0.0)
 		{
 			TraceShaderStatAdd(TRACE_STAT_EMISSIVE_VISIBILITY_OCCLUDED, 1u);
@@ -1228,6 +1253,7 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 			bounceHit.position,
 			bounceMaterial,
 			bounceShadingNormal,
+			bounceShadingNormal,
 			bounceViewDir,
 			bounceAlbedo.rgb,
 			bounceMetalness,
@@ -1291,7 +1317,19 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 	return indirectRadiance;
 }
 
-float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 viewDir, uint2 pixelPos, uint frameIndex, float roughness, float metalness, uint bounceCount, out float outHitDistance)
+float3 TraceIndirectSpecular(
+	HitData surfaceHit,
+	float4 surfaceAlbedo,
+	float3 viewDir,
+	float3 reflectionNormal,
+	float3 rayOriginNormal,
+	bool constrainToCarrierHemisphere,
+	uint2 pixelPos,
+	uint frameIndex,
+	float roughness,
+	float metalness,
+	uint bounceCount,
+	out float outHitDistance)
 {
 	outHitDistance = 0.0;
 	if (bounceCount == 0u)
@@ -1303,8 +1341,22 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 	uint rngState = pixelPos.x * 73856093u ^ pixelPos.y * 19349663u ^ (frameIndex + 1u) * 83492791u ^ 0x85ebca6bu;
 	float3 throughput = GetSurfaceSpecularColor(surfaceAlbedo.rgb, metalness);
 	float3 indirectRadiance = 0.0;
-	float3 origin = surfaceHit.position + surfaceHit.normal * 0.05;
-	float3 direction = SampleSpecularLobe(reflect(-viewDir, surfaceHit.normal), roughness, rngState);
+	if (constrainToCarrierHemisphere)
+	{
+		rayOriginNormal = FluidSafeNormalize(rayOriginNormal, surfaceHit.normal);
+		reflectionNormal = FluidSafeNormalize(reflectionNormal, rayOriginNormal);
+		if (dot(reflectionNormal, rayOriginNormal) <= 1.0e-4 ||
+			dot(reflectionNormal, viewDir) <= 1.0e-4)
+		{
+			reflectionNormal = rayOriginNormal;
+		}
+	}
+	float3 origin = surfaceHit.position + rayOriginNormal * 0.05;
+	float3 direction = SampleSpecularLobe(reflect(-viewDir, reflectionNormal), roughness, rngState);
+	if (constrainToCarrierHemisphere)
+	{
+		direction = ConstrainDirectionToCarrierHemisphere(direction, rayOriginNormal);
+	}
 	bool hasSecondaryHitDistance = false;
 
 	[loop]
@@ -1365,6 +1417,7 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 		EvaluateSampledEmissiveLighting(
 			bounceHit.position,
 			bounceMaterial,
+			bounceShadingNormal,
 			bounceShadingNormal,
 			bounceViewDir,
 			bounceAlbedo.rgb,
@@ -1784,6 +1837,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const float3 nrdViewDir = plainMirrorPrimaryReplacement ? normalize(-primaryRayDirection) : viewDir;
 				const float3 shadingNormal = fluidSurface.active != 0u ?
 					fluidSurface.shadingNormal : ResolveViewFacingShadingNormal(material, hit.normal, viewDir);
+				const float3 rayOriginNormal = fluidSurface.active != 0u ?
+					(fluidSurface.underside != 0u ? -fluidSurface.carrierNormal : fluidSurface.carrierNormal) :
+					hit.normal;
 				float3 nrdDiffuseFactor = 1.0;
 				float3 nrdSpecularFactor = 1.0;
 				GetNrdPrimaryMaterialFactors(guideNormal, nrdViewDir, albedo.rgb, metalness, roughness, nrdDiffuseFactor, nrdSpecularFactor);
@@ -1932,7 +1988,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					EvaluateSampledEmissiveLighting(
 						hit.position,
 						material,
-						fluidSurface.active != 0u ? fluidSurface.carrierNormal : shadingNormal,
+						shadingNormal,
+						rayOriginNormal,
 						viewDir,
 						albedo.rgb,
 						metalness,
@@ -1975,7 +2032,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 					}
 					if (!useProbabilisticIndirect || indirectSpecularSelected)
 					{
-						indirectTransportSpecular = TraceIndirectSpecular(hit, albedo, viewDir, pixelPos, gTraceConstants.FrameIndex, roughness, metalness, lightBounceCount, specularHitDistance) / nrdSpecularFactor;
+						indirectTransportSpecular = TraceIndirectSpecular(
+							hit,
+							albedo,
+							viewDir,
+							shadingNormal,
+							rayOriginNormal,
+							fluidSurface.active != 0u,
+							pixelPos,
+							gTraceConstants.FrameIndex,
+							roughness,
+							metalness,
+							lightBounceCount,
+							specularHitDistance) / nrdSpecularFactor;
 					}
 				}
 

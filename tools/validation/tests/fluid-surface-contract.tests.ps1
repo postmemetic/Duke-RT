@@ -18,6 +18,18 @@ function Assert-NotContains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -match $Pattern) { throw $Message }
 }
 
+function Get-SourceSlice(
+    [string]$Text,
+    [string]$StartMarker,
+    [string]$EndMarker,
+    [string]$Description) {
+    $start = $Text.IndexOf($StartMarker, [StringComparison]::Ordinal)
+    if ($start -lt 0) { throw "Could not find the start of $Description." }
+    $end = $Text.IndexOf($EndMarker, $start + $StartMarker.Length, [StringComparison]::Ordinal)
+    if ($end -lt 0) { throw "Could not find the end of $Description." }
+    return $Text.Substring($start, $end - $start)
+}
+
 Assert-Contains $cpuContract 'NRI_FLUID_MAX_LAYERS\s*=\s*4u' 'CPU fluid layer cap must remain four.'
 Assert-Contains $shaderContract 'NRI_FLUID_MAX_LAYERS\s+4u' 'HLSL fluid layer cap must remain four.'
 Assert-Contains $cpuContract 'sizeof\(NRIFluidBindingGpuData\)\s*==\s*224u' 'CPU binding ABI size check is missing.'
@@ -79,5 +91,51 @@ Assert-Contains $trace 'guideNormal\s*=\s*fluidSurface\.shadingNormal' 'The proc
 Assert-Contains $trace 'FluidFaceCarrierNormalToDirection\(fluidSurface\.carrierNormal' 'Fluid shadow origins are not biased from the carrier normal.'
 Assert-Contains $trace 'directEmission\s*\+=\s*fluidSurface\.emission' 'Surface-only fluid emission is not composed at the accepted hit.'
 Assert-Contains $trace 'max\(existingReactive,\s*fluidSurface\.reactive\)' 'Procedural motion does not contribute to temporal reactivity.'
+
+$indirectSpecular = Get-SourceSlice $trace 'float3 TraceIndirectSpecular(' 'float3 ReflectPointAcrossPlane(' 'TraceIndirectSpecular'
+Assert-Contains $indirectSpecular `
+    'TraceIndirectSpecular\s*\([^\)]*float3\s+reflectionNormal\b[^\)]*float3\s+rayOriginNormal\b' `
+    'TraceIndirectSpecular must accept separate primary reflection and ray-origin normals.'
+Assert-Contains $indirectSpecular `
+    'origin\s*=\s*surfaceHit\.position\s*\+\s*rayOriginNormal\s*\*' `
+    'Primary indirect-specular ray origin must remain biased by the explicit geometric/carrier normal.'
+Assert-Contains $indirectSpecular `
+    'direction\s*=\s*SampleSpecularLobe\s*\(\s*reflect\s*\(\s*-viewDir\s*,\s*reflectionNormal\s*\)' `
+    'Primary indirect-specular reflection direction must use the explicit shading normal.'
+Assert-Contains $indirectSpecular `
+    'SampleSpecularLobe[\s\S]*?ConstrainDirectionToCarrierHemisphere\s*\(\s*direction\s*,\s*rayOriginNormal\s*\)' `
+    'Perturbed primary reflection rays must remain in the carrier-normal hemisphere after rough-lobe sampling.'
+
+$primaryIndirect = Get-SourceSlice $trace 'const float3 shadingNormal = fluidSurface.active != 0u ?' 'const float3 stochasticDiffuse =' 'primary indirect-light handoff'
+Assert-Contains $primaryIndirect `
+    'rayOriginNormal\s*=\s*fluidSurface\.active\s*!=\s*0u\s*\?[\s\S]*?fluidSurface\.carrierNormal[\s\S]*?:\s*hit\.normal' `
+    'The primary fluid path must select its carrier normal as the indirect-specular ray-origin bias.'
+Assert-Contains $primaryIndirect `
+    'fluidSurface\.underside\s*!=\s*0u\s*\?\s*-fluidSurface\.carrierNormal\s*:\s*fluidSurface\.carrierNormal' `
+    'The fluid carrier-normal ray bias must select a stable top or underside orientation.'
+$indirectSpecularCall = [regex]::Match(
+    $primaryIndirect,
+    'TraceIndirectSpecular\s*\((?<arguments>[^;]+)\)\s*/\s*nrdSpecularFactor')
+if (-not $indirectSpecularCall.Success) {
+    throw 'Could not isolate the primary TraceIndirectSpecular call.'
+}
+$indirectSpecularArguments = $indirectSpecularCall.Groups['arguments'].Value
+Assert-Contains $indirectSpecularArguments `
+    'viewDir\s*,\s*shadingNormal\s*,\s*rayOriginNormal\s*,\s*fluidSurface\.active\s*!=\s*0u' `
+    'The primary specular handoff must order shading normal, carrier bias, and the fluid-only hemisphere gate explicitly.'
+
+$sampledEmissive = Get-SourceSlice $trace 'void EvaluateSampledEmissiveLighting(' 'void EvaluateSampledEmissiveMirrorRadiance(' 'EvaluateSampledEmissiveLighting'
+Assert-Contains $sampledEmissive `
+    'EvaluateSampledEmissiveLighting\s*\([^\)]*float3\s+shadingNormal\b[^\)]*float3\s+rayOriginNormal\b' `
+    'Sampled emissive lighting must keep its BRDF normal separate from its visibility-ray origin normal.'
+Assert-Contains $sampledEmissive `
+    'ResolveSampledEmissiveTransportGeometry\s*\([\s\S]*?receiverMaterial\s*,\s*shadingNormal\s*,' `
+    'Sampled emissive specular must evaluate against the fluid shading normal.'
+Assert-Contains $sampledEmissive `
+    'visibilityOriginNormal\s*=\s*FluidFaceCarrierNormalToDirection\s*\(\s*rayOriginNormal\s*,\s*lightDir\s*\)' `
+    'Sampled emissive visibility rays must retain a carrier/geometric-normal origin bias.'
+Assert-Contains $primaryIndirect `
+    'EvaluateSampledEmissiveLighting\s*\([\s\S]*?material\s*,\s*shadingNormal\s*,\s*rayOriginNormal\s*,' `
+    'The primary fluid path must supply separate shading and carrier normals to sampled emissive lighting.'
 
 Write-Host 'Fluid surface CPU/HLSL contract validation passed.'
