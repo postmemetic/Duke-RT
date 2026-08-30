@@ -2960,6 +2960,8 @@ private:
 	bool mFluidTimeInitialized = false;
 	bool mFluidVirtualHeightStateInitialized = false;
 	bool mLastFluidVirtualHeightEnabled = false;
+	bool mFluidFoamModeStateInitialized = false;
+	int mLastFluidFoamMode = 0;
 	uint32_t mFrameIndex = 0;
 	uint64_t mMainTemporalSerial = 0;
 	uint64_t mPendingMainTemporalSerial = 0;

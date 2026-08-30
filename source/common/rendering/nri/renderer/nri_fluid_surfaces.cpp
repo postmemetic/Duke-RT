@@ -1,7 +1,9 @@
 #include "nri_renderer.h"
 
 #include "nri_cvars.h"
+#include "nri_diagnostic_names.h"
 #include "nri_fluid_surface_gpu.h"
+#include "../system/nri_renderdevice.h"
 
 #include "fluidoverlay.h"
 #include "gamecontrol.h"
@@ -95,6 +97,19 @@ namespace
 		result.virtualParams[1] = virtualHalfHeight / minimumVirtualViewCosine;
 		result.virtualParams[2] = std::clamp(source.crestGain, 0.0f, 4.0f);
 		result.virtualParams[3] = minimumVirtualViewCosine;
+		for (uint32_t channel = 0; channel < 3u; ++channel)
+		{
+			result.foamColorAmount[channel] = source.foamColor[channel];
+		}
+		result.foamColorAmount[3] = Saturate(source.foamAmount);
+		result.foamBirthParams[0] = Saturate(source.foamRoughness);
+		result.foamBirthParams[1] = Saturate(source.foamThreshold);
+		result.foamBirthParams[2] = Saturate(source.foamSoftness);
+		result.foamBirthParams[3] = Saturate(source.foamUndersideStrength);
+		result.foamTrailParams[0] = std::clamp(source.foamBreakupScale, 0.05f, 64.0f);
+		result.foamTrailParams[1] = Saturate(source.foamBreakupStrength);
+		result.foamTrailParams[2] = std::clamp(source.foamLifetime, 0.0f, 60.0f);
+		result.foamTrailParams[3] = std::clamp(source.foamTrailGain, 0.0f, 4.0f);
 		return result;
 	}
 }
@@ -131,6 +146,26 @@ void NRIRenderer::SyncFluidSurfaceOverlayState()
 		Printf("NRI PT fluid virtual height: enabled=%u steps=%d\n",
 			virtualHeightEnabled ? 1u : 0u,
 			(int)nri_ptfluidvirtualheightsteps);
+	}
+
+	const int foamMode = std::clamp((int)nri_ptfluidfoam, 0, 2);
+	if (!mFluidFoamModeStateInitialized)
+	{
+		mFluidFoamModeStateInitialized = true;
+		mLastFluidFoamMode = foamMode;
+		const bool foamSupported = mFrameBuffer != nullptr &&
+			mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
+		Printf("NRI PT fluid foam: mode=%d capability=%s\n",
+			foamMode, foamSupported ? "d3d12-procedural" : "unsupported-backend-disabled");
+	}
+	else if (foamMode != mLastFluidFoamMode)
+	{
+		mLastFluidFoamMode = foamMode;
+		RequestHistoryReset("fluid-foam-mode");
+		const bool foamSupported = mFrameBuffer != nullptr &&
+			mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
+		Printf("NRI PT fluid foam: mode=%d capability=%s (0=off 1=instantaneous 2=analytic-trails)\n",
+			foamMode, foamSupported ? "d3d12-procedural" : "unsupported-backend-disabled");
 	}
 }
 
@@ -171,6 +206,8 @@ bool NRIRenderer::UpdateFluidSurfaceResources(SceneUploadBufferRingSlot& uploadS
 		frame.flags |= NRI_FLUID_FRAME_FLAG_VIRTUAL_HEIGHT;
 	}
 	frame.virtualStepCount = 1u;
+	frame.debugMode = (uint32_t)std::clamp((int)nri_ptdebug, 0, (int)nri_diag::PtDebugMaximum);
+	frame.foamMode = (uint32_t)std::clamp((int)nri_ptfluidfoam, 0, 2);
 
 	const bool bindingsReady = EnsureStructuredBuffer(
 		uploadSlot.fluidBindingBuffer,

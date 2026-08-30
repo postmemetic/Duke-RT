@@ -18,7 +18,8 @@ namespace
 		16, 17, 18, 19, 20,
 		21, 22, 24, 25,
 		26, 27, 28, 29,
-		33, 34, 45, 47
+		33, 34, 45, 47,
+		48, 49, 50, 51, 52, 53
 	};
 
 	int ClampPtDebugMenuIndex(int index)
@@ -219,6 +220,20 @@ CVAR(Bool, nri_ptwaitpresent, true, 0)
 // The renderer snapshots these into FluidFrameData so shaders never consume
 // console state or expand the validated trace root constants.
 CVAR(Bool, nri_ptfluidvirtualheight, false, 0)
+
+// Session-only comparison for dedicated procedural foam:
+// 0 = exact disabled path, 1 = instantaneous crest birth, 2 = analytic trail.
+CUSTOM_CVAR(Int, nri_ptfluidfoam, 2, 0)
+{
+	if (self < 0)
+	{
+		self = 0;
+	}
+	else if (self > 2)
+	{
+		self = 2;
+	}
+}
 
 CUSTOM_CVAR(Int, nri_ptfluidvirtualheightsteps, 1, 0)
 {

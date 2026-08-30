@@ -1640,9 +1640,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			const float3 sentinel = bootstrapFlat ? float3(1.0, 0.0, 1.0) : float3(1.0, 0.5, 0.0);
 			const uint bootstrapReason = MOTION_VALIDITY_GLOBAL_RESET;
-			color = gTraceConstants.DebugMode == 5 ? VisualizeMotionVector(float4(0.0, 0.0, 0.0, -1.0), 1.0) :
+			const bool fluidDebug = gTraceConstants.DebugMode >= 48u && gTraceConstants.DebugMode <= 53u;
+			color = fluidDebug ? float4(0.0, 0.0, 0.0, 1.0) :
+				(gTraceConstants.DebugMode == 5 ? VisualizeMotionVector(float4(0.0, 0.0, 0.0, -1.0), 1.0) :
 				(gTraceConstants.DebugMode == 20 ? VisualizeMotionDepth(float4(0.0, 0.0, 0.0, -1.0)) :
-				(gTraceConstants.DebugMode == 47 ? VisualizeMotionValidity(bootstrapReason) : float4(sentinel, 1.0)));
+				(gTraceConstants.DebugMode == 47 ? VisualizeMotionValidity(bootstrapReason) : float4(sentinel, 1.0))));
 			gMotionOutput[pixelPos] = float4(0.0, 0.0, 0.0, -1.0);
 			WriteTemporalOutputs(pixelPos, uint4(0u, 0u, 0u, TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK), 1.0, float3(0.0, 0.0, 1.0), bootstrapReason);
 			gViewZOutput[pixelPos] = float4(1.0, 0.0, 0.0, 1.0);
@@ -1658,7 +1660,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			const float3 missColor = GetMissColor(visibleRayDirection) * plainMirrorThroughput;
 			const float4 packedDiffuse = PackDiffuseRadiance(missColor, NRD_INF, NRD_INF);
-			color = (gTraceConstants.DebugMode >= 1 && gTraceConstants.DebugMode <= 4) ? float4(missColor, 1.0) : packedDiffuse;
+			const bool fluidDebug = gTraceConstants.DebugMode >= 48u && gTraceConstants.DebugMode <= 53u;
+			color = fluidDebug ? float4(0.0, 0.0, 0.0, 1.0) :
+				((gTraceConstants.DebugMode >= 1 && gTraceConstants.DebugMode <= 4) ? float4(missColor, 1.0) : packedDiffuse);
 			bool missCurrentUvValid = false;
 			bool missPrevUvValid = false;
 			float2 missCurrentUvRaw = 0.0;
@@ -2231,6 +2235,49 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		else if (gTraceConstants.DebugMode == 47)
 		{
 			color = VisualizeMotionValidity(temporalValidityReason);
+		}
+		else if (gTraceConstants.DebugMode == 48)
+		{
+			if (fluidSurface.active != 0u)
+			{
+				const float id = (float)(fluidSurface.bindingIndex % 23u) / 22.0;
+				color = float4(frac(id * 1.3 + 0.17), frac(id * 2.1 + 0.31), frac(id * 2.9 + 0.53), 1.0);
+			}
+			else
+			{
+				color = float4(0.0, 0.0, 0.0, 1.0);
+			}
+		}
+		else if (gTraceConstants.DebugMode == 49)
+		{
+			color = fluidSurface.active != 0u ?
+				float4(fluidSurface.crest, fluidSurface.breaking, fluidSurface.foamBirth, 1.0) :
+				float4(0.0, 0.0, 0.0, 1.0);
+		}
+		else if (gTraceConstants.DebugMode == 50)
+		{
+			color = fluidSurface.active != 0u ?
+				float4(fluidSurface.foamBirth, fluidSurface.foamTrail,
+					fluidSurface.foam, 1.0) :
+				float4(0.0, 0.0, 0.0, 1.0);
+		}
+		else if (gTraceConstants.DebugMode == 51)
+		{
+			color = fluidSurface.active != 0u ?
+				float4(fluidSurface.foam, fluidSurface.previousFoam,
+					abs(fluidSurface.foam - fluidSurface.previousFoam), 1.0) :
+				float4(0.0, 0.0, 0.0, 1.0);
+		}
+		else if (gTraceConstants.DebugMode == 52)
+		{
+			color = fluidSurface.active != 0u ?
+				float4(fluidSurface.baseColor, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+		}
+		else if (gTraceConstants.DebugMode == 53)
+		{
+			color = fluidSurface.active != 0u ?
+				float4(fluidSurface.shadingNormal * 0.5 + 0.5, 1.0) :
+				float4(0.0, 0.0, 0.0, 1.0);
 		}
 		else
 		{

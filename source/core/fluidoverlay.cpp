@@ -325,6 +325,7 @@ namespace
 		if (mask & FluidOverlayParameter_BodyColor) Copy3(source.bodyColor, destination.bodyColor);
 		if (mask & FluidOverlayParameter_UndersideColor) Copy3(source.undersideColor, destination.undersideColor);
 		if (mask & FluidOverlayParameter_CrestColor) Copy3(source.crestColor, destination.crestColor);
+		if (mask & FluidOverlayParameter_FoamColor) Copy3(source.foamColor, destination.foamColor);
 		if (mask & FluidOverlayParameter_EmissionColor) Copy3(source.emissionColor, destination.emissionColor);
 		if (mask & FluidOverlayParameter_Emission) destination.emission = source.emission;
 		if (mask & FluidOverlayParameter_Roughness) destination.roughness = source.roughness;
@@ -350,6 +351,15 @@ namespace
 		if (mask & FluidOverlayParameter_NoiseScale) destination.noiseScale = source.noiseScale;
 		if (mask & FluidOverlayParameter_MaxSlope) destination.maxSlope = source.maxSlope;
 		if (mask & FluidOverlayParameter_CrestGain) destination.crestGain = source.crestGain;
+		if (mask & FluidOverlayParameter_FoamAmount) destination.foamAmount = source.foamAmount;
+		if (mask & FluidOverlayParameter_FoamRoughness) destination.foamRoughness = source.foamRoughness;
+		if (mask & FluidOverlayParameter_FoamThreshold) destination.foamThreshold = source.foamThreshold;
+		if (mask & FluidOverlayParameter_FoamSoftness) destination.foamSoftness = source.foamSoftness;
+		if (mask & FluidOverlayParameter_FoamBreakupScale) destination.foamBreakupScale = source.foamBreakupScale;
+		if (mask & FluidOverlayParameter_FoamBreakupStrength) destination.foamBreakupStrength = source.foamBreakupStrength;
+		if (mask & FluidOverlayParameter_FoamLifetime) destination.foamLifetime = source.foamLifetime;
+		if (mask & FluidOverlayParameter_FoamTrailGain) destination.foamTrailGain = source.foamTrailGain;
+		if (mask & FluidOverlayParameter_FoamUndersideStrength) destination.foamUndersideStrength = source.foamUndersideStrength;
 		if (mask & FluidOverlayParameter_NormalStrength) destination.normalStrength = source.normalStrength;
 		if (mask & FluidOverlayParameter_VirtualHeight) destination.virtualHeight = source.virtualHeight;
 		if (mask & FluidOverlayParameter_Seed) destination.seed = source.seed;
@@ -368,6 +378,7 @@ namespace
 			value.bodyColor[i] = std::max(0.0f, finiteOr(value.bodyColor[i], 0.0f));
 			value.undersideColor[i] = std::max(0.0f, finiteOr(value.undersideColor[i], 0.0f));
 			value.crestColor[i] = std::max(0.0f, finiteOr(value.crestColor[i], 0.0f));
+			value.foamColor[i] = std::max(0.0f, finiteOr(value.foamColor[i], 0.0f));
 			value.emissionColor[i] = std::max(0.0f, finiteOr(value.emissionColor[i], 0.0f));
 		}
 		value.emission = std::max(0.0f, finiteOr(value.emission, 0.0f));
@@ -391,6 +402,15 @@ namespace
 		value.noiseScale = std::clamp(finiteOr(value.noiseScale, 0.65f), 0.05f, 4.0f);
 		value.maxSlope = std::clamp(finiteOr(value.maxSlope, 1.25f), 0.0f, 4.0f);
 		value.crestGain = std::clamp(finiteOr(value.crestGain, 0.35f), 0.0f, 4.0f);
+		value.foamAmount = std::clamp(finiteOr(value.foamAmount, 0.0f), 0.0f, 1.0f);
+		value.foamRoughness = std::clamp(finiteOr(value.foamRoughness, 0.85f), 0.0f, 1.0f);
+		value.foamThreshold = std::clamp(finiteOr(value.foamThreshold, 0.65f), 0.0f, 1.0f);
+		value.foamSoftness = std::clamp(finiteOr(value.foamSoftness, 0.10f), 0.0f, 1.0f);
+		value.foamBreakupScale = std::clamp(finiteOr(value.foamBreakupScale, 2.0f), 0.05f, 64.0f);
+		value.foamBreakupStrength = std::clamp(finiteOr(value.foamBreakupStrength, 0.50f), 0.0f, 1.0f);
+		value.foamLifetime = std::clamp(finiteOr(value.foamLifetime, 0.0f), 0.0f, 60.0f);
+		value.foamTrailGain = std::clamp(finiteOr(value.foamTrailGain, 0.0f), 0.0f, 4.0f);
+		value.foamUndersideStrength = std::clamp(finiteOr(value.foamUndersideStrength, 0.0f), 0.0f, 1.0f);
 		value.normalStrength = std::max(0.0f, finiteOr(value.normalStrength, 0.0f));
 		value.virtualHeight = std::max(0.0f, finiteOr(value.virtualHeight, 0.0f));
 		value.octaves = std::clamp(value.octaves, 1u, 4u);
@@ -404,6 +424,7 @@ namespace
 		for (float component : value.bodyColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.undersideColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.crestColor) hash = HashValue(hash, CanonicalFloatBits(component));
+		for (float component : value.foamColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.emissionColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		const float scalarValues[] = {
 			value.emission, value.roughness, value.undersideRoughness, value.opacity,
@@ -411,7 +432,10 @@ namespace
 			value.timeScale, value.speed,
 			value.flow[0], value.flow[1], value.anisotropy, value.warp, value.choppiness,
 			value.octaveRotation, value.choppyRelaxation, value.noiseScale, value.maxSlope,
-			value.crestGain, value.normalStrength, value.virtualHeight,
+			value.crestGain, value.foamAmount, value.foamRoughness, value.foamThreshold,
+			value.foamSoftness, value.foamBreakupScale, value.foamBreakupStrength,
+			value.foamLifetime, value.foamTrailGain, value.foamUndersideStrength,
+			value.normalStrength, value.virtualHeight,
 		};
 		for (float scalar : scalarValues) hash = HashValue(hash, CanonicalFloatBits(scalar));
 		hash = HashValue(hash, value.seed);
@@ -421,8 +445,8 @@ namespace
 	static bool ParametersEqual(const FluidOverlayParameters& a, const FluidOverlayParameters& b)
 	{
 		if (a.style != b.style || a.seed != b.seed || a.octaves != b.octaves) return false;
-		const float* aVectors[] = { a.bodyColor, a.undersideColor, a.crestColor, a.emissionColor };
-		const float* bVectors[] = { b.bodyColor, b.undersideColor, b.crestColor, b.emissionColor };
+		const float* aVectors[] = { a.bodyColor, a.undersideColor, a.crestColor, a.emissionColor, a.foamColor };
+		const float* bVectors[] = { b.bodyColor, b.undersideColor, b.crestColor, b.emissionColor, b.foamColor };
 		for (size_t vectorIndex = 0; vectorIndex < std::size(aVectors); ++vectorIndex)
 		{
 			for (size_t component = 0; component < 3; ++component)
@@ -434,13 +458,19 @@ namespace
 			a.emission, a.roughness, a.undersideRoughness, a.opacity, a.scale, a.amplitude,
 			a.frequency, a.lacunarity, a.gain, a.timeScale, a.speed, a.flow[0], a.flow[1],
 			a.anisotropy, a.warp, a.choppiness, a.octaveRotation, a.choppyRelaxation,
-			a.noiseScale, a.maxSlope, a.crestGain, a.normalStrength, a.virtualHeight,
+			a.noiseScale, a.maxSlope, a.crestGain, a.foamAmount, a.foamRoughness,
+			a.foamThreshold, a.foamSoftness, a.foamBreakupScale, a.foamBreakupStrength,
+			a.foamLifetime, a.foamTrailGain, a.foamUndersideStrength,
+			a.normalStrength, a.virtualHeight,
 		};
 		const float bScalars[] = {
 			b.emission, b.roughness, b.undersideRoughness, b.opacity, b.scale, b.amplitude,
 			b.frequency, b.lacunarity, b.gain, b.timeScale, b.speed, b.flow[0], b.flow[1],
 			b.anisotropy, b.warp, b.choppiness, b.octaveRotation, b.choppyRelaxation,
-			b.noiseScale, b.maxSlope, b.crestGain, b.normalStrength, b.virtualHeight,
+			b.noiseScale, b.maxSlope, b.crestGain, b.foamAmount, b.foamRoughness,
+			b.foamThreshold, b.foamSoftness, b.foamBreakupScale, b.foamBreakupStrength,
+			b.foamLifetime, b.foamTrailGain, b.foamUndersideStrength,
+			b.normalStrength, b.virtualHeight,
 		};
 		for (size_t i = 0; i < std::size(aScalars); ++i)
 		{
@@ -454,9 +484,9 @@ namespace
 		if (a.style != b.style) return (uint8_t)a.style < (uint8_t)b.style;
 		const auto getFloatBits = [](const FluidOverlayParameters& value)
 		{
-			std::array<uint32_t, 35> bits = {};
+			std::array<uint32_t, 47> bits = {};
 			size_t index = 0;
-			const float* vectors[] = { value.bodyColor, value.undersideColor, value.crestColor, value.emissionColor };
+			const float* vectors[] = { value.bodyColor, value.undersideColor, value.crestColor, value.emissionColor, value.foamColor };
 			for (const float* vector : vectors)
 			{
 				for (size_t component = 0; component < 3; ++component) bits[index++] = CanonicalFloatBits(vector[component]);
@@ -467,7 +497,10 @@ namespace
 				value.timeScale, value.speed,
 				value.flow[0], value.flow[1], value.anisotropy, value.warp, value.choppiness,
 				value.octaveRotation, value.choppyRelaxation, value.noiseScale, value.maxSlope,
-				value.crestGain, value.normalStrength, value.virtualHeight,
+				value.crestGain, value.foamAmount, value.foamRoughness,
+				value.foamThreshold, value.foamSoftness, value.foamBreakupScale,
+				value.foamBreakupStrength, value.foamLifetime, value.foamTrailGain,
+				value.foamUndersideStrength, value.normalStrength, value.virtualHeight,
 			};
 			for (float scalar : scalars) bits[index++] = CanonicalFloatBits(scalar);
 			return bits;
@@ -654,6 +687,7 @@ namespace
 				{ "bodycolor", FluidOverlayParameter_BodyColor, parameters.bodyColor, 3 },
 				{ "undersidecolor", FluidOverlayParameter_UndersideColor, parameters.undersideColor, 3 },
 				{ "crestcolor", FluidOverlayParameter_CrestColor, parameters.crestColor, 3 },
+				{ "foamcolor", FluidOverlayParameter_FoamColor, parameters.foamColor, 3 },
 				{ "emissioncolor", FluidOverlayParameter_EmissionColor, parameters.emissionColor, 3 },
 				{ "flow", FluidOverlayParameter_Flow, parameters.flow, 2 },
 			};
@@ -688,6 +722,15 @@ namespace
 				{ "noisescale", FluidOverlayParameter_NoiseScale, &parameters.noiseScale },
 				{ "maxslope", FluidOverlayParameter_MaxSlope, &parameters.maxSlope },
 				{ "crestgain", FluidOverlayParameter_CrestGain, &parameters.crestGain },
+				{ "foamamount", FluidOverlayParameter_FoamAmount, &parameters.foamAmount },
+				{ "foamroughness", FluidOverlayParameter_FoamRoughness, &parameters.foamRoughness },
+				{ "foamthreshold", FluidOverlayParameter_FoamThreshold, &parameters.foamThreshold },
+				{ "foamsoftness", FluidOverlayParameter_FoamSoftness, &parameters.foamSoftness },
+				{ "foambreakupscale", FluidOverlayParameter_FoamBreakupScale, &parameters.foamBreakupScale },
+				{ "foambreakupstrength", FluidOverlayParameter_FoamBreakupStrength, &parameters.foamBreakupStrength },
+				{ "foamlifetime", FluidOverlayParameter_FoamLifetime, &parameters.foamLifetime },
+				{ "foamtrailgain", FluidOverlayParameter_FoamTrailGain, &parameters.foamTrailGain },
+				{ "foamundersidestrength", FluidOverlayParameter_FoamUndersideStrength, &parameters.foamUndersideStrength },
 				{ "normalstrength", FluidOverlayParameter_NormalStrength, &parameters.normalStrength },
 				{ "virtualheight", FluidOverlayParameter_VirtualHeight, &parameters.virtualHeight },
 			};
@@ -896,6 +939,7 @@ namespace
 		if (mask & FluidOverlayParameter_BodyColor) AppendVector(text, indent, "bodycolor", parameters.bodyColor, 3);
 		if (mask & FluidOverlayParameter_UndersideColor) AppendVector(text, indent, "undersidecolor", parameters.undersideColor, 3);
 		if (mask & FluidOverlayParameter_CrestColor) AppendVector(text, indent, "crestcolor", parameters.crestColor, 3);
+		if (mask & FluidOverlayParameter_FoamColor) AppendVector(text, indent, "foamcolor", parameters.foamColor, 3);
 		if (mask & FluidOverlayParameter_EmissionColor) AppendVector(text, indent, "emissioncolor", parameters.emissionColor, 3);
 		struct FloatField { uint64_t bit; const char* name; float value; };
 		const FloatField fields[] = {
@@ -925,6 +969,15 @@ namespace
 			{ FluidOverlayParameter_NoiseScale, "noisescale", parameters.noiseScale },
 			{ FluidOverlayParameter_MaxSlope, "maxslope", parameters.maxSlope },
 			{ FluidOverlayParameter_CrestGain, "crestgain", parameters.crestGain },
+			{ FluidOverlayParameter_FoamAmount, "foamamount", parameters.foamAmount },
+			{ FluidOverlayParameter_FoamRoughness, "foamroughness", parameters.foamRoughness },
+			{ FluidOverlayParameter_FoamThreshold, "foamthreshold", parameters.foamThreshold },
+			{ FluidOverlayParameter_FoamSoftness, "foamsoftness", parameters.foamSoftness },
+			{ FluidOverlayParameter_FoamBreakupScale, "foambreakupscale", parameters.foamBreakupScale },
+			{ FluidOverlayParameter_FoamBreakupStrength, "foambreakupstrength", parameters.foamBreakupStrength },
+			{ FluidOverlayParameter_FoamLifetime, "foamlifetime", parameters.foamLifetime },
+			{ FluidOverlayParameter_FoamTrailGain, "foamtrailgain", parameters.foamTrailGain },
+			{ FluidOverlayParameter_FoamUndersideStrength, "foamundersidestrength", parameters.foamUndersideStrength },
 			{ FluidOverlayParameter_NormalStrength, "normalstrength", parameters.normalStrength },
 			{ FluidOverlayParameter_VirtualHeight, "virtualheight", parameters.virtualHeight },
 		};
@@ -1183,6 +1236,11 @@ namespace
 				p.speed, p.timeScale, p.anisotropy, p.warp, p.choppiness, p.octaveRotation,
 				p.choppyRelaxation, p.noiseScale, p.maxSlope, p.crestGain, p.normalStrength,
 				p.virtualHeight, p.seed, p.octaves);
+			Printf("FLUIDOVR resolved foam: id=%s color=(%.4f,%.4f,%.4f) amount=%.4f roughness=%.4f threshold=%.4f softness=%.4f breakupscale=%.4f breakupstrength=%.4f lifetime=%.4f trailgain=%.4f undersidestrength=%.4f\n",
+				profile.id.GetChars(), p.foamColor[0], p.foamColor[1], p.foamColor[2],
+				p.foamAmount, p.foamRoughness, p.foamThreshold, p.foamSoftness,
+				p.foamBreakupScale, p.foamBreakupStrength, p.foamLifetime,
+				p.foamTrailGain, p.foamUndersideStrength);
 		}
 		for (uint32_t i = 0; i < (uint32_t)resolved.materialRules.Size(); ++i)
 		{

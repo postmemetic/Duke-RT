@@ -45,6 +45,10 @@ struct FluidBindingData
 	float4 crust;
 	// virtual half-height, maximum travel, crest-color gain, minimum view cosine
 	float4 virtualParams;
+	// foam color + amount; roughness + birth shaping; breakup + trail shaping
+	float4 foamColorAmount;
+	float4 foamBirthParams;
+	float4 foamTrailParams;
 };
 
 // Uploaded once per frame. Gameplay time, quality caps, and the runtime
@@ -63,7 +67,8 @@ struct FluidFrameData
 
 	uint virtualStepCount;
 	uint debugMode;
-	uint reserved0;
+	// 0 = disabled, 1 = instantaneous crest birth, 2 = analytic trails.
+	uint foamMode;
 	uint reserved1;
 };
 

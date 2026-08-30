@@ -19,6 +19,13 @@ namespace nri_diag
 	constexpr uint32_t PtDebugTaaPreExposedInput = 45u;
 	constexpr uint32_t PtDebugIndirectLobeSelection = 46u;
 	constexpr uint32_t PtDebugMotionValidity = 47u;
+	constexpr uint32_t PtDebugFluidBinding = 48u;
+	constexpr uint32_t PtDebugFluidBreaking = 49u;
+	constexpr uint32_t PtDebugFluidFoam = 50u;
+	constexpr uint32_t PtDebugFluidFoamTemporal = 51u;
+	constexpr uint32_t PtDebugFluidMaterial = 52u;
+	constexpr uint32_t PtDebugFluidNormal = 53u;
+	constexpr uint32_t PtDebugMaximum = PtDebugFluidNormal;
 
 	constexpr uint32_t SceneDataSourceStatic = 0u;
 	constexpr uint32_t SceneDataSourceDynamic = 1u;

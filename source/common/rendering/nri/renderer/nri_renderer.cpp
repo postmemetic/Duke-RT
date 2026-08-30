@@ -810,7 +810,7 @@ namespace
 
 	static uint32_t GetEffectivePtDebugMode()
 	{
-		if (nri_ptdebug < 0 || nri_ptdebug > (int)nri_diag::PtDebugMotionValidity)
+		if (nri_ptdebug < 0 || nri_ptdebug > (int)nri_diag::PtDebugMaximum)
 		{
 			return 0u;
 		}
@@ -1766,6 +1766,8 @@ void NRIRenderer::Shutdown()
 	mBoundFluidBindingCount = 0;
 	mFluidTimeInitialized = false;
 	mFluidVirtualHeightStateInitialized = false;
+	mFluidFoamModeStateInitialized = false;
+	mLastFluidFoamMode = 0;
 
 	if (mFrameBuffer == nullptr || mFrameBuffer->mDevice == nullptr)
 	{
@@ -1945,6 +1947,8 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mBoundFluidBindingCount = 0;
 	mFluidTimeInitialized = false;
 	mFluidVirtualHeightStateInitialized = false;
+	mFluidFoamModeStateInitialized = false;
+	mLastFluidFoamMode = 0;
 
 	ClearRuntimePointLights();
 	ClearRuntimeDebugSpheres();

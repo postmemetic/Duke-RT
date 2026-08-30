@@ -33,6 +33,16 @@ FLUIDOVR
 		noisescale 0.65
 		maxslope 1.25
 		crestgain 0.32
+		foamcolor 0.82 0.9 0.95
+		foamamount 0.72
+		foamroughness 0.88
+		foamthreshold 0.62
+		foamsoftness 0.12
+		foambreakupscale 2.4
+		foambreakupstrength 0.55
+		foamlifetime 1.2
+		foamtrailgain 0.65
+		foamundersidestrength 0
 		normalstrength 1.1
 		virtualheight 4
 		seed 13
@@ -66,6 +76,16 @@ FLUIDOVR
 		noisescale 0.45
 		maxslope 0.8
 		crestgain 0.4
+		foamcolor 0.42 0.7 0.38
+		foamamount 0
+		foamroughness 0.9
+		foamthreshold 0.7
+		foamsoftness 0.12
+		foambreakupscale 1.8
+		foambreakupstrength 0.45
+		foamlifetime 1.6
+		foamtrailgain 0.5
+		foamundersidestrength 0
 		normalstrength 1
 		virtualheight 3
 		seed 23
@@ -99,6 +119,16 @@ FLUIDOVR
 		noisescale 0.5
 		maxslope 0.9
 		crestgain 0.7
+		foamcolor 1 0.32 0.025
+		foamamount 0
+		foamroughness 0.82
+		foamthreshold 0.64
+		foamsoftness 0.1
+		foambreakupscale 2
+		foambreakupstrength 0.5
+		foamlifetime 0.9
+		foamtrailgain 0.4
+		foamundersidestrength 0
 		normalstrength 1
 		virtualheight 3
 		seed 29
@@ -132,6 +162,16 @@ FLUIDOVR
 		noisescale 0.7
 		maxslope 1.4
 		crestgain 0.28
+		foamcolor 0.82 0.9 0.95
+		foamamount 0.38
+		foamroughness 0.92
+		foamthreshold 0.58
+		foamsoftness 0.14
+		foambreakupscale 3.2
+		foambreakupstrength 0.42
+		foamlifetime 0.45
+		foamtrailgain 0.35
+		foamundersidestrength 0
 		normalstrength 1
 		virtualheight 2
 		seed 19

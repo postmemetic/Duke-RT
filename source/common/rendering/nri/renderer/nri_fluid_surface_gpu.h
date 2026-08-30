@@ -77,6 +77,14 @@ struct NRIFluidBindingGpuData
 	// in world units, z = crest-color gain,
 	// w = minimum absolute view/carrier cosine.
 	float virtualParams[4] = {};
+	// rgb = foam color, w = authored foam amount (zero is exact off).
+	float foamColorAmount[4] = {};
+	// x = foam roughness, y = breaking threshold, z = threshold softness,
+	// w = underside strength.
+	float foamBirthParams[4] = {};
+	// x = breakup scale, y = breakup strength, z = analytic lifetime,
+	// w = analytic trail gain.
+	float foamTrailParams[4] = {};
 };
 
 struct NRIFluidFrameGpuData
@@ -93,11 +101,12 @@ struct NRIFluidFrameGpuData
 
 	uint32_t virtualStepCount = 1u;
 	uint32_t debugMode = 0u;
-	uint32_t reserved0 = 0u;
+	// 0 = disabled, 1 = instantaneous crest birth, 2 = analytic trails.
+	uint32_t foamMode = 0u;
 	uint32_t reserved1 = 0u;
 };
 
-static_assert(sizeof(NRIFluidBindingGpuData) == 224u,
+static_assert(sizeof(NRIFluidBindingGpuData) == 272u,
 	"NRIFluidBindingGpuData must match FluidBindingData in HLSL.");
 static_assert(offsetof(NRIFluidBindingGpuData, domainOriginScale) == 16u,
 	"NRIFluidBindingGpuData header layout mismatch.");
@@ -105,5 +114,11 @@ static_assert(offsetof(NRIFluidBindingGpuData, crestColorOpacity) == 160u,
 	"NRIFluidBindingGpuData crest layout mismatch.");
 static_assert(offsetof(NRIFluidBindingGpuData, virtualParams) == 208u,
 	"NRIFluidBindingGpuData tail layout mismatch.");
+static_assert(offsetof(NRIFluidBindingGpuData, foamColorAmount) == 224u,
+	"NRIFluidBindingGpuData foam-color layout mismatch.");
+static_assert(offsetof(NRIFluidBindingGpuData, foamBirthParams) == 240u,
+	"NRIFluidBindingGpuData foam-birth layout mismatch.");
+static_assert(offsetof(NRIFluidBindingGpuData, foamTrailParams) == 256u,
+	"NRIFluidBindingGpuData foam-trail layout mismatch.");
 static_assert(sizeof(NRIFluidFrameGpuData) == 48u,
 	"NRIFluidFrameGpuData must match FluidFrameData in HLSL.");

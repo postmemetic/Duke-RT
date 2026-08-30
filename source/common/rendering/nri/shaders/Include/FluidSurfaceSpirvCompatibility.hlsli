@@ -19,6 +19,14 @@ struct FluidSurfaceEvaluation
 	float reactive;
 	float3 emission;
 	float height;
+	float crest;
+	float breaking;
+	float foamBirth;
+	float foamTrail;
+	float foam;
+	float previousFoam;
+	float foamPhase;
+	float foamAngularVelocity;
 };
 
 float FluidHash01(uint value)
@@ -339,7 +347,7 @@ bool TryEvaluateFluidSurface(
 	float3 baseColor = lerp(
 		sampledBaseColor, terminalBody, saturate(binding.crestColorOpacity.a));
 	baseColor = lerp(baseColor, binding.crestColorOpacity.rgb,
-		saturate(crest * max(binding.shaping.y, 0.0)));
+		saturate(crest * max(binding.virtualParams.z, 0.0)));
 
 	float hotCrack = 0.0;
 	if ((binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u)
@@ -373,6 +381,17 @@ bool TryEvaluateFluidSurface(
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *
 		max(binding.emissionColorIntensity.w, 0.0) * hotCrack;
 	evaluation.height = height;
+	evaluation.crest = crest;
+	// The compatibility field predates the D3D Seascape-style field and gives
+	// the shaping rows different meanings. Keep Vulkan foam capability-disabled
+	// instead of producing a detached, separately tuned mask.
+	evaluation.breaking = 0.0;
+	evaluation.foamBirth = 0.0;
+	evaluation.foamTrail = 0.0;
+	evaluation.foam = 0.0;
+	evaluation.previousFoam = 0.0;
+	evaluation.foamPhase = 0.0;
+	evaluation.foamAngularVelocity = 0.0;
 	return true;
 }
 

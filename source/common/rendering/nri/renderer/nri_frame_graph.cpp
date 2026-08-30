@@ -16,7 +16,9 @@ namespace
 		21u, 22u, 24u, 25u,
 		nri_diag::PtDebugAnalyticDirect, nri_diag::PtDebugEmissiveTags, nri_diag::PtDebugEmissiveDirect, nri_diag::PtDebugSectorAmbient,
 		nri_diag::PtDebugEmissiveSampleVisibility, nri_diag::PtDebugUpscalerTraceTransparent, nri_diag::PtDebugTaaPreExposedInput,
-		nri_diag::PtDebugIndirectLobeSelection, nri_diag::PtDebugMotionValidity
+		nri_diag::PtDebugIndirectLobeSelection, nri_diag::PtDebugMotionValidity,
+		nri_diag::PtDebugFluidBinding, nri_diag::PtDebugFluidBreaking, nri_diag::PtDebugFluidFoam,
+		nri_diag::PtDebugFluidFoamTemporal, nri_diag::PtDebugFluidMaterial, nri_diag::PtDebugFluidNormal
 	};
 
 	constexpr NRIPresentRouteInfo kBootstrapRawTraceRoute = {
@@ -216,7 +218,8 @@ bool IsNRIFrameGraphRawTraceDebugMode(uint32_t debugMode)
 		IsInRange(debugMode, nri_diag::PtDebugAnalyticDirect, nri_diag::PtDebugSectorAmbient) ||
 		debugMode == nri_diag::PtDebugEmissiveSampleVisibility ||
 		debugMode == nri_diag::PtDebugIndirectLobeSelection ||
-		debugMode == nri_diag::PtDebugMotionValidity;
+		debugMode == nri_diag::PtDebugMotionValidity ||
+		IsInRange(debugMode, nri_diag::PtDebugFluidBinding, nri_diag::PtDebugFluidNormal);
 }
 
 bool IsNRIFrameGraphFinalShaderDebugMode(uint32_t)

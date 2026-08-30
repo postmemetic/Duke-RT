@@ -55,6 +55,16 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_NoiseScale = 1ull << 26,
 	FluidOverlayParameter_MaxSlope = 1ull << 27,
 	FluidOverlayParameter_CrestGain = 1ull << 28,
+	FluidOverlayParameter_FoamColor = 1ull << 29,
+	FluidOverlayParameter_FoamAmount = 1ull << 30,
+	FluidOverlayParameter_FoamRoughness = 1ull << 31,
+	FluidOverlayParameter_FoamThreshold = 1ull << 32,
+	FluidOverlayParameter_FoamSoftness = 1ull << 33,
+	FluidOverlayParameter_FoamBreakupScale = 1ull << 34,
+	FluidOverlayParameter_FoamBreakupStrength = 1ull << 35,
+	FluidOverlayParameter_FoamLifetime = 1ull << 36,
+	FluidOverlayParameter_FoamTrailGain = 1ull << 37,
+	FluidOverlayParameter_FoamUndersideStrength = 1ull << 38,
 };
 
 struct FluidOverlaySourceLocation
@@ -103,6 +113,18 @@ struct FluidOverlayParameters
 	float noiseScale = 0.65f;
 	float maxSlope = 1.25f;
 	float crestGain = 0.35f;
+	float foamColor[3] = { 0.82f, 0.90f, 0.95f };
+	// Zero is the exact default-off policy. The remaining values define the
+	// response used only when an authored profile opts in.
+	float foamAmount = 0.0f;
+	float foamRoughness = 0.85f;
+	float foamThreshold = 0.65f;
+	float foamSoftness = 0.10f;
+	float foamBreakupScale = 2.0f;
+	float foamBreakupStrength = 0.50f;
+	float foamLifetime = 0.0f;
+	float foamTrailGain = 0.0f;
+	float foamUndersideStrength = 0.0f;
 	float normalStrength = 0.75f;
 	// Optional Phase 2C visual-only half-height in renderer world units.
 	// Zero disables virtual-height refinement for this profile.
