@@ -70,6 +70,104 @@ namespace
 		nri_scene::ImmutableBytePayload bytes;
 	};
 
+	struct PersistentVoxelMaterialPresentationKey
+	{
+		uintptr_t texture = 0;
+		uintptr_t emissiveTexture = 0;
+		uint32_t textureId = UINT32_MAX;
+		uint32_t emissiveTextureId = UINT32_MAX;
+		int32_t palette = 0;
+		int32_t shade = 0;
+		uint32_t alphaBits = 0;
+		uint32_t materialFlags = 0;
+		uint32_t materialRowSpan = 0;
+		uint32_t sourceType = 0;
+		int32_t sectorIndex = -1;
+		int32_t wallIndex = -1;
+		int32_t sectionIndex = -1;
+		int32_t mapChunkIndex = -1;
+		int32_t nextSectorIndex = -1;
+		uint32_t drawListType = UINT32_MAX;
+		uint32_t cstat = 0;
+		uint32_t provenanceMaterialFlags = 0;
+		uint32_t overrideBits = 0;
+		uint32_t emissiveStableFrames = 0;
+		uint32_t resolvedGeneration = 0;
+		uint32_t actorOverlayRuleCount = 0;
+		uint32_t actorOverlayRuleIds[nri_scene::MaxActorOverlayRuleIdsPerSurface] = {};
+		uint32_t fullbrightBoostBits = 0;
+		uint32_t voxelEmissionBoostBits = 0;
+
+		bool operator==(const PersistentVoxelMaterialPresentationKey& other) const
+		{
+			return texture == other.texture &&
+				emissiveTexture == other.emissiveTexture &&
+				textureId == other.textureId &&
+				emissiveTextureId == other.emissiveTextureId &&
+				palette == other.palette &&
+				shade == other.shade &&
+				alphaBits == other.alphaBits &&
+				materialFlags == other.materialFlags &&
+				materialRowSpan == other.materialRowSpan &&
+				sourceType == other.sourceType &&
+				sectorIndex == other.sectorIndex &&
+				wallIndex == other.wallIndex &&
+				sectionIndex == other.sectionIndex &&
+				mapChunkIndex == other.mapChunkIndex &&
+				nextSectorIndex == other.nextSectorIndex &&
+				drawListType == other.drawListType &&
+				cstat == other.cstat &&
+				provenanceMaterialFlags == other.provenanceMaterialFlags &&
+				overrideBits == other.overrideBits &&
+				emissiveStableFrames == other.emissiveStableFrames &&
+				resolvedGeneration == other.resolvedGeneration &&
+				actorOverlayRuleCount == other.actorOverlayRuleCount &&
+				std::equal(
+					std::begin(actorOverlayRuleIds),
+					std::end(actorOverlayRuleIds),
+					std::begin(other.actorOverlayRuleIds)) &&
+				fullbrightBoostBits == other.fullbrightBoostBits &&
+				voxelEmissionBoostBits == other.voxelEmissionBoostBits;
+		}
+	};
+
+	struct PersistentVoxelMaterialPresentationKeyHash
+	{
+		size_t operator()(const PersistentVoxelMaterialPresentationKey& key) const
+		{
+			uint64_t hash = nri_scene::NRIHashFnv1a64OffsetBasis;
+			hash = nri_scene::HashCombine64(hash, (uint64_t)key.texture);
+			hash = nri_scene::HashCombine64(hash, (uint64_t)key.emissiveTexture);
+			hash = nri_scene::HashCombine64(hash, key.textureId);
+			hash = nri_scene::HashCombine64(hash, key.emissiveTextureId);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.palette);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.shade);
+			hash = nri_scene::HashCombine64(hash, key.alphaBits);
+			hash = nri_scene::HashCombine64(hash, key.materialFlags);
+			hash = nri_scene::HashCombine64(hash, key.materialRowSpan);
+			hash = nri_scene::HashCombine64(hash, key.sourceType);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.sectorIndex);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.wallIndex);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.sectionIndex);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.mapChunkIndex);
+			hash = nri_scene::HashCombine64(hash, (uint32_t)key.nextSectorIndex);
+			hash = nri_scene::HashCombine64(hash, key.drawListType);
+			hash = nri_scene::HashCombine64(hash, key.cstat);
+			hash = nri_scene::HashCombine64(hash, key.provenanceMaterialFlags);
+			hash = nri_scene::HashCombine64(hash, key.overrideBits);
+			hash = nri_scene::HashCombine64(hash, key.emissiveStableFrames);
+			hash = nri_scene::HashCombine64(hash, key.resolvedGeneration);
+			hash = nri_scene::HashCombine64(hash, key.actorOverlayRuleCount);
+			for (uint32_t ruleId : key.actorOverlayRuleIds)
+			{
+				hash = nri_scene::HashCombine64(hash, ruleId);
+			}
+			hash = nri_scene::HashCombine64(hash, key.fullbrightBoostBits);
+			hash = nri_scene::HashCombine64(hash, key.voxelEmissionBoostBits);
+			return (size_t)hash;
+		}
+	};
+
 	struct PersistentVoxelMaterialEventIdentity
 	{
 		uint64_t materialKey = 0;
@@ -104,6 +202,11 @@ namespace
 		NRIPersistentVoxelMaterialClosureTelemetry telemetry = {};
 		std::unordered_map<uint64_t, PersistentVoxelPalettePayload> palettes;
 		std::unordered_map<PersistentVoxelMaterialEventIdentity, MaterialEvent, PersistentVoxelMaterialEventIdentityHash> materialEvents;
+		uint32_t materialPresentationFrame = UINT32_MAX;
+		std::unordered_map<
+			PersistentVoxelMaterialPresentationKey,
+			nri_scene::MaterialBridgeData,
+			PersistentVoxelMaterialPresentationKeyHash> materialPresentations;
 	};
 
 	std::unordered_map<NRIRenderer*, PersistentVoxelMaterialClosureServiceState> gPersistentVoxelMaterialClosureStates;
@@ -118,6 +221,33 @@ namespace
 			hash *= 1099511628211ull;
 		}
 		return hash;
+	}
+
+	uint32_t PersistentVoxelFloatBits(float value)
+	{
+		uint32_t bits = 0;
+		static_assert(sizeof(bits) == sizeof(value));
+		std::memcpy(&bits, &value, sizeof(bits));
+		return bits;
+	}
+
+	uint32_t PersistentVoxelTextureId(const FGameTexture* texture)
+	{
+		if (texture == nullptr)
+		{
+			return UINT32_MAX;
+		}
+		const FTextureID id = texture->GetID();
+		return id.isValid() ? (uint32_t)id.GetIndex() : UINT32_MAX;
+	}
+
+	bool IsPersistentVoxelMaterialPresentationTextureStable(FGameTexture* texture)
+	{
+		return texture != nullptr &&
+			texture->isValid() &&
+			!texture->isHardwareCanvas() &&
+			!texture->isSoftwareCanvas() &&
+			texture->isWarped() == 0;
 	}
 
 	NRIPersistentVoxelTextureClosureState ConvertPersistentVoxelTextureClosureState(
@@ -497,6 +627,114 @@ public:
 		const char* label,
 		bool clockMaterialBuild)
 	{
+		const bool materialVariant = label != nullptr && std::strcmp(label, "persistent_voxel_material_variant") == 0;
+		if (materialVariant)
+		{
+			EnsurePersistentVoxelMaterialClosureBuildSerial(renderer, renderer.mMapWorld.buildSerial, FirstUseFrameIndex(renderer));
+			PersistentVoxelMaterialClosureServiceState& state = GetPersistentVoxelMaterialClosureState(renderer);
+			renderer.mLastPerfShellTraceStats.persistentVoxelMaterialPresentationAttempts++;
+			state.telemetry.materialPresentationAttempts++;
+			const size_t surfaceCount =
+				sceneView.opaqueWalls.size() +
+				sceneView.opaqueFlats.size() +
+				sceneView.opaqueSprites.size();
+			const nri_scene::SurfaceRef* surface =
+				surfaceCount == 1 && sceneView.opaqueSprites.size() == 1 ? &sceneView.opaqueSprites.front() : nullptr;
+			const bool textureStable =
+				surface != nullptr &&
+				IsPersistentVoxelMaterialPresentationTextureStable(surface->material.texture) &&
+				(surface->material.emissiveSourceTexture == nullptr ||
+					IsPersistentVoxelMaterialPresentationTextureStable(surface->material.emissiveSourceTexture));
+			nri_material_policy::ActorMaterialPresentationPolicy policy = {};
+			if (surface == nullptr ||
+				surface->materialRowSpan != 1u ||
+				surface->material.voxelPalettePolicy != nullptr ||
+				surface->material.voxelPalettePolicyContentKey != 0 ||
+				!textureStable ||
+				!renderer.ResolveActorMaterialPresentationPolicy(*surface, policy))
+			{
+				renderer.mLastPerfShellTraceStats.persistentVoxelMaterialPresentationFailOpen++;
+				state.telemetry.materialPresentationFailOpen++;
+			}
+			else
+			{
+				if (state.materialPresentationFrame != renderer.mFrameIndex)
+				{
+					state.materialPresentationFrame = renderer.mFrameIndex;
+					state.materialPresentations.clear();
+				}
+
+				PersistentVoxelMaterialPresentationKey key = {};
+				key.texture = (uintptr_t)surface->material.texture;
+				key.emissiveTexture = (uintptr_t)surface->material.emissiveSourceTexture;
+				key.textureId = PersistentVoxelTextureId(surface->material.texture);
+				key.emissiveTextureId = PersistentVoxelTextureId(surface->material.emissiveSourceTexture);
+				key.palette = surface->material.palette;
+				key.shade = surface->material.shade;
+				key.alphaBits = PersistentVoxelFloatBits(surface->material.alpha);
+				key.materialFlags = surface->material.flags;
+				key.materialRowSpan = surface->materialRowSpan;
+				key.sourceType = (uint32_t)surface->provenance.sourceType;
+				key.sectorIndex = surface->provenance.sectorIndex;
+				key.wallIndex = surface->provenance.wallIndex;
+				key.sectionIndex = surface->provenance.sectionIndex;
+				key.mapChunkIndex = surface->provenance.mapChunkIndex;
+				key.nextSectorIndex = surface->provenance.nextSectorIndex;
+				key.drawListType = surface->provenance.drawListType;
+				key.cstat = surface->provenance.cstat;
+				key.provenanceMaterialFlags = surface->provenance.materialFlags;
+				key.overrideBits = policy.overrideState.bits;
+				key.emissiveStableFrames = policy.overrideState.emissiveStableFrames;
+				key.resolvedGeneration = policy.resolvedGeneration;
+				key.actorOverlayRuleCount = policy.actorOverlayRuleCount;
+				std::copy_n(policy.actorOverlayRuleIds, policy.actorOverlayRuleCount, key.actorOverlayRuleIds);
+				key.fullbrightBoostBits = PersistentVoxelFloatBits((float)nri_ptfullbrightboost);
+				key.voxelEmissionBoostBits = PersistentVoxelFloatBits((float)nri_voxelemissionboost);
+
+				const auto cached = state.materialPresentations.find(key);
+				if (cached != state.materialPresentations.end())
+				{
+					materials = cached->second;
+					materials.buildStats = {};
+					for (auto& metadata : materials.lightMetadata)
+					{
+						metadata.sourceType = surface->provenance.sourceType;
+						metadata.sectorIndex = surface->provenance.sectorIndex;
+						metadata.actorIndex = surface->provenance.actorIndex;
+						metadata.actorOverlayRuleCount = policy.actorOverlayRuleCount;
+						std::fill(
+							std::begin(metadata.actorOverlayRuleIds),
+							std::end(metadata.actorOverlayRuleIds),
+							0u);
+						std::copy_n(
+							policy.actorOverlayRuleIds,
+							policy.actorOverlayRuleCount,
+							metadata.actorOverlayRuleIds);
+					}
+					renderer.mLastPerfShellTraceStats.persistentVoxelMaterialPresentationHits++;
+					renderer.mLastPerfShellTraceStats.persistentVoxelMaterialPresentationRows += (uint32_t)materials.materials.size();
+					state.telemetry.materialPresentationHits++;
+					state.telemetry.materialPresentationRows += (uint32_t)materials.materials.size();
+					return;
+				}
+
+				renderer.mLastPerfShellTraceStats.persistentVoxelMaterialPresentationMisses++;
+				state.telemetry.materialPresentationMisses++;
+				RecordMaterialBuild(renderer);
+				if (clockMaterialBuild)
+				{
+					Clocker materialClock(NriPTMaterialBuild);
+					renderer.BuildMaterialsWithActorOverrides(sceneView, materials, label);
+				}
+				else
+				{
+					renderer.BuildMaterialsWithActorOverrides(sceneView, materials, label);
+				}
+				state.materialPresentations.emplace(std::move(key), materials);
+				return;
+			}
+		}
+
 		RecordMaterialBuild(renderer);
 		if (clockMaterialBuild)
 		{
@@ -1319,7 +1557,7 @@ public:
 		{
 			const NRIPersistentVoxelMaterialClosureTelemetry telemetry = GetMaterialClosureTelemetry(renderer);
 			Printf(
-				"PERF pt voxel material closure NRI: build_serial=%llu frame=%u preload_classify=%u preload_seeds=%u preload_seed_ready=%u preload_seed_deferred=%u preload_seed_failed=%u preload_actor_scoped=%u preload_seed_reuse=%u runtime_seed_reuse=%u runtime_broad_builds=%u texture_requests=%u texture_realize=%u texture_reuse=%u texture_deferred=%u texture_failed=%u texture_realized_bytes=%llu texture_realize_ms=%.3f registry_ready=%u registry_deferred=%u registry_failed=%u registry_hits=%u registry_misses=%u preload_ready=%u\n",
+				"PERF pt voxel material closure NRI: build_serial=%llu frame=%u preload_classify=%u preload_seeds=%u preload_seed_ready=%u preload_seed_deferred=%u preload_seed_failed=%u preload_actor_scoped=%u preload_seed_reuse=%u runtime_seed_reuse=%u runtime_broad_builds=%u presentation_attempts=%u presentation_hits=%u presentation_misses=%u presentation_fail_open=%u presentation_rows=%u texture_requests=%u texture_realize=%u texture_reuse=%u texture_deferred=%u texture_failed=%u texture_realized_bytes=%llu texture_realize_ms=%.3f registry_ready=%u registry_deferred=%u registry_failed=%u registry_hits=%u registry_misses=%u preload_ready=%u\n",
 				(unsigned long long)telemetry.buildSerial,
 				renderer.mFrameIndex,
 				telemetry.preloadRuleClassifications,
@@ -1331,6 +1569,11 @@ public:
 				telemetry.preloadSeedReuses,
 				telemetry.runtimeSeedReuses,
 				telemetry.runtimeBroadMaterialBuilds,
+				telemetry.materialPresentationAttempts,
+				telemetry.materialPresentationHits,
+				telemetry.materialPresentationMisses,
+				telemetry.materialPresentationFailOpen,
+				telemetry.materialPresentationRows,
 				telemetry.textureRequests,
 				telemetry.textureRealizations,
 				telemetry.textureReuses,

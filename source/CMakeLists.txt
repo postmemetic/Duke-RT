@@ -960,6 +960,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_material_policy.cpp
 	common/rendering/nri/renderer/nri_material_warmup.cpp
 	common/rendering/nri/renderer/nri_nrd.cpp
+	common/rendering/nri/renderer/nri_actor_workload_mask_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_closure.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_range_allocator.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_upload.cpp
@@ -1036,6 +1037,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_runtime_mutation_trace.cpp
 	common/rendering/nri/renderer/nri_runtime_space_link_state.cpp
 	common/rendering/nri/renderer/nri_runtime_space_link.cpp
+	common/rendering/nri/renderer/nri_runtime_light_shadow_selection.cpp
 	common/rendering/nri/renderer/nri_map_world_startup.cpp
 	common/rendering/nri/renderer/nri_renderer_frame_state.cpp
 	common/rendering/nri/renderer/nri_scene_buffer_residency.cpp

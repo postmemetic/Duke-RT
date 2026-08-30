@@ -1408,6 +1408,11 @@ public:
 		uint32_t persistentVoxelInstanceRecordCount = 0;
 		uint32_t persistentVoxelPendingInstanceCount = 0;
 		uint32_t persistentVoxelMaterialVariantResourceCount = 0;
+		uint32_t persistentVoxelMaterialPresentationAttempts = 0;
+		uint32_t persistentVoxelMaterialPresentationHits = 0;
+		uint32_t persistentVoxelMaterialPresentationMisses = 0;
+		uint32_t persistentVoxelMaterialPresentationFailOpen = 0;
+		uint32_t persistentVoxelMaterialPresentationRows = 0;
 		uint32_t persistentVoxelZeroRefMeshResourceCount = 0;
 		uint32_t persistentVoxelZeroRefMaterialResourceCount = 0;
 		uint32_t persistentVoxelAdmissionQueueCount = 0;
@@ -1748,6 +1753,19 @@ public:
 		uint32_t traceRuntimeLightTileSize = 0;
 		uint32_t traceRuntimeLightTileIndexCount = 0;
 		uint32_t traceRuntimeLightMaxTileOccupancy = 0;
+		uint32_t traceRuntimeLightShadowBudget = 0;
+		uint32_t traceRuntimeLightShadowCandidateReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowSelectedReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowOverflowReferenceCount = 0;
+		uint32_t traceRuntimeLightMaxShadowCandidatesPerTile = 0;
+		uint32_t traceRuntimeLightMaxShadowSelectedPerTile = 0;
+		uint64_t traceRuntimeLightShadowSelectionHash = 0;
+		uint32_t traceRuntimeLightShadowRetainedReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowReplacedReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowExpiredReferenceCount = 0;
+		uint64_t traceRuntimeLightShadowRetainedKeyHash = 0;
+		uint64_t traceRuntimeLightShadowReplacedKeyHash = 0;
+		uint64_t traceRuntimeLightShadowExpiredKeyHash = 0;
 		uint32_t traceEmissivePrimitiveCount = 0;
 		double traceEmissiveTotalPower = 0.0;
 		uint32_t traceFlags = 0;
@@ -2625,6 +2643,9 @@ private:
 	void ResetPersistentDynamicEmissiveCache();
 	SceneLightSystem::PersistentDynamicEmissiveCacheBuildServices BuildPersistentDynamicEmissiveCacheServices();
 	void BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials, const char* traceLabel = nullptr);
+	bool ResolveActorMaterialPresentationPolicy(
+		const nri_scene::SurfaceRef& surface,
+		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
 	void ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials) const;
 	void ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials);
 	uint64_t ComputeChunkActorOverrideHash(const nri_scene::MaterialBridgeData& materials);
@@ -2919,6 +2940,7 @@ private:
 	NRIRendererDiagnostics mDiagnostics;
 	NRIDebugOverlaySystem mDebugOverlays;
 	SceneLightSystem mSceneLights;
+	NRIRuntimeLightShadowSelectionHistory mRuntimeLightShadowSelectionHistory;
 	NRIDirectionalLightState mDirectionalLightState = {};
 	NRIPTNightVisionState mNightVisionState = {};
 	std::array<nri::Descriptor*, NRI_SCENE_DATA_DESCRIPTOR_NUM> mSceneDataDescriptors = {};
@@ -3030,6 +3052,14 @@ private:
 	uint32_t mBoundRuntimeLightTileSize = 0;
 	uint32_t mBoundRuntimeLightTileIndexCount = 0;
 	uint32_t mBoundRuntimeLightMaxTileOccupancy = 0;
+	uint32_t mBoundRuntimeLightShadowBudget = 0;
+	uint32_t mBoundRuntimeLightShadowCandidateReferenceCount = 0;
+	uint32_t mBoundRuntimeLightShadowSelectedReferenceCount = 0;
+	uint32_t mBoundRuntimeLightShadowOverflowReferenceCount = 0;
+	uint32_t mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
+	uint32_t mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
+	uint64_t mBoundRuntimeLightShadowSelectionHash = 0;
+	NRIRuntimeLightShadowTransitionTelemetry mBoundRuntimeLightShadowTransitions;
 	std::vector<uint8_t> mSceneDataDescriptorsInitialized;
 	std::vector<uint64_t> mSceneDataDescriptorMapEpochs;
 	std::vector<uint64_t> mSceneDataDescriptorBuildEpochs;
@@ -3038,6 +3068,7 @@ private:
 	bool mRuntimeLightClusterCacheValid = false;
 	uint64_t mRuntimeLightClusterPayloadHash = 0;
 	uint64_t mRuntimeLightClusterCameraHash = 0;
+	NRIRuntimeLightShadowSelectionSnapshot mRuntimeLightClusterCachedShadowSelection;
 	bool mRuntimeLightSceneDataDirty = false;
 	bool mSceneInstancePayloadCacheValid = false;
 	uint64_t mSceneInstancePayloadHash = 0;

@@ -4891,6 +4891,7 @@ uint64_t SceneLightSystem::BuildRuntimeLightPayloadHash() const
 	for (const SceneAnalyticLight& light : activeLights)
 	{
 		hash = nri_scene::HashCombine64(hash, light.stableKey);
+		hash = nri_scene::HashCombine64(hash, (uint64_t)light.sourceFlags);
 		hash = nri_scene::HashCombine64(hash, (uint64_t)FloatBits(light.position[0]));
 		hash = nri_scene::HashCombine64(hash, (uint64_t)FloatBits(light.position[1]));
 		hash = nri_scene::HashCombine64(hash, (uint64_t)FloatBits(light.position[2]));
@@ -4913,6 +4914,11 @@ uint64_t SceneLightSystem::BuildRuntimeLightClusterCameraHash(const RuntimeLight
 	hash = nri_scene::HashCombine64(hash, (uint64_t)input.renderHeight);
 	hash = nri_scene::HashCombine64(hash, (uint64_t)input.tileSize);
 	hash = nri_scene::HashCombine64(hash, (uint64_t)input.maxRuntimeLights);
+	hash = nri_scene::HashCombine64(hash, (uint64_t)input.shadowBudget);
+	hash = nri_scene::HashCombine64(hash, (uint64_t)FloatBits(input.shadowReplacementMargin));
+	hash = nri_scene::HashCombine64(hash, input.shadowSelectionPolicyFingerprint);
+	hash = nri_scene::HashCombine64(hash,
+		input.previousShadowSelection != nullptr ? input.previousShadowSelection->selectionHash : 0ull);
 
 	if (mAnalyticLights.activeLights.empty())
 	{
@@ -4943,26 +4949,75 @@ void SceneLightSystem::BuildRuntimeLightClusterUpload(
 	uint32_t& outTileCountX,
 	uint32_t& outTileCountY,
 	uint32_t& outTileIndexCount,
-	uint32_t& outMaxTileOccupancy) const
+	uint32_t& outMaxTileOccupancy,
+	RuntimeLightClusterBuildStats& outStats,
+	NRIRuntimeLightShadowSelectionSnapshot& outSelection) const
 {
+	struct TileLightCandidate
+	{
+		uint32_t lightIndex = 0;
+		float shadowScore = 0.0f;
+		bool mapLight = false;
+	};
+
+	struct RankedShadowCandidate
+	{
+		uint32_t listIndex = 0;
+		float score = 0.0f;
+		uint64_t stableKey = 0;
+		bool mapLight = false;
+	};
+
 	const auto& activeLights = mAnalyticLights.activeLights;
 	const uint32_t activeLightCount = (uint32_t)activeLights.size();
 	const uint32_t tileSize = std::max(1u, input.tileSize);
+	const uint32_t shadowBudget = std::min(input.shadowBudget, input.maxRuntimeLights);
 	outTileCountX = std::max(1u, (input.renderWidth + tileSize - 1u) / tileSize);
 	outTileCountY = std::max(1u, (input.renderHeight + tileSize - 1u) / tileSize);
 	const uint32_t tileCount = outTileCountX * outTileCountY;
 	const uint32_t maxIndexCapacity = tileCount * input.maxRuntimeLights;
 	outTileIndexCount = 0;
 	outMaxTileOccupancy = 0;
+	outStats = {};
+	outStats.shadowBudget = shadowBudget;
+	outStats.shadowSelectionHash = nri_scene::HashCombine64(
+		nri_scene::HashCombine64(1469598103934665603ull, (uint64_t)tileCount),
+		(uint64_t)shadowBudget);
+	outSelection = {};
+	outSelection.valid = input.renderWidth != 0 && input.renderHeight != 0;
+	outSelection.frameSerial = input.frameSerial;
+	outSelection.policyFingerprint = input.shadowSelectionPolicyFingerprint;
+	outSelection.renderWidth = input.renderWidth;
+	outSelection.renderHeight = input.renderHeight;
+	outSelection.tileSize = tileSize;
+	outSelection.tileCountX = outTileCountX;
+	outSelection.tileCountY = outTileCountY;
+	outSelection.shadowBudget = shadowBudget;
+	outSelection.tileKeyOffsets.assign((size_t)tileCount + 1u, 0u);
 	outHeaders.assign(tileCount, {});
 	outIndices.assign(maxIndexCapacity, 0u);
 
-	if (tileCount == 0 || activeLightCount == 0 || input.renderWidth == 0 || input.renderHeight == 0)
+	if (tileCount == 0 || input.renderWidth == 0 || input.renderHeight == 0)
 	{
+		outSelection.selectionHash = outStats.shadowSelectionHash;
 		return;
 	}
 
-	std::vector<std::vector<uint32_t>> tileLights(tileCount);
+	const NRIRuntimeLightShadowSelectionSnapshot* previousSelection = input.previousShadowSelection;
+	if (previousSelection != nullptr && !previousSelection->IsCompatible(
+		input.frameSerial,
+		input.renderWidth,
+		input.renderHeight,
+		tileSize,
+		outTileCountX,
+		outTileCountY,
+		shadowBudget,
+		input.shadowSelectionPolicyFingerprint))
+	{
+		previousSelection = nullptr;
+	}
+
+	std::vector<std::vector<TileLightCandidate>> tileLights(tileCount);
 	for (uint32_t lightIndex = 0; lightIndex < activeLightCount; ++lightIndex)
 	{
 		const SceneAnalyticLight& light = activeLights[lightIndex];
@@ -4988,6 +5043,15 @@ void SceneLightSystem::BuildRuntimeLightClusterUpload(
 		int32_t minTileY = 0;
 		int32_t maxTileX = (int32_t)outTileCountX - 1;
 		int32_t maxTileY = (int32_t)outTileCountY - 1;
+		float projectedMinPixelX = 0.0f;
+		float projectedMinPixelY = 0.0f;
+		float projectedMaxPixelX = (float)input.renderWidth;
+		float projectedMaxPixelY = (float)input.renderHeight;
+		float projectedCenterPixelX = (float)input.renderWidth * 0.5f;
+		float projectedCenterPixelY = (float)input.renderHeight * 0.5f;
+		float projectedRadiusPixelX = (float)input.renderWidth * 0.5f;
+		float projectedRadiusPixelY = (float)input.renderHeight * 0.5f;
+		bool boundedProjection = false;
 
 		if (viewZ > light.radius &&
 			input.tanHalfFovX > 0.0f &&
@@ -5011,6 +5075,15 @@ void SceneLightSystem::BuildRuntimeLightClusterUpload(
 			minTileY = std::max(0, (int32_t)std::floor(minPixelY / (float)tileSize));
 			maxTileX = std::min((int32_t)outTileCountX - 1, (int32_t)std::floor(std::max(maxPixelX - 1.0f, 0.0f) / (float)tileSize));
 			maxTileY = std::min((int32_t)outTileCountY - 1, (int32_t)std::floor(std::max(maxPixelY - 1.0f, 0.0f) / (float)tileSize));
+			projectedMinPixelX = minPixelX;
+			projectedMinPixelY = minPixelY;
+			projectedMaxPixelX = maxPixelX;
+			projectedMaxPixelY = maxPixelY;
+			projectedCenterPixelX = (centerNdcX * 0.5f + 0.5f) * (float)input.renderWidth;
+			projectedCenterPixelY = (0.5f - centerNdcY * 0.5f) * (float)input.renderHeight;
+			projectedRadiusPixelX = std::max(radiusNdcX * 0.5f * (float)input.renderWidth, 1.0f);
+			projectedRadiusPixelY = std::max(radiusNdcY * 0.5f * (float)input.renderHeight, 1.0f);
+			boundedProjection = true;
 		}
 
 		if (minTileX > maxTileX || minTileY > maxTileY)
@@ -5022,30 +5095,331 @@ void SceneLightSystem::BuildRuntimeLightClusterUpload(
 		{
 			for (int32_t tileX = minTileX; tileX <= maxTileX; ++tileX)
 			{
-				tileLights[(size_t)tileY * outTileCountX + (size_t)tileX].push_back(lightIndex);
+				const float tileMinPixelX = (float)((uint32_t)tileX * tileSize);
+				const float tileMinPixelY = (float)((uint32_t)tileY * tileSize);
+				const float tileMaxPixelX = (float)std::min(input.renderWidth, ((uint32_t)tileX + 1u) * tileSize);
+				const float tileMaxPixelY = (float)std::min(input.renderHeight, ((uint32_t)tileY + 1u) * tileSize);
+				const float overlapWidth = std::max(0.0f,
+					std::min(tileMaxPixelX, projectedMaxPixelX) - std::max(tileMinPixelX, projectedMinPixelX));
+				const float overlapHeight = std::max(0.0f,
+					std::min(tileMaxPixelY, projectedMaxPixelY) - std::max(tileMinPixelY, projectedMinPixelY));
+				const float tileArea = std::max((tileMaxPixelX - tileMinPixelX) * (tileMaxPixelY - tileMinPixelY), 1.0f);
+				const float projectedCoverage = std::clamp(overlapWidth * overlapHeight / tileArea, 0.0f, 1.0f);
+
+				float normalizedDistance = 0.0f;
+				if (boundedProjection)
+				{
+					const float tileCenterPixelX = (tileMinPixelX + tileMaxPixelX) * 0.5f;
+					const float tileCenterPixelY = (tileMinPixelY + tileMaxPixelY) * 0.5f;
+					const float normalizedX = (tileCenterPixelX - projectedCenterPixelX) / projectedRadiusPixelX;
+					const float normalizedY = (tileCenterPixelY - projectedCenterPixelY) / projectedRadiusPixelY;
+					normalizedDistance = std::clamp(std::sqrt(normalizedX * normalizedX + normalizedY * normalizedY), 0.0f, 1.0f);
+				}
+
+				const float softRange = 1.0f - normalizedDistance;
+				const float smoothRange = softRange * softRange * (3.0f - 2.0f * softRange);
+				const float shapedFalloff = 1.0f / (1.0f + 4.0f * normalizedDistance * normalizedDistance);
+				const float potentialAttenuation = std::max(light.intensity, 0.0f) * smoothRange * smoothRange * shapedFalloff;
+				const float luminance = std::max(light.color[0], 0.0f) * 0.2126f +
+					std::max(light.color[1], 0.0f) * 0.7152f +
+					std::max(light.color[2], 0.0f) * 0.0722f;
+				float shadowScore = luminance * potentialAttenuation * (0.25f + 0.75f * projectedCoverage);
+				if (!std::isfinite(shadowScore))
+				{
+					shadowScore = 0.0f;
+				}
+
+				TileLightCandidate candidate = {};
+				candidate.lightIndex = lightIndex;
+				candidate.shadowScore = shadowScore;
+				candidate.mapLight = (light.sourceFlags & SceneAnalyticLightSourceFlag_MapOverlay) != 0;
+				tileLights[(size_t)tileY * outTileCountX + (size_t)tileX].push_back(candidate);
 			}
 		}
 	}
 
 	uint32_t indexCursor = 0;
+	auto appendTransitionHash = [](uint64_t& hash, uint32_t tileIndex, uint64_t previousKey, uint64_t selectedKey)
+	{
+		if (hash == 0)
+		{
+			hash = 1469598103934665603ull;
+		}
+		hash = nri_scene::HashCombine64(hash, (uint64_t)tileIndex);
+		hash = nri_scene::HashCombine64(hash, previousKey);
+		hash = nri_scene::HashCombine64(hash, selectedKey);
+	};
+	auto appendTransitionSample = [](
+		NRIRuntimeLightShadowTransitionSample* samples,
+		uint32_t& sampleCount,
+		uint32_t tileIndex,
+		uint32_t kind,
+		uint64_t previousKey,
+		uint64_t selectedKey)
+	{
+		if (sampleCount >= NRI_RUNTIME_LIGHT_SHADOW_TRANSITION_SAMPLE_COUNT)
+		{
+			return;
+		}
+		NRIRuntimeLightShadowTransitionSample& sample = samples[sampleCount++];
+		sample.tileIndex = tileIndex;
+		sample.kind = kind;
+		sample.previousStableKey = previousKey;
+		sample.selectedStableKey = selectedKey;
+	};
 	for (uint32_t tileIndex = 0; tileIndex < tileCount; ++tileIndex)
 	{
+		outSelection.tileKeyOffsets[tileIndex] = (uint32_t)outSelection.selectedStableKeys.size();
 		NRIRuntimeLightTileHeaderGpuData& header = outHeaders[tileIndex];
-		const std::vector<uint32_t>& tileLightList = tileLights[tileIndex];
+		const std::vector<TileLightCandidate>& tileLightList = tileLights[tileIndex];
 		header.indexOffset = indexCursor;
 		header.indexCount = (uint32_t)tileLightList.size();
 		outMaxTileOccupancy = std::max(outMaxTileOccupancy, header.indexCount);
-		for (uint32_t lightIndex : tileLightList)
+
+		std::vector<RankedShadowCandidate> shadowCandidates;
+		shadowCandidates.reserve(tileLightList.size());
+		for (uint32_t listIndex = 0; listIndex < (uint32_t)tileLightList.size(); ++listIndex)
+		{
+			const TileLightCandidate& candidate = tileLightList[listIndex];
+			if (candidate.lightIndex >= activeLightCount ||
+				(activeLights[candidate.lightIndex].flags & SceneAnalyticLightFlag_CastsShadow) == 0)
+			{
+				continue;
+			}
+
+			RankedShadowCandidate ranked = {};
+			ranked.listIndex = listIndex;
+			ranked.score = candidate.shadowScore;
+			ranked.stableKey = activeLights[candidate.lightIndex].stableKey;
+			ranked.mapLight = candidate.mapLight;
+			shadowCandidates.push_back(ranked);
+		}
+
+		std::sort(shadowCandidates.begin(), shadowCandidates.end(), [](const RankedShadowCandidate& left, const RankedShadowCandidate& right)
+		{
+			if (left.score != right.score)
+			{
+				return left.score > right.score;
+			}
+			if (left.stableKey != right.stableKey)
+			{
+				return left.stableKey < right.stableKey;
+			}
+			return left.listIndex < right.listIndex;
+		});
+
+		const uint32_t selectedTarget = std::min(shadowBudget, (uint32_t)shadowCandidates.size());
+		std::vector<bool> shadowSelected(tileLightList.size(), false);
+		uint32_t selectedCount = 0;
+		uint32_t reservedMapListIndex = UINT32_MAX;
+		uint32_t previousKeyBegin = 0;
+		uint32_t previousKeyEnd = 0;
+		if (previousSelection != nullptr)
+		{
+			previousKeyBegin = previousSelection->tileKeyOffsets[tileIndex];
+			previousKeyEnd = previousSelection->tileKeyOffsets[tileIndex + 1u];
+			if (previousKeyBegin > previousKeyEnd || previousKeyEnd > previousSelection->selectedStableKeys.size())
+			{
+				previousKeyBegin = 0;
+				previousKeyEnd = 0;
+			}
+		}
+		auto wasPreviouslySelected = [&](uint64_t stableKey)
+		{
+			return previousKeyBegin != previousKeyEnd && std::binary_search(
+				previousSelection->selectedStableKeys.begin() + previousKeyBegin,
+				previousSelection->selectedStableKeys.begin() + previousKeyEnd,
+				stableKey);
+		};
+		if (selectedTarget >= 2u)
+		{
+			const auto mapIt = std::find_if(shadowCandidates.begin(), shadowCandidates.end(), [](const RankedShadowCandidate& candidate)
+			{
+				return candidate.mapLight;
+			});
+			if (mapIt != shadowCandidates.end())
+			{
+				shadowSelected[mapIt->listIndex] = true;
+				reservedMapListIndex = mapIt->listIndex;
+				selectedCount = 1;
+			}
+		}
+		if (previousSelection != nullptr)
+		{
+			for (const RankedShadowCandidate& candidate : shadowCandidates)
+			{
+				if (selectedCount >= selectedTarget)
+				{
+					break;
+				}
+				if (!shadowSelected[candidate.listIndex] && wasPreviouslySelected(candidate.stableKey))
+				{
+					shadowSelected[candidate.listIndex] = true;
+					selectedCount++;
+				}
+			}
+		}
+		for (const RankedShadowCandidate& candidate : shadowCandidates)
+		{
+			if (selectedCount >= selectedTarget)
+			{
+				break;
+			}
+			if (!shadowSelected[candidate.listIndex])
+			{
+				shadowSelected[candidate.listIndex] = true;
+				selectedCount++;
+			}
+		}
+
+		// A newcomer may displace a surviving selection only after clearing a
+		// deterministic relative margin. The reserved map-light slot remains
+		// authoritative, preserving the existing environmental-light policy.
+		if (previousSelection != nullptr && selectedCount == selectedTarget && selectedTarget != 0)
+		{
+			for (const RankedShadowCandidate& challenger : shadowCandidates)
+			{
+				if (shadowSelected[challenger.listIndex] || wasPreviouslySelected(challenger.stableKey))
+				{
+					continue;
+				}
+
+				const RankedShadowCandidate* victim = nullptr;
+				for (const RankedShadowCandidate& selected : shadowCandidates)
+				{
+					if (!shadowSelected[selected.listIndex] ||
+						selected.listIndex == reservedMapListIndex ||
+						!wasPreviouslySelected(selected.stableKey))
+					{
+						continue;
+					}
+					if (victim == nullptr || selected.score < victim->score ||
+						(selected.score == victim->score && selected.stableKey > victim->stableKey))
+					{
+						victim = &selected;
+					}
+				}
+				if (victim == nullptr)
+				{
+					break;
+				}
+
+				const float requiredScore = victim->score * (1.0f + std::max(input.shadowReplacementMargin, 0.0f)) + 1.0e-6f;
+				if (!(challenger.score > requiredScore))
+				{
+					break;
+				}
+				shadowSelected[victim->listIndex] = false;
+				shadowSelected[challenger.listIndex] = true;
+			}
+		}
+
+		std::vector<uint64_t> selectedStableKeys;
+		std::vector<uint64_t> introducedStableKeys;
+		selectedStableKeys.reserve(selectedCount);
+		introducedStableKeys.reserve(selectedCount);
+		for (const RankedShadowCandidate& candidate : shadowCandidates)
+		{
+			if (!shadowSelected[candidate.listIndex])
+			{
+				continue;
+			}
+			selectedStableKeys.push_back(candidate.stableKey);
+			if (!wasPreviouslySelected(candidate.stableKey))
+			{
+				introducedStableKeys.push_back(candidate.stableKey);
+			}
+		}
+		std::sort(selectedStableKeys.begin(), selectedStableKeys.end());
+		std::sort(introducedStableKeys.begin(), introducedStableKeys.end());
+		outSelection.selectedStableKeys.insert(
+			outSelection.selectedStableKeys.end(),
+			selectedStableKeys.begin(),
+			selectedStableKeys.end());
+		outSelection.tileKeyOffsets[tileIndex + 1u] = (uint32_t)outSelection.selectedStableKeys.size();
+
+		if (previousSelection != nullptr)
+		{
+			uint32_t introducedIndex = 0;
+			for (uint32_t previousIndex = previousKeyBegin; previousIndex < previousKeyEnd; ++previousIndex)
+			{
+				const uint64_t previousKey = previousSelection->selectedStableKeys[previousIndex];
+				const bool selected = std::binary_search(selectedStableKeys.begin(), selectedStableKeys.end(), previousKey);
+				const bool remainsCandidate = std::any_of(shadowCandidates.begin(), shadowCandidates.end(), [previousKey](const RankedShadowCandidate& candidate)
+				{
+					return candidate.stableKey == previousKey;
+				});
+				if (selected)
+				{
+					outStats.shadowTransitions.retainedReferenceCount++;
+					appendTransitionHash(outStats.shadowTransitions.retainedKeyHash, tileIndex, previousKey, previousKey);
+					appendTransitionSample(
+						outStats.shadowTransitions.retainedSamples,
+						outStats.shadowTransitions.retainedSampleCount,
+						tileIndex,
+						NRIRuntimeLightShadowTransitionSample::Retained,
+						previousKey,
+						previousKey);
+				}
+				else if (remainsCandidate)
+				{
+					const uint64_t replacementKey = introducedIndex < introducedStableKeys.size() ?
+						introducedStableKeys[introducedIndex++] : 0ull;
+					outStats.shadowTransitions.replacedReferenceCount++;
+					appendTransitionHash(outStats.shadowTransitions.replacedKeyHash, tileIndex, previousKey, replacementKey);
+					appendTransitionSample(
+						outStats.shadowTransitions.replacedSamples,
+						outStats.shadowTransitions.replacedSampleCount,
+						tileIndex,
+						NRIRuntimeLightShadowTransitionSample::Replaced,
+						previousKey,
+						replacementKey);
+				}
+				else
+				{
+					outStats.shadowTransitions.expiredReferenceCount++;
+					appendTransitionHash(outStats.shadowTransitions.expiredKeyHash, tileIndex, previousKey, 0ull);
+					appendTransitionSample(
+						outStats.shadowTransitions.expiredSamples,
+						outStats.shadowTransitions.expiredSampleCount,
+						tileIndex,
+						NRIRuntimeLightShadowTransitionSample::Expired,
+						previousKey,
+						0ull);
+				}
+			}
+		}
+
+		const uint32_t shadowCandidateCount = (uint32_t)shadowCandidates.size();
+		outStats.shadowCandidateReferenceCount += shadowCandidateCount;
+		outStats.shadowSelectedReferenceCount += selectedCount;
+		outStats.maxShadowCandidatesPerTile = std::max(outStats.maxShadowCandidatesPerTile, shadowCandidateCount);
+		outStats.maxShadowSelectedPerTile = std::max(outStats.maxShadowSelectedPerTile, selectedCount);
+		outStats.shadowSelectionHash = nri_scene::HashCombine64(outStats.shadowSelectionHash, (uint64_t)tileIndex);
+
+		for (uint32_t listIndex = 0; listIndex < (uint32_t)tileLightList.size(); ++listIndex)
 		{
 			if (indexCursor < outIndices.size())
 			{
-				outIndices[indexCursor] = lightIndex;
+				const uint32_t lightIndex = tileLightList[listIndex].lightIndex;
+				uint32_t packedLightIndex = lightIndex & NRI_RUNTIME_LIGHT_TILE_INDEX_MASK;
+				if (shadowSelected[listIndex])
+				{
+					packedLightIndex |= NRI_RUNTIME_LIGHT_TILE_INDEX_SHADOW_SELECTED;
+					outStats.shadowSelectionHash = nri_scene::HashCombine64(
+						outStats.shadowSelectionHash,
+						activeLights[lightIndex].stableKey);
+				}
+				outIndices[indexCursor] = packedLightIndex;
 				indexCursor++;
 			}
 		}
 	}
 
 	outTileIndexCount = indexCursor;
+	outStats.shadowOverflowReferenceCount =
+		outStats.shadowCandidateReferenceCount - outStats.shadowSelectedReferenceCount;
+	outSelection.selectionHash = outStats.shadowSelectionHash;
 }
 
 void SceneLightSystem::BuildEmissiveSamplingUpload(

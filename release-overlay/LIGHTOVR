@@ -58,6 +58,12 @@ LIGHTOVR
         random -5.0 6.0
     }
 
+    actorrule "ScrapNoShadow"
+    {
+        actorclass "DukeScrap"
+        shadowcast off
+    }
+
     actorrule "FreezeProjectile"
     {
         actorclass "DukeFreezeBlast"

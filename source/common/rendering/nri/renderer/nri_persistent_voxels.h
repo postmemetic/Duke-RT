@@ -19,6 +19,7 @@
 #include "nri_actor_occurrence_diagnostics.h"
 #include "nri_actor_occurrence_ledger.h"
 #include "nri_actor_occurrence_policy.h"
+#include "nri_actor_workload_mask_policy.h"
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_material_bridge.h"
@@ -74,6 +75,7 @@ struct PersistentVoxelBatch
 		uint32_t indexCount = 0;
 		uint32_t materialOffset = 0;
 		uint32_t materialCount = 0;
+		uint32_t materialRowSpan = 0;
 		uint64_t materialSlotGeneration = 0;
 		std::array<float, 12> instanceTransform = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
 		std::array<float, 12> previousInstanceTransform = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
@@ -928,16 +930,21 @@ struct NRIPersistentVoxelTlasServices
 {
 	using GetAccelerationStructureHandleFn = uint64_t (*)(void* user, const NRIAccelerationStructureResource& resource);
 	using EvaluateRepresentationFn = NRIVoxelRepresentationDecision (*)(void* user, const NRIVoxelRepresentationFacts& facts);
+	using HasFinalActorNoShadowCastIntentFn = bool (*)(void* user, int32_t actorIndex);
 
 	void* user = nullptr;
 	GetAccelerationStructureHandleFn getAccelerationStructureHandle = nullptr;
 	EvaluateRepresentationFn evaluateRepresentation = nullptr;
+	HasFinalActorNoShadowCastIntentFn hasFinalActorNoShadowCastIntent = nullptr;
 	NRIActorOccurrenceTraceConfig occurrenceTrace;
 	NRIActorOccurrencePolicyContext occurrencePolicy;
 	const std::vector<nri_scene::MaterialData>* gpuMaterials = nullptr;
+	bool actorWorkloadMaskDiagnosticsEnabled = false;
+	uint32_t actorWorkloadMaskDiagnosticLimit = 0;
 
 	uint64_t GetAccelerationStructureHandle(const NRIAccelerationStructureResource& resource) const;
 	NRIVoxelRepresentationDecision EvaluateRepresentation(const NRIVoxelRepresentationFacts& facts) const;
+	bool HasFinalActorNoShadowCastIntent(int32_t actorIndex) const;
 };
 
 struct NRIPersistentVoxelTlasBuildStats
@@ -950,6 +957,13 @@ struct NRIPersistentVoxelTlasBuildStats
 	uint64_t shadowProxyPrimitiveCount = 0;
 	uint64_t exactShadowPrimitiveCountRemoved = 0;
 	uint32_t actorOccurrenceSuppressedCount = 0;
+	uint32_t actorWorkloadMaskCandidateCount = 0;
+	uint32_t actorWorkloadMaskIntentCount = 0;
+	uint32_t actorWorkloadMaskCertifiedCount = 0;
+	uint32_t actorWorkloadMaskDiagnosticRows = 0;
+	uint64_t actorWorkloadMaskCandidatePrimitiveCount = 0;
+	uint64_t actorWorkloadMaskCertifiedPrimitiveCount = 0;
+	std::array<uint32_t, (uint32_t)NRIActorWorkloadMaskReason::Count> actorWorkloadMaskReasonCounts = {};
 	std::vector<int32_t> suppressedActorIndices;
 	NRIActorOccurrenceFrame occurrenceFrame;
 };

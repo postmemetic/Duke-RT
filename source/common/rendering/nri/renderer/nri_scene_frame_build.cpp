@@ -1700,6 +1700,18 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 							&mSpatialAbsenceGate.GetSnapshot();
 						persistentVoxelTlasServices.occurrencePolicy = actorOccurrencePolicyContext;
 						persistentVoxelTlasServices.gpuMaterials = &persistentVoxelGpuMaterials;
+						persistentVoxelTlasServices.hasFinalActorNoShadowCastIntent = [](void* user, int32_t actorIndex) -> bool
+						{
+							NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
+							const nri_material_policy::ActorMaterialOverrideMap& actorOverrides =
+								renderer->GetActorMaterialOverrideMapForFrame();
+							const auto overrideIt = actorOverrides.find(actorIndex);
+							return overrideIt != actorOverrides.end() &&
+								(overrideIt->second.bits & nri_material_policy::ActorMaterialOverride_NoShadowCast) != 0u;
+						};
+						persistentVoxelTlasServices.actorWorkloadMaskDiagnosticsEnabled =
+							(bool)nri_voxelstats;
+						persistentVoxelTlasServices.actorWorkloadMaskDiagnosticLimit = 32u;
 						persistentVoxelTlasServices.getAccelerationStructureHandle = [](void* user, const NRIAccelerationStructureResource& resource) -> uint64_t
 						{
 							NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
