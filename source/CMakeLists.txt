@@ -1036,6 +1036,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_runtime_mutation_trace.cpp
 	common/rendering/nri/renderer/nri_runtime_space_link_state.cpp
 	common/rendering/nri/renderer/nri_runtime_space_link.cpp
+	common/rendering/nri/renderer/nri_runtime_light_shadow_selection.cpp
 	common/rendering/nri/renderer/nri_map_world_startup.cpp
 	common/rendering/nri/renderer/nri_renderer_frame_state.cpp
 	common/rendering/nri/renderer/nri_scene_buffer_residency.cpp

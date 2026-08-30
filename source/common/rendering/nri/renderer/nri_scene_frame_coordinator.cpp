@@ -714,6 +714,7 @@ void NRIRenderer::CommitRenderSceneResult(const RenderSceneCompletionInputs& inp
 
 		if (!inputs.preserveHistory)
 		{
+			mRuntimeLightShadowSelectionHistory.Commit(mFrameIndex);
 			NoteSuccessfulRealFrame();
 			mLastCompletedFrameIndex = mFrameIndex;
 			mFrameIndex++;
@@ -722,12 +723,17 @@ void NRIRenderer::CommitRenderSceneResult(const RenderSceneCompletionInputs& inp
 		}
 		else
 		{
+			mRuntimeLightShadowSelectionHistory.Discard(mFrameIndex);
 			RestoreRenderSceneHistorySnapshot(history);
 		}
 	}
-	else if (inputs.preserveHistory)
+	else
 	{
-		RestoreRenderSceneHistorySnapshot(history);
+		mRuntimeLightShadowSelectionHistory.Discard(mFrameIndex);
+		if (inputs.preserveHistory)
+		{
+			RestoreRenderSceneHistorySnapshot(history);
+		}
 	}
 
 	{
@@ -1154,9 +1160,13 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 	const NRIRendererFrameContext frameContext = BuildFrameContext(drawmode, portal, debugMode, preserveHistory);
 	const uint32_t traceFrameIndex = frameContext.frameIndex;
 	const RenderSceneHistorySnapshot history = CaptureRenderSceneHistorySnapshot(preserveHistory);
+	mRuntimeLightShadowSelectionHistory.BeginFrame(
+		mFrameIndex,
+		drawmode == DM_MAINVIEW && !portal && !preserveHistory);
 	if (!EnsureRenderSceneFrameResources(frameContext, preserveHistory, history) ||
 		!BeginRenderSceneFrame(di, frameContext, preserveHistory, history))
 	{
+		mRuntimeLightShadowSelectionHistory.Discard(mFrameIndex);
 		return false;
 	}
 
@@ -1181,6 +1191,7 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 	RenderSceneFrameBuildResult sceneFrame;
 	if (!BuildRenderSceneFrame(di, sceneFrameInputs, history, sceneFrame))
 	{
+		mRuntimeLightShadowSelectionHistory.Discard(mFrameIndex);
 		return false;
 	}
 	DispatchNRIVoxelComputeMeshingDiagnostics(*this, traceFrameIndex);

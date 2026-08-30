@@ -1760,6 +1760,12 @@ public:
 		uint32_t traceRuntimeLightMaxShadowCandidatesPerTile = 0;
 		uint32_t traceRuntimeLightMaxShadowSelectedPerTile = 0;
 		uint64_t traceRuntimeLightShadowSelectionHash = 0;
+		uint32_t traceRuntimeLightShadowRetainedReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowReplacedReferenceCount = 0;
+		uint32_t traceRuntimeLightShadowExpiredReferenceCount = 0;
+		uint64_t traceRuntimeLightShadowRetainedKeyHash = 0;
+		uint64_t traceRuntimeLightShadowReplacedKeyHash = 0;
+		uint64_t traceRuntimeLightShadowExpiredKeyHash = 0;
 		uint32_t traceEmissivePrimitiveCount = 0;
 		double traceEmissiveTotalPower = 0.0;
 		uint32_t traceFlags = 0;
@@ -2932,6 +2938,7 @@ private:
 	NRIRendererDiagnostics mDiagnostics;
 	NRIDebugOverlaySystem mDebugOverlays;
 	SceneLightSystem mSceneLights;
+	NRIRuntimeLightShadowSelectionHistory mRuntimeLightShadowSelectionHistory;
 	NRIDirectionalLightState mDirectionalLightState = {};
 	NRIPTNightVisionState mNightVisionState = {};
 	std::array<nri::Descriptor*, NRI_SCENE_DATA_DESCRIPTOR_NUM> mSceneDataDescriptors = {};
@@ -3044,6 +3051,7 @@ private:
 	uint32_t mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
 	uint32_t mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
 	uint64_t mBoundRuntimeLightShadowSelectionHash = 0;
+	NRIRuntimeLightShadowTransitionTelemetry mBoundRuntimeLightShadowTransitions;
 	std::vector<uint8_t> mSceneDataDescriptorsInitialized;
 	std::vector<uint64_t> mSceneDataDescriptorMapEpochs;
 	std::vector<uint64_t> mSceneDataDescriptorBuildEpochs;
@@ -3052,6 +3060,7 @@ private:
 	bool mRuntimeLightClusterCacheValid = false;
 	uint64_t mRuntimeLightClusterPayloadHash = 0;
 	uint64_t mRuntimeLightClusterCameraHash = 0;
+	NRIRuntimeLightShadowSelectionSnapshot mRuntimeLightClusterCachedShadowSelection;
 	bool mRuntimeLightSceneDataDirty = false;
 	bool mSceneInstancePayloadCacheValid = false;
 	uint64_t mSceneInstancePayloadHash = 0;

@@ -1993,11 +1993,13 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
 	mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
 	mBoundRuntimeLightShadowSelectionHash = 0;
+	mBoundRuntimeLightShadowTransitions = {};
 	mRuntimeLightPayloadCacheValid = false;
 	mRuntimeLightPayloadHash = 0;
 	mRuntimeLightClusterCacheValid = false;
 	mRuntimeLightClusterPayloadHash = 0;
 	mRuntimeLightClusterCameraHash = 0;
+	mRuntimeLightClusterCachedShadowSelection = {};
 	mRuntimeLightSceneDataDirty = false;
 	mBoundEmissivePrimitiveCount = 0;
 	mBoundEmissiveDominantPrimitive = UINT32_MAX;
@@ -2443,6 +2445,7 @@ void NRIRenderer::RequestHistoryReset(const char* reason, bool clearPreviousCame
 {
 	ArmTemporalTraceBudget(reason);
 	mResetHistory = true;
+	mRuntimeLightShadowSelectionHistory.InvalidateHistory();
 	mLastHistoryResetReason = (reason != nullptr && *reason != '\0') ? reason : "unspecified";
 	RequestAutoExposureReset(mLastHistoryResetReason.c_str());
 	if (clearPreviousCameraState)
@@ -2481,11 +2484,13 @@ void NRIRenderer::InvalidateRuntimeLightSceneData()
 	mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
 	mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
 	mBoundRuntimeLightShadowSelectionHash = 0;
+	mBoundRuntimeLightShadowTransitions = {};
 	mRuntimeLightPayloadCacheValid = false;
 	mRuntimeLightPayloadHash = 0;
 	mRuntimeLightClusterCacheValid = false;
 	mRuntimeLightClusterPayloadHash = 0;
 	mRuntimeLightClusterCameraHash = 0;
+	mRuntimeLightClusterCachedShadowSelection = {};
 	mRuntimeLightSceneDataDirty = true;
 }
 
@@ -2512,7 +2517,7 @@ void NRIRenderer::PrintRuntimeLightClusterStatus() const
 		}
 	}
 
-	Printf("NRI PT light clusters: tile_size=%u grid=%ux%u tiles=%u active_lights=%u used_indices=%u max_occupancy=%u shadow_budget=%u shadow_candidates=%u shadow_selected=%u shadow_overflow=%u shadow_tile_max=%u shadow_selected_tile_max=%u shadow_selection_hash=0x%016llx center_tile=(%u,%u) center_count=%u debug_mode=%u\n",
+	Printf("NRI PT light clusters: tile_size=%u grid=%ux%u tiles=%u active_lights=%u used_indices=%u max_occupancy=%u shadow_budget=%u shadow_hysteresis=%.3f shadow_candidates=%u shadow_selected=%u shadow_overflow=%u shadow_tile_max=%u shadow_selected_tile_max=%u shadow_retained=%u shadow_replaced=%u shadow_expired=%u shadow_selection_hash=0x%016llx shadow_retained_hash=0x%016llx shadow_replaced_hash=0x%016llx shadow_expired_hash=0x%016llx center_tile=(%u,%u) center_count=%u debug_mode=%u\n",
 		mBoundRuntimeLightTileSize,
 		mBoundRuntimeLightTileCountX,
 		mBoundRuntimeLightTileCountY,
@@ -2521,16 +2526,43 @@ void NRIRenderer::PrintRuntimeLightClusterStatus() const
 		mBoundRuntimeLightTileIndexCount,
 		mBoundRuntimeLightMaxTileOccupancy,
 		mBoundRuntimeLightShadowBudget,
+		NRI_RUNTIME_LIGHT_SHADOW_REPLACEMENT_MARGIN,
 		mBoundRuntimeLightShadowCandidateReferenceCount,
 		mBoundRuntimeLightShadowSelectedReferenceCount,
 		mBoundRuntimeLightShadowOverflowReferenceCount,
 		mBoundRuntimeLightMaxShadowCandidatesPerTile,
 		mBoundRuntimeLightMaxShadowSelectedPerTile,
+		mBoundRuntimeLightShadowTransitions.retainedReferenceCount,
+		mBoundRuntimeLightShadowTransitions.replacedReferenceCount,
+		mBoundRuntimeLightShadowTransitions.expiredReferenceCount,
 		(unsigned long long)mBoundRuntimeLightShadowSelectionHash,
+		(unsigned long long)mBoundRuntimeLightShadowTransitions.retainedKeyHash,
+		(unsigned long long)mBoundRuntimeLightShadowTransitions.replacedKeyHash,
+		(unsigned long long)mBoundRuntimeLightShadowTransitions.expiredKeyHash,
 		centerTileX,
 		centerTileY,
 		centerTileCount,
 		nri_diag::PtDebugAnalyticDirect);
+
+	auto printTransitionSamples = [](const char* transition,
+		const NRIRuntimeLightShadowTransitionSample* samples, uint32_t sampleCount)
+	{
+		for (uint32_t index = 0; index < sampleCount; ++index)
+		{
+			const NRIRuntimeLightShadowTransitionSample& sample = samples[index];
+			Printf("NRI PT light cluster shadow transition: kind=%s tile=%u previous_key=0x%016llx selected_key=0x%016llx\n",
+				transition,
+				sample.tileIndex,
+				(unsigned long long)sample.previousStableKey,
+				(unsigned long long)sample.selectedStableKey);
+		}
+	};
+	printTransitionSamples("retained", mBoundRuntimeLightShadowTransitions.retainedSamples,
+		mBoundRuntimeLightShadowTransitions.retainedSampleCount);
+	printTransitionSamples("replaced", mBoundRuntimeLightShadowTransitions.replacedSamples,
+		mBoundRuntimeLightShadowTransitions.replacedSampleCount);
+	printTransitionSamples("expired", mBoundRuntimeLightShadowTransitions.expiredSamples,
+		mBoundRuntimeLightShadowTransitions.expiredSampleCount);
 }
 
 void NRIRenderer::UpdateNightVisionState()
@@ -3395,11 +3427,25 @@ void NRIRenderer::RefreshMapWorld()
 SceneLightSystem::RuntimeLightClusterBuildInput NRIRenderer::BuildRuntimeLightClusterInput() const
 {
 	SceneLightSystem::RuntimeLightClusterBuildInput input = {};
+	input.frameSerial = mFrameIndex;
 	input.renderWidth = mRenderWidth;
 	input.renderHeight = mRenderHeight;
 	input.tileSize = NRI_RUNTIME_LIGHT_TILE_SIZE;
 	input.maxRuntimeLights = NRI_MAX_RUNTIME_POINT_LIGHTS;
 	input.shadowBudget = (uint32_t)std::clamp((int)nri_ptanalyticshadowbudget, 0, (int)NRI_MAX_RUNTIME_POINT_LIGHTS);
+	input.shadowReplacementMargin = NRI_RUNTIME_LIGHT_SHADOW_REPLACEMENT_MARGIN;
+	input.shadowSelectionPolicyFingerprint = NRI_RUNTIME_LIGHT_SHADOW_SELECTION_POLICY_FINGERPRINT;
+	const uint32_t tileCountX = std::max(1u, (input.renderWidth + input.tileSize - 1u) / input.tileSize);
+	const uint32_t tileCountY = std::max(1u, (input.renderHeight + input.tileSize - 1u) / input.tileSize);
+	input.previousShadowSelection = mRuntimeLightShadowSelectionHistory.GetCommitted(
+		input.frameSerial,
+		input.renderWidth,
+		input.renderHeight,
+		input.tileSize,
+		tileCountX,
+		tileCountY,
+		input.shadowBudget,
+		input.shadowSelectionPolicyFingerprint);
 	Copy3(mCurrentCameraPos, input.currentCameraPos);
 	Copy3(mCurrentCameraForward, input.currentCameraForward);
 	Copy3(mCurrentCameraRight, input.currentCameraRight);

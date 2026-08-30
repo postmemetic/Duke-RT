@@ -738,6 +738,12 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	tracePerf.traceRuntimeLightMaxShadowCandidatesPerTile = context.mSceneStats.runtimeLightMaxShadowCandidatesPerTile;
 	tracePerf.traceRuntimeLightMaxShadowSelectedPerTile = context.mSceneStats.runtimeLightMaxShadowSelectedPerTile;
 	tracePerf.traceRuntimeLightShadowSelectionHash = context.mSceneStats.runtimeLightShadowSelectionHash;
+	tracePerf.traceRuntimeLightShadowRetainedReferenceCount = context.mSceneStats.runtimeLightShadowRetainedReferenceCount;
+	tracePerf.traceRuntimeLightShadowReplacedReferenceCount = context.mSceneStats.runtimeLightShadowReplacedReferenceCount;
+	tracePerf.traceRuntimeLightShadowExpiredReferenceCount = context.mSceneStats.runtimeLightShadowExpiredReferenceCount;
+	tracePerf.traceRuntimeLightShadowRetainedKeyHash = context.mSceneStats.runtimeLightShadowRetainedKeyHash;
+	tracePerf.traceRuntimeLightShadowReplacedKeyHash = context.mSceneStats.runtimeLightShadowReplacedKeyHash;
+	tracePerf.traceRuntimeLightShadowExpiredKeyHash = context.mSceneStats.runtimeLightShadowExpiredKeyHash;
 	tracePerf.traceEmissivePrimitiveCount = context.mSceneStats.emissivePrimitiveCount;
 	tracePerf.traceEmissiveTotalPower = context.mSceneStats.emissiveTotalPower;
 	tracePerf.traceFlags = constants.Flags;

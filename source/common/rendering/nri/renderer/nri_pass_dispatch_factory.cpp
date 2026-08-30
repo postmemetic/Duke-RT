@@ -452,6 +452,12 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 	init.sceneStats.runtimeLightMaxShadowCandidatesPerTile = mBoundRuntimeLightMaxShadowCandidatesPerTile;
 	init.sceneStats.runtimeLightMaxShadowSelectedPerTile = mBoundRuntimeLightMaxShadowSelectedPerTile;
 	init.sceneStats.runtimeLightShadowSelectionHash = mBoundRuntimeLightShadowSelectionHash;
+	init.sceneStats.runtimeLightShadowRetainedReferenceCount = mBoundRuntimeLightShadowTransitions.retainedReferenceCount;
+	init.sceneStats.runtimeLightShadowReplacedReferenceCount = mBoundRuntimeLightShadowTransitions.replacedReferenceCount;
+	init.sceneStats.runtimeLightShadowExpiredReferenceCount = mBoundRuntimeLightShadowTransitions.expiredReferenceCount;
+	init.sceneStats.runtimeLightShadowRetainedKeyHash = mBoundRuntimeLightShadowTransitions.retainedKeyHash;
+	init.sceneStats.runtimeLightShadowReplacedKeyHash = mBoundRuntimeLightShadowTransitions.replacedKeyHash;
+	init.sceneStats.runtimeLightShadowExpiredKeyHash = mBoundRuntimeLightShadowTransitions.expiredKeyHash;
 	init.sceneStats.emissivePrimitiveCount = mBoundEmissivePrimitiveCount;
 	init.sceneStats.emissiveTotalPower = mBoundEmissiveTotalPower;
 	init.hasAutoExposureSettingsState = &mHasAutoExposureSettingsState;

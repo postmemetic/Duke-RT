@@ -5,6 +5,7 @@
 #include "../scene/nri_map_world.h"
 #include "../scene/nri_scene_bridge.h"
 #include "nri_emissive_sampling_distribution.h"
+#include "nri_runtime_light_shadow_selection.h"
 #include "lightoverlay.h"
 #include "v_video.h"
 
@@ -315,11 +316,15 @@ public:
 
 	struct RuntimeLightClusterBuildInput
 	{
+		uint64_t frameSerial = 0;
 		uint32_t renderWidth = 0;
 		uint32_t renderHeight = 0;
 		uint32_t tileSize = 1;
 		uint32_t maxRuntimeLights = 0;
 		uint32_t shadowBudget = NRI_MAX_RUNTIME_POINT_LIGHTS;
+		float shadowReplacementMargin = NRI_RUNTIME_LIGHT_SHADOW_REPLACEMENT_MARGIN;
+		uint64_t shadowSelectionPolicyFingerprint = NRI_RUNTIME_LIGHT_SHADOW_SELECTION_POLICY_FINGERPRINT;
+		const NRIRuntimeLightShadowSelectionSnapshot* previousShadowSelection = nullptr;
 		float currentCameraPos[3] = {};
 		float currentCameraForward[3] = { 0.0f, 0.0f, 1.0f };
 		float currentCameraRight[3] = { 1.0f, 0.0f, 0.0f };
@@ -337,6 +342,7 @@ public:
 		uint32_t maxShadowCandidatesPerTile = 0;
 		uint32_t maxShadowSelectedPerTile = 0;
 		uint64_t shadowSelectionHash = 0;
+		NRIRuntimeLightShadowTransitionTelemetry shadowTransitions;
 	};
 
 	struct EmissiveSamplingBuildContext
@@ -874,7 +880,8 @@ public:
 		uint32_t& outTileCountY,
 		uint32_t& outTileIndexCount,
 		uint32_t& outMaxTileOccupancy,
-		RuntimeLightClusterBuildStats& outStats) const;
+		RuntimeLightClusterBuildStats& outStats,
+		NRIRuntimeLightShadowSelectionSnapshot& outSelection) const;
 
 	struct EmissiveSamplingUploadStats
 	{

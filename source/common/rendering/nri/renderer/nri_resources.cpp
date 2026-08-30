@@ -338,11 +338,14 @@ void NRIRenderer::DestroySceneBuffers()
 	mBoundRuntimeLightMaxShadowCandidatesPerTile = 0;
 	mBoundRuntimeLightMaxShadowSelectedPerTile = 0;
 	mBoundRuntimeLightShadowSelectionHash = 0;
+	mBoundRuntimeLightShadowTransitions = {};
 	mRuntimeLightPayloadCacheValid = false;
 	mRuntimeLightPayloadHash = 0;
 	mRuntimeLightClusterCacheValid = false;
 	mRuntimeLightClusterPayloadHash = 0;
 	mRuntimeLightClusterCameraHash = 0;
+	mRuntimeLightClusterCachedShadowSelection = {};
+	mRuntimeLightShadowSelectionHistory.Reset();
 	mRuntimeLightSceneDataDirty = false;
 	mPortalPayloadCacheValid = false;
 	mPortalPayloadHash = 0;

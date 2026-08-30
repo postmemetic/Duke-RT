@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nri_runtime_light_shadow_selection.h"
+
 #include <algorithm>
 #include <cstdint>
 
@@ -91,6 +93,8 @@ struct NRISceneDataRuntimeLightClusterSlotIdentity
 	uint32_t maxShadowCandidatesPerTile = 0;
 	uint32_t maxShadowSelectedPerTile = 0;
 	uint64_t shadowSelectionHash = 0;
+	NRIRuntimeLightShadowTransitionTelemetry shadowTransitions;
+	NRIRuntimeLightShadowSelectionSnapshot shadowSelection;
 	bool valid = false;
 
 	bool CanReuse(
@@ -127,6 +131,8 @@ struct NRISceneDataRuntimeLightClusterSlotIdentity
 		uint32_t newMaxShadowCandidatesPerTile,
 		uint32_t newMaxShadowSelectedPerTile,
 		uint64_t newShadowSelectionHash,
+		const NRIRuntimeLightShadowTransitionTelemetry& newShadowTransitions,
+		const NRIRuntimeLightShadowSelectionSnapshot& newShadowSelection,
 		const NRISceneDataLightBufferReuseView& headerBuffer,
 		const NRISceneDataLightBufferReuseView& indexBuffer)
 	{
@@ -142,6 +148,8 @@ struct NRISceneDataRuntimeLightClusterSlotIdentity
 		maxShadowCandidatesPerTile = newMaxShadowCandidatesPerTile;
 		maxShadowSelectedPerTile = newMaxShadowSelectedPerTile;
 		shadowSelectionHash = newShadowSelectionHash;
+		shadowTransitions = newShadowTransitions;
+		shadowSelection = newShadowSelection;
 		headerResourceIdentity = headerBuffer.resourceIdentity;
 		headerDescriptorIdentity = headerBuffer.descriptorIdentity;
 		indexResourceIdentity = indexBuffer.resourceIdentity;
