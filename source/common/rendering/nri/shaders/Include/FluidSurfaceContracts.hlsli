@@ -49,6 +49,8 @@ struct FluidBindingData
 	float4 foamColorAmount;
 	float4 foamBirthParams;
 	float4 foamTrailParams;
+	float4 foamStyleParams;
+	float4 foamBubbleParams;
 };
 
 // Uploaded once per frame. Gameplay time, quality caps, and the runtime
@@ -69,7 +71,7 @@ struct FluidFrameData
 	uint debugMode;
 	// 0 = disabled, 1 = instantaneous crest birth, 2 = analytic trails.
 	uint foamMode;
-	uint reserved1;
+	uint foamStyleMode;
 };
 
 StructuredBuffer<FluidBindingData> gFluidBindings : register(t28, space2);

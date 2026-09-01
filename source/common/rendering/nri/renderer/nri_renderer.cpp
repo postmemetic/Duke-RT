@@ -1768,6 +1768,8 @@ void NRIRenderer::Shutdown()
 	mFluidVirtualHeightStateInitialized = false;
 	mFluidFoamModeStateInitialized = false;
 	mLastFluidFoamMode = 0;
+	mFluidFoamStyleModeStateInitialized = false;
+	mLastFluidFoamStyleMode = 0;
 
 	if (mFrameBuffer == nullptr || mFrameBuffer->mDevice == nullptr)
 	{
@@ -1949,6 +1951,8 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mFluidVirtualHeightStateInitialized = false;
 	mFluidFoamModeStateInitialized = false;
 	mLastFluidFoamMode = 0;
+	mFluidFoamStyleModeStateInitialized = false;
+	mLastFluidFoamStyleMode = 0;
 
 	ClearRuntimePointLights();
 	ClearRuntimeDebugSpheres();

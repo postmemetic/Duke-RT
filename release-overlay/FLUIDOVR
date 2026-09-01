@@ -43,6 +43,14 @@ FLUIDOVR
 		foamlifetime 1.2
 		foamtrailgain 0.65
 		foamundersidestrength 0
+		foamcontrast 3
+		foamedgewidth 0.055
+		foamcutoutscale 2.5
+		foamcutoutstrength 0.55
+		foambubblescale 10
+		foambubblestrength 0.35
+		foambubblerim 0.07
+		foambrightness 1.35
 		normalstrength 1.1
 		virtualheight 4
 		seed 13
@@ -86,6 +94,14 @@ FLUIDOVR
 		foamlifetime 1.6
 		foamtrailgain 0.5
 		foamundersidestrength 0
+		foamcontrast 1
+		foamedgewidth 0.1
+		foamcutoutscale 2
+		foamcutoutstrength 0
+		foambubblescale 8
+		foambubblestrength 0
+		foambubblerim 0.08
+		foambrightness 1
 		normalstrength 1
 		virtualheight 3
 		seed 23
@@ -129,6 +145,14 @@ FLUIDOVR
 		foamlifetime 0.9
 		foamtrailgain 0.4
 		foamundersidestrength 0
+		foamcontrast 1
+		foamedgewidth 0.1
+		foamcutoutscale 2
+		foamcutoutstrength 0
+		foambubblescale 8
+		foambubblestrength 0
+		foambubblerim 0.08
+		foambrightness 1
 		normalstrength 1
 		virtualheight 3
 		seed 29
@@ -172,6 +196,14 @@ FLUIDOVR
 		foamlifetime 0.45
 		foamtrailgain 0.35
 		foamundersidestrength 0
+		foamcontrast 3
+		foamedgewidth 0.055
+		foamcutoutscale 3.5
+		foamcutoutstrength 0.45
+		foambubblescale 12
+		foambubblestrength 0.25
+		foambubblerim 0.06
+		foambrightness 1.35
 		normalstrength 1
 		virtualheight 2
 		seed 19

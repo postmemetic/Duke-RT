@@ -310,6 +310,135 @@ void FluidShapeFoam(
 	foam = max(birth, trail);
 }
 
+float3 FluidHashCell3(int2 cell, uint seed)
+{
+	const uint cellKey = seed ^ ((uint)cell.x * 0x8da6b343u) ^
+		((uint)cell.y * 0xd8163841u);
+	const uint hashX = FluidHashUint(cellKey ^ 0x68bc21ebu);
+	const uint hashY = FluidHashUint(hashX ^ 0x02e5be93u);
+	const uint hashRadius = FluidHashUint(hashY ^ 0x967a889bu);
+	return float3(
+		(float)(hashX & 0x00ffffffu),
+		(float)(hashY & 0x00ffffffu),
+		(float)(hashRadius & 0x00ffffffu)) * (1.0 / 16777216.0);
+}
+
+float FluidEvaluateBubbleSignedDistance(
+	float2 coordinate,
+	uint seed)
+{
+	const int2 baseCell = (int2)floor(coordinate);
+	const float2 local = frac(coordinate);
+	float nearestSignedDistance = 2.0;
+	[loop]
+	for (int y = -1; y <= 1; ++y)
+	{
+		[loop]
+		for (int x = -1; x <= 1; ++x)
+		{
+			const int2 offset = int2(x, y);
+			const float3 feature = FluidHashCell3(
+				baseCell + offset, seed);
+			const float2 toFeature = (float2)offset + feature.xy - local;
+			const float radius = lerp(0.14, 0.38, feature.z);
+			nearestSignedDistance = min(
+				nearestSignedDistance, length(toFeature) - radius);
+		}
+	}
+	return nearestSignedDistance;
+}
+
+float FluidPresentFoam(
+	FluidBindingData binding,
+	uint styleMode,
+	float2 domain,
+	float worldFootprint,
+	float maximumFoam,
+	float rawFoam)
+{
+	// Natural presentation is an exact bypass of the landed foam response.
+	if (styleMode == 0u)
+	{
+		return rawFoam;
+	}
+	const float authoredContrast = max(binding.foamStyleParams.x, 0.0);
+	const bool neutralCutouts = binding.foamStyleParams.w <= 0.0;
+	const bool neutralBubbles = styleMode < 2u ||
+		binding.foamBubbleParams.y <= 0.0;
+	if (authoredContrast <= 1.0 && neutralCutouts && neutralBubbles)
+	{
+		return rawFoam;
+	}
+
+	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
+	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
+	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
+	const float carrierFootprint = max(worldFootprint, 0.0) * domainScale *
+		frequency * max(anisotropy, 1.0);
+	const float authoredEdgeWidth = clamp(binding.foamStyleParams.y, 0.001, 0.5);
+	const float edgeWidth = min(0.5, max(
+		authoredEdgeWidth / max(authoredContrast, 1.0),
+		0.25 * saturate(carrierFootprint)));
+	const float normalizedFoam = saturate(
+		rawFoam / max(maximumFoam, 1.0e-5));
+	const float crispFoam = smoothstep(
+		0.5 - edgeWidth, 0.5 + edgeWidth, normalizedFoam);
+	float presentedFoam = lerp(
+		rawFoam, crispFoam, saturate(authoredContrast - 1.0));
+
+	// Broad value-noise cutouts break long graphic ribbons. As the pattern
+	// becomes subpixel its influence tends to one, never to gray coverage.
+	[branch]
+	if (binding.foamStyleParams.w > 0.0)
+	{
+		const float cutoutScale = max(binding.foamStyleParams.z, 1.0e-4);
+		const float cutoutFootprint = max(worldFootprint, 0.0) * domainScale *
+			cutoutScale;
+		const float cutoutDetail = rcp(
+			1.0 + cutoutFootprint * cutoutFootprint);
+		const float cutoutNoise = 0.5 + 0.5 * FluidValueNoise(
+			domain * cutoutScale + float2(-43.17, 11.29),
+			binding.seed ^ 0x51ed270bu);
+		const float cutoutTransition = 0.10 +
+			0.35 * saturate(cutoutFootprint);
+		const float cutoutMask = smoothstep(
+			0.5 - cutoutTransition, 0.5 + cutoutTransition, cutoutNoise);
+		const float cutoutInfluence = saturate(binding.foamStyleParams.w) *
+			cutoutDetail;
+		presentedFoam *= lerp(1.0, cutoutMask, cutoutInfluence);
+	}
+
+	[branch]
+	if (styleMode >= 2u && binding.foamBubbleParams.y > 0.0)
+	{
+		const float bubbleScale = max(binding.foamBubbleParams.x, 1.0e-4);
+		const float bubbleFootprint = max(worldFootprint, 0.0) * domainScale *
+			bubbleScale;
+		const float bubbleDetail = rcp(
+			1.0 + bubbleFootprint * bubbleFootprint);
+		const float signedDistance = FluidEvaluateBubbleSignedDistance(
+			domain * bubbleScale + float2(7.37, 23.11),
+			binding.seed ^ 0xb5297a4du);
+		const float distanceAA = max(0.015, 0.5 * bubbleFootprint);
+		const float outsideBubble = smoothstep(
+			-distanceAA, distanceAA, signedDistance);
+		const float bubbleInfluence = saturate(binding.foamBubbleParams.y) *
+			bubbleDetail;
+		const float preBubbleFoam = presentedFoam;
+		presentedFoam *= lerp(1.0, outsideBubble, bubbleInfluence);
+
+		// Restore a bounded ring from the coverage that existed before carving
+		// the hole, so bubbles never manufacture foam outside the source mask.
+		const float rimWidth = clamp(binding.foamBubbleParams.z, 0.0, 0.5);
+		const float rim = rimWidth > 0.0 ? 1.0 - smoothstep(
+			rimWidth, rimWidth + distanceAA, abs(signedDistance)) : 0.0;
+		presentedFoam = saturate(presentedFoam +
+			preBubbleFoam * rim * bubbleInfluence);
+	}
+
+	return saturate(presentedFoam);
+}
+
 float2 FluidInitialFieldDirection(FluidBindingData binding)
 {
 	const float2 flowVelocity = float2(
@@ -532,6 +661,7 @@ bool TryEvaluateFluidSurface(
 		return false;
 	}
 	const uint foamMode = min(frame.foamMode, 2u);
+	const uint foamStyleMode = min(frame.foamStyleMode, 2u);
 
 	float3 carrierNormal = FluidSafeNormalize(
 		geometricNormal, float3(0.0, 0.0, 1.0));
@@ -576,7 +706,9 @@ bool TryEvaluateFluidSurface(
 	const float timeScale = frame.globalTimeScale * binding.motion.y;
 	const float gameplaySeconds = frame.currentGameplaySeconds * timeScale;
 	const float3 localPosition = carrierPosition - binding.domainOriginScale.xyz;
-	float2 domain = float2(dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
+	const float2 carrierBaseDomain = float2(
+		dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
+	float2 domain = carrierBaseDomain;
 	if ((binding.styleFlags & NRI_FLUID_STYLE_FLOW) != 0u)
 	{
 		domain -= float2(
@@ -683,6 +815,8 @@ bool TryEvaluateFluidSurface(
 			frame.previousGameplaySeconds * timeScale;
 		const float2 previousSampleDomain = FluidApplyDomainMotion(
 			binding, sampleBaseDomain, previousGameplaySeconds);
+		const float2 previousCarrierPatternDomain = FluidApplyDomainMotion(
+			binding, carrierBaseDomain, previousGameplaySeconds);
 		float previousPhase = 0.0;
 		float previousAngularVelocity = 0.0;
 		float previousBreakingPotential = 0.0;
@@ -699,6 +833,22 @@ bool TryEvaluateFluidSurface(
 			previousAngularVelocity, previousBreakingPotential,
 			previousCrestBreakingPotential, previousSampleDomain, worldFootprint,
 			previousBirth, previousTrail, previousFoam);
+
+		// Presentation is deliberately downstream of birth/trail construction:
+		// diagnostics retain the raw physical signals while material response and
+		// reactivity consume the identically styled current/previous coverage.
+		[branch]
+		if (foamStyleMode != 0u)
+		{
+			const float maximumFoam = saturate(
+				binding.foamColorAmount.w) * foamSideStrength;
+			foam = FluidPresentFoam(
+				binding, foamStyleMode, domain, worldFootprint,
+				maximumFoam, foam);
+			previousFoam = FluidPresentFoam(
+				binding, foamStyleMode, previousCarrierPatternDomain,
+				worldFootprint, maximumFoam, previousFoam);
+		}
 	}
 
 	float hotCrack = 0.0;
@@ -713,7 +863,19 @@ bool TryEvaluateFluidSurface(
 		baseColor *= lerp(
 			saturate(1.0 - binding.crust.w), 1.0, hotCrack);
 	}
-	baseColor = lerp(baseColor, max(binding.foamColorAmount.rgb, 0.0), foam);
+	const bool neutralFoamPresentation =
+		binding.foamStyleParams.x <= 1.0 &&
+		binding.foamStyleParams.w <= 0.0 &&
+		(foamStyleMode < 2u || binding.foamBubbleParams.y <= 0.0) &&
+		abs(binding.foamBubbleParams.w - 1.0) <= 1.0e-5;
+	const bool useStylizedFoamColor =
+		foamStyleMode != 0u && !neutralFoamPresentation;
+	const float foamBrightness = useStylizedFoamColor ?
+		max(binding.foamBubbleParams.w, 0.0) : 1.0;
+	const float3 presentedFoamColor = !useStylizedFoamColor ?
+		max(binding.foamColorAmount.rgb, 0.0) :
+		saturate(binding.foamColorAmount.rgb * foamBrightness);
+	baseColor = lerp(baseColor, presentedFoamColor, foam);
 	const float fluidRoughness = clamp(
 		underside ? binding.surfaceResponse.y : binding.surfaceResponse.x,
 		0.02, 1.0);

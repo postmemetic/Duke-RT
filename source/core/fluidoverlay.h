@@ -65,6 +65,14 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_FoamLifetime = 1ull << 36,
 	FluidOverlayParameter_FoamTrailGain = 1ull << 37,
 	FluidOverlayParameter_FoamUndersideStrength = 1ull << 38,
+	FluidOverlayParameter_FoamContrast = 1ull << 39,
+	FluidOverlayParameter_FoamEdgeWidth = 1ull << 40,
+	FluidOverlayParameter_FoamCutoutScale = 1ull << 41,
+	FluidOverlayParameter_FoamCutoutStrength = 1ull << 42,
+	FluidOverlayParameter_FoamBubbleScale = 1ull << 43,
+	FluidOverlayParameter_FoamBubbleStrength = 1ull << 44,
+	FluidOverlayParameter_FoamBubbleRim = 1ull << 45,
+	FluidOverlayParameter_FoamBrightness = 1ull << 46,
 };
 
 struct FluidOverlaySourceLocation
@@ -125,6 +133,14 @@ struct FluidOverlayParameters
 	float foamLifetime = 0.0f;
 	float foamTrailGain = 0.0f;
 	float foamUndersideStrength = 0.0f;
+	float foamContrast = 1.0f;
+	float foamEdgeWidth = 0.10f;
+	float foamCutoutScale = 2.0f;
+	float foamCutoutStrength = 0.0f;
+	float foamBubbleScale = 8.0f;
+	float foamBubbleStrength = 0.0f;
+	float foamBubbleRim = 0.08f;
+	float foamBrightness = 1.0f;
 	float normalStrength = 0.75f;
 	// Optional Phase 2C visual-only half-height in renderer world units.
 	// Zero disables virtual-height refinement for this profile.

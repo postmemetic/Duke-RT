@@ -2962,6 +2962,8 @@ private:
 	bool mLastFluidVirtualHeightEnabled = false;
 	bool mFluidFoamModeStateInitialized = false;
 	int mLastFluidFoamMode = 0;
+	bool mFluidFoamStyleModeStateInitialized = false;
+	int mLastFluidFoamStyleMode = 0;
 	uint32_t mFrameIndex = 0;
 	uint64_t mMainTemporalSerial = 0;
 	uint64_t mPendingMainTemporalSerial = 0;

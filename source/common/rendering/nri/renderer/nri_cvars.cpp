@@ -235,6 +235,20 @@ CUSTOM_CVAR(Int, nri_ptfluidfoam, 2, 0)
 	}
 }
 
+// Presentation-only comparison for procedural foam:
+// 0 = natural mask, 1 = graphic cutouts, 2 = graphic cutouts plus bubbles.
+CUSTOM_CVAR(Int, nri_ptfluidfoamstyle, 0, 0)
+{
+	if (self < 0)
+	{
+		self = 0;
+	}
+	else if (self > 2)
+	{
+		self = 2;
+	}
+}
+
 CUSTOM_CVAR(Int, nri_ptfluidvirtualheightsteps, 1, 0)
 {
 	if (self != 1)
