@@ -114,10 +114,7 @@ namespace
 		result.foamStyleParams[1] = std::clamp(source.foamEdgeWidth, 0.0f, 0.5f);
 		result.foamStyleParams[2] = std::clamp(source.foamCutoutScale, 0.05f, 64.0f);
 		result.foamStyleParams[3] = Saturate(source.foamCutoutStrength);
-		result.foamBubbleParams[0] = std::clamp(source.foamBubbleScale, 0.05f, 128.0f);
-		result.foamBubbleParams[1] = Saturate(source.foamBubbleStrength);
-		result.foamBubbleParams[2] = std::clamp(source.foamBubbleRim, 0.0f, 0.5f);
-		result.foamBubbleParams[3] = std::clamp(source.foamBrightness, 0.0f, 4.0f);
+		result.foamPresentationParams[0] = std::clamp(source.foamBrightness, 0.0f, 4.0f);
 		return result;
 	}
 }
@@ -176,14 +173,14 @@ void NRIRenderer::SyncFluidSurfaceOverlayState()
 			foamMode, foamSupported ? "d3d12-procedural" : "unsupported-backend-disabled");
 	}
 
-	const int foamStyleMode = std::clamp((int)nri_ptfluidfoamstyle, 0, 2);
+	const int foamStyleMode = std::clamp((int)nri_ptfluidfoamstyle, 0, 1);
 	if (!mFluidFoamStyleModeStateInitialized)
 	{
 		mFluidFoamStyleModeStateInitialized = true;
 		mLastFluidFoamStyleMode = foamStyleMode;
 		const bool foamStyleSupported = mFrameBuffer != nullptr &&
 			mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
-		Printf("NRI PT fluid foam style: mode=%d capability=%s (0=natural 1=graphic-cutouts 2=graphic-bubbles)\n",
+		Printf("NRI PT fluid foam style: mode=%d capability=%s (0=natural 1=graphic-cutouts)\n",
 			foamStyleMode, foamStyleSupported ? "d3d12-procedural" : "unsupported-backend-disabled");
 	}
 	else if (foamStyleMode != mLastFluidFoamStyleMode)
@@ -192,7 +189,7 @@ void NRIRenderer::SyncFluidSurfaceOverlayState()
 		RequestHistoryReset("fluid-foam-style-mode");
 		const bool foamStyleSupported = mFrameBuffer != nullptr &&
 			mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
-		Printf("NRI PT fluid foam style: mode=%d capability=%s (0=natural 1=graphic-cutouts 2=graphic-bubbles)\n",
+		Printf("NRI PT fluid foam style: mode=%d capability=%s (0=natural 1=graphic-cutouts)\n",
 			foamStyleMode, foamStyleSupported ? "d3d12-procedural" : "unsupported-backend-disabled");
 	}
 }
@@ -236,7 +233,7 @@ bool NRIRenderer::UpdateFluidSurfaceResources(SceneUploadBufferRingSlot& uploadS
 	frame.virtualStepCount = 1u;
 	frame.debugMode = (uint32_t)std::clamp((int)nri_ptdebug, 0, (int)nri_diag::PtDebugMaximum);
 	frame.foamMode = (uint32_t)std::clamp((int)nri_ptfluidfoam, 0, 2);
-	frame.foamStyleMode = (uint32_t)std::clamp((int)nri_ptfluidfoamstyle, 0, 2);
+	frame.foamStyleMode = (uint32_t)std::clamp((int)nri_ptfluidfoamstyle, 0, 1);
 
 	const bool bindingsReady = EnsureStructuredBuffer(
 		uploadSlot.fluidBindingBuffer,

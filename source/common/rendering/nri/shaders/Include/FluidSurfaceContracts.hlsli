@@ -50,7 +50,8 @@ struct FluidBindingData
 	float4 foamBirthParams;
 	float4 foamTrailParams;
 	float4 foamStyleParams;
-	float4 foamBubbleParams;
+	// x = foam brightness; yzw reserved.
+	float4 foamPresentationParams;
 };
 
 // Uploaded once per frame. Gameplay time, quality caps, and the runtime

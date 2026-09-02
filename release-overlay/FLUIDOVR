@@ -47,9 +47,6 @@ FLUIDOVR
 		foamedgewidth 0.055
 		foamcutoutscale 2.5
 		foamcutoutstrength 0.55
-		foambubblescale 10
-		foambubblestrength 0.35
-		foambubblerim 0.07
 		foambrightness 1.35
 		normalstrength 1.1
 		virtualheight 4
@@ -98,9 +95,6 @@ FLUIDOVR
 		foamedgewidth 0.1
 		foamcutoutscale 2
 		foamcutoutstrength 0
-		foambubblescale 8
-		foambubblestrength 0
-		foambubblerim 0.08
 		foambrightness 1
 		normalstrength 1
 		virtualheight 3
@@ -149,9 +143,6 @@ FLUIDOVR
 		foamedgewidth 0.1
 		foamcutoutscale 2
 		foamcutoutstrength 0
-		foambubblescale 8
-		foambubblestrength 0
-		foambubblerim 0.08
 		foambrightness 1
 		normalstrength 1
 		virtualheight 3
@@ -200,9 +191,6 @@ FLUIDOVR
 		foamedgewidth 0.055
 		foamcutoutscale 3.5
 		foamcutoutstrength 0.45
-		foambubblescale 12
-		foambubblestrength 0.25
-		foambubblerim 0.06
 		foambrightness 1.35
 		normalstrength 1
 		virtualheight 2

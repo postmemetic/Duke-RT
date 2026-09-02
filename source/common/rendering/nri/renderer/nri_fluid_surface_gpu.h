@@ -87,9 +87,8 @@ struct NRIFluidBindingGpuData
 	float foamTrailParams[4] = {};
 	// x = contrast, y = edge width, z = cutout scale, w = cutout strength.
 	float foamStyleParams[4] = {};
-	// x = bubble scale, y = bubble strength, z = bubble rim width,
-	// w = foam brightness.
-	float foamBubbleParams[4] = {};
+	// x = foam brightness; yzw reserved.
+	float foamPresentationParams[4] = {};
 };
 
 struct NRIFluidFrameGpuData
@@ -127,7 +126,7 @@ static_assert(offsetof(NRIFluidBindingGpuData, foamTrailParams) == 256u,
 	"NRIFluidBindingGpuData foam-trail layout mismatch.");
 static_assert(offsetof(NRIFluidBindingGpuData, foamStyleParams) == 272u,
 	"NRIFluidBindingGpuData foam-style layout mismatch.");
-static_assert(offsetof(NRIFluidBindingGpuData, foamBubbleParams) == 288u,
-	"NRIFluidBindingGpuData foam-bubble layout mismatch.");
+static_assert(offsetof(NRIFluidBindingGpuData, foamPresentationParams) == 288u,
+	"NRIFluidBindingGpuData foam-presentation layout mismatch.");
 static_assert(sizeof(NRIFluidFrameGpuData) == 48u,
 	"NRIFluidFrameGpuData must match FluidFrameData in HLSL.");

@@ -364,9 +364,6 @@ namespace
 		if (mask & FluidOverlayParameter_FoamEdgeWidth) destination.foamEdgeWidth = source.foamEdgeWidth;
 		if (mask & FluidOverlayParameter_FoamCutoutScale) destination.foamCutoutScale = source.foamCutoutScale;
 		if (mask & FluidOverlayParameter_FoamCutoutStrength) destination.foamCutoutStrength = source.foamCutoutStrength;
-		if (mask & FluidOverlayParameter_FoamBubbleScale) destination.foamBubbleScale = source.foamBubbleScale;
-		if (mask & FluidOverlayParameter_FoamBubbleStrength) destination.foamBubbleStrength = source.foamBubbleStrength;
-		if (mask & FluidOverlayParameter_FoamBubbleRim) destination.foamBubbleRim = source.foamBubbleRim;
 		if (mask & FluidOverlayParameter_FoamBrightness) destination.foamBrightness = source.foamBrightness;
 		if (mask & FluidOverlayParameter_NormalStrength) destination.normalStrength = source.normalStrength;
 		if (mask & FluidOverlayParameter_VirtualHeight) destination.virtualHeight = source.virtualHeight;
@@ -423,9 +420,6 @@ namespace
 		value.foamEdgeWidth = std::clamp(finiteOr(value.foamEdgeWidth, 0.10f), 0.0f, 0.5f);
 		value.foamCutoutScale = std::clamp(finiteOr(value.foamCutoutScale, 2.0f), 0.05f, 64.0f);
 		value.foamCutoutStrength = std::clamp(finiteOr(value.foamCutoutStrength, 0.0f), 0.0f, 1.0f);
-		value.foamBubbleScale = std::clamp(finiteOr(value.foamBubbleScale, 8.0f), 0.05f, 128.0f);
-		value.foamBubbleStrength = std::clamp(finiteOr(value.foamBubbleStrength, 0.0f), 0.0f, 1.0f);
-		value.foamBubbleRim = std::clamp(finiteOr(value.foamBubbleRim, 0.08f), 0.0f, 0.5f);
 		value.foamBrightness = std::clamp(finiteOr(value.foamBrightness, 1.0f), 0.0f, 4.0f);
 		value.normalStrength = std::max(0.0f, finiteOr(value.normalStrength, 0.0f));
 		value.virtualHeight = std::max(0.0f, finiteOr(value.virtualHeight, 0.0f));
@@ -452,8 +446,7 @@ namespace
 			value.foamSoftness, value.foamBreakupScale, value.foamBreakupStrength,
 			value.foamLifetime, value.foamTrailGain, value.foamUndersideStrength,
 			value.foamContrast, value.foamEdgeWidth, value.foamCutoutScale,
-			value.foamCutoutStrength, value.foamBubbleScale, value.foamBubbleStrength,
-			value.foamBubbleRim, value.foamBrightness,
+			value.foamCutoutStrength, value.foamBrightness,
 			value.normalStrength, value.virtualHeight,
 		};
 		for (float scalar : scalarValues) hash = HashValue(hash, CanonicalFloatBits(scalar));
@@ -481,7 +474,7 @@ namespace
 			a.foamThreshold, a.foamSoftness, a.foamBreakupScale, a.foamBreakupStrength,
 			a.foamLifetime, a.foamTrailGain, a.foamUndersideStrength,
 			a.foamContrast, a.foamEdgeWidth, a.foamCutoutScale, a.foamCutoutStrength,
-			a.foamBubbleScale, a.foamBubbleStrength, a.foamBubbleRim, a.foamBrightness,
+			a.foamBrightness,
 			a.normalStrength, a.virtualHeight,
 		};
 		const float bScalars[] = {
@@ -492,7 +485,7 @@ namespace
 			b.foamThreshold, b.foamSoftness, b.foamBreakupScale, b.foamBreakupStrength,
 			b.foamLifetime, b.foamTrailGain, b.foamUndersideStrength,
 			b.foamContrast, b.foamEdgeWidth, b.foamCutoutScale, b.foamCutoutStrength,
-			b.foamBubbleScale, b.foamBubbleStrength, b.foamBubbleRim, b.foamBrightness,
+			b.foamBrightness,
 			b.normalStrength, b.virtualHeight,
 		};
 		for (size_t i = 0; i < std::size(aScalars); ++i)
@@ -507,7 +500,7 @@ namespace
 		if (a.style != b.style) return (uint8_t)a.style < (uint8_t)b.style;
 		const auto getFloatBits = [](const FluidOverlayParameters& value)
 		{
-			std::array<uint32_t, 55> bits = {};
+			std::array<uint32_t, 52> bits = {};
 			size_t index = 0;
 			const float* vectors[] = { value.bodyColor, value.undersideColor, value.crestColor, value.emissionColor, value.foamColor };
 			for (const float* vector : vectors)
@@ -525,8 +518,7 @@ namespace
 				value.foamBreakupStrength, value.foamLifetime, value.foamTrailGain,
 				value.foamUndersideStrength,
 				value.foamContrast, value.foamEdgeWidth, value.foamCutoutScale,
-				value.foamCutoutStrength, value.foamBubbleScale, value.foamBubbleStrength,
-				value.foamBubbleRim, value.foamBrightness,
+				value.foamCutoutStrength, value.foamBrightness,
 				value.normalStrength, value.virtualHeight,
 			};
 			for (float scalar : scalars) bits[index++] = CanonicalFloatBits(scalar);
@@ -762,9 +754,6 @@ namespace
 				{ "foamedgewidth", FluidOverlayParameter_FoamEdgeWidth, &parameters.foamEdgeWidth },
 				{ "foamcutoutscale", FluidOverlayParameter_FoamCutoutScale, &parameters.foamCutoutScale },
 				{ "foamcutoutstrength", FluidOverlayParameter_FoamCutoutStrength, &parameters.foamCutoutStrength },
-				{ "foambubblescale", FluidOverlayParameter_FoamBubbleScale, &parameters.foamBubbleScale },
-				{ "foambubblestrength", FluidOverlayParameter_FoamBubbleStrength, &parameters.foamBubbleStrength },
-				{ "foambubblerim", FluidOverlayParameter_FoamBubbleRim, &parameters.foamBubbleRim },
 				{ "foambrightness", FluidOverlayParameter_FoamBrightness, &parameters.foamBrightness },
 				{ "normalstrength", FluidOverlayParameter_NormalStrength, &parameters.normalStrength },
 				{ "virtualheight", FluidOverlayParameter_VirtualHeight, &parameters.virtualHeight },
@@ -1017,9 +1006,6 @@ namespace
 			{ FluidOverlayParameter_FoamEdgeWidth, "foamedgewidth", parameters.foamEdgeWidth },
 			{ FluidOverlayParameter_FoamCutoutScale, "foamcutoutscale", parameters.foamCutoutScale },
 			{ FluidOverlayParameter_FoamCutoutStrength, "foamcutoutstrength", parameters.foamCutoutStrength },
-			{ FluidOverlayParameter_FoamBubbleScale, "foambubblescale", parameters.foamBubbleScale },
-			{ FluidOverlayParameter_FoamBubbleStrength, "foambubblestrength", parameters.foamBubbleStrength },
-			{ FluidOverlayParameter_FoamBubbleRim, "foambubblerim", parameters.foamBubbleRim },
 			{ FluidOverlayParameter_FoamBrightness, "foambrightness", parameters.foamBrightness },
 			{ FluidOverlayParameter_NormalStrength, "normalstrength", parameters.normalStrength },
 			{ FluidOverlayParameter_VirtualHeight, "virtualheight", parameters.virtualHeight },
@@ -1284,10 +1270,9 @@ namespace
 				p.foamAmount, p.foamRoughness, p.foamThreshold, p.foamSoftness,
 				p.foamBreakupScale, p.foamBreakupStrength, p.foamLifetime,
 				p.foamTrailGain, p.foamUndersideStrength);
-			Printf("FLUIDOVR resolved foam style: id=%s contrast=%.4f edgewidth=%.4f cutoutscale=%.4f cutoutstrength=%.4f bubblescale=%.4f bubblestrength=%.4f bubblerim=%.4f brightness=%.4f\n",
+			Printf("FLUIDOVR resolved foam style: id=%s contrast=%.4f edgewidth=%.4f cutoutscale=%.4f cutoutstrength=%.4f brightness=%.4f\n",
 				profile.id.GetChars(), p.foamContrast, p.foamEdgeWidth,
-				p.foamCutoutScale, p.foamCutoutStrength, p.foamBubbleScale,
-				p.foamBubbleStrength, p.foamBubbleRim, p.foamBrightness);
+				p.foamCutoutScale, p.foamCutoutStrength, p.foamBrightness);
 		}
 		for (uint32_t i = 0; i < (uint32_t)resolved.materialRules.Size(); ++i)
 		{

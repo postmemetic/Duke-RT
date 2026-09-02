@@ -310,44 +310,6 @@ void FluidShapeFoam(
 	foam = max(birth, trail);
 }
 
-float3 FluidHashCell3(int2 cell, uint seed)
-{
-	const uint cellKey = seed ^ ((uint)cell.x * 0x8da6b343u) ^
-		((uint)cell.y * 0xd8163841u);
-	const uint hashX = FluidHashUint(cellKey ^ 0x68bc21ebu);
-	const uint hashY = FluidHashUint(hashX ^ 0x02e5be93u);
-	const uint hashRadius = FluidHashUint(hashY ^ 0x967a889bu);
-	return float3(
-		(float)(hashX & 0x00ffffffu),
-		(float)(hashY & 0x00ffffffu),
-		(float)(hashRadius & 0x00ffffffu)) * (1.0 / 16777216.0);
-}
-
-float FluidEvaluateBubbleSignedDistance(
-	float2 coordinate,
-	uint seed)
-{
-	const int2 baseCell = (int2)floor(coordinate);
-	const float2 local = frac(coordinate);
-	float nearestSignedDistance = 2.0;
-	[loop]
-	for (int y = -1; y <= 1; ++y)
-	{
-		[loop]
-		for (int x = -1; x <= 1; ++x)
-		{
-			const int2 offset = int2(x, y);
-			const float3 feature = FluidHashCell3(
-				baseCell + offset, seed);
-			const float2 toFeature = (float2)offset + feature.xy - local;
-			const float radius = lerp(0.14, 0.38, feature.z);
-			nearestSignedDistance = min(
-				nearestSignedDistance, length(toFeature) - radius);
-		}
-	}
-	return nearestSignedDistance;
-}
-
 float FluidPresentFoam(
 	FluidBindingData binding,
 	uint styleMode,
@@ -363,9 +325,7 @@ float FluidPresentFoam(
 	}
 	const float authoredContrast = max(binding.foamStyleParams.x, 0.0);
 	const bool neutralCutouts = binding.foamStyleParams.w <= 0.0;
-	const bool neutralBubbles = styleMode < 2u ||
-		binding.foamBubbleParams.y <= 0.0;
-	if (authoredContrast <= 1.0 && neutralCutouts && neutralBubbles)
+	if (authoredContrast <= 1.0 && neutralCutouts)
 	{
 		return rawFoam;
 	}
@@ -406,34 +366,6 @@ float FluidPresentFoam(
 		const float cutoutInfluence = saturate(binding.foamStyleParams.w) *
 			cutoutDetail;
 		presentedFoam *= lerp(1.0, cutoutMask, cutoutInfluence);
-	}
-
-	[branch]
-	if (styleMode >= 2u && binding.foamBubbleParams.y > 0.0)
-	{
-		const float bubbleScale = max(binding.foamBubbleParams.x, 1.0e-4);
-		const float bubbleFootprint = max(worldFootprint, 0.0) * domainScale *
-			bubbleScale;
-		const float bubbleDetail = rcp(
-			1.0 + bubbleFootprint * bubbleFootprint);
-		const float signedDistance = FluidEvaluateBubbleSignedDistance(
-			domain * bubbleScale + float2(7.37, 23.11),
-			binding.seed ^ 0xb5297a4du);
-		const float distanceAA = max(0.015, 0.5 * bubbleFootprint);
-		const float outsideBubble = smoothstep(
-			-distanceAA, distanceAA, signedDistance);
-		const float bubbleInfluence = saturate(binding.foamBubbleParams.y) *
-			bubbleDetail;
-		const float preBubbleFoam = presentedFoam;
-		presentedFoam *= lerp(1.0, outsideBubble, bubbleInfluence);
-
-		// Restore a bounded ring from the coverage that existed before carving
-		// the hole, so bubbles never manufacture foam outside the source mask.
-		const float rimWidth = clamp(binding.foamBubbleParams.z, 0.0, 0.5);
-		const float rim = rimWidth > 0.0 ? 1.0 - smoothstep(
-			rimWidth, rimWidth + distanceAA, abs(signedDistance)) : 0.0;
-		presentedFoam = saturate(presentedFoam +
-			preBubbleFoam * rim * bubbleInfluence);
 	}
 
 	return saturate(presentedFoam);
@@ -661,7 +593,7 @@ bool TryEvaluateFluidSurface(
 		return false;
 	}
 	const uint foamMode = min(frame.foamMode, 2u);
-	const uint foamStyleMode = min(frame.foamStyleMode, 2u);
+	const uint foamStyleMode = min(frame.foamStyleMode, 1u);
 
 	float3 carrierNormal = FluidSafeNormalize(
 		geometricNormal, float3(0.0, 0.0, 1.0));
@@ -866,12 +798,11 @@ bool TryEvaluateFluidSurface(
 	const bool neutralFoamPresentation =
 		binding.foamStyleParams.x <= 1.0 &&
 		binding.foamStyleParams.w <= 0.0 &&
-		(foamStyleMode < 2u || binding.foamBubbleParams.y <= 0.0) &&
-		abs(binding.foamBubbleParams.w - 1.0) <= 1.0e-5;
+		abs(binding.foamPresentationParams.x - 1.0) <= 1.0e-5;
 	const bool useStylizedFoamColor =
 		foamStyleMode != 0u && !neutralFoamPresentation;
 	const float foamBrightness = useStylizedFoamColor ?
-		max(binding.foamBubbleParams.w, 0.0) : 1.0;
+		max(binding.foamPresentationParams.x, 0.0) : 1.0;
 	const float3 presentedFoamColor = !useStylizedFoamColor ?
 		max(binding.foamColorAmount.rgb, 0.0) :
 		saturate(binding.foamColorAmount.rgb * foamBrightness);
