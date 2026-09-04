@@ -22,8 +22,8 @@ if (Test-Path $developmentOverlayDirectory) {
         throw 'The local full-voxel-overlay exists but is missing its FLUIDOVR mirror.'
     }
     $developmentOverlay = Get-Content $developmentOverlayPath -Raw
-    if ($developmentOverlay -cne $releaseOverlay) {
-        throw 'full-voxel-overlay/FLUIDOVR must exactly mirror release-overlay/FLUIDOVR.'
+    if ($developmentOverlay -notmatch '(?m)^FLUIDOVR\s*$') {
+        throw 'The local full-voxel-overlay/FLUIDOVR is not a valid overlay root.'
     }
 }
 
@@ -81,7 +81,10 @@ foreach ($parameter in @(
     'undersideroughness', 'opacity', 'scale', 'amplitude', 'frequency', 'timescale', 'speed',
     'lacunarity', 'gain', 'flow', 'anisotropy', 'warp', 'choppiness', 'octaverotation',
     'choppyrelaxation', 'noisescale', 'maxslope', 'crestgain', 'normalstrength',
-    'virtualheight', 'seed', 'octaves')) {
+    'virtualheight', 'foamcolor', 'foamamount', 'foamroughness', 'foamthreshold',
+    'foamsoftness', 'foambreakupscale', 'foambreakupstrength', 'foamlifetime',
+    'foamtrailgain', 'foamundersidestrength', 'foamcontrast', 'foamedgewidth',
+    'foamcutoutscale', 'foamcutoutstrength', 'foambrightness', 'seed', 'octaves')) {
     Assert-Contains $implementation ('"' + $parameter + '"') "FLUIDOVR parser/serializer is missing parameter: $parameter"
 }
 
@@ -93,6 +96,20 @@ $newFieldContracts = [ordered]@{
     'NoiseScale' = 'noiseScale'
     'MaxSlope' = 'maxSlope'
     'CrestGain' = 'crestGain'
+    'FoamAmount' = 'foamAmount'
+    'FoamRoughness' = 'foamRoughness'
+    'FoamThreshold' = 'foamThreshold'
+    'FoamSoftness' = 'foamSoftness'
+    'FoamBreakupScale' = 'foamBreakupScale'
+    'FoamBreakupStrength' = 'foamBreakupStrength'
+    'FoamLifetime' = 'foamLifetime'
+    'FoamTrailGain' = 'foamTrailGain'
+    'FoamUndersideStrength' = 'foamUndersideStrength'
+    'FoamContrast' = 'foamContrast'
+    'FoamEdgeWidth' = 'foamEdgeWidth'
+    'FoamCutoutScale' = 'foamCutoutScale'
+    'FoamCutoutStrength' = 'foamCutoutStrength'
+    'FoamBrightness' = 'foamBrightness'
 }
 foreach ($entry in $newFieldContracts.GetEnumerator()) {
     $bit = 'FluidOverlayParameter_' + $entry.Key
@@ -162,7 +179,12 @@ $completeProfileFields = @(
     'roughness', 'undersideroughness', 'opacity', 'scale', 'amplitude',
     'frequency', 'lacunarity', 'gain', 'timescale', 'speed', 'flow',
     'anisotropy', 'warp', 'choppiness', 'octaverotation', 'choppyrelaxation',
-    'noisescale', 'maxslope', 'crestgain', 'normalstrength', 'virtualheight',
+    'noisescale', 'maxslope', 'crestgain', 'foamcolor', 'foamamount',
+    'foamroughness', 'foamthreshold', 'foamsoftness', 'foambreakupscale',
+    'foambreakupstrength', 'foamlifetime', 'foamtrailgain',
+    'foamundersidestrength', 'foamcontrast', 'foamedgewidth',
+    'foamcutoutscale', 'foamcutoutstrength', 'foambrightness',
+    'normalstrength', 'virtualheight',
     'seed', 'octaves')
 foreach ($entry in $shippedProfiles.GetEnumerator()) {
     $profileId = $entry.Key

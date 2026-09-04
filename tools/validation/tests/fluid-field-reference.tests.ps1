@@ -184,4 +184,116 @@ if ([Math]::Abs($sample.Height) -gt 1.000001) {
     throw "Normalized field height escaped its authored bound: $($sample.Height)"
 }
 
-Write-Host 'Seascape-style fluid field numeric reference validation passed.'
+function Get-SmoothStep([double]$Edge0, [double]$Edge1, [double]$Value) {
+    $t = [Math]::Max(0.0, [Math]::Min(1.0, ($Value - $Edge0) / ($Edge1 - $Edge0)))
+    return $t * $t * (3.0 - 2.0 * $t)
+}
+
+function Get-FoamReference(
+    [double]$Potential,
+    [double]$Phase,
+    [double]$AngularVelocity,
+    [double]$Threshold = 0.62,
+    [double]$Softness = 0.12,
+    [double]$Lifetime = 1.2,
+    [double]$Amount = 0.72,
+    [double]$TrailGain = 0.65,
+    [double]$Breakup = 1.0,
+    [int]$Mode = 2) {
+    if ($Mode -eq 0 -or $Amount -le 0.0) {
+        return [pscustomobject]@{ Birth = 0.0; Trail = 0.0; Foam = 0.0; Age = 0.0 }
+    }
+    $birthShape = Get-SmoothStep ($Threshold - $Softness) ($Threshold + $Softness + 1.0e-4) $Potential
+    $birth = [Math]::Max(0.0, [Math]::Min(1.0, $Amount * $birthShape * $Breakup))
+    $trail = 0.0
+    $age = 0.0
+    $speed = [Math]::Abs($AngularVelocity)
+    if ($Mode -ge 2 -and $Lifetime -gt 0.0 -and $speed -gt 1.0e-4) {
+        $direction = if ($AngularVelocity -ge 0.0) { 1.0 } else { -1.0 }
+        $period = 2.0 * [Math]::PI
+        $phaseDistance = ($Phase - 0.5 * [Math]::PI) * $direction
+        $wrapped = $phaseDistance - $period * [Math]::Floor($phaseDistance / $period)
+        $age = $wrapped / $speed
+        $sourceAtCrest = Get-SmoothStep ($Threshold - $Softness) ($Threshold + $Softness + 1.0e-4) 1.0
+        $trail = [Math]::Max(0.0, [Math]::Min(1.0,
+            $Amount * $TrailGain * $sourceAtCrest * [Math]::Exp(-$age / $Lifetime) * $Breakup))
+    }
+    return [pscustomobject]@{
+        Birth = $birth
+        Trail = $trail
+        Foam = [Math]::Max($birth, $trail)
+        Age = $age
+    }
+}
+
+$foamA = Get-FoamReference 0.7 2.2 1.4
+$foamRepeat = Get-FoamReference 0.7 2.2 1.4
+Assert-Near $foamA.Foam $foamRepeat.Foam 0.0 'Foam reference is not deterministic.'
+if ((Get-FoamReference 0.8 2.2 1.4).Birth -lt (Get-FoamReference 0.6 2.2 1.4).Birth) {
+    throw 'Foam birth is not monotonic across the authored threshold.'
+}
+$nearThresholdLeft = (Get-FoamReference 0.6199 2.2 1.4).Birth
+$nearThresholdRight = (Get-FoamReference 0.6201 2.2 1.4).Birth
+if ([Math]::Abs($nearThresholdRight - $nearThresholdLeft) -gt 0.01) {
+    throw 'Foam softness did not produce a continuous threshold crossing.'
+}
+$period = 2.0 * [Math]::PI
+Assert-Near $foamA.Age (Get-FoamReference 0.7 (2.2 + $period) 1.4).Age 1.0e-12 `
+    'Foam age is discontinuous across a complete phase wrap.'
+$youngTrail = Get-FoamReference 0.0 (0.5 * [Math]::PI + 0.2) 1.0
+$oldTrail = Get-FoamReference 0.0 (0.5 * [Math]::PI + 1.2) 1.0
+if ($oldTrail.Trail -gt $youngTrail.Trail) {
+    throw 'Analytic foam trail does not decay monotonically with age.'
+}
+if ((Get-FoamReference 1.0 2.2 0.0).Trail -ne 0.0) {
+    throw 'Zero-speed foam must not fabricate analytic trail age.'
+}
+if ((Get-FoamReference 1.0 2.2 1.4 -Mode 0).Foam -ne 0.0 -or
+    (Get-FoamReference 1.0 2.2 1.4 -Amount 0.0).Foam -ne 0.0) {
+    throw 'The runtime and authored foam disabled paths are not exact zero.'
+}
+if ((Get-FoamReference 0.0 2.2 1.4 -Mode 1).Trail -ne 0.0 -or
+    (Get-FoamReference 0.0 2.2 1.4 -Lifetime 0.0).Trail -ne 0.0) {
+    throw 'Mode 1 and zero lifetime must restore instantaneous crest-only foam.'
+}
+
+function Get-StylizedFoamReference(
+    [double]$RawFoam,
+    [double]$MaximumFoam,
+    [double]$Contrast,
+    [double]$EdgeWidth,
+    [double]$CarrierFootprint,
+    [int]$StyleMode = 1) {
+    if ($StyleMode -eq 0 -or $Contrast -le 1.0) { return $RawFoam }
+    $filteredEdge = [Math]::Min(0.5, [Math]::Max(
+        $EdgeWidth / [Math]::Max($Contrast, 1.0),
+        0.25 * [Math]::Max(0.0, [Math]::Min(1.0, $CarrierFootprint))))
+    $normalized = [Math]::Max(0.0, [Math]::Min(1.0,
+        $RawFoam / [Math]::Max($MaximumFoam, 1.0e-5)))
+    $crisp = Get-SmoothStep (0.5 - $filteredEdge) (0.5 + $filteredEdge) $normalized
+    $blend = [Math]::Max(0.0, [Math]::Min(1.0, $Contrast - 1.0))
+    return [Math]::Max(0.0, [Math]::Min(1.0, $RawFoam + ($crisp - $RawFoam) * $blend))
+}
+
+Assert-Near (Get-StylizedFoamReference 0.08 0.10 1.0 0.055 0.0 0) 0.08 0.0 `
+    'Natural style must preserve raw low-amount foam exactly.'
+$lowAmountGraphic = Get-StylizedFoamReference 0.08 0.10 3.0 0.055 0.0
+if ($lowAmountGraphic -lt 0.95) {
+    throw 'Graphic contrast erased low-amount authored foam instead of normalizing its coverage.'
+}
+$belowGraphic = Get-StylizedFoamReference 0.02 0.10 3.0 0.055 0.0
+if ($belowGraphic -gt 0.05) {
+    throw 'Graphic contrast did not preserve a discrete low-coverage cutout.'
+}
+$nearGraphicLeft = Get-StylizedFoamReference 0.04999 0.10 3.0 0.055 0.25
+$nearGraphicRight = Get-StylizedFoamReference 0.05001 0.10 3.0 0.055 0.25
+if ([Math]::Abs($nearGraphicRight - $nearGraphicLeft) -gt 0.02) {
+    throw 'Footprint-aware graphic threshold is discontinuous.'
+}
+$nearDetail = 1.0 / (1.0 + 0.1 * 0.1)
+$farDetail = 1.0 / (1.0 + 4.0 * 4.0)
+if ($farDetail -ge $nearDetail) {
+    throw 'Subpixel stylized detail does not fade monotonically toward no modulation.'
+}
+
+Write-Host 'Seascape-style fluid field, analytic foam, and stylized presentation numeric reference validation passed.'

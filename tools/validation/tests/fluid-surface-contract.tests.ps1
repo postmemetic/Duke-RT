@@ -32,13 +32,22 @@ function Get-SourceSlice(
 
 Assert-Contains $cpuContract 'NRI_FLUID_MAX_LAYERS\s*=\s*4u' 'CPU fluid layer cap must remain four.'
 Assert-Contains $shaderContract 'NRI_FLUID_MAX_LAYERS\s+4u' 'HLSL fluid layer cap must remain four.'
-Assert-Contains $cpuContract 'sizeof\(NRIFluidBindingGpuData\)\s*==\s*224u' 'CPU binding ABI size check is missing.'
+Assert-Contains $cpuContract 'sizeof\(NRIFluidBindingGpuData\)\s*==\s*304u' 'CPU binding ABI size check is missing.'
 Assert-Contains $cpuContract 'sizeof\(NRIFluidFrameGpuData\)\s*==\s*48u' 'CPU frame ABI size check is missing.'
+foreach ($offset in @('foamColorAmount\)\s*==\s*224u', 'foamBirthParams\)\s*==\s*240u', 'foamTrailParams\)\s*==\s*256u', 'foamStyleParams\)\s*==\s*272u', 'foamPresentationParams\)\s*==\s*288u')) {
+    Assert-Contains $cpuContract $offset "CPU foam binding offset check is missing: $offset"
+}
+Assert-Contains $cpuContract 'uint32_t\s+foamMode\s*=\s*0u' 'CPU frame ABI is missing the foam comparison mode.'
+Assert-Contains $shaderContract 'uint\s+foamMode;' 'HLSL frame ABI is missing the foam comparison mode.'
+Assert-Contains $cpuContract 'uint32_t\s+foamStyleMode\s*=\s*0u' 'CPU frame ABI is missing the foam style comparison mode.'
+Assert-Contains $shaderContract 'uint\s+foamStyleMode;' 'HLSL frame ABI is missing the foam style comparison mode.'
 Assert-Contains $shaderSlots 'NRI_SCENE_DATA_DESCRIPTOR_NUM\s*=\s*30' 'Scene descriptor count does not include fluid resources.'
 Assert-Contains $shaderSlots 'NRI_SCENE_DATA_FLUID_BINDING_SLOT\s*=\s*28' 'Fluid binding descriptor slot changed unexpectedly.'
 Assert-Contains $shaderSlots 'NRI_SCENE_DATA_FLUID_FRAME_SLOT\s*=\s*29' 'Fluid frame descriptor slot changed unexpectedly.'
 Assert-Contains $dispatcher '__spirv__[\s\S]*?FluidSurfaceSpirvCompatibility\.hlsli[\s\S]*?FluidSurfaceD3D\.hlsli' 'Fluid shader backend dispatch is missing its explicit DXC compatibility path.'
 Assert-Contains $spirvCompatibility 'void FluidEvaluateOctaves\(' 'The previously validated Vulkan fluid evaluator is not preserved.'
+Assert-Contains $spirvCompatibility 'binding\.virtualParams\.z' 'SPIR-V crest gain must use the same packed field as D3D12.'
+Assert-Contains $spirvCompatibility 'evaluation\.foam\s*=\s*0\.0' 'Unsupported SPIR-V foam must be capability-disabled explicitly.'
 
 Assert-Contains $evaluator 'FluidHash01\(' 'Procedural layers need a stable seed hash.'
 Assert-Contains $evaluator 'FluidHashCellSigned\(' 'The field is missing deterministic integer lattice hashing.'
@@ -63,7 +72,18 @@ foreach ($mapping in @(
     'shaping\[1\]\s*=\s*std::clamp\(source\.choppyRelaxation',
     'shaping\[2\]\s*=\s*std::clamp\(source\.noiseScale',
     'shaping\[3\]\s*=\s*source\.octaveRotation',
-    'virtualParams\[2\]\s*=\s*std::clamp\(source\.crestGain')) {
+    'virtualParams\[2\]\s*=\s*std::clamp\(source\.crestGain',
+    'foamColorAmount\[3\]\s*=\s*Saturate\(source\.foamAmount',
+    'foamBirthParams\[0\]\s*=\s*Saturate\(source\.foamRoughness',
+    'foamBirthParams\[3\]\s*=\s*Saturate\(source\.foamUndersideStrength',
+    'foamTrailParams\[0\]\s*=\s*std::clamp\(source\.foamBreakupScale',
+    'foamTrailParams\[2\]\s*=\s*std::clamp\(source\.foamLifetime',
+    'foamTrailParams\[3\]\s*=\s*std::clamp\(source\.foamTrailGain',
+    'foamStyleParams\[0\]\s*=\s*std::clamp\(source\.foamContrast',
+    'foamStyleParams\[1\]\s*=\s*std::clamp\(source\.foamEdgeWidth',
+    'foamStyleParams\[2\]\s*=\s*std::clamp\(source\.foamCutoutScale',
+    'foamStyleParams\[3\]\s*=\s*Saturate\(source\.foamCutoutStrength',
+    'foamPresentationParams\[0\]\s*=\s*std::clamp\(source\.foamBrightness')) {
     Assert-Contains $gpuBuilder $mapping "GPU fluid binding is missing authored field mapping: $mapping"
 }
 Assert-NotContains $gpuBuilder 'spectrum\[2\]\s*=\s*1\.92f|0\.30f\s*\+\s*source\.choppiness' `
@@ -91,6 +111,20 @@ Assert-Contains $trace 'guideNormal\s*=\s*fluidSurface\.shadingNormal' 'The proc
 Assert-Contains $trace 'FluidFaceCarrierNormalToDirection\(fluidSurface\.carrierNormal' 'Fluid shadow origins are not biased from the carrier normal.'
 Assert-Contains $trace 'directEmission\s*\+=\s*fluidSurface\.emission' 'Surface-only fluid emission is not composed at the accepted hit.'
 Assert-Contains $trace 'max\(existingReactive,\s*fluidSurface\.reactive\)' 'Procedural motion does not contribute to temporal reactivity.'
+Assert-Contains $evaluator 'frame\.foamMode' 'D3D fluid evaluation is missing the runtime foam comparison mode.'
+Assert-Contains $evaluator 'FluidChoppyWaveSecondDerivative' 'Foam birth is missing its analytic breaking proxy.'
+Assert-Contains $evaluator 'FluidEvaluateFoamBreakup' 'Foam breakup is missing deterministic footprint-filtered shaping.'
+Assert-Contains $evaluator 'exp\(-age\s*/\s*lifetime\)' 'Analytic foam trail is missing monotonic age decay.'
+Assert-Contains $evaluator 'evaluation\.reactive\s*=\s*max\(carrierReactive,\s*abs\(foam\s*-\s*previousFoam\)\)' 'Current/previous foam delta is not published as reactivity.'
+Assert-Contains $evaluator 'FluidPresentFoam' 'D3D foam is missing its bounded stylized presentation helper.'
+Assert-Contains $evaluator 'styleMode\s*==\s*0u[\s\S]*?return\s+rawFoam' 'Natural foam style must bypass stylization exactly.'
+Assert-Contains $evaluator 'cutoutFootprint[\s\S]*?cutoutDetail\s*=\s*rcp' 'Large foam cutouts are not footprint filtered.'
+Assert-Contains $evaluator 'foamStyleMode' 'D3D fluid evaluation is missing the runtime foam style mode.'
+Assert-Contains $gpuBuilder 'frame\.foamStyleMode\s*=\s*\(uint32_t\)std::clamp\(\(int\)nri_ptfluidfoamstyle,\s*0,\s*1\)' 'Foam style mode is not uploaded through the frame contract.'
+Assert-NotContains $evaluator 'Bubble|bubble' 'Removed cellular bubble shaping remains in the D3D fluid evaluator.'
+foreach ($mode in 48..53) {
+    Assert-Contains $trace ('DebugMode\s*==\s*' + $mode) "TraceOpaque is missing raw fluid debug mode $mode."
+}
 
 $indirectSpecular = Get-SourceSlice $trace 'float3 TraceIndirectSpecular(' 'float3 ReflectPointAcrossPlane(' 'TraceIndirectSpecular'
 Assert-Contains $indirectSpecular `
