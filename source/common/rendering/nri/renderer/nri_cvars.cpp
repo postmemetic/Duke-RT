@@ -1,5 +1,6 @@
 #include "nri_cvars.h"
 
+#include "nri_scene_lights.h"
 #include "nri_settings_profiles.h"
 #include "../scene/nri_map_builder.h"
 #include "../system/nri_renderdevice.h"
@@ -1412,15 +1413,17 @@ CUSTOM_CVAR(Float, nri_ptanalyticsoftshadowradius, 4.0f, 0)
 	NotifyActiveAnalyticLightSettingsChange();
 }
 
-CUSTOM_CVAR(Int, nri_ptanalyticshadowbudget, 8, 0)
+// Unselected lights remain unoccluded, so the default must cover every runtime
+// light. Smaller budgets are retained only as an explicit diagnostic override.
+CUSTOM_CVAR(Int, nri_ptanalyticshadowbudget, (int)NRI_MAX_RUNTIME_POINT_LIGHTS, 0)
 {
 	if (self < 0)
 	{
 		self = 0;
 	}
-	else if (self > 64)
+	else if (self > (int)NRI_MAX_RUNTIME_POINT_LIGHTS)
 	{
-		self = 64;
+		self = (int)NRI_MAX_RUNTIME_POINT_LIGHTS;
 	}
 	NotifyActiveAnalyticLightSettingsChange();
 }
