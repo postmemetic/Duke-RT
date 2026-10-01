@@ -600,6 +600,12 @@ void FGameConfigFile::ReadCVars (uint32_t flags)
 	flags |= CVAR_ARCHIVE|CVAR_UNSETTABLE|CVAR_AUTO;
 	while (NextInSection (key, value))
 	{
+		// A saved experimental budget can override the full-shadow default even
+		// though this CVar is session-only. Keep overrides in console/exec commands.
+		if (stricmp(key, "nri_ptanalyticshadowbudget") == 0)
+		{
+			continue;
+		}
 		cvar = FindCVar (key, NULL);
 		if (cvar == NULL)
 		{
@@ -607,6 +613,11 @@ void FGameConfigFile::ReadCVars (uint32_t flags)
 		}
 		val.String = const_cast<char *>(value);
 		cvar->SetGenericRep (val, CVAR_String);
+	}
+	// Remove obsolete entries after iteration so the next config save drops them.
+	while (GetValueForKey("nri_ptanalyticshadowbudget") != nullptr)
+	{
+		ClearKey("nri_ptanalyticshadowbudget");
 	}
 }
 
