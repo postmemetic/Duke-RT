@@ -638,6 +638,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	const bool bootstrapCapturedBaseColor = inputs.bootstrapCapturedBaseColor;
 	const bool rawTraceDirectScene = inputs.rawTraceDirectScene;
 	const bool preserveHistory = inputs.preserveHistory;
+	// Paint is captured from live actors, independently of primary-view sprite
+	// visibility, so reflections and reused static scenes see the same marks.
+	mWallDecals.Capture(di);
+	if (mWallDecals.MaterialChanged()) mSceneTextureFrameCache.Reset();
 	if (!preserveHistory)
 	{
 		mWeaponEventBatch.Capture(*mFrameBuffer, mFrameIndex);
@@ -2480,6 +2484,27 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		{
 			RestoreRenderSceneHistorySnapshot(history);
 		}
+		return false;
+	}
+
+	// Static-only reuse may skip the ordinary texture and scene-data refreshes.
+	// Still reconcile changed/deleted decals before publishing this frame.
+	if (mWallDecals.NeedsTextureResolve())
+	{
+		std::vector<nri_scene::MaterialData> decalTextureMaterialScratch;
+		if (!EnsureSceneTextures(*activeSceneView, *activeMaterialBridge, decalTextureMaterialScratch,
+			preserveHistory, "wall_decal_refresh", nullptr, NRISceneTextureMissPolicy::Synchronous, nullptr, true))
+		{
+			LogFallback("PT wall decal texture refresh failed.");
+			if (preserveHistory) RestoreRenderSceneHistorySnapshot(history);
+			return false;
+		}
+	}
+	bool decalWaitedForWrites = false;
+	if (!NRISceneUploadManager::UpdateWallDecalBuffers(*this, &decalWaitedForWrites, true))
+	{
+		LogFallback("PT wall decal upload failed.");
+		if (preserveHistory) RestoreRenderSceneHistorySnapshot(history);
 		return false;
 	}
 

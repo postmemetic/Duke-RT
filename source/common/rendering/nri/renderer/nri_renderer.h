@@ -35,6 +35,7 @@
 #include "nri_sky_environment.h"
 #include "nri_spatial_absence_gate.h"
 #include "nri_spatial_absence_gpu_snapshot.h"
+#include "nri_wall_decals.h"
 #include "nri_scene_lights.h"
 #include "nri_surface_probe.h"
 #include "nri_material_policy.h"
@@ -2218,6 +2219,7 @@ private:
 	friend class NRIPreloadCoordinator;
 	friend class NRIPersistentVoxelServiceFactory;
 	friend class NRISceneUploadManager;
+	friend class NRIWallDecals;
 	friend NRIRuntimeMutationResidentUploadServices BuildNRIRuntimeMutationResidentUploadServices(NRIRenderer& renderer);
 	friend NRIRuntimeMutationOverlayServices BuildNRIRuntimeMutationOverlayServices(NRIRenderer& renderer);
 	friend NRIRuntimeMutationResidentApplyServices BuildNRIRuntimeMutationResidentApplyServices(NRIRenderer& renderer);
@@ -2469,7 +2471,7 @@ private:
 	bool EnsurePaletteTexture(const nri_scene::MaterialBridgeData& materials);
 	uint32_t FindSceneTextureCacheIndex(uint64_t key) const;
 	bool EnsureSceneTextureCacheEntry(const nri_scene::TextureUpload& upload, double* outRealizeMs = nullptr);
-	bool EnsureSceneTextures(const nri_scene::SceneView& sceneView, const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& outGpuMaterials, bool preserveExistingSky, const char* reason = nullptr, const NRISceneTextureFrameReuseInputs* reuseInputs = nullptr, NRISceneTextureMissPolicy missPolicy = NRISceneTextureMissPolicy::Synchronous, std::vector<uint32_t>* outDeferredMaterialIndices = nullptr);
+	bool EnsureSceneTextures(const nri_scene::SceneView& sceneView, const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& outGpuMaterials, bool preserveExistingSky, const char* reason = nullptr, const NRISceneTextureFrameReuseInputs* reuseInputs = nullptr, NRISceneTextureMissPolicy missPolicy = NRISceneTextureMissPolicy::Synchronous, std::vector<uint32_t>* outDeferredMaterialIndices = nullptr, bool preserveMaterialTextureNamespace = false);
 	void ResolveSceneMaterialTextureSlots(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& gpuMaterials) const;
 	bool EnsureSkyTexture(const nri_scene::SceneView& sceneView, bool preserveExistingSky);
 	bool EnsureStaticMapScene();
@@ -2837,6 +2839,8 @@ private:
 	NRIBufferResource mVisibleFlatPlaneBuffer;
 	NRIBufferResource mSpatialAbsenceBuffer;
 	NRIBufferResource mSpatialAbsenceTypedBuffer;
+	NRIBufferResource mWallDecalHeaderBuffer;
+	NRIBufferResource mWallDecalBuffer;
 	NRITraceShaderStats mTraceShaderStats;
 	NRIIndirectRadianceCache mIndirectRadianceCache;
 	NRIStaticTangentIntegration mStaticTangents;
@@ -2905,6 +2909,8 @@ private:
 	SceneBufferDebugStats mVisibleFlatPlaneBufferStats = { "VisibleFlatPlane" };
 	SceneBufferDebugStats mSpatialAbsenceBufferStats = { "SpatialAbsence" };
 	SceneBufferDebugStats mSpatialAbsenceTypedBufferStats = { "SpatialAbsenceTyped" };
+	SceneBufferDebugStats mWallDecalHeaderBufferStats = { "WallDecalHeader" };
+	SceneBufferDebugStats mWallDecalBufferStats = { "WallDecal" };
 	PerfShellTraceStats mLastPerfShellTraceStats = {};
 	PerfResourceTraceStats mLastPerfResourceTraceStats = {};
 	PerfTraceShaderStats mLastPerfTraceShaderStats = {};
@@ -2926,6 +2932,8 @@ private:
 	NRIMapMoverShadow mMapMoverShadow;
 	NRISpatialAbsenceGate mSpatialAbsenceGate;
 	NRISpatialAbsenceGpuSnapshot mSpatialAbsenceGpuSnapshot;
+	NRIWallDecals mWallDecals;
+	uint32_t mWallDecalTraceFrameIndex = UINT32_MAX;
 	uint32_t mSpatialAbsenceFormat = 0;
 	uint32_t mSpatialAbsenceRayQueryCandidateInstanceCount = 0;
 	NRIMapMoverRigidRoute mMapMoverRigidRoute;

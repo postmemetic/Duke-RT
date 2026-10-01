@@ -1930,6 +1930,8 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 
 	mMapWorld = {};
 	mObservedMapWorldBuildSerial = 0;
+	mWallDecals.Reset();
+	mWallDecalTraceFrameIndex = UINT32_MAX;
 	mMapMoverShadow.Reset();
 	mMapMoverRigidRoute.Reset();
 	mSE29FloorDeformerRoute.Reset();
@@ -2086,6 +2088,8 @@ void NRIRenderer::OnLevelLoadBegin(const LevelTransitionInfo& info)
 
 	mMapWorld = {};
 	mObservedMapWorldBuildSerial = 0;
+	mWallDecals.Reset();
+	mWallDecalTraceFrameIndex = UINT32_MAX;
 	mMapMoverShadow.Reset();
 	mMapMoverRigidRoute.Reset();
 	mSE29FloorDeformerRoute.Reset();
@@ -2683,6 +2687,8 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 	accumulateBuffer(mVisibleFlatPlaneBuffer, telemetry.sceneBufferBytes);
 	accumulateBuffer(mSpatialAbsenceBuffer, telemetry.sceneBufferBytes);
 	accumulateBuffer(mSpatialAbsenceTypedBuffer, telemetry.sceneBufferBytes);
+	accumulateBuffer(mWallDecalHeaderBuffer, telemetry.sceneBufferBytes);
+	accumulateBuffer(mWallDecalBuffer, telemetry.sceneBufferBytes);
 	for (const SceneDataFrameSlot& slot : mSceneDataFrameRing)
 	{
 		accumulateBuffer(slot.reprojectionBuffer, telemetry.sceneBufferBytes);
@@ -2690,6 +2696,8 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 		accumulateBuffer(slot.visibleFlatPlaneBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.spatialAbsenceBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.spatialAbsenceTypedBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.wallDecalHeaderBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.wallDecalBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.sceneInstanceBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.portalBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.runtimeLightBuffer, telemetry.sceneBufferBytes);

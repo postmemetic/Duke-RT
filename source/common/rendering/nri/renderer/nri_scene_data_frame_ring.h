@@ -14,6 +14,8 @@ struct NRISceneDataFrameSlot
 	NRIBufferResource visibleFlatPlaneBuffer;
 	NRIBufferResource spatialAbsenceBuffer;
 	NRIBufferResource spatialAbsenceTypedBuffer;
+	NRIBufferResource wallDecalHeaderBuffer;
+	NRIBufferResource wallDecalBuffer;
 	NRIBufferResource sceneInstanceBuffer;
 	NRIBufferResource portalBuffer;
 	NRIBufferResource runtimeLightBuffer;
@@ -31,6 +33,8 @@ struct NRISceneDataFrameSlot
 	SceneBufferDebugStats visibleFlatPlaneStats = { "SceneDataSlotVisibleFlatPlane" };
 	SceneBufferDebugStats spatialAbsenceStats = { "SceneDataSlotSpatialAbsence" };
 	SceneBufferDebugStats spatialAbsenceTypedStats = { "SceneDataSlotSpatialAbsenceTyped" };
+	SceneBufferDebugStats wallDecalHeaderStats = { "SceneDataSlotWallDecalHeader" };
+	SceneBufferDebugStats wallDecalStats = { "SceneDataSlotWallDecal" };
 	SceneBufferDebugStats sceneInstanceStats = { "SceneDataSlotSceneInstance" };
 	SceneBufferDebugStats portalStats = { "SceneDataSlotPortal" };
 	SceneBufferDebugStats runtimeLightStats = { "SceneDataSlotRuntimeLight" };
@@ -70,6 +74,8 @@ struct NRISceneDataFrameSlot
 			visibleFlatPlaneBuffer.usedSize +
 			spatialAbsenceBuffer.usedSize +
 			spatialAbsenceTypedBuffer.usedSize +
+			wallDecalHeaderBuffer.usedSize +
+			wallDecalBuffer.usedSize +
 			sceneInstanceBuffer.usedSize +
 			portalBuffer.usedSize +
 			runtimeLightBuffer.usedSize +
@@ -91,6 +97,8 @@ struct NRISceneDataFrameSlot
 			visibleFlatPlaneBuffer.size +
 			spatialAbsenceBuffer.size +
 			spatialAbsenceTypedBuffer.size +
+			wallDecalHeaderBuffer.size +
+			wallDecalBuffer.size +
 			sceneInstanceBuffer.size +
 			portalBuffer.size +
 			runtimeLightBuffer.size +
@@ -112,6 +120,8 @@ struct NRISceneDataFrameSlot
 			visibleFlatPlaneStats.growEventsLastFrame +
 			spatialAbsenceStats.growEventsLastFrame +
 			spatialAbsenceTypedStats.growEventsLastFrame +
+			wallDecalHeaderStats.growEventsLastFrame +
+			wallDecalStats.growEventsLastFrame +
 			sceneInstanceStats.growEventsLastFrame +
 			portalStats.growEventsLastFrame +
 			runtimeLightStats.growEventsLastFrame +

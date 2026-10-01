@@ -1233,7 +1233,8 @@ bool NRIRenderer::EnsureSceneTextures(
 	const char* reason,
 	const NRISceneTextureFrameReuseInputs* reuseInputs,
 	NRISceneTextureMissPolicy missPolicy,
-	std::vector<uint32_t>* outDeferredMaterialIndices)
+	std::vector<uint32_t>* outDeferredMaterialIndices,
+	bool preserveMaterialTextureNamespace)
 {
 	Clocker clock(NriPTSceneTextures);
 	static bool sLoggedActiveCanvasTextureReuse = false;
@@ -1325,12 +1326,26 @@ bool NRIRenderer::EnsureSceneTextures(
 	}
 
 	const bool combinedMaterialSet = &materials == &mSceneMaterialFrameCache.Materials();
+	if (mWallDecals.MaterialChanged())
+	{
+		// The frame product's texture-source key does not contain decal art.
+		// Drop its descriptor template whenever that independent owner changes.
+		mSceneTextureFrameCache.Reset();
+	}
 	const bool combinedUsesResidentStaticBuffer =
 		combinedMaterialSet &&
 		mStaticMapScene.valid &&
 		mStaticMapScene.buffersResident &&
 		!mStaticMapScene.gpuMaterials.empty();
+	const bool residentStaticMaterialSet =
+		&materials == &mStaticMapScene.materialBridge && mStaticMapScene.valid &&
+		mStaticMapScene.buffersResident && !mStaticMapScene.gpuMaterials.empty();
+	const bool preservedStableTextureNamespace =
+		residentStaticMaterialSet || combinedUsesResidentStaticBuffer ?
+			mStaticMapScene.gpuMaterialsUseStableTextureSlots : mSceneTextureStableSlotsActive;
 	const bool reuseOwnerEligible =
+		!preserveMaterialTextureNamespace &&
+		!mWallDecals.MaterialChanged() &&
 		reuseInputs != nullptr &&
 		reuseInputs->allowReuse &&
 		reuseInputs->engineUpdateGeneration != 0 &&
@@ -1372,6 +1387,8 @@ bool NRIRenderer::EnsureSceneTextures(
 			mSceneTextureKeyScratch.push_back(upload.key);
 		}
 	}
+	const size_t sceneTextureKeyCount = mSceneTextureKeyScratch.size();
+	mWallDecals.AppendTextureKeys(mSceneTextureKeyScratch);
 	const uint64_t currentTextureSerial = (uint64_t)mFrameIndex + 1ull;
 	const uint64_t queuedFrameCount = mFrameBuffer != nullptr ?
 		std::max<uint64_t>(1ull, (uint64_t)mFrameBuffer->mQueuedFrames.size()) : 1ull;
@@ -1405,9 +1422,15 @@ bool NRIRenderer::EnsureSceneTextures(
 		}
 		mSceneTextureStableSlotsActive = false;
 	}
+	else if (preserveMaterialTextureNamespace && !preservedStableTextureNamespace)
+	{
+		// A descriptor-only refresh does not upload the returned material rows.
+		// Keep their existing legacy indices even if stable slots are now available.
+		mSceneTextureStableSlotsActive = false;
+	}
 	else
 	{
-		mSceneTextureStableSlotsActive = authoritativeTextureSet ?
+		mSceneTextureStableSlotsActive = authoritativeTextureSet && !preserveMaterialTextureNamespace ?
 			mSceneTextures.SlotTable().UpdateActiveKeys(
 				mSceneTextureKeyScratch,
 				currentTextureSerial,
@@ -1415,6 +1438,24 @@ bool NRIRenderer::EnsureSceneTextures(
 			mSceneTextures.SlotTable().EnsureActiveKeys(
 				mSceneTextureKeyScratch,
 				completedTextureSerial);
+		if (!mSceneTextureStableSlotsActive && mSceneTextureKeyScratch.size() > sceneTextureKeyCount)
+		{
+			// Decals are optional texture consumers. If their extra keys exhaust
+			// the table, retry the original scene rather than forcing its materials
+			// into a different namespace or rejecting an otherwise valid frame.
+			mSceneTextureKeyScratch.resize(sceneTextureKeyCount);
+			mSceneTextureStableSlotsActive = authoritativeTextureSet && !preserveMaterialTextureNamespace ?
+				mSceneTextures.SlotTable().UpdateActiveKeys(
+					mSceneTextureKeyScratch, currentTextureSerial, completedTextureSerial) :
+				mSceneTextures.SlotTable().EnsureActiveKeys(
+					mSceneTextureKeyScratch, completedTextureSerial);
+		}
+		if (!mSceneTextureStableSlotsActive && preserveMaterialTextureNamespace && preservedStableTextureNamespace)
+		{
+			// The resident material rows cannot consume a legacy descriptor table.
+			// Allocation is transactional, so keep the last coherent publication.
+			return false;
+		}
 		if (combinedUsesResidentStaticBuffer && !mSceneTextureStableSlotsActive)
 		{
 			// The static atlas already contains stable slot indices. Slot-table
@@ -1838,6 +1879,11 @@ bool NRIRenderer::EnsureSceneTextures(
 	}
 	descriptors[NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT] = mBlueNoise.GetScramblingRankingDescriptor();
 	descriptors[NRI_BLUE_NOISE_SOBOL_SLOT] = mBlueNoise.GetSobolDescriptor();
+	if (!mWallDecals.ResolveTextureDescriptors(*this, descriptors,
+		mSceneTextureStableSlotsActive, (uint32_t)materials.textures.size()))
+	{
+		return false;
+	}
 	bool updated = false;
 	if (tracePerf)
 	{
@@ -1922,7 +1968,7 @@ bool NRIRenderer::EnsureSceneTextures(
 		mLastPerfShellTraceStats.sceneReuseTextureKey = mSceneTextureFrameCache.LastTraceKey();
 		mLastPerfShellTraceStats.sceneReuseTextureDynamicCount = (uint32_t)dynamicDependencies.size();
 	}
-	if (updated && &materials == &mStaticMapScene.materialBridge)
+	if (updated && !preserveMaterialTextureNamespace && &materials == &mStaticMapScene.materialBridge)
 	{
 		// The resident static material buffer can outlive this call and later be
 		// patched by runtime mutation handling. Record the index namespace that

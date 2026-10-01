@@ -1,6 +1,7 @@
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
+#include "Include/WallDecals.hlsli"
 #include "Include/DisplayMapping.hlsli"
 
 bool UseSplitShadowDenoiser()
@@ -215,7 +216,7 @@ float3 BootstrapCapturedSceneBaseColor(float2 uv)
 		return color;
 	}
 
-	return saturate(SampleSurfaceColor(hit.materialIndex, hit.dataSource, hit.uv).rgb);
+	return saturate(SampleHitBaseColor(hit).rgb);
 }
 
 float3 BootstrapCapturedSceneLit(float2 uv)
@@ -233,7 +234,7 @@ float3 BootstrapCapturedSceneLit(float2 uv)
 		return GetMissColor(rayDir);
 	}
 
-	const float4 albedo = SampleSurfaceColor(hit.materialIndex, hit.dataSource, hit.uv);
+	const float4 albedo = SampleHitBaseColor(hit);
 	const float3 lightDir = normalize(gTraceConstants.LightDirection);
 	const float3 directionalLightColor = GetDirectionalPlaceholderColor();
 	const float3 viewDir = normalize(-rayDir);

@@ -78,6 +78,25 @@ struct SpatialAbsenceRecord
 	float4 Payload3;
 };
 
+// One actor-owned color marking on a particular map wall. These rows have no
+// traced geometry: the receiver retains its depth, normal and BRDF. Keep the
+// 96-byte layout aligned with the CPU wall-decal upload contract.
+struct WallDecalData
+{
+	float4 worldToU;
+	float4 worldToV;
+	float4 plane;
+	uint textureIndex;
+	uint paletteIndex;
+	uint flags;
+	uint actorIndex;
+	float alpha;
+	float lightLevel;
+	uint wallIndex;
+	uint sectorIndex;
+	float4 uvBounds;
+};
+
 NRI_ROOT_CONSTANTS(NRITraceSceneConstants, gTraceConstants, 0, SET_ROOT);
 
 float3 GetDirectionalPlaceholderColor()
@@ -171,6 +190,8 @@ StructuredBuffer<MaterialData> gPersistentVoxelMaterials : register(t24, space2)
 StructuredBuffer<EmissiveMaterialResponseData> gEmissiveMaterialResponses : register(t25, space2);
 #endif
 StructuredBuffer<SpatialAbsenceRecord> gSpatialAbsenceRecords : register(t26, space2);
+StructuredBuffer<uint2> gWallDecalHeaders : register(t29, space2);
+StructuredBuffer<WallDecalData> gWallDecals : register(t30, space2);
 
 SamplerState gLinearWrap : register(s0, space0);
 SamplerState gLinearClamp : register(s1, space0);

@@ -821,6 +821,7 @@ namespace
 			outMaterials);
 
 		material.sectorIndex = surface.provenance.sectorIndex >= 0 ? (uint32_t)surface.provenance.sectorIndex : UINT32_MAX;
+		material.wallIndex = surface.provenance.wallIndex >= 0 ? (uint32_t)surface.provenance.wallIndex : UINT32_MAX;
 		outMaterials.materials.push_back(material);
 		uint32_t glowmapTextureIndex = UINT32_MAX;
 		uint64_t glowmapContentKey = 0;

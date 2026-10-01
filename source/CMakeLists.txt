@@ -1088,6 +1088,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_voxel_compute_meshing.cpp
 	common/rendering/nri/renderer/nri_world_tlas_slots.cpp
 	common/rendering/nri/renderer/nri_world_tlas_policy.cpp
+	common/rendering/nri/renderer/nri_wall_decals.cpp
+	common/rendering/nri/renderer/nri_wall_decal_upload.cpp
 	common/rendering/nri/renderer/nri_voxel_policy_editor.cpp
 	common/rendering/nri/scene/nri_map_world.cpp
 	common/rendering/nri/scene/nri_map_motion_correspondence.cpp
@@ -1112,6 +1114,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
+	common/rendering/nri/scene/nri_wall_decals.cpp
 	../libraries/ShaderMake/ShaderMake/ShaderBlob.cpp
 	../libraries/NRD/Source/Wrapper.cpp
 	../libraries/NRD/Source/InstanceImpl.cpp

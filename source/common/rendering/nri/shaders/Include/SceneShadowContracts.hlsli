@@ -66,6 +66,7 @@ struct MaterialData
 	float emissiveMaskScale;
 	uint emissiveMode;
 	float emissiveReserved;
+	uint wallIndex;
 };
 
 struct SceneInstanceData

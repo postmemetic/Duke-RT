@@ -5,7 +5,7 @@
 #include <type_traits>
 
 static_assert(std::is_trivially_copyable<nri_scene::MaterialData>::value, "Material row byte comparison requires a plain GPU payload.");
-static_assert(sizeof(nri_scene::MaterialData) == 21 * sizeof(uint32_t), "Update exact material comparison when the shader row layout changes.");
+static_assert(sizeof(nri_scene::MaterialData) == 22 * sizeof(uint32_t), "Update exact material comparison when the shader row layout changes.");
 
 bool NRISceneMaterialProduct::EqualRows(const nri_scene::MaterialData* a, const nri_scene::MaterialData* b, size_t count)
 {

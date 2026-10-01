@@ -223,6 +223,7 @@ struct MaterialData
 	float emissiveMaskScale = 0.0f;
 	uint32_t emissiveMode = MaterialEmissiveMode_None;
 	float emissiveReserved = 0.0f;
+	uint32_t wallIndex = UINT32_MAX;
 };
 
 struct MaterialLightingMetadata

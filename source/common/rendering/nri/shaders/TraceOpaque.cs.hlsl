@@ -5,6 +5,7 @@
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
+#include "Include/WallDecals.hlsli"
 #include "Include/PrimaryTemporalGeometry.hlsli"
 #if NRI_SHADER_DIAGNOSTICS
 #include "Include/PrimaryTemporalGeometryOracle.hlsli"
@@ -1279,7 +1280,7 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 		}
 
 		const float bounceMetalness = GetSurfaceMetalness(bounceMaterial, bounceHit.uv);
-		const float4 bounceAlbedo = SampleMaterialBaseColor(bounceHit.materialIndex, bounceHit.dataSource, bounceHit.uv);
+		const float4 bounceAlbedo = SampleHitBaseColor(bounceHit);
 		if (IsMaterialEmissive(bounceMaterial))
 		{
 			indirectRadiance += throughput * EvaluateMaterialEmission(bounceHit.materialIndex, bounceHit.dataSource, bounceHit.primitiveIndex, bounceMaterial, bounceHit.uv);
@@ -1411,7 +1412,7 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 
 		const float bounceRoughness = GetSurfaceRoughness(bounceMaterial, bounceHit.uv);
 		const float bounceMetalness = GetSurfaceMetalness(bounceMaterial, bounceHit.uv);
-		const float4 bounceAlbedo = SampleMaterialBaseColor(bounceHit.materialIndex, bounceHit.dataSource, bounceHit.uv);
+		const float4 bounceAlbedo = SampleHitBaseColor(bounceHit);
 		if ((bounceMaterial.flags & MATERIAL_FLAG_FULLBRIGHT) != 0u)
 		{
 			const float3 visibleRadiance =
@@ -1499,7 +1500,7 @@ bool TryApplyPlainMirrorPrimaryReplacement(inout HitData hit, float3 primaryRayD
 		return false;
 	}
 
-	const float4 mirrorAlbedo = SampleMaterialBaseColor(hit.materialIndex, hit.dataSource, hit.uv);
+	const float4 mirrorAlbedo = SampleHitBaseColor(hit);
 	const float mirrorMetalness = GetSurfaceMetalness(mirrorMaterial, hit.uv);
 	mirrorPlanePosition = hit.position;
 	mirrorPlaneNormal = dot(hit.normal, -primaryRayDirection) >= 0.0 ? normalize(hit.normal) : -normalize(hit.normal);
@@ -1521,7 +1522,7 @@ bool TryApplyPlainMirrorPrimaryReplacement(inout HitData hit, float3 primaryRayD
 float3 EvaluatePlainMirrorSurfaceGlint(HitData mirrorHit, float3 mirrorPlaneNormal, float3 primaryRayDirection, uint2 pixelPos)
 {
 	const MaterialData mirrorMaterial = GetMaterialData(mirrorHit.materialIndex, mirrorHit.dataSource);
-	const float4 mirrorAlbedo = SampleMaterialBaseColor(mirrorHit.materialIndex, mirrorHit.dataSource, mirrorHit.uv);
+	const float4 mirrorAlbedo = SampleHitBaseColor(mirrorHit);
 	const float mirrorMetalness = GetSurfaceMetalness(mirrorMaterial, mirrorHit.uv);
 	const float3 mirrorViewDir = normalize(-primaryRayDirection);
 	const float mirrorNoV = saturate(dot(mirrorPlaneNormal, mirrorViewDir));
@@ -1880,11 +1881,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				visibleRayDirection,
 				primaryBaseColorLod,
 				primaryBaseColorMipCount);
-			albedo = SampleMaterialBaseColorLevel(
-				hit.materialIndex,
-				hit.dataSource,
-				hit.uv,
-				primaryBaseColorLod);
+			albedo = SampleHitBaseColorLevel(hit, primaryBaseColorLod);
 			RecordSurfaceProbePrimaryPixel(pixelPos, hit, material);
 			smokeForeground = (material.lightingFlags & MATERIAL_LIGHTING_FLAG_SMOKE_FOREGROUND) != 0u;
 			const bool fullbright = (material.flags & MATERIAL_FLAG_FULLBRIGHT) != 0;

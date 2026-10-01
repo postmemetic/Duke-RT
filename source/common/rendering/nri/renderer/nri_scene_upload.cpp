@@ -246,6 +246,8 @@ namespace
 		uint64_t visibleFlatPlaneSize,
 		uint64_t spatialAbsenceSize,
 		uint64_t spatialAbsenceTypedSize,
+		uint64_t wallDecalHeaderSize,
+		uint64_t wallDecalSize,
 		uint64_t sceneInstanceSize,
 		uint64_t runtimeLightSize,
 		uint64_t runtimeLightTileHeaderSize,
@@ -259,6 +261,8 @@ namespace
 			EstimateSceneDataFrameResourceCapacity(slot.visibleFlatPlaneBuffer, visibleFlatPlaneSize, sizeof(uint32_t)) +
 			EstimateSceneDataFrameResourceCapacity(slot.spatialAbsenceBuffer, spatialAbsenceSize, sizeof(NRISpatialAbsenceGpuRecord)) +
 			EstimateSceneDataFrameResourceCapacity(slot.spatialAbsenceTypedBuffer, spatialAbsenceTypedSize, sizeof(NRISpatialAbsenceGpuBlock)) +
+			EstimateSceneDataFrameResourceCapacity(slot.wallDecalHeaderBuffer, wallDecalHeaderSize, sizeof(nri_scene::WallDecalHeaderGpuData)) +
+			EstimateSceneDataFrameResourceCapacity(slot.wallDecalBuffer, wallDecalSize, sizeof(nri_scene::WallDecalGpuData)) +
 			EstimateSceneDataFrameResourceCapacity(slot.sceneInstanceBuffer, sceneInstanceSize, sizeof(SceneInstanceData)) +
 			EstimateSceneDataFrameResourceCapacity(slot.runtimeLightBuffer, runtimeLightSize, sizeof(NRIRuntimePointLightGpuData)) +
 			EstimateSceneDataFrameResourceCapacity(slot.runtimeLightTileHeaderBuffer, runtimeLightTileHeaderSize, sizeof(NRIRuntimeLightTileHeaderGpuData)) +
@@ -323,6 +327,8 @@ void NRIRenderer::ResetSceneBufferFrameStats()
 	resetStats(mPortalBufferStats);
 	resetStats(mSpatialAbsenceBufferStats);
 	resetStats(mSpatialAbsenceTypedBufferStats);
+	resetStats(mWallDecalHeaderBufferStats);
+	resetStats(mWallDecalBufferStats);
 	for (SceneDataFrameSlot& slot : mSceneDataFrameRing)
 	{
 		resetStats(slot.reprojectionStats);
@@ -330,6 +336,8 @@ void NRIRenderer::ResetSceneBufferFrameStats()
 		resetStats(slot.visibleFlatPlaneStats);
 		resetStats(slot.spatialAbsenceStats);
 		resetStats(slot.spatialAbsenceTypedStats);
+		resetStats(slot.wallDecalHeaderStats);
+		resetStats(slot.wallDecalStats);
 		resetStats(slot.sceneInstanceStats);
 		resetStats(slot.portalStats);
 		resetStats(slot.runtimeLightStats);
@@ -2618,6 +2626,10 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSpatialAbsenceGate.GetSnapshot().gpuRecords.size(), 1u) * sizeof(NRISpatialAbsenceGpuRecord);
 	const uint64_t spatialAbsenceTypedSize = std::max<size_t>(
 		renderer.mSpatialAbsenceGpuSnapshot.blocks.size(), 1u) * sizeof(NRISpatialAbsenceGpuBlock);
+	const uint64_t wallDecalHeaderSize = std::max<size_t>(
+		renderer.mWallDecals.Headers().size(), 1u) * sizeof(nri_scene::WallDecalHeaderGpuData);
+	const uint64_t wallDecalSize = std::max<size_t>(
+		renderer.mWallDecals.Records().size(), 1u) * sizeof(nri_scene::WallDecalGpuData);
 	const uint64_t sceneInstanceSize = sceneInstances.size() * sizeof(SceneInstanceData);
 	const uint64_t portalSize = scenePortals.size() * sizeof(ScenePortalData);
 	const uint64_t portalHash = HashSceneDataPayload(scenePortals.empty() ? nullptr : scenePortals.data(), portalSize, scenePortals.size());
@@ -2670,6 +2682,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 				visibleFlatPlaneSize,
 				spatialAbsenceSize,
 				spatialAbsenceTypedSize,
+				wallDecalHeaderSize,
+				wallDecalSize,
 				0u,
 				estimatedRuntimeLightSize,
 				estimatedRuntimeLightTileHeaderSize,
@@ -2727,6 +2741,10 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 	}
 
 	if (!UpdateSpatialAbsenceBuffer(renderer, &waitedForWrites, useSceneDataFrameRing))
+	{
+		return false;
+	}
+	if (!UpdateWallDecalBuffers(renderer, &waitedForWrites, useSceneDataFrameRing))
 	{
 		return false;
 	}
@@ -3269,6 +3287,10 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->spatialAbsenceBuffer : renderer.mSpatialAbsenceBuffer;
 	const NRIBufferResource& spatialAbsenceTypedDescriptorBuffer =
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->spatialAbsenceTypedBuffer : renderer.mSpatialAbsenceTypedBuffer;
+	const NRIBufferResource& wallDecalHeaderDescriptorBuffer =
+		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->wallDecalHeaderBuffer : renderer.mWallDecalHeaderBuffer;
+	const NRIBufferResource& wallDecalDescriptorBuffer =
+		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->wallDecalBuffer : renderer.mWallDecalBuffer;
 	const NRIBufferResource& runtimeLightDescriptorBuffer =
 		sceneDataFrameSlot != nullptr ? sceneDataFrameSlot->runtimeLightBuffer : renderer.mRuntimeLightBuffer;
 	const NRIBufferResource& runtimeLightTileHeaderDescriptorBuffer =
@@ -3314,6 +3336,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSceneDataDescriptors[25] = renderer.mEmissiveMaterialResponseBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT] = spatialAbsenceDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT] = spatialAbsenceTypedDescriptorBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_WALL_DECAL_HEADER_SLOT] = wallDecalHeaderDescriptorBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_WALL_DECAL_SLOT] = wallDecalDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_STATIC_TANGENT_SLOT] = renderer.PublishStaticTangents(
 			staticVertexBuffer.shaderView != nullptr ? staticVertexBuffer : dynamicVertexBuffer,
 			staticPrimitiveBuffer.shaderView != nullptr ? staticPrimitiveBuffer : dynamicPrimitiveBuffer,
@@ -3408,6 +3432,10 @@ bool NRISceneUploadManager::UpdateRuntimeLightAndSectorSceneData(NRIRenderer& re
 	};
 	NRISceneDataFrameSlot* sceneDataFrameSlot = renderer.ShouldUseSceneDataFrameRing() ? &renderer.GetCurrentSceneDataFrameSlot() : nullptr;
 	const bool runtimeLightUsesFrameSlot = sceneDataFrameSlot != nullptr;
+	if (!UpdateWallDecalBuffers(renderer, &waitedForWrites, runtimeLightUsesFrameSlot))
+	{
+		return false;
+	}
 
 	uint64_t runtimeLightPayloadHash = 0;
 	{
@@ -3909,7 +3937,9 @@ bool NRIRenderer::PreGrowLevelSceneResourcesForLoading()
 		ensureCapacity(mVisibleChunkBuffer, mVisibleChunkBufferStats, estimatedVisibleChunkBytes, sizeof(uint32_t)) &&
 		ensureCapacity(mVisibleFlatPlaneBuffer, mVisibleFlatPlaneBufferStats, estimatedVisibleFlatPlaneBytes, sizeof(uint32_t)) &&
 		ensureCapacity(mSpatialAbsenceBuffer, mSpatialAbsenceBufferStats, estimatedSpatialAbsenceBytes, sizeof(NRISpatialAbsenceGpuRecord)) &&
-		ensureCapacity(mSpatialAbsenceTypedBuffer, mSpatialAbsenceTypedBufferStats, estimatedSpatialAbsenceTypedBytes, sizeof(NRISpatialAbsenceGpuBlock));
+		ensureCapacity(mSpatialAbsenceTypedBuffer, mSpatialAbsenceTypedBufferStats, estimatedSpatialAbsenceTypedBytes, sizeof(NRISpatialAbsenceGpuBlock)) &&
+		ensureCapacity(mWallDecalHeaderBuffer, mWallDecalHeaderBufferStats, mWallDecals.Headers().size() * sizeof(nri_scene::WallDecalHeaderGpuData), sizeof(nri_scene::WallDecalHeaderGpuData)) &&
+		ensureCapacity(mWallDecalBuffer, mWallDecalBufferStats, mWallDecals.Records().size() * sizeof(nri_scene::WallDecalGpuData), sizeof(nri_scene::WallDecalGpuData));
 
 	if ((int)nri_ptloadingtrace >= 1)
 	{
