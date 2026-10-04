@@ -1543,6 +1543,25 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 add_executable( ${PROJECT_NAME} WIN32 MACOSX_BUNDLE ${GAME_SOURCES} )
 
 if (HAVE_NRI)
+	if (WIN32)
+		# NRI normally generates this header in its own configure step, which is
+		# skipped when Raze uses prebuilt runtime DLLs. Match the staged Agility
+		# runtime (the vendored NRI default is 619) and its post-build directory.
+		set(RAZE_NRI_AGILITY_SDK_VERSION "619" CACHE STRING "Agility SDK version; must match the staged D3D12Core.dll in RAZE_NRI_RUNTIME_DIR/AgilitySDK.")
+		if (NOT RAZE_NRI_AGILITY_SDK_VERSION MATCHES "^[1-9][0-9]*$")
+			message(FATAL_ERROR "RAZE_NRI_AGILITY_SDK_VERSION must be a positive integer matching the staged Agility SDK.")
+		endif()
+		set(_raze_nri_generated_include "${CMAKE_CURRENT_BINARY_DIR}/nri")
+		string(CONCAT _raze_nri_agility_exports
+			"// Generated from the Raze NRI runtime configuration.\n"
+			"extern \"C\" {\n"
+			"__declspec(dllexport) extern const uint32_t D3D12SDKVersion;\n"
+			"const uint32_t D3D12SDKVersion = ${RAZE_NRI_AGILITY_SDK_VERSION};\n"
+			"__declspec(dllexport) extern const char* D3D12SDKPath;\n"
+			"const char* D3D12SDKPath = \"AgilitySDK/\";\n"
+			"}\n")
+		file(GENERATE OUTPUT "${_raze_nri_generated_include}/NRIAgilitySDK.h" CONTENT "${_raze_nri_agility_exports}")
+	endif()
 	set(RAZE_NRD_CONFIGURATION
 		NRD_NORMAL_ENCODING=2
 		NRD_ROUGHNESS_ENCODING=1
@@ -2654,6 +2673,11 @@ include_directories(
 	../libraries/webp/include
 	${SYSTEM_SOURCES_DIR}
 )
+
+if (HAVE_NRI AND WIN32)
+	# Prefer the runtime configuration over an older generated vendor header.
+	target_include_directories(${PROJECT_NAME} BEFORE PRIVATE "${_raze_nri_generated_include}")
+endif()
 
 if (NOT WIN32)
 	include_directories(platform/posix)
