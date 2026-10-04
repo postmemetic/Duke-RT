@@ -1543,7 +1543,7 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 add_executable( ${PROJECT_NAME} WIN32 MACOSX_BUNDLE ${GAME_SOURCES} )
 
 if (HAVE_NRI)
-	add_compile_definitions(
+	set(RAZE_NRD_CONFIGURATION
 		NRD_NORMAL_ENCODING=2
 		NRD_ROUGHNESS_ENCODING=1
 		NRD_SUPPORTS_VIEWPORT_OFFSET=0
@@ -1553,6 +1553,18 @@ if (HAVE_NRI)
 		NRD_SUPPORTS_BASECOLOR_METALNESS=1
 		NRD_SUPPORTS_ANTIFIREFLY=0
 		REBLUR_PERFORMANCE_MODE=0
+	)
+	# NRD's shader headers require this generated configuration even when the
+	# runtime is supplied prebuilt and NRD's own CMake project is not configured.
+	set(_nrd_shader_config "// Generated from the Raze NRD integration settings.\n")
+	foreach(_definition IN LISTS RAZE_NRD_CONFIGURATION)
+		string(REPLACE "=" " " _shader_definition "${_definition}")
+		string(APPEND _nrd_shader_config "#define ${_shader_definition}\n")
+	endforeach()
+	set(RAZE_NRD_SHADER_CONFIG "${CMAKE_SOURCE_DIR}/libraries/NRD/Shaders/NRDConfig.hlsli")
+	file(GENERATE OUTPUT "${RAZE_NRD_SHADER_CONFIG}" CONTENT "${_nrd_shader_config}")
+	add_compile_definitions(
+		${RAZE_NRD_CONFIGURATION}
 		NRD_EMBEDS_DXBC_SHADERS=1
 		NRD_EMBEDS_DXIL_SHADERS=1
 		NRD_EMBEDS_SPIRV_SHADERS=1
@@ -1569,6 +1581,7 @@ if (HAVE_NRI)
 	# the unrelated production/diagnostic TraceOpaque batches. Shared includes still
 	# invalidate every consumer through the conservative common dependency list.
 	set(NRI_SHARED_SHADER_FILES ${NRI_SHADER_FILES})
+	list(APPEND NRI_SHARED_SHADER_FILES "${RAZE_NRD_SHADER_CONFIG}")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransient[^/]*[.]cs[.]hlsl$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientLighting[.]hlsli$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientCoverage[.]hlsli$")
