@@ -1,5 +1,0 @@
-PERF pt smoke route frame NRI: renderer_frame=700 simulation_frame=70 epoch=3 gather=1 mask=1 grid_commands=0 analytic_carriers=0 transient_groups=1 transient_lobes=6 fallback_grid=0 fallback_analytic=0 bridge_observations=0 compact=1
-NRI PT smoke routing: event=source gather=1 source_id=explosion authored=2 effective=2 class=0 source_quantity=1 grid_commands=0 analytic_carriers=0 transient_groups=1 transient_lobes=6
-PERF pt smoke transient NRI: renderer_frame=700 epoch=3 profile=2 valid=1 groups=1 lobes=6 resident_bytes=1319936 overflow=0 missing=0 identity_rejects=0 apply_visibility_rays=0 observed=1 observed_full=1 observed_fallback=0 froxels_applied=8 full_builds=1 fallback_builds=1 full_published=1 fallback_published=1 build_rays=4
-PERF pt smoke gpu timing NRI: renderer_frame=699 transient_bins=9.0 transient_light_build=9.0 transient_materialize=9.0 total=9.0 valid=22 invalid=0 dropped=0
-PERF pt gpu timing NRI: frame=70 nri_frame=700 smoke_total=1.234 smoke_transient_bins=0.011 smoke_transient_light_build=0.022 smoke_transient_materialize=0.033 segments=1 invalid=0 dropped=0 resolved=1 expected=1 compact=1

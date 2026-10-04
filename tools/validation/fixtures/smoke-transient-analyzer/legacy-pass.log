@@ -1,3 +1,0 @@
-PERF pt smoke route frame NRI: renderer_frame=200 simulation_frame=190 epoch=8 gather=50 mask=0 grid_commands=1 analytic_carriers=0 transient_groups=0 transient_lobes=0 fallback_grid=0 fallback_analytic=0 bridge_observations=1 compact=1
-NRI PT smoke routing: event=source gather=50 source_id=00112233 authored=0 effective=0 class=2 source_quantity=1 grid_commands=1 analytic_carriers=0 transient_groups=0 transient_lobes=0
-PERF pt smoke gpu timing NRI: renderer_frame=200 presentation_gen=2 queued_slot=0 segment=0.050 simulation=0.200 volume=0.800 total=0.900 detail_total=0.900 unattributed=0.000 transient_bins=0.000 transient_light_build=0.000 transient_materialize=0.000 scopes=7 valid=1 invalid=0 dropped=0 compact=1 epoch=8 record=200
