@@ -1573,6 +1573,16 @@ if (HAVE_NRI)
 		NRD_SUPPORTS_ANTIFIREFLY=0
 		REBLUR_PERFORMANCE_MODE=0
 	)
+	set(RAZE_NRD_SHADER_HEADER_DIR "${RAZE_NRD_DIR}/_Shaders" CACHE PATH "Precompiled NRD shader headers matching the Raze NRD source and RAZE_NRD_CONFIGURATION.")
+	foreach(_nrd_backend IN ITEMS dxbc dxil spirv)
+		if (NOT EXISTS "${RAZE_NRD_SHADER_HEADER_DIR}/REFERENCE_Copy.cs.${_nrd_backend}.h")
+			message(FATAL_ERROR
+				"Missing generated NRD shader headers in ${RAZE_NRD_SHADER_HEADER_DIR}. "
+				"Set RAZE_NRD_SHADER_HEADER_DIR to a compatible precompiled NRD header directory "
+				"containing DXBC, DXIL and SPIR-V headers matching RAZE_NRD_CONFIGURATION.")
+		endif()
+	endforeach()
+	message(STATUS "NRD embedded shader headers: ${RAZE_NRD_SHADER_HEADER_DIR}")
 	# NRD's shader headers require this generated configuration even when the
 	# runtime is supplied prebuilt and NRD's own CMake project is not configured.
 	set(_nrd_shader_config "// Generated from the Raze NRD integration settings.\n")
@@ -2668,7 +2678,7 @@ include_directories(
 	../libraries/ShaderMake
 	../libraries/NRD/Include
 	../libraries/NRD/Integration
-	../libraries/NRD/_Shaders
+	${RAZE_NRD_SHADER_HEADER_DIR}
 	../libraries/ZWidget/include
 	../libraries/webp/include
 	${SYSTEM_SOURCES_DIR}
