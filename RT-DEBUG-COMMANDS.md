@@ -386,7 +386,7 @@ Useful live profiling commands:
 
 Skybox / RT environment repro workflow:
 
-- Preserve the run with `+logfile M:/Raze/tools/logs/<name>.log` so the default `duke-rt.log` does not get overwritten.
+- Preserve the run with `+logfile <name>.log` so the default `duke-rt.log` does not get overwritten.
 - For skybox source-selection issues, prefer `+set nri_pttraceframes 128` or higher. A value like `8` is often too short to catch a later downgrade after moving into another area.
 - When the skybox is expected to remain stable for a level, `NRI PT sky: ... action=hold-level-cubemap` is the expected trace if the current view only sees weaker wall/flat sky surfaces.
 - If the sky really changes, the trace should show a different cubemap key or an explicit solid-sky activation instead of silent drift.

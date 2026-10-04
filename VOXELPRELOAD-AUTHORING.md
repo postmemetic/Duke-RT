@@ -242,7 +242,7 @@ NRI PT voxel admission entry:
 Example launch fragment for validation:
 
 ```text
-+set nri_ptloadingtrace 2 +set nri_voxelstats true +logfile M:/Raze/tools/logs/voxelpreload-test.log
++set nri_ptloadingtrace 2 +set nri_voxelstats true +logfile voxelpreload-test.log
 ```
 
 Expected signs of correct parsing:

@@ -308,17 +308,17 @@ coverage, or when a rule is not an explosion.
 
 Fire lighting waits for every member's density attack before its first full build, and crossfades complete cache replacements over 0.2 gameplay seconds. Adjacent packets from the same fire share an emissive sampling pattern. Fire evaluates current directional-light color and direction while reusing cached directional transport; scene visibility still updates only at the profile's cache cadence (or freezes on Low). A fire-only artistic self-transmittance floor of 0.18 prevents deep interior samples from blacking out the whole outer puff. It does not lift scene occlusion, create ambient light, or alter view opacity. Other classes retain their existing frozen lighting/self-shadow policy. These changes add no scene rays during materialization; the previous bank is read only during the short crossfade.
 
-The mount-ready validation overlay is `tools/validation/overlays/smoke-transient-fixtures`. Pass that directory to `-file`; it contains the required literal `LIGHTOVR` file. In a live map, the existing event test command gives a repeatable camera-relative source without gameplay input:
+To test custom event rules, put a literal `LIGHTOVR` file in your own overlay directory and pass that directory to `-file`. In a live map, the event test command gives a repeatable camera-relative source without gameplay input. Replace `<event-id>` with the event ID authored in that file:
 
 ```text
 nri_ptsmoketransientmask 1
 nri_ptsmokereset
-nri_ptsmoke_test transient.explosion.fixture
+nri_ptsmoke_test <event-id>
 ```
 
-Replace the bit and event id with `2`/`transient.trail.fixture`, `4`/`transient.fire.fixture`, `8`/`transient.muzzle.fixture`, or `16`/`transient.impact.fixture`. Use mask `0` with the same new executable and fixture for a matched rollback capture. Repeating the event command creates a deterministic burst suitable for capacity/overflow captures. This main fixture is event-only, so loading it cannot add a second smoke source to real `DukeExplosion2`, `DukeRPG`, or `DukeFire` actors.
+Use mask bits `1` for explosion, `2` for trail, `4` for fire, `8` for muzzle, and `16` for impact. Use mask `0` with the same executable and overlay for a matched rollback capture. Repeating the event command creates a deterministic burst suitable for capacity/overflow captures. Keep isolated event overlays free of actor rules so they do not also add smoke to live actors.
 
-Real-actor lifecycle checks use the separate opt-in `tools/validation/overlays/smoke-transient-actor-fixtures` mount. Its actor rules deliberately reuse the canonical production IDs, so last-wins overlay resolution replaces each production source instead of adding a duplicate actor source. Do not mount that directory during isolated event captures.
+For real-actor lifecycle checks, use a separate overlay whose actor rules reuse the canonical production IDs. Last-wins overlay resolution then replaces each production source instead of adding a duplicate actor source. Do not mount that actor overlay during isolated event captures.
 
 For a spatial `trail` class on the transient route, authored cadence crossings are coalesced into support-sized groups. Ordinary Duke RPG motion produces one current-presentation chunk per observed game tick; a hitch produces multiple contiguous chunks only when lobe support needs them, capped by `maxsegmentsperframe`. Each chunk retains the complete logical-cadence weight and follows the actual observed motion axis even when authored drift velocity is zero. This is a presentation of the currently observed segment, not backfill into arbitrary unchanged world history. Class-mask rollback retains the original Grid cadence and latest-bridge behavior.
 
