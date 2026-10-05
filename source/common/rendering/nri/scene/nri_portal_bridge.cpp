@@ -14,7 +14,8 @@
 #include <algorithm>
 #include <cstdint>
 #define NOMINMAX
-#include <windows.h>
+#include "i_safe_memory.h"
+#include <type_traits>
 
 
 namespace
@@ -106,6 +107,7 @@ namespace
 				{
 					FGameTexture* texture = nullptr;
 					uint32_t fadeColor = 0;
+#ifdef _WIN32
 					__try
 					{
 						texture = wall.sky->texture;
@@ -116,6 +118,15 @@ namespace
 						texture = nullptr;
 						fadeColor = 0;
 					}
+#else
+					static_assert(std::is_trivially_copyable<HWSkyInfo>::value);
+					HWSkyInfo sky = {};
+					if (I_TryReadMemory(&sky, wall.sky, sizeof(sky)))
+					{
+						texture = sky.texture;
+						fadeColor = sky.fadecolor.d;
+					}
+#endif
 					UpdateSceneSky(outView, texture, fadeColor, PTSkySourceType::Portal);
 					outView.stats.skySurfaces++;
 					return;

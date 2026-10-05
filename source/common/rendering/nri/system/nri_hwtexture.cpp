@@ -4,7 +4,7 @@
 #include "nri_renderdevice.h"
 #include "printf.h"
 #include "textures.h"
-#include <windows.h>
+#include "i_safe_memory.h"
 
 namespace
 {
@@ -36,18 +36,7 @@ namespace
 
 	bool TryMemcpyTexturePixels(void* dst, const void* src, size_t size)
 	{
-		if (dst == nullptr || src == nullptr || size == 0)
-		{
-			return false;
-		}
-
-		SIZE_T bytesRead = 0;
-		if (ReadProcessMemory(GetCurrentProcess(), src, dst, size, &bytesRead) && bytesRead == size)
-		{
-			return true;
-		}
-
-		return false;
+		return I_TryReadMemory(dst, src, size);
 	}
 }
 

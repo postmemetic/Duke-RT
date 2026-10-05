@@ -2,7 +2,7 @@
 
 ![Duke-RT gameplay](images/20.png)
 
-Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. It only works on Windows due to reliance on libraries for DLSS, frame generation, denoising, etc. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
+Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native GPU gameplay validation is still pending. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
 
 ![Duke-RT gameplay](images/EmergeFromSmoke.gif)
 
@@ -107,7 +107,7 @@ Special thanks to Coraline of the 3DGE team for allowing us to use her README.md
 
 ## How to build Duke-RT
 
-These are a bit of a mess and I haven't revalidated them for a newcomer to the repo recently. Also please note that only Windows is supported for Duke-RT!
+These are a bit of a mess and I haven't revalidated them for a newcomer to the repo recently. For the initial Linux renderer build and native hardware test instructions, see [LINUX.md](LINUX.md).
 
 ### Windows Build Instructions
 

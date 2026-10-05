@@ -33,6 +33,7 @@
 #include "gametexture.h"
 #include "texturemanager.h"
 #include "texinfo.h"
+#include "buildtiles.h"
 #include "textures.h"
 #include "v_video.h"
 #include "perf_capture.h"
@@ -48,7 +49,9 @@
 #include <unordered_set>
 #include <typeinfo>
 #include <vector>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 
 namespace
@@ -633,14 +636,18 @@ namespace
 	FTexture* TryGetSkyTraceBaseTexture(FGameTexture* texture)
 	{
 		FTexture* baseTexture = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			baseTexture = IsUsableGameTexturePointer(texture) ? texture->GetTexture() : nullptr;
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			baseTexture = nullptr;
 		}
+#endif
 		return baseTexture;
 	}
 
@@ -767,7 +774,9 @@ namespace
 
 	bool TryInspectSkyTextureInner(FGameTexture* texture, CachedSkyInspection& outInspection)
 	{
+#ifdef _WIN32
 		__try
+#endif
 		{
 			if (!IsUsableGameTexturePointer(texture))
 			{
@@ -782,14 +791,18 @@ namespace
 			}
 
 			FTexture* baseTexture = nullptr;
+#ifdef _WIN32
 			__try
+#endif
 			{
 				baseTexture = texture->GetTexture();
 			}
+#ifdef _WIN32
 			__except (EXCEPTION_EXECUTE_HANDLER)
 			{
 				baseTexture = nullptr;
 			}
+#endif
 
 			auto* skybox = dynamic_cast<FSkyBox*>(baseTexture);
 			if (skybox == nullptr)
@@ -810,14 +823,18 @@ namespace
 					gSkyPerfStats.inspectFaceWalks++;
 				}
 				FGameTexture* face = nullptr;
+#ifdef _WIN32
 				__try
+#endif
 				{
 					face = skybox->GetSkyFace(i);
 				}
+#ifdef _WIN32
 				__except (EXCEPTION_EXECUTE_HANDLER)
 				{
 					face = nullptr;
 				}
+#endif
 
 				if (IsUsableGameTexturePointer(face))
 				{
@@ -840,10 +857,12 @@ namespace
 
 			return true;
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			return false;
 		}
+#endif
 	}
 
 	bool TryInspectSkyTexture(FGameTexture* texture, uint32_t fallbackColor, PTSkySourceType sourceType, SkyCandidate& outCandidate)
@@ -931,14 +950,18 @@ namespace
 		}
 
 		FTexture* baseTexture = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			baseTexture = texture->GetTexture();
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			return false;
 		}
+#endif
 
 		if (baseTexture == nullptr)
 		{
@@ -992,14 +1015,18 @@ namespace
 			}
 			float faceColor[3] = {};
 			FGameTexture* skyFace = nullptr;
+#ifdef _WIN32
 			__try
+#endif
 			{
 				skyFace = skybox->GetSkyFace(i);
 			}
+#ifdef _WIN32
 			__except (EXCEPTION_EXECUTE_HANDLER)
 			{
 				skyFace = nullptr;
 			}
+#endif
 			if (TryGetAverageTextureColorRecursive(skyFace, faceColor, depth + 1))
 			{
 				accumulated[0] += faceColor[0];
@@ -1021,14 +1048,18 @@ namespace
 		}
 
 		FGameTexture* previous = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			previous = skybox->previous;
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			previous = nullptr;
 		}
+#endif
 		const bool success = TryGetAverageTextureColorRecursive(previous, computedColor, depth + 1);
 		StoreFrameLocalAverageColor(baseTexture, success, success ? computedColor : nullptr);
 		if (success)
@@ -6667,14 +6698,18 @@ void Copy3(const float* source, float* destination)
 
 bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
 {
+#ifdef _WIN32
 	__try
+#endif
 	{
 		return TryGetAverageTextureColorRecursive(texture, outColor, 0);
 	}
+#ifdef _WIN32
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
 	return false;
 	}
+#endif
 }
 
 MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags)

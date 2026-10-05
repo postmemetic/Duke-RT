@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <unordered_set>
 #include "tarray.h"
 #include "textureid.h"
 #include "textures.h"
@@ -19,11 +20,16 @@ class FTextureManager
 	void (*progressFunc)();
 	friend class FxAddSub;	// needs access to do a bounds check on the texture ID.
 public:
+	// Address-only identity check. Like texture access, this requires the owner
+	// thread: it does not pin lifetime against concurrent deletion. Unmanaged
+	// UI/wipe wrappers are deliberately excluded from persistent scene caches.
+	bool OwnsTexture(const FGameTexture* texture) const { return OwnedTextures.find(texture) != OwnedTextures.end(); }
 	FTextureManager ();
 	~FTextureManager ();
 
 private:
 	int ResolveLocalizedTexture(int texnum);
+	std::unordered_set<const FGameTexture*> OwnedTextures;
 
 	int ResolveTextureIndex(int texnum, bool animate) const
 	{

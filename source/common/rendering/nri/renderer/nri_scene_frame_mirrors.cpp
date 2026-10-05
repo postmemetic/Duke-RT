@@ -14,6 +14,7 @@
 #include "models/modeldata.h"
 #include "printf.h"
 #include "texinfo.h"
+#include "buildtiles.h"
 
 #include <chrono>
 #include <cstring>

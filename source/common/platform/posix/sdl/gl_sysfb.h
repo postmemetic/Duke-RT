@@ -14,6 +14,7 @@ public:
 	SystemBaseFrameBuffer (void *hMonitor, bool fullscreen);
 
 	bool IsFullscreen() override;
+	bool IsFullscreenModeActive() const;
 
 	int GetClientWidth() override;
 	int GetClientHeight() override;

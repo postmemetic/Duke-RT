@@ -303,7 +303,8 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	lights.descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
 	lights.shaderStages = nri::StageBits::COMPUTE_SHADER;
 	lights.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
-	nri::DescriptorRangeDesc filteredSceneRanges[5] = {};
+	const bool vulkan = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK;
+	nri::DescriptorRangeDesc filteredSceneRanges[6] = {};
 	filteredSceneRanges[0].baseRegisterIndex = 0;
 	filteredSceneRanges[0].descriptorNum = kSmokeFilteredSceneBufferCount;
 	filteredSceneRanges[0].descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
@@ -331,6 +332,18 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	filteredSceneRanges[4].descriptorType = nri::DescriptorType::ACCELERATION_STRUCTURE;
 	filteredSceneRanges[4].shaderStages = nri::StageBits::COMPUTE_SHADER;
 	filteredSceneRanges[4].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
+	if (vulkan)
+	{
+		// Vulkan has one binding namespace and represents the scene textures as an array.
+		filteredSceneRanges[5] = filteredSceneRanges[4];
+		filteredSceneRanges[4] = filteredSceneRanges[3];
+		filteredSceneRanges[4].baseRegisterIndex = smokeWorldTlasRegister + 1;
+		filteredSceneRanges[3] = filteredSceneRanges[2];
+		filteredSceneRanges[3].baseRegisterIndex = 20;
+		filteredSceneRanges[3].descriptorNum = NRI_MAX_SCENE_TEXTURES;
+		filteredSceneRanges[3].flags = NRIResourceFlags(filteredSceneRanges[3].flags, nri::DescriptorRangeBits::ARRAY);
+		filteredSceneRanges[2].descriptorNum = 2;
+	}
 	// Opaque scene shadows can be available before the filtered scene tables,
 	// and emissive inputs can be available without a TLAS. Each shader access is
 	// readiness-gated; Vulkan must also permit the unused ranges to be unbound.
@@ -347,7 +360,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	}
 	sets[5].registerSpace = 6;
 	sets[5].ranges = filteredSceneRanges;
-	sets[5].rangeNum = 5;
+	sets[5].rangeNum = vulkan ? 6 : 5;
 	sets[5].flags = nri::DescriptorSetBits::ALLOW_UPDATE_AFTER_SET;
 	nri::RootConstantDesc root = {};
 	root.registerIndex = 0;
@@ -2292,6 +2305,7 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		renderer.mFrameBuffer->mSamplers[(size_t)NRISamplerMode::ClampPoint],
 	};
 	nri::UpdateDescriptorRangeDesc updates[11] = {};
+	const bool vulkan = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK;
 	updates[0].descriptorSet = slot.textureSet; updates[0].rangeIndex = 0; updates[0].descriptors = textures; updates[0].descriptorNum = 8;
 	updates[1].descriptorSet = slot.outputSet; updates[1].rangeIndex = 0; updates[1].descriptors = outputTextures; updates[1].descriptorNum = 5;
 	uint32_t updateCount = 2;
@@ -2307,13 +2321,17 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		{
 			updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 1; updates[updateCount].descriptors = extendedSceneBuffers.data(); updates[updateCount].descriptorNum = kSmokeExtendedSceneBufferCount; updateCount++;
 		}
-		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 2; updates[updateCount].descriptors = smokeSceneTextures.data(); updates[updateCount].descriptorNum = (uint32_t)smokeSceneTextures.size(); updateCount++;
-		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 3; updates[updateCount].descriptors = filteredSamplers; updates[updateCount].descriptorNum = 3; updateCount++;
+		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 2; updates[updateCount].descriptors = smokeSceneTextures.data(); updates[updateCount].descriptorNum = vulkan ? 2u : (uint32_t)smokeSceneTextures.size(); updateCount++;
+		if (vulkan)
+		{
+			updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 3; updates[updateCount].descriptors = smokeSceneTextures.data() + 2; updates[updateCount].descriptorNum = NRI_MAX_SCENE_TEXTURES; updateCount++;
+		}
+		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = vulkan ? 4 : 3; updates[updateCount].descriptors = filteredSamplers; updates[updateCount].descriptorNum = 3; updateCount++;
 	}
 	const nri::Descriptor* worldTlas[] = { worldTlasDescriptor };
 	if (shadowReady)
 	{
-		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 4; updates[updateCount].descriptors = worldTlas; updates[updateCount].descriptorNum = 1; updateCount++;
+		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = vulkan ? 5 : 4; updates[updateCount].descriptors = worldTlas; updates[updateCount].descriptorNum = 1; updateCount++;
 	}
 	renderer.mFrameBuffer->mCore.UpdateDescriptorRanges(updates, updateCount);
 

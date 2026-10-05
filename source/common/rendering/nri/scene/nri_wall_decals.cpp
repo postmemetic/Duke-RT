@@ -7,6 +7,7 @@
 #include "gamefuncs.h"
 #include "hw_voxels.h"
 #include "texinfo.h"
+#include "buildtiles.h"
 #include "texturemanager.h"
 
 #include <algorithm>

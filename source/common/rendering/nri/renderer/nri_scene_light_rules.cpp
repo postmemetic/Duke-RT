@@ -1,4 +1,5 @@
 #include "nri_scene_lights.h"
+#include "buildtiles.h"
 #include "nri_cvars.h"
 #include "nri_scene_light_rule_helpers.h"
 #include "../scene/nri_hash.h"

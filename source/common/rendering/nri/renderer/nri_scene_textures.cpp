@@ -1012,12 +1012,24 @@ bool NRIRenderer::UpdateSceneTextureSet(const std::vector<nri::Descriptor*>& des
 		return true;
 	}
 
-	nri::UpdateDescriptorRangeDesc update = {};
-	update.descriptorSet = sceneTextureSet;
-	update.rangeIndex = 0;
-	update.descriptors = reinterpret_cast<const nri::Descriptor* const*>(descriptors.data());
-	update.descriptorNum = (uint32_t)descriptors.size();
-	mFrameBuffer->mCore.UpdateDescriptorRanges(&update, 1);
+	nri::UpdateDescriptorRangeDesc updates[3] = {};
+	updates[0].descriptorSet = sceneTextureSet;
+	updates[0].descriptors = reinterpret_cast<const nri::Descriptor* const*>(descriptors.data());
+	updates[0].descriptorNum = (uint32_t)descriptors.size();
+	uint32_t updateCount = 1;
+	if (mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK)
+	{
+		updates[1] = updates[2] = updates[0];
+		updates[0].descriptorNum = 2;
+		updates[1].rangeIndex = 1;
+		updates[1].descriptors += 2;
+		updates[1].descriptorNum = NRI_MAX_SCENE_TEXTURES;
+		updates[2].rangeIndex = 2;
+		updates[2].descriptors += NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT;
+		updates[2].descriptorNum = NRI_SCENE_DESCRIPTOR_NUM - NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT;
+		updateCount = 3;
+	}
+	mFrameBuffer->mCore.UpdateDescriptorRanges(updates, updateCount);
 	mCurrentSceneTextureDescriptors = descriptors;
 	if (queuedFrameIndex < mSceneTextureSetHashes.size() && queuedFrameIndex < mSceneTextureSetHashValid.size())
 	{

@@ -446,6 +446,7 @@ set( PLAT_SDL_SOURCES
 	common/platform/posix/sdl/i_main.cpp
 	common/platform/posix/sdl/i_system.cpp
 	common/platform/posix/sdl/sdlglvideo.cpp
+	common/platform/posix/sdl/sdlnrivideo.cpp
 	common/platform/posix/sdl/st_start.cpp )
 set( PLAT_UNIX_SOURCES
 	common/platform/posix/unix/i_specialpaths.cpp
@@ -1583,6 +1584,16 @@ if (HAVE_NRI)
 		endif()
 	endforeach()
 	message(STATUS "NRD embedded shader headers: ${RAZE_NRD_SHADER_HEADER_DIR}")
+	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND TARGET_ARCHITECTURE MATCHES "x86_64")
+		# Match upstream NRD's MathLib CPU requirement without raising the ISA
+		# for unrelated engine code or reusing a PCH built with different flags.
+		foreach(_nrd_source IN LISTS NRI_SOURCES)
+			if(_nrd_source MATCHES "libraries/NRD/Source/.*[.]cpp$")
+				set_source_files_properties(${_nrd_source} PROPERTIES
+					COMPILE_OPTIONS "-mssse3" SKIP_PRECOMPILE_HEADERS TRUE)
+			endif()
+		endforeach()
+	endif()
 	# NRD's shader headers require this generated configuration even when the
 	# runtime is supplied prebuilt and NRD's own CMake project is not configured.
 	set(_nrd_shader_config "// Generated from the Raze NRD integration settings.\n")
@@ -2469,6 +2480,27 @@ if( UNIX )
 endif()
 
 target_link_libraries( ${PROJECT_NAME} ${PROJECT_LIBRARIES} ${ZMUSIC_LIBRARIES} lzma )
+
+if(HAVE_NRI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	set(RAZE_NRI_RUNTIME_DIR "" CACHE PATH "Linux NRI runtime directory (libNRI.so and optional DLSS SR/RR libraries).")
+	if(RAZE_NRI_RUNTIME_DIR)
+		if(NOT EXISTS "${RAZE_NRI_RUNTIME_DIR}/libNRI.so")
+			message(FATAL_ERROR "RAZE_NRI_RUNTIME_DIR must contain a Linux libNRI.so")
+		endif()
+		file(GLOB _nri_linux_runtime CONFIGURE_DEPENDS
+			"${RAZE_NRI_RUNTIME_DIR}/libNRI.so*"
+			"${RAZE_NRI_RUNTIME_DIR}/libnvidia-ngx-dlss.so*"
+			"${RAZE_NRI_RUNTIME_DIR}/libnvidia-ngx-dlssd.so*")
+		foreach(_library IN LISTS _nri_linux_runtime)
+			add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_library}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+				VERBATIM)
+		endforeach()
+	else()
+		message(STATUS "Stage libNRI.so beside raze before launch, or set RAZE_NRI_RUNTIME_DIR.")
+	endif()
+endif()
+
 
 if( WIN32 )
 	function( raze_stage_runtime_artifacts target_name source_dir label )

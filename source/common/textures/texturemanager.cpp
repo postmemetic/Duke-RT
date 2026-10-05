@@ -89,6 +89,7 @@ FTextureManager::~FTextureManager ()
 
 void FTextureManager::DeleteAll()
 {
+	OwnedTextures.clear();
 	for (unsigned int i = 0; i < Textures.Size(); ++i)
 	{
 		delete Textures[i].Texture;
@@ -433,6 +434,7 @@ FTextureID FTextureManager::AddGameTexture (FGameTexture *texture, bool addtohas
 
 	TextureDescriptor hasher = { texture, -1, -1, -1, hash };
 	int trans = Textures.Push (hasher);
+	OwnedTextures.insert(texture);
 	Translation.Push (trans);
 	if (bucket >= 0) HashFirst[bucket] = trans;
 	auto id = FTextureID(trans);
@@ -517,6 +519,7 @@ void FTextureManager::ReplaceTexture (FTextureID texid, FGameTexture *newtexture
 	newtexture->SetName(oldtexture->GetName().GetChars());
 	newtexture->SetUseType(oldtexture->GetUseType());
 	Textures[index].Texture = newtexture;
+	OwnedTextures.insert(newtexture);
 	newtexture->SetID(oldtexture->GetID());
 	oldtexture->SetName("");
 	AddGameTexture(oldtexture);

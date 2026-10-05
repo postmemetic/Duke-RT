@@ -1,3 +1,4 @@
+#include "texturemanager.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 
@@ -22,7 +23,9 @@
 #define NOMINMAX
 #endif
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 
 RendererSkyPerfTraceStats gRendererSkyPerfTraceStats = {};
@@ -174,8 +177,12 @@ namespace
 
 	static bool IsUsableGameTexturePointer(FGameTexture* texture)
 	{
+#ifdef _WIN32
 		const intptr_t value = (intptr_t)texture;
 		return value > 0x10000 && value != -1;
+#else
+		return TexMan.OwnsTexture(texture);
+#endif
 	}
 
 	static FTexture* TryGetBaseTexture(FGameTexture* texture)
@@ -186,14 +193,18 @@ namespace
 		}
 
 		FTexture* baseTexture = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			baseTexture = texture->GetTexture();
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			baseTexture = nullptr;
 		}
+#endif
 
 		return baseTexture;
 	}
@@ -206,14 +217,18 @@ namespace
 		}
 
 		FGameTexture* face = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			face = skybox->GetSkyFace(index);
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			face = nullptr;
 		}
+#endif
 
 		return IsUsableGameTexturePointer(face) ? face : nullptr;
 	}

@@ -1,3 +1,4 @@
+#include "texturemanager.h"
 // 
 //---------------------------------------------------------------------------
 //
@@ -25,7 +26,9 @@
 #include "hw_portal.h"
 #include "hw_renderstate.h"
 #include "skyboxtexture.h"
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 CVAR(Float, skyoffsettest, 0.f, 0)
 
@@ -33,6 +36,9 @@ namespace
 {
 	static bool IsUsableSkyTexture(FGameTexture* texture)
 	{
+#ifndef _WIN32
+	return TexMan.OwnsTexture(texture);
+#else
 		const uintptr_t value = (uintptr_t)texture;
 		if (value <= 0x10000 ||
 			value == (uintptr_t)-1 ||
@@ -50,14 +56,18 @@ namespace
 		}
 
 		void* vtable = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			vtable = *(void**)texture;
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			vtable = nullptr;
 		}
+#endif
 
 		if (vtable == nullptr)
 		{
@@ -73,6 +83,7 @@ namespace
 		}
 
 		return true;
+#endif
 	}
 
 	static FTexture* TryGetSkyBaseTexture(FGameTexture* texture)
@@ -83,14 +94,18 @@ namespace
 		}
 
 		FTexture* baseTexture = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			baseTexture = texture->GetTexture();
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			baseTexture = nullptr;
 		}
+#endif
 
 		return baseTexture;
 	}
@@ -102,18 +117,22 @@ namespace
 			return false;
 		}
 
+#ifdef _WIN32
 		__try
+#endif
 		{
 			displayHeight = texture->GetDisplayHeight();
 			skyOffset = texture->GetSkyOffset();
 			return true;
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			displayHeight = 0.0f;
 			skyOffset = 0;
 			return false;
 		}
+#endif
 	}
 }
 

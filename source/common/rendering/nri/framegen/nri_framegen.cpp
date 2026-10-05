@@ -3,7 +3,9 @@
 #include "nri_ffx_api.h"
 
 #include "../system/nri_renderdevice.h"
+#ifdef _WIN32
 #include "i_mainwindow.h"
+#endif
 #include "c_cvars.h"
 #include "printf.h"
 
@@ -183,17 +185,6 @@ namespace
 		Printf("NRI FFX framegen: type=%u msg=%s\n", type, narrow);
 	}
 
-	static void CopyString(char* destination, size_t destinationSize, const char* source)
-	{
-		if (destination == nullptr || destinationSize == 0u)
-			return;
-
-		if (source == nullptr)
-			source = "";
-
-		std::strncpy(destination, source, destinationSize - 1u);
-		destination[destinationSize - 1u] = '\0';
-	}
 
 	static nri::Result GetNriPresentResult(HRESULT hr)
 	{
@@ -213,6 +204,18 @@ namespace
 		return generatedFrame ? "proxy-generated" : "proxy-passthrough";
 	}
 #endif
+
+	static void CopyString(char* destination, size_t destinationSize, const char* source)
+	{
+		if (destination == nullptr || destinationSize == 0u)
+			return;
+
+		if (source == nullptr)
+			source = "";
+
+		std::strncpy(destination, source, destinationSize - 1u);
+		destination[destinationSize - 1u] = '\0';
+	}
 
 	static const char* GetSafeResetReason(const char* reason)
 	{
@@ -473,6 +476,7 @@ const char* NRIFrameGenerationContext::GetDxgiColorSpaceName(uint32_t colorSpace
 
 const char* NRIFrameGenerationContext::GetFfxSurfaceFormatName(uint32_t format)
 {
+#ifdef _WIN32
 	switch (format)
 	{
 	case NRI_FFX_API_SURFACE_FORMAT_R8G8B8A8_TYPELESS: return "R8G8B8A8_TYPELESS";
@@ -487,6 +491,9 @@ const char* NRIFrameGenerationContext::GetFfxSurfaceFormatName(uint32_t format)
 	case NRI_FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT: return "R16G16B16A16_FLOAT";
 	default: return "unknown";
 	}
+#else
+	return "unavailable";
+#endif
 }
 
 const char* NRIFrameGenerationContext::GetWindowModeName(NRIWindowPresentationMode mode)

@@ -818,6 +818,15 @@ nri::Pipeline* NRIRenderState::GetPipeline(int dt)
 	return pipeline;
 }
 
+void NRIRenderState::DestroyPipelines()
+{
+	for (const auto& entry : mPipelines)
+		mFrameBuffer->mCore.DestroyPipeline(entry.second);
+	mPipelines.clear();
+	mLastBoundPipeline = nullptr;
+	mHasBoundPipeline = false;
+}
+
 void NRIRenderState::BeginRenderingIfNeeded()
 {
 	if (mRendering || mFrameBuffer == nullptr || mFrameBuffer->mActiveTarget == nullptr)

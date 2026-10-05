@@ -67,7 +67,9 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace
 {

@@ -48,6 +48,8 @@ public:
 	};
 
 	explicit NRIRenderState(NRIRenderDevice* fb);
+	// Call after GPU completion, while the device and its pipeline layout still exist.
+	void DestroyPipelines();
 
 	void ClearScreen() override;
 	void Draw(int dt, int index, int count, bool apply = true) override;

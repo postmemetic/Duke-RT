@@ -20,6 +20,7 @@
 #include "palette.h"
 #include "printf.h"
 #include "texinfo.h"
+#include "buildtiles.h"
 #include "texturemanager.h"
 
 #include <algorithm>

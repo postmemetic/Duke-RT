@@ -17,6 +17,26 @@ namespace
 	{
 		return nri::StageBits::COMPUTE_SHADER;
 	}
+
+	static uint32_t BuildSceneTextureRanges(nri::DescriptorRangeDesc (&ranges)[3], bool vulkan)
+	{
+		ranges[0].descriptorNum = NRI_SCENE_DESCRIPTOR_NUM;
+		ranges[0].descriptorType = nri::DescriptorType::TEXTURE;
+		ranges[0].shaderStages = PipelineComputeStage();
+		ranges[0].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
+		if (!vulkan)
+			return 1;
+
+		// SPIR-V has two scalar textures, one texture array, then two blue-noise textures.
+		ranges[1] = ranges[2] = ranges[0];
+		ranges[0].descriptorNum = 2;
+		ranges[1].baseRegisterIndex = 2;
+		ranges[1].descriptorNum = NRI_MAX_SCENE_TEXTURES;
+		ranges[1].flags = NRIResourceFlags(ranges[1].flags, nri::DescriptorRangeBits::ARRAY);
+		ranges[2].baseRegisterIndex = NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT;
+		ranges[2].descriptorNum = NRI_SCENE_DESCRIPTOR_NUM - NRI_BLUE_NOISE_SCRAMBLING_RANKING_SLOT;
+		return 3;
+	}
 }
 
 bool NRIPipelineStateManager::CreatePipelineLayout(NRIRenderer& renderer)
@@ -27,12 +47,9 @@ bool NRIPipelineStateManager::CreatePipelineLayout(NRIRenderer& renderer)
 	samplerRange.descriptorType = nri::DescriptorType::SAMPLER;
 	samplerRange.shaderStages = PipelineComputeStage();
 
-	nri::DescriptorRangeDesc sceneTextureRange = {};
-	sceneTextureRange.baseRegisterIndex = 0;
-	sceneTextureRange.descriptorNum = NRI_SCENE_DESCRIPTOR_NUM;
-	sceneTextureRange.descriptorType = nri::DescriptorType::TEXTURE;
-	sceneTextureRange.shaderStages = PipelineComputeStage();
-	sceneTextureRange.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
+	nri::DescriptorRangeDesc sceneTextureRanges[3] = {};
+	const uint32_t sceneTextureRangeCount = BuildSceneTextureRanges(sceneTextureRanges,
+		renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK);
 
 	nri::DescriptorRangeDesc inputRange = {};
 	inputRange.baseRegisterIndex = 0;
@@ -69,8 +86,8 @@ bool NRIPipelineStateManager::CreatePipelineLayout(NRIRenderer& renderer)
 	descriptorSets[0].ranges = &samplerRange;
 	descriptorSets[0].rangeNum = 1;
 	descriptorSets[1].registerSpace = 1;
-	descriptorSets[1].ranges = &sceneTextureRange;
-	descriptorSets[1].rangeNum = 1;
+	descriptorSets[1].ranges = sceneTextureRanges;
+	descriptorSets[1].rangeNum = sceneTextureRangeCount;
 	descriptorSets[1].flags = nri::DescriptorSetBits::ALLOW_UPDATE_AFTER_SET;
 	descriptorSets[2].registerSpace = 2;
 	descriptorSets[2].ranges = &sceneDataRange;
@@ -127,12 +144,9 @@ bool NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(NRIRenderer& r
 	samplerRange.descriptorType = nri::DescriptorType::SAMPLER;
 	samplerRange.shaderStages = PipelineComputeStage();
 
-	nri::DescriptorRangeDesc sceneTextureRange = {};
-	sceneTextureRange.baseRegisterIndex = 0;
-	sceneTextureRange.descriptorNum = NRI_SCENE_DESCRIPTOR_NUM;
-	sceneTextureRange.descriptorType = nri::DescriptorType::TEXTURE;
-	sceneTextureRange.shaderStages = PipelineComputeStage();
-	sceneTextureRange.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
+	nri::DescriptorRangeDesc sceneTextureRanges[3] = {};
+	const uint32_t sceneTextureRangeCount = BuildSceneTextureRanges(sceneTextureRanges,
+		renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK);
 
 	nri::DescriptorRangeDesc sceneDataRange = {};
 	sceneDataRange.baseRegisterIndex = 0;
@@ -174,8 +188,8 @@ bool NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(NRIRenderer& r
 	descriptorSets[0].ranges = &samplerRange;
 	descriptorSets[0].rangeNum = 1;
 	descriptorSets[1].registerSpace = 1;
-	descriptorSets[1].ranges = &sceneTextureRange;
-	descriptorSets[1].rangeNum = 1;
+	descriptorSets[1].ranges = sceneTextureRanges;
+	descriptorSets[1].rangeNum = sceneTextureRangeCount;
 	descriptorSets[1].flags = nri::DescriptorSetBits::ALLOW_UPDATE_AFTER_SET;
 	descriptorSets[2].registerSpace = 2;
 	descriptorSets[2].ranges = &sceneDataRange;

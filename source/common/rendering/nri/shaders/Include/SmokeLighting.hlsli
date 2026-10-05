@@ -81,8 +81,17 @@ StructuredBuffer<SmokeSectorLightData> gSmokeSectorLights : register(t16, space6
 Texture2D<float4> gSmokePaletteLookup : register(t18, space6);
 TextureCube<float4> gSmokeSkyTexture : register(t19, space6);
 Texture2D<float4> gSmokeSceneTextures[NRI_SMOKE_SCENE_TEXTURE_COUNT] : register(t20, space6);
+#ifdef __spirv__
+[[vk::binding(1045, 6)]]
+#endif
 SamplerState gSmokePointWrap : register(s0, space6);
+#ifdef __spirv__
+[[vk::binding(1046, 6)]]
+#endif
 SamplerState gSmokeLinearWrap : register(s1, space6);
+#ifdef __spirv__
+[[vk::binding(1047, 6)]]
+#endif
 SamplerState gSmokePointClamp : register(s2, space6);
 RaytracingAccelerationStructure gSmokeWorldTlas : register(NRI_SMOKE_WORLD_TLAS_REGISTER, space6);
 
