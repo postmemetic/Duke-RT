@@ -33,7 +33,9 @@ function Get-FullPathSafe {
         [string]$Child
     )
 
-    return [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($Base, $Child))
+    $path = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($Base, $Child))
+    if ($path.Length -gt [System.IO.Path]::GetPathRoot($path).Length) { $path = $path.TrimEnd('\') }
+    return $path
 }
 
 function Ensure-WithinRoot {
@@ -81,7 +83,7 @@ function Assert-CacheSource {
             if ($line -match '^([^#/:][^:]*):[^=]+=(.*)$') { $cache[$Matches[1]] = $Matches[2] }
         }
         if (-not $cache.CMAKE_HOME_DIRECTORY -or
-            [IO.Path]::GetFullPath($cache.CMAKE_HOME_DIRECTORY) -ne $SourceDir) {
+            (Get-FullPathSafe $SourceDir $cache.CMAKE_HOME_DIRECTORY) -ne $SourceDir) {
             throw "CMake cache belongs to another source tree: $cachePath. Choose a fresh build directory."
         }
         if ($cache.CMAKE_GENERATOR -ne "Ninja" -or $cache.CMAKE_BUILD_TYPE -ne "Release") {
@@ -236,6 +238,7 @@ if (-not $SkipBuild) {
         }
     }
     if (-not $VsDevCmd) { throw "Visual Studio C++ tools not found. Set VsDevCmd or RAZE_VSDEVCMD." }
+    $VsDevCmd = Get-FullPathSafe $repoRoot $VsDevCmd
     $devShell = Join-Path (Split-Path -Parent $VsDevCmd) "Launch-VsDevShell.ps1"
     if (-not (Test-Path -LiteralPath $devShell)) { throw "Visual Studio developer PowerShell not found: $devShell" }
     & $devShell -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
