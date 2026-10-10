@@ -132,7 +132,7 @@ Build prerequisites are Linux x86-64, GCC/G++, Ninja, Git, CMake 3.30 or newer
 24.04, install the system dependencies once:
 
 ```sh
-sudo apt install build-essential ninja-build git pkg-config python3 python3-venv \
+sudo apt install build-essential ninja-build git pkg-config python3 python3-venv util-linux \
   libsdl2-dev libgtk-3-dev libbz2-dev libvpx-dev libasound2-dev \
   libx11-dev libwayland-dev libopenal-dev libsndfile1-dev libmpg123-dev
 python3 -m venv "$HOME/.local/share/duke-rt-build-tools"
@@ -191,8 +191,11 @@ archive with `--output` / `-OutputPath`. The default compiler concurrency is two
 jobs; raise it only if memory allows. Rerunning performs an incremental build.
 `--skip-build` / `-SkipBuild` packages existing outputs from matching caches;
 use the same dependency/build arguments, and omit this switch after source edits.
-Incompatible source-root caches are rejected without deleting them. Do not run
-two builds against the same build root at once.
+Incompatible source-root caches are rejected without deleting them. A lock covers
+cache validation, compilation and packaging, including package-only mode. A
+competing invocation using the same build root fails immediately with a busy
+message; retry after the first finishes. The lock releases on success or failure.
+Separate build roots can run independently; give them different output paths.
 
 Use `--help` / `-Help` for options. The produced package includes player setup,
 licenses and all authored materials/policies, while excluding GRP, imported

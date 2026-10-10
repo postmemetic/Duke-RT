@@ -55,7 +55,7 @@ done
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die 'Linux x86-64 is required.'
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || die '--jobs must be a positive integer.'
 [[ $output == *.tar.gz ]] || die '--output must end in .tar.gz.'
-for tool in python3 ninja git realpath; do
+for tool in python3 ninja git realpath flock; do
     command -v "$tool" >/dev/null || die "Required tool not found: $tool (see LINUX.md)"
 done
 command -v "$cmake" >/dev/null || die "CMake not found: $cmake"
@@ -85,10 +85,14 @@ check_source() {
         require_cache "$1" CMAKE_GENERATOR Ninja
     fi
 }
+mkdir -p -- "$build_root"
+# Keep the lock file in place: unlinking it could let callers lock different inodes.
+# The descriptor stays open through packaging and closes on every exit path.
+exec 9>"$build_root/.linux-release.lock"
+flock -n 9 || die "Build root is busy: $build_root; retry after the other invocation finishes."
 check_source "$build_root/nri-build" "$nri_source"
 check_source "$build_root/zmusic-build" "$zmusic_source"
 check_source "$build_root/raze-build" "$product"
-mkdir -p -- "$build_root"
 
 if (( ! skip_build )); then
     info 'Configuring NRI (first run downloads its pinned dependencies)'
