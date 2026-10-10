@@ -74,20 +74,44 @@ function Assert-NoLinks {
     }
 }
 
+function Get-CMakeCache {
+    param([string]$BuildDir)
+    $cache = @{}
+    $cachePath = Join-Path $BuildDir "CMakeCache.txt"
+    if (Test-Path -LiteralPath $cachePath) {
+        foreach ($line in Get-Content -LiteralPath $cachePath) {
+            if ($line -match '^([^#/:][^:]*):[^=]+=(.*)$') { $cache[$Matches[1]] = $Matches[2] }
+        }
+    }
+    return $cache
+}
+
 function Assert-CacheSource {
     param([string]$BuildDir, [string]$SourceDir)
     $cachePath = Join-Path $BuildDir "CMakeCache.txt"
     if (Test-Path -LiteralPath $cachePath) {
-        $cache = @{}
-        foreach ($line in Get-Content -LiteralPath $cachePath) {
-            if ($line -match '^([^#/:][^:]*):[^=]+=(.*)$') { $cache[$Matches[1]] = $Matches[2] }
-        }
+        $cache = Get-CMakeCache $BuildDir
         if (-not $cache.CMAKE_HOME_DIRECTORY -or
             (Get-FullPathSafe $SourceDir $cache.CMAKE_HOME_DIRECTORY) -ne $SourceDir) {
             throw "CMake cache belongs to another source tree: $cachePath. Choose a fresh build directory."
         }
         if ($cache.CMAKE_GENERATOR -ne "Ninja" -or $cache.CMAKE_BUILD_TYPE -ne "Release") {
             throw "Expected a Ninja Release cache: $cachePath. Choose a fresh build directory."
+        }
+    }
+}
+
+function Assert-ProtectedInput {
+    param([string]$InputPath)
+    if (-not $InputPath) { return }
+    foreach ($outputPath in @($PackageDir, $ZipPath, $RazeBuildDir, $ZMusicBuildDir)) {
+        if ($InputPath -eq $outputPath -or $InputPath.StartsWith($outputPath.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Output would overwrite an input: $InputPath (output: $outputPath)"
+        }
+    }
+    foreach ($outputPath in @($PackageDir, $ZipPath)) {
+        if ($outputPath.StartsWith($InputPath.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Package output must not be inside an input: $InputPath"
         }
     }
 }
@@ -167,6 +191,7 @@ foreach ($name in @($defaults.Keys) + @("VsDevCmd", "DxcExecutable", "CMakeExecu
     }
 }
 if ($Jobs -lt 1 -or $Jobs -gt 128) { throw "Jobs must be between 1 and 128." }
+if (-not $VsDevCmd) { $VsDevCmd = $env:RAZE_VSDEVCMD }
 foreach ($name in @("VsDevCmd", "DxcExecutable", "CMakeExecutable")) {
     $value = Get-Variable -Name $name -ValueOnly
     if ($value -and ($name -ne "CMakeExecutable" -or $value -match '[/\\]')) {
@@ -190,18 +215,10 @@ if ([IO.Path]::GetExtension($ZipPath) -ne ".zip" -or $ZipPath -eq $PackageDir -o
     throw "ZipPath must name a .zip file outside PackageDir."
 }
 if (Test-Path -LiteralPath $ZipPath -PathType Container) { throw "ZipPath names a directory: $ZipPath" }
-foreach ($inputPath in @($ZMusicSourceDir, $VcpkgRoot, $VcpkgInstalledDir, $NrdShaderHeaderDir, $NriRuntimeDir, $FfxSdkRoot, $ConfigPath)) {
-    foreach ($outputPath in @($PackageDir, $ZipPath, $RazeBuildDir, $ZMusicBuildDir)) {
-        if ($inputPath -eq $outputPath -or $inputPath.StartsWith($outputPath.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Output would overwrite an input: $outputPath"
-        }
-    }
-    foreach ($outputPath in @($PackageDir, $ZipPath)) {
-        if ($outputPath.StartsWith($inputPath.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Package output must not be inside an input: $inputPath"
-        }
-    }
+foreach ($inputPath in @($ZMusicSourceDir, $VcpkgRoot, $VcpkgInstalledDir, $NrdShaderHeaderDir, $NriRuntimeDir, $FfxSdkRoot, $ConfigPath, $VsDevCmd, $DxcExecutable)) {
+    Assert-ProtectedInput $inputPath
 }
+if ([IO.Path]::IsPathRooted($CMakeExecutable)) { Assert-ProtectedInput $CMakeExecutable }
 if ($RazeBuildDir -eq $ZMusicBuildDir -or
     $RazeBuildDir.StartsWith($ZMusicBuildDir + '\', [StringComparison]::OrdinalIgnoreCase) -or
     $ZMusicBuildDir.StartsWith($RazeBuildDir + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -229,7 +246,6 @@ if (-not $SkipBuild) {
             throw "Missing build prerequisite: $path. Set its path in $ConfigPath or pass the corresponding parameter."
         }
     }
-    if (-not $VsDevCmd) { $VsDevCmd = $env:RAZE_VSDEVCMD }
     if (-not $VsDevCmd) {
         $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         if (Test-Path -LiteralPath $vswhere) {
@@ -239,11 +255,13 @@ if (-not $SkipBuild) {
     }
     if (-not $VsDevCmd) { throw "Visual Studio C++ tools not found. Set VsDevCmd or RAZE_VSDEVCMD." }
     $VsDevCmd = Get-FullPathSafe $repoRoot $VsDevCmd
+    Assert-ProtectedInput $VsDevCmd
     $devShell = Join-Path (Split-Path -Parent $VsDevCmd) "Launch-VsDevShell.ps1"
     if (-not (Test-Path -LiteralPath $devShell)) { throw "Visual Studio developer PowerShell not found: $devShell" }
     & $devShell -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
     if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) { throw "Visual Studio did not initialize the C++ compiler." }
     $CMakeExecutable = (Get-Command $CMakeExecutable -ErrorAction Stop).Source
+    Assert-ProtectedInput $CMakeExecutable
     $env:VCPKG_OVERLAY_PORTS = Join-Path $repoRoot "vcpkg-overlays"
     $env:VCPKG_CMAKE_CONFIGURE_OPTIONS = "-DCMAKE_POLICY_DEFAULT_CMP0026=OLD"
     $common = @("-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_TOOLCHAIN_FILE=$toolchain",
@@ -267,6 +285,15 @@ if (-not $SkipBuild) {
         Invoke-CMake @("--build", $RazeBuildDir, "--target", "revision_check")
         Invoke-CMake @("--build", $RazeBuildDir, "--target", "raze", "--parallel", "$Jobs")
     } finally { $env:VULKAN_SDK = $savedVulkanSdk }
+}
+# Inspect cached tool paths without requiring compilers to be installed in SkipBuild mode.
+foreach ($buildDir in @($RazeBuildDir, $ZMusicBuildDir)) {
+    $cache = Get-CMakeCache $buildDir
+    foreach ($name in @("RAZE_DXC_EXECUTABLE", "CMAKE_COMMAND", "CMAKE_MAKE_PROGRAM", "CMAKE_C_COMPILER", "CMAKE_CXX_COMPILER", "CMAKE_LINKER", "CMAKE_RC_COMPILER")) {
+        if ($cache[$name] -and [IO.Path]::IsPathRooted($cache[$name])) {
+            Assert-ProtectedInput (Get-FullPathSafe $repoRoot $cache[$name])
+        }
+    }
 }
 $packageLauncher = Join-Path $repoRoot "package\windows\launch-duke-rt.cmd"
 $prepareNormals = Join-Path $repoRoot "tools\dist\Prepare-CommercialNormals.ps1"
@@ -301,7 +328,9 @@ if (-not (Test-Path -LiteralPath $releaseOverlay)) {
     throw "release-overlay was not found: $releaseOverlay"
 }
 
-$overlayFiles = @(& git -C $repoRoot -c core.quotepath=false ls-files -- release-overlay)
+$gitExecutable = (Get-Command git -CommandType Application -ErrorAction Stop).Source
+Assert-ProtectedInput $gitExecutable
+$overlayFiles = @(& $gitExecutable -C $repoRoot -c core.quotepath=false ls-files -- release-overlay)
 if ($LASTEXITCODE -ne 0 -or $overlayFiles.Count -eq 0) { throw "Could not enumerate the checkout's tracked release-overlay." }
 foreach ($relative in $overlayFiles) {
     if ($relative -match '(?i)(\.grp$|\.kvx$|/normalmaps/)' -or
