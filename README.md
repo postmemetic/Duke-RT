@@ -240,7 +240,7 @@ The Windows CMake also stages the required audio runtime beside `raze.exe`:
 To build a stripped `Release` tree and stage a redistributable folder plus zip in one command, run:
 
 ```powershell
-.\tools\dist\Build-WindowsReleasePackage.cmd
+.\tools\dist\Build-WindowsReleasePackage.ps1
 ```
 
 Default outputs:
@@ -248,6 +248,46 @@ Default outputs:
 - `build\terminal-release\raze.exe`
 - `out\release\Duke-RT\`
 - `out\release\Duke-RT.zip`
+
+`Build-WindowsReleasePackage.cmd` is an equivalent entry point and forwards the same
+parameters. Both initialize the installed Visual Studio C++ environment, build
+ZMusic and the engine with production shaders, then package the result. CMake,
+Ninja and Git must be available. Existing dependency layouts still work without a
+settings file: `build\zmusic`, `build\vcpkg`, `vcpkg_installed`,
+`libraries\NRD\_Shaders`, and the sibling `..\NRD-Sample` runtime/SDK tree.
+These dependencies must already be prepared; this command does not bootstrap them.
+
+For dependencies stored elsewhere, create the ignored file
+`build\windows-release.local.json`. Only specify the paths that differ on your
+machine, for example:
+
+```json
+{
+  "ZMusicSourceDir": "D:/dependencies/ZMusic",
+  "VcpkgRoot": "D:/dependencies/vcpkg",
+  "VcpkgInstalledDir": "D:/dependencies/vcpkg_installed",
+  "NrdShaderHeaderDir": "D:/dependencies/NRD/_Shaders",
+  "NriRuntimeDir": "D:/dependencies/NRD-Sample/_Bin/Release",
+  "FfxSdkRoot": "D:/dependencies/NRD-Sample/_Build/_deps/ffx-src"
+}
+```
+
+Matching command-line parameters override local settings. `-ConfigPath` selects
+another settings file. Optional settings also include `VsDevCmd`,
+`DxcExecutable`, `CMakeExecutable`, `Jobs`, `ZMusicBuildDir`, `RazeBuildDir`,
+`PackageDir`, and `ZipPath`. Visual Studio is discovered with `vswhere` unless
+`VsDevCmd` or `RAZE_VSDEVCMD` is supplied; DXC uses the Vulkan SDK or PATH unless
+explicitly configured. Relative paths always start at this checkout, even when
+invoked from another working directory. The launcher, normal-map preparer,
+tracked authored `release-overlay`, and `vcpkg-overlays` always come from this
+checkout. Machine settings are optional and must not be committed.
+
+Build directories must be separate subdirectories of this checkout's `build`;
+package/zip outputs must be below `out\release`, with the zip outside the package
+folder. Existing caches must belong to their configured source and use Ninja
+Release. The default ZMusic output remains `build\zmusic\build-ninja-ovl2`, even
+when its source is external. Concurrent release commands in one checkout are
+rejected while compilation or packaging is in progress.
 
 To restage or re-zip an already-built `Release` tree without rebuilding, run:
 
@@ -261,7 +301,8 @@ The staged package includes:
 - staged runtime DLLs such as `zmusiclite.dll`, `OpenAL32.dll`, NRI/NRD/FFX runtimes, and codec DLLs
 - `launch-duke-rt.cmd`
 - `tools\dist\Prepare-CommercialNormals.ps1`
-- `release-overlay`
+- the tracked authored `release-overlay` (no imported normals, voxel models or GRP)
+- the staged FidelityFX runtime license
 
 The staged package includes `package\windows\launch-duke-rt.cmd`, `tools\dist\Prepare-CommercialNormals.ps1`, and `release-overlay`, and removes `*.pdb` files from the staged package.
 
