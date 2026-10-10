@@ -264,9 +264,9 @@ if (-not $SkipBuild) {
             $engine += "-DRAZE_DXC_EXECUTABLE=$DxcExecutable"
         }
         Invoke-CMake ($engine + $common)
+        Invoke-CMake @("--build", $RazeBuildDir, "--target", "revision_check")
+        Invoke-CMake @("--build", $RazeBuildDir, "--target", "raze", "--parallel", "$Jobs")
     } finally { $env:VULKAN_SDK = $savedVulkanSdk }
-    Invoke-CMake @("--build", $RazeBuildDir, "--target", "revision_check")
-    Invoke-CMake @("--build", $RazeBuildDir, "--target", "raze", "--parallel", "$Jobs")
 }
 $packageLauncher = Join-Path $repoRoot "package\windows\launch-duke-rt.cmd"
 $prepareNormals = Join-Path $repoRoot "tools\dist\Prepare-CommercialNormals.ps1"
