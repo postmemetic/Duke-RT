@@ -1,0 +1,20 @@
+Duke-RT's authored material maps, light/smoke rules and voxel policies are
+included in release-overlay. They are loaded even without optional imports.
+
+Optional World Tour normals
+---------------------------
+Source: Duke Nukem 3D: 20th Anniversary World Tour (Nerve Software / Gearbox).
+https://store.steampowered.com/app/434050/
+Normal maps are converted locally from the user's own installed game.
+They are not included in the public Duke-RT package.
+
+Optional Voxel Duke 3D
+----------------------
+Voxel Duke 3D by Daniel Peterson (Cheello / _chillo).
+https://www.moddb.com/mods/voxel-duke-nukem-3d/addons/voxel-duke-3d
+The user downloads the original pack separately. Its readme and credits are
+retained in userdata/content/voxels/readme.txt after import. The pack is not
+included in the public Duke-RT package. Refer to its readme for contributors
+and usage terms.
+
+DUKE3D.GRP is supplied by the user and is not included in public packages.

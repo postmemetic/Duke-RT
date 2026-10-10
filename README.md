@@ -2,7 +2,7 @@
 
 ![Duke-RT gameplay](images/20.png)
 
-Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native GPU gameplay validation is still pending. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
+Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native Linux gameplay has been reported working, with broader GPU validation still pending. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
 
 ![Duke-RT gameplay](images/EmergeFromSmoke.gif)
 
@@ -14,6 +14,7 @@ The renderer supports both Direct3D 12 and Vulkan, although feature support is m
 
 ## How To Run
 
+- Linux users: run `launch-duke-rt.sh` in a terminal. It selects your GRP, offers optional normal-map and voxel imports, and always mounts the authored overlay. See [Linux setup and testing](LINUX.md).
 - Launch `launch-duke-rt.cmd` from the packaged release folder instead of starting `raze.exe` directly.
 - You should own and have installed a Duke Nukem 3D release with a valid `DUKE3D.GRP`; `Duke Nukem 3D: 20th Anniversary World Tour` remains the intended visual baseline.
 - On first run, the launcher will either confirm the detected Duke Nukem 3D install or ask for the folder containing `DUKE3D.GRP`; the verified path is reused on later runs.
