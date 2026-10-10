@@ -325,5 +325,5 @@ build\terminal-ninja\raze.exe
 Example local overlay launch:
 
 ```powershell
-build\terminal-ninja\raze.exe -file M:\Raze\default-overlay
+build\terminal-ninja\raze.exe -file .\release-overlay
 ```
