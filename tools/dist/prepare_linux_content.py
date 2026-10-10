@@ -5,6 +5,7 @@ from datetime import datetime
 import fcntl
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import webbrowser
 import zipfile
+import zlib
 
 VOXEL_URL = 'https://www.moddb.com/mods/voxel-duke-nukem-3d/addons/voxel-duke-3d'
 VOXEL_ITEMS = {'duke3d.def', 'duke3d_voxels.def', 'duke3d_maphacks.def',
@@ -296,7 +298,8 @@ def setup(args, root, data, state):
                     info(f'Imported {count} voxel-pack files; original readme retained. Credit: Cheello / Daniel Peterson.')
             if enabled:
                 overlays.append(target)
-        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError, webbrowser.Error) as error:
+        except (OSError, ValueError, EOFError, zipfile.BadZipFile, zlib.error,
+                lzma.LZMAError, RuntimeError, webbrowser.Error) as error:
             info(f'Optional {provider} unavailable: {error}. Continuing without {provider}.')
             enabled = False
         state[provider] = enabled
