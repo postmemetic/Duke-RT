@@ -132,6 +132,8 @@ if (( ! skip_build )); then
         "-DZMUSIC_INCLUDE_DIR=$zmusic_source/include" "-DZMUSIC_LIBRARIES=$zmusic_lib" \
         "-DRAZE_DXC_EXECUTABLE=$dxc" "-DRAZE_NRD_SHADER_HEADER_DIR=$nrd_headers" \
         "-DRAZE_NRI_RUNTIME_DIR=$build_root/nri-runtime"
+    # Refresh revision metadata before Ninja scans compiler dependencies.
+    "$cmake" --build "$build_root/raze-build" --target revision_check
     "$cmake" --build "$build_root/raze-build" --target raze --parallel "$jobs"
 fi
 require_cache "$build_root/raze-build" CMAKE_BUILD_TYPE Release

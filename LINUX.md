@@ -188,7 +188,8 @@ to reduce compilation overhead; the source checkout may remain on Windows.
 By default, build caches go in `build/linux-release`, and the archive is
 `out/release/duke-rt-linux-x86_64.tar.gz`, with a `.sha256` sidecar. Override the
 archive with `--output` / `-OutputPath`. The default compiler concurrency is two
-jobs; raise it only if memory allows. Rerunning performs an incremental build.
+jobs; raise it only if memory allows. Rerunning performs an incremental build,
+refreshing source-revision metadata before compilation.
 `--skip-build` / `-SkipBuild` packages existing outputs from matching caches;
 use the same dependency/build arguments, and omit this switch after source edits.
 Incompatible source-root caches are rejected without deleting them. A lock covers
