@@ -39,47 +39,47 @@ set "GAME_ARGS="
 if "%~1"=="" goto args_done
 
 if /I "%~1"=="-Ask" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Ask"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Ask
     shift
     goto parse_args
 )
 if /I "%~1"=="-Yes" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Yes"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Yes
     shift
     goto parse_args
 )
 if /I "%~1"=="-No" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -No"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -No
     shift
     goto parse_args
 )
 if /I "%~1"=="-Force" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Force"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Force
     shift
     goto parse_args
 )
 if /I "%~1"=="-Quiet" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Quiet"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -Quiet
     shift
     goto parse_args
 )
 if /I "%~1"=="-VoxelAsk" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelAsk"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelAsk
     shift
     goto parse_args
 )
 if /I "%~1"=="-VoxelYes" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelYes"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelYes
     shift
     goto parse_args
 )
 if /I "%~1"=="-VoxelNo" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelNo"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelNo
     shift
     goto parse_args
 )
 if /I "%~1"=="-ForceVoxels" (
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -ForceVoxels"
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -ForceVoxels
     shift
     goto parse_args
 )
@@ -88,7 +88,7 @@ if /I "%~1"=="-VoxelZip" (
         echo [duke-rt] -VoxelZip requires a path argument.
         exit /b 1
     )
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelZip ""%~2"""
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -VoxelZip "%~2"
     shift
     shift
     goto parse_args
@@ -98,7 +98,7 @@ if /I "%~1"=="-SourceRoot" (
         echo [duke-rt] -SourceRoot requires a path argument.
         exit /b 1
     )
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -SourceRoot ""%~2"""
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -SourceRoot "%~2"
     shift
     shift
     goto parse_args
@@ -108,7 +108,7 @@ if /I "%~1"=="-GameRoot" (
         echo [duke-rt] -GameRoot requires a path argument.
         exit /b 1
     )
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -GameRoot ""%~2"""
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -GameRoot "%~2"
     shift
     shift
     goto parse_args
@@ -118,14 +118,13 @@ if /I "%~1"=="-OverlayDir" (
         echo [duke-rt] -OverlayDir requires a path argument.
         exit /b 1
     )
-    set "PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -OverlayDir ""%~2"""
     set "OVERLAY_DIR=%~f2"
     shift
     shift
     goto parse_args
 )
 
-set "GAME_ARGS=%GAME_ARGS% %1"
+set GAME_ARGS=%GAME_ARGS% %1
 shift
 goto parse_args
 
