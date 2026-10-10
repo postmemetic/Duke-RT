@@ -15,6 +15,7 @@
 *.vcproj	text
 *.sln		text
 *.bat		text
+*.sh		text eol=lf
 *.rc		text
 
 *.txt		text

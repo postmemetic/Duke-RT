@@ -119,7 +119,88 @@ dereferencing wrappers. Unmanaged layer textures still upload through the
 existing fallback, but their optional persistent signatures are unavailable;
 native testing should include layered decals and watch their performance.
 
-## Source build inputs
+## Build and package a Linux release
+
+Use `tools/dist/Build-LinuxReleasePackage.sh` on Linux, or
+`tools/dist/Build-LinuxReleasePackage.ps1` on Windows with WSL2. Both run the same
+Linux build: ZMusic, NRI, the engine and production shaders, followed by runtime
+staging and the public tarball packager. No existing engine binary is required.
+The PowerShell wrapper does not require a Visual Studio developer prompt.
+
+Build prerequisites are Linux x86-64, GCC/G++, Ninja, Git, CMake 3.30 or newer
+(tested with 3.31.10), Python 3.11 or newer, and development packages. On Ubuntu
+24.04, install the system dependencies once:
+
+```sh
+sudo apt install build-essential ninja-build git pkg-config python3 python3-venv \
+  libsdl2-dev libgtk-3-dev libbz2-dev libvpx-dev libasound2-dev \
+  libx11-dev libwayland-dev libopenal-dev libsndfile1-dev libmpg123-dev
+python3 -m venv "$HOME/.local/share/duke-rt-build-tools"
+"$HOME/.local/share/duke-rt-build-tools/bin/pip" install 'cmake==3.31.10'
+```
+
+The scripts do not run sudo or install system packages. NRI's CMake configuration
+downloads its pinned SDKs and Linux DXC on the first build, so that step requires
+internet access. Build and runtime dependencies are separate from GPU drivers;
+compilation does not need an exposed GPU.
+
+Supply ZMusic 1.3.0 source and compatible **precompiled NRD shader headers**:
+
+```sh
+git clone https://github.com/zdoom/zmusic build/zmusic
+git -C build/zmusic checkout cb15f4ba826ced1f558c202de80c377a913764b6
+```
+
+NRD headers must match the vendored `libraries/NRD` source and
+`RAZE_NRD_CONFIGURATION` in `source/CMakeLists.txt`, including the DXBC, DXIL and
+SPIR-V variants. They can be copied from a matching existing Windows dependency
+build; this is the same prerequisite as the current Windows build. The script
+does not generate these headers or establish their source/configuration identity
+merely from their filenames. Supply them with `--nrd-shader-headers` or
+`-NrdShaderHeaderDir`. Linux compilation and packaging then run without Windows
+tools. A fresh machine still needs this dependency prepared first.
+
+From a Linux checkout:
+
+```sh
+bash tools/dist/Build-LinuxReleasePackage.sh \
+  --build-root "$HOME/build/duke-rt-linux-release" \
+  --zmusic-source "$PWD/build/zmusic" \
+  --nrd-shader-headers "/path/to/matching/NRD/_Shaders" \
+  --cmake "$HOME/.local/share/duke-rt-build-tools/bin/cmake" --jobs 4
+```
+
+From the Windows checkout, using Linux dependencies in the selected WSL distro:
+
+```powershell
+.\tools\dist\Build-LinuxReleasePackage.ps1 -Distribution Ubuntu `
+  -BuildRoot /home/yourname/build/duke-rt-linux-release `
+  -ZMusicSourceDir C:\src\zmusic `
+  -NrdShaderHeaderDir C:\src\NRD\_Shaders `
+  -CMake /home/yourname/.local/share/duke-rt-build-tools/bin/cmake -Jobs 4
+```
+
+PowerShell path arguments accept Windows paths or absolute Linux paths. The
+`-CMake` executable always runs inside Linux. The native script resolves relative
+paths from the calling terminal. Prefer the WSL Linux filesystem for build caches
+to reduce compilation overhead; the source checkout may remain on Windows.
+
+By default, build caches go in `build/linux-release`, and the archive is
+`out/release/duke-rt-linux-x86_64.tar.gz`, with a `.sha256` sidecar. Override the
+archive with `--output` / `-OutputPath`. The default compiler concurrency is two
+jobs; raise it only if memory allows. Rerunning performs an incremental build.
+`--skip-build` / `-SkipBuild` packages existing outputs from matching caches;
+use the same dependency/build arguments, and omit this switch after source edits.
+Incompatible source-root caches are rejected without deleting them. Do not run
+two builds against the same build root at once.
+
+Use `--help` / `-Help` for options. The produced package includes player setup,
+licenses and all authored materials/policies, while excluding GRP, imported
+normals, voxel models and local userdata. Extract it and follow the launch and
+native gameplay checks above. This build retains the host distribution's glibc
+requirement; it is not an older-distribution compatibility build.
+
+## Manual source build inputs
 
 Windows can continue to orchestrate builds through WSL. Use a separate Linux
 CMake build directory; never reuse a Windows CMake cache. Enable `HAVE_NRI=ON`.

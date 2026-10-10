@@ -108,7 +108,11 @@ Special thanks to Coraline of the 3DGE team for allowing us to use her README.md
 
 ## How to build Duke-RT
 
-These are a bit of a mess and I haven't revalidated them for a newcomer to the repo recently. For the initial Linux renderer build and native hardware test instructions, see [LINUX.md](LINUX.md).
+For Linux, use [Build-LinuxReleasePackage.sh](tools/dist/Build-LinuxReleasePackage.sh)
+or the Windows/WSL wrapper [Build-LinuxReleasePackage.ps1](tools/dist/Build-LinuxReleasePackage.ps1).
+Both compile and package a release; [LINUX.md](LINUX.md#build-and-package-a-linux-release)
+lists prerequisites, commands and native hardware tests. The Windows instructions
+below have not recently been revalidated for a newcomer to the repo.
 
 ### Windows Build Instructions
 
