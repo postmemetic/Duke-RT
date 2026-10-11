@@ -205,7 +205,7 @@ void NRIRenderer::RebuildStartupMutationBaseline()
 		for (uint32_t chunkListIndex = 0; chunkListIndex < (uint32_t)mMapWorld.chunks.size(); ++chunkListIndex)
 		{
 			const auto& mapChunk = mMapWorld.chunks[chunkListIndex];
-			auto* replacement = mRuntimeMutation.FindReplacement(chunkListIndex);
+			auto* replacement = mRuntimeMutation.FindReplacementForUpdate(chunkListIndex);
 			if (replacement == nullptr)
 			{
 				continue;

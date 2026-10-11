@@ -148,7 +148,8 @@ bool NRIAccelerationStructureManager::BuildBottomLevel(
 	NRIAccelerationStructureResource& outAccelerationStructure,
 	bool updateDynamicPerfStats,
 	NRIBufferResource* buildScratchBuffer,
-	nri::AccelerationStructureBits buildFlags)
+	nri::AccelerationStructureBits buildFlags,
+	bool recordDynamicOverlayGpuTiming)
 {
 	Clocker clock(NriPTAcceleration);
 	ScopedPtPerfTimer perfTimer(renderer.mLastPerfShellTraceStats.dynamicAsMs);
@@ -277,7 +278,14 @@ bool NRIAccelerationStructureManager::BuildBottomLevel(
 	dynamicBuild.scratchOffset = 0;
 	{
 		ScopedPtPerfTimer phaseTimer(renderer.mLastPerfShellTraceStats.dynamicAsBuildMs);
-		renderer.mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*renderer.mFrameBuffer->mCommandBuffer, &dynamicBuild, 1);
+		{
+			// Attribute only the actual overlay BLAS command, excluding geometry
+			// uploads, resource creation, and the following dependency barriers.
+			NRIScopedGpuTiming overlayBlasGpuTiming(
+				recordDynamicOverlayGpuTiming ? renderer.mFrameBuffer : nullptr,
+				NRIGpuTimingScope::DynamicOverlayBlas);
+			renderer.mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*renderer.mFrameBuffer->mCommandBuffer, &dynamicBuild, 1);
+		}
 		renderer.NoteWorldBlasContentChanged();
 	}
 
@@ -1280,7 +1288,8 @@ bool NRIRenderer::BuildBottomLevelAccelerationStructure(
 	NRIAccelerationStructureResource& outAccelerationStructure,
 	bool updateDynamicPerfStats,
 	NRIBufferResource* buildScratchBuffer,
-	nri::AccelerationStructureBits buildFlags)
+	nri::AccelerationStructureBits buildFlags,
+	bool recordDynamicOverlayGpuTiming)
 {
 	return NRIAccelerationStructureManager::BuildBottomLevel(
 		*this,
@@ -1294,7 +1303,8 @@ bool NRIRenderer::BuildBottomLevelAccelerationStructure(
 		outAccelerationStructure,
 		updateDynamicPerfStats,
 		buildScratchBuffer,
-		buildFlags);
+		buildFlags,
+		recordDynamicOverlayGpuTiming);
 }
 
 bool NRIRenderer::BuildEmissiveTopLevelAccelerationStructure()

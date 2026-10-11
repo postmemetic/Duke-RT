@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "shaders/Include/HdrOutputMath.hlsli"
 
 enum class NRIPTOutputMode : uint32_t
 {
@@ -41,25 +42,17 @@ struct NRIPTOutputPolicy
 
 inline float GetNRIPTOutputSafeDisplaySdrLuminance(float displaySdrLuminance)
 {
-	return displaySdrLuminance > 1.0f ? displaySdrLuminance : 1.0f;
+	return NriHdrSafeSdrWhite(displaySdrLuminance);
 }
 
 inline float GetNRIPTOutputSafeDisplayMaxLuminance(float displaySdrLuminance, float displayMaxLuminance)
 {
-	const float safeDisplaySdr = GetNRIPTOutputSafeDisplaySdrLuminance(displaySdrLuminance);
-	return displayMaxLuminance > safeDisplaySdr ? displayMaxLuminance : safeDisplaySdr;
+	return NriHdrSafePeak(displaySdrLuminance, displayMaxLuminance);
 }
 
 inline float GetNRIPTOutputClampedPaperWhiteNits(float paperWhiteNits, float displaySdrLuminance, float displayMaxLuminance)
 {
-	const float safeDisplaySdr = GetNRIPTOutputSafeDisplaySdrLuminance(displaySdrLuminance);
-	const float safeDisplayMax = GetNRIPTOutputSafeDisplayMaxLuminance(displaySdrLuminance, displayMaxLuminance);
-	float safePaperWhite = paperWhiteNits > safeDisplaySdr ? paperWhiteNits : safeDisplaySdr;
-	if (safePaperWhite > safeDisplayMax)
-	{
-		safePaperWhite = safeDisplayMax;
-	}
-	return safePaperWhite;
+	return NriHdrScenePaperWhite(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
 }
 
 inline float GetNRIPTHdrPaperWhiteScale(const NRIPTOutputPolicy& policy)
@@ -77,7 +70,20 @@ inline float GetNRIPTHdrHeadroomInPaperWhites(const NRIPTOutputPolicy& policy)
 
 inline float GetNRIPTHdrMaxOutputScale(const NRIPTOutputPolicy& policy)
 {
-	return GetNRIPTHdrPaperWhiteScale(policy) * GetNRIPTHdrHeadroomInPaperWhites(policy);
+	return GetNRIPTOutputSafeDisplayMaxLuminance(policy.displaySdrLuminance, policy.displayMaxLuminance) / 80.0f;
+}
+
+inline float GetNRIPTHdrUiWhiteScale(const NRIPTOutputPolicy& policy)
+{
+	// Preserve the legacy UI brightness policy independently of scene white.
+	// In particular, reducing native HDR paper white below Windows SDR white
+	// must not dim the HUD, menus or frame-generation UI composition.
+	const float safeSdr = NriHdrSafeSdrWhite(policy.displaySdrLuminance);
+	const float nativePeak = NriHdrSafePeak(policy.displaySdrLuminance, policy.displayMaxLuminance);
+	const float uiPeak = nativePeak > safeSdr ? nativePeak : safeSdr;
+	const float requested = NriHdrIsFinite(policy.paperWhiteNits) ? policy.paperWhiteNits : safeSdr;
+	const float uiWhite = requested > safeSdr ? requested : safeSdr;
+	return (uiWhite < uiPeak ? uiWhite : uiPeak) / 80.0f;
 }
 
 inline bool IsNRIPTHdrOutputActive(const NRIPTOutputPolicy& policy)

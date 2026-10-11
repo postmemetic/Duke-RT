@@ -5,6 +5,7 @@
 #include "nri_frame_resources.h"
 #include "nri_resources.h"
 #include "nri_runtime_mutation.h"
+#include "nri_static_material_slices.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_builder.h"
 #include "../scene/nri_material_bridge.h"
@@ -140,6 +141,7 @@ struct StaticMapSceneCache
 		uint64_t geometryPayloadHash = 0;
 		uint64_t animatedMaterialSignature = 0;
 		uint64_t animatedGeometrySignature = 0;
+		uint64_t lightGeneration = 1;
 		bool active = true;
 		bool blasUpdateEligible = false;
 		uint32_t lastResidentBlasReasonMask = 0;
@@ -177,6 +179,9 @@ struct StaticMapSceneCache
 	bool accelerationResident = false;
 	uint64_t buildSerial = 0;
 	uint64_t materialGeneration = 0;
+	uint64_t geometryGeneration = 0;
+	uint64_t contentBuildSerial = 0;
+	uint64_t lightBindingGeneration = 0;
 	bool gpuMaterialsUseStableTextureSlots = false;
 	uint32_t sceneBuildCount = 0;
 	uint32_t gpuUploadCount = 0;
@@ -187,6 +192,7 @@ struct StaticMapSceneCache
 	uint32_t animatedGeometryFallbackCount = 0;
 	uint32_t animatedRefreshSuppressedChunkCount = 0;
 	uint32_t reuseCount = 0;
+	NRIStaticAnimatedMaterialState animatedMaterials;
 	nri_scene::SceneView sceneView;
 	std::vector<nri_scene::SceneView> lightChunkViews;
 	nri_scene::GeometryData geometry;
@@ -285,12 +291,15 @@ struct NRIStaticSceneAnimatedMaterialRefreshInput
 	uint32_t* runtimeAnimatedSuppressionEmitCount = nullptr;
 	bool traceStats = false;
 	bool traceMaterialBridgeFailures = false;
+	bool patchMaterials = true;
+	bool validateMaterialPatches = false;
 };
 
 struct NRIStaticSceneAnimatedMaterialRefreshServices
 {
 	void* user = nullptr;
 	bool (*refreshAnimatedBindingsForStaticMapChunk)(void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk, nri_scene::SceneView& ioChunkView) = nullptr;
+	bool (*resolveAnimatedBindingsForStaticMapChunk)(void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk, const nri_scene::SceneView& chunkView, std::vector<FGameTexture*>& outBindings) = nullptr;
 	void (*buildMaterialsWithActorOverrides)(void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label) = nullptr;
 	bool (*ensurePaletteTexture)(void* user, const nri_scene::MaterialBridgeData& materials) = nullptr;
 	bool (*ensureSceneTextures)(void* user, const nri_scene::SceneView& sceneView, const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& gpuMaterials, bool preserveExistingSky, const char* reason) = nullptr;
@@ -466,6 +475,12 @@ struct NRIStaticSceneResourceDestroyServices
 
 namespace nri_static_scene
 {
+	void UpdateAnimatedMaterialCandidate(StaticMapSceneCache& staticScene, uint32_t chunkListIndex);
+	bool BuildResidentStaticMaterialBridgeFromChunks(
+		const StaticMapSceneCache& staticScene,
+		const StaticMapChunkAtlas& atlas,
+		nri_scene::MaterialBridgeData& outBridge,
+		bool traceFailures);
 	void InitializeStaticMapSceneCacheBuild(
 		const nri_scene::PTMapWorld& mapWorld,
 		const NRIPreservedStaticMapSkyState* preservedSkyState,

@@ -44,6 +44,7 @@ public:
 	bool CommitSubmitted(uint64_t serial);
 	void DiscardStaged();
 	bool NeedsSettle(uint32_t chunkIndex) const;
+	const std::set<uint32_t>& GetSettleChunks() const { return m_settleChunks; }
 	bool HasFinalizedStage() const { return m_stageFinalized; }
 	const Stats& GetStats() const { return m_stats; }
 	DiagnosticRecord FindCommitted(uint64_t occurrenceId) const;

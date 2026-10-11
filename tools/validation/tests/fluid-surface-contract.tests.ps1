@@ -9,6 +9,8 @@ $evaluator = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\I
 $spirvCompatibility = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\Include\FluidSurfaceSpirvCompatibility.hlsli') -Raw
 $trace = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\TraceOpaque.cs.hlsl') -Raw
 $shaderSlots = Get-Content (Join-Path $root 'source\common\rendering\nri\renderer\nri_shader_contracts.h') -Raw
+$cpuMaterials = Get-Content (Join-Path $root 'source\common\rendering\nri\scene\nri_material_bridge.h') -Raw
+$shaderMaterials = Get-Content (Join-Path $root 'source\common\rendering\nri\shaders\Include\SceneShadowContracts.hlsli') -Raw
 
 function Assert-Contains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
@@ -41,9 +43,17 @@ Assert-Contains $cpuContract 'uint32_t\s+foamMode\s*=\s*0u' 'CPU frame ABI is mi
 Assert-Contains $shaderContract 'uint\s+foamMode;' 'HLSL frame ABI is missing the foam comparison mode.'
 Assert-Contains $cpuContract 'uint32_t\s+foamStyleMode\s*=\s*0u' 'CPU frame ABI is missing the foam style comparison mode.'
 Assert-Contains $shaderContract 'uint\s+foamStyleMode;' 'HLSL frame ABI is missing the foam style comparison mode.'
-Assert-Contains $shaderSlots 'NRI_SCENE_DATA_DESCRIPTOR_NUM\s*=\s*30' 'Scene descriptor count does not include fluid resources.'
-Assert-Contains $shaderSlots 'NRI_SCENE_DATA_FLUID_BINDING_SLOT\s*=\s*28' 'Fluid binding descriptor slot changed unexpectedly.'
-Assert-Contains $shaderSlots 'NRI_SCENE_DATA_FLUID_FRAME_SLOT\s*=\s*29' 'Fluid frame descriptor slot changed unexpectedly.'
+Assert-Contains $shaderSlots 'NRI_SCENE_DATA_DESCRIPTOR_NUM\s*=\s*33\b' 'Scene descriptor count must include static tangents, wall decals, and fluid resources.'
+Assert-Contains $shaderSlots 'NRI_SCENE_DATA_STATIC_TANGENT_SLOT\s*=\s*28\b' 'Static tangent descriptors must retain slot 28.'
+Assert-Contains $shaderSlots 'NRI_SCENE_DATA_WALL_DECAL_HEADER_SLOT\s*=\s*29\b' 'Wall decal header descriptors must retain slot 29.'
+Assert-Contains $shaderSlots 'NRI_SCENE_DATA_WALL_DECAL_SLOT\s*=\s*30\b' 'Wall decal entry descriptors must retain slot 30.'
+Assert-Contains $shaderSlots 'NRI_SCENE_DATA_FLUID_BINDING_SLOT\s*=\s*31\b' 'Fluid binding descriptors must follow the wall decal entries.'
+Assert-Contains $shaderSlots 'NRI_SCENE_DATA_FLUID_FRAME_SLOT\s*=\s*32\b' 'Fluid frame descriptors must follow fluid bindings.'
+Assert-Contains $shaderContract 'gFluidBindings\s*:\s*register\(t31,\s*space2\)' 'HLSL fluid bindings must match CPU descriptor slot 31.'
+Assert-Contains $shaderContract 'gFluidFrames\s*:\s*register\(t32,\s*space2\)' 'HLSL fluid frames must match CPU descriptor slot 32.'
+Assert-Contains $cpuMaterials 'sizeof\(MaterialData\)\s*==\s*92u' 'MaterialData must retain the combined wall decal and fluid ABI size.'
+Assert-Contains $cpuMaterials 'uint32_t\s+wallIndex\s*=\s*UINT32_MAX;\s*uint32_t\s+fluidBindingIndex\s*=\s*UINT32_MAX;' 'CPU MaterialData must keep wallIndex before fluidBindingIndex with invalid defaults.'
+Assert-Contains $shaderMaterials 'uint\s+wallIndex;\s*uint\s+fluidBindingIndex;' 'HLSL MaterialData must keep wallIndex before fluidBindingIndex to match the CPU ABI.'
 Assert-Contains $dispatcher '__spirv__[\s\S]*?FluidSurfaceSpirvCompatibility\.hlsli[\s\S]*?FluidSurfaceD3D\.hlsli' 'Fluid shader backend dispatch is missing its explicit DXC compatibility path.'
 Assert-Contains $spirvCompatibility 'void FluidEvaluateOctaves\(' 'The previously validated Vulkan fluid evaluator is not preserved.'
 Assert-Contains $spirvCompatibility 'binding\.virtualParams\.z' 'SPIR-V crest gain must use the same packed field as D3D12.'

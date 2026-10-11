@@ -27,6 +27,8 @@ struct NRIEmissiveSamplingDistributionEntry
 
 struct NRIEmissiveSamplingDistributionStats
 {
+	uint32_t scratchCapacityGrowths = 0;
+	uint64_t scratchCapacityGrowthBytes = 0;
 	uint32_t inputCount = 0;
 	uint32_t uniqueCount = 0;
 	uint32_t duplicateCount = 0;
@@ -67,4 +69,9 @@ private:
 	};
 
 	std::unordered_map<uint64_t, ProposalRecord> mProposalRecords;
+	std::vector<size_t> mOrderedIndices;
+	std::vector<size_t> mUniqueIndices;
+	std::vector<uint64_t> mResolvedStableKeys;
+	std::vector<uint64_t> mLiveKeys;
+	std::vector<float> mResolvedWeights;
 };

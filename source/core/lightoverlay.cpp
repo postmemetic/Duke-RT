@@ -91,8 +91,35 @@ namespace
 		switch (representation)
 		{
 		case LightOverlaySmokeRepresentation::Analytic: return "analytic";
+		case LightOverlaySmokeRepresentation::TransientCloud: return "transient-cloud";
 		default: return "grid";
 		}
+	}
+
+	static const char* SmokeTransientClassName(LightOverlaySmokeTransientClass value)
+	{
+		switch (value)
+		{
+		case LightOverlaySmokeTransientClass::Explosion: return "explosion";
+		case LightOverlaySmokeTransientClass::TrailChunk: return "trail";
+		case LightOverlaySmokeTransientClass::FirePacket: return "fire";
+		case LightOverlaySmokeTransientClass::Muzzle: return "muzzle";
+		case LightOverlaySmokeTransientClass::Impact: return "impact";
+		default: return "diagnostic";
+		}
+	}
+
+	static bool ParseSmokeTransientClassToken(const char* text,
+		LightOverlaySmokeTransientClass& value)
+	{
+		if (!stricmp(text, "explosion")) value = LightOverlaySmokeTransientClass::Explosion;
+		else if (!stricmp(text, "trail") || !stricmp(text, "trailchunk")) value = LightOverlaySmokeTransientClass::TrailChunk;
+		else if (!stricmp(text, "fire") || !stricmp(text, "firepacket")) value = LightOverlaySmokeTransientClass::FirePacket;
+		else if (!stricmp(text, "muzzle")) value = LightOverlaySmokeTransientClass::Muzzle;
+		else if (!stricmp(text, "impact")) value = LightOverlaySmokeTransientClass::Impact;
+		else if (!stricmp(text, "diagnostic")) value = LightOverlaySmokeTransientClass::Diagnostic;
+		else return false;
+		return true;
 	}
 
 	static const char* SmokeQueuePolicyName(LightOverlaySmokeQueuePolicy policy)
@@ -887,6 +914,20 @@ namespace
 					for (float& value : rule.albedo) value = std::clamp(value, 0.0f, 1.0f);
 					continue;
 				}
+				if (sc.Compare("loberadiusrandom"))
+				{
+					sc.MustGetFloat();
+					const float minimumScale = (float)sc.Float;
+					sc.MustGetFloat();
+					const float maximumScale = (float)sc.Float;
+					if (std::isfinite(minimumScale))
+						rule.lobeRadiusRandom[0] = std::clamp(minimumScale, 0.1f, 4.0f);
+					if (std::isfinite(maximumScale))
+						rule.lobeRadiusRandom[1] = std::clamp(maximumScale, 0.1f, 4.0f);
+					if (rule.lobeRadiusRandom[0] > rule.lobeRadiusRandom[1])
+						std::swap(rule.lobeRadiusRandom[0], rule.lobeRadiusRandom[1]);
+					continue;
+				}
 
 				float* value = nullptr;
 				float minimum = 0.0f;
@@ -909,13 +950,29 @@ namespace
 				else if (sc.Compare("temperature")) value = &rule.temperature;
 				else if (sc.Compare("momentumscale")) value = &rule.momentumScale;
 				else if (sc.Compare("coolinghalflife")) { value = &rule.coolingHalfLife; minimum = 0.001f; }
+				else if (sc.Compare("opticalamountscale")) value = &rule.opticalAmountScale;
+				else if (sc.Compare("transientlifetimeseconds")) value = &rule.transientLifetimeSeconds;
+				else if (sc.Compare("densityattackseconds")) value = &rule.densityAttackSeconds;
+				else if (sc.Compare("densitysustainseconds")) value = &rule.densitySustainSeconds;
+				else if (sc.Compare("densityreleaseseconds")) value = &rule.densityReleaseSeconds;
+				else if (sc.Compare("radiusexponent")) { value = &rule.radiusExponent; minimum = 0.01f; }
+				else if (sc.Compare("intrinsicemission")) value = &rule.intrinsicEmission;
+				else if (sc.Compare("emissionhalflife")) { value = &rule.emissionHalfLife; minimum = 0.001f; }
+				else if (sc.Compare("clusterspread")) { value = &rule.clusterSpread; maximum = 4.0f; boundedMaximum = true; }
+				else if (sc.Compare("curlvelocity")) value = &rule.curlVelocity;
+				else if (sc.Compare("coreplateau")) { value = &rule.corePlateau; maximum = 0.95f; boundedMaximum = true; }
+				else if (sc.Compare("edgeerosion")) { value = &rule.edgeErosion; maximum = 0.9f; boundedMaximum = true; }
+				else if (sc.Compare("noisescale")) { value = &rule.noiseScale; minimum = 0.0001f; }
+				else if (sc.Compare("noisestrength")) { value = &rule.noiseStrength; maximum = 0.8f; boundedMaximum = true; }
 				else
 				{
 					SkipUnknownField("smokestyle", sc.String);
 					continue;
 				}
 				sc.MustGetFloat();
-				*value = boundedMaximum ? std::clamp((float)sc.Float, minimum, maximum) : std::max(minimum, (float)sc.Float);
+				const float parsed = (float)sc.Float;
+				if (std::isfinite(parsed))
+					*value = boundedMaximum ? std::clamp(parsed, minimum, maximum) : std::max(minimum, parsed);
 			}
 			FinalizeSourceLocation(rule.source);
 			builder.AddSmokeStyle(rule);
@@ -953,7 +1010,8 @@ namespace
 					sc.MustGetString();
 					if (!stricmp(sc.String, "grid")) rule.representation = LightOverlaySmokeRepresentation::Grid;
 					else if (!stricmp(sc.String, "analytic")) rule.representation = LightOverlaySmokeRepresentation::Analytic;
-					else sc.ScriptMessage("Invalid smoke representation '%s'; expected grid or analytic", sc.String);
+					else if (!stricmp(sc.String, "transientcloud") || !stricmp(sc.String, "transient-cloud")) rule.representation = LightOverlaySmokeRepresentation::TransientCloud;
+					else sc.ScriptMessage("Invalid smoke representation '%s'; expected grid, analytic, or transient-cloud", sc.String);
 				}
 				else if (sc.Compare("queuepolicy"))
 				{
@@ -970,6 +1028,13 @@ namespace
 					rule.maxLatencySeconds = std::max(0.0f, (float)sc.Float);
 				}
 				else if (sc.Compare("analyticcarriers")) { sc.MustGetNumber(); rule.analyticCarrierCount = (uint32_t)std::clamp(sc.Number, 1, 8); }
+				else if (sc.Compare("lobecount")) { sc.MustGetNumber(); rule.transientLobeCount = (uint32_t)std::clamp(sc.Number, 1, 16); }
+				else if (sc.Compare("effectclass") || sc.Compare("transientclass"))
+				{
+					sc.MustGetString();
+					if (!ParseSmokeTransientClassToken(sc.String, rule.transientClass))
+						sc.ScriptMessage("Invalid transient smoke class '%s'", sc.String);
+				}
 				else if (sc.Compare("emitterforeground"))
 				{
 					sc.MustGetString();
@@ -977,6 +1042,12 @@ namespace
 					{
 						sc.ScriptMessage("Invalid smoke emitter foreground value '%s'; expected on or off", sc.String);
 					}
+				}
+				else if (sc.Compare("burstborrow"))
+				{
+					sc.MustGetString();
+					if (!ParseOnOffToken(sc.String, rule.burstBorrow))
+						sc.ScriptMessage("Invalid smoke burst borrowing value '%s'; expected on or off", sc.String);
 				}
 				else if (sc.Compare("style")) { sc.MustGetString(); rule.styleId = sc.String; }
 				else if (sc.Compare("count")) { sc.MustGetNumber(); rule.count = (uint32_t)std::clamp(sc.Number, 1, 256); }
@@ -1026,7 +1097,8 @@ namespace
 					sc.MustGetString();
 					if (!stricmp(sc.String, "grid")) rule.representation = LightOverlaySmokeRepresentation::Grid;
 					else if (!stricmp(sc.String, "analytic")) rule.representation = LightOverlaySmokeRepresentation::Analytic;
-					else sc.ScriptMessage("Invalid smoke representation '%s'; expected grid or analytic", sc.String);
+					else if (!stricmp(sc.String, "transientcloud") || !stricmp(sc.String, "transient-cloud")) rule.representation = LightOverlaySmokeRepresentation::TransientCloud;
+					else sc.ScriptMessage("Invalid smoke representation '%s'; expected grid, analytic, or transient-cloud", sc.String);
 				}
 				else if (sc.Compare("queuepolicy"))
 				{
@@ -1043,6 +1115,19 @@ namespace
 					rule.maxLatencySeconds = std::max(0.0f, (float)sc.Float);
 				}
 				else if (sc.Compare("analyticcarriers")) { sc.MustGetNumber(); rule.analyticCarrierCount = (uint32_t)std::clamp(sc.Number, 1, 8); }
+				else if (sc.Compare("lobecount")) { sc.MustGetNumber(); rule.transientLobeCount = (uint32_t)std::clamp(sc.Number, 1, 16); }
+				else if (sc.Compare("burstborrow"))
+				{
+					sc.MustGetString();
+					if (!ParseOnOffToken(sc.String, rule.burstBorrow))
+						sc.ScriptMessage("Invalid smoke burst borrowing value '%s'; expected on or off", sc.String);
+				}
+				else if (sc.Compare("effectclass") || sc.Compare("transientclass"))
+				{
+					sc.MustGetString();
+					if (!ParseSmokeTransientClassToken(sc.String, rule.transientClass))
+						sc.ScriptMessage("Invalid transient smoke class '%s'", sc.String);
+				}
 				else if (sc.Compare("count")) { sc.MustGetNumber(); rule.count = (uint32_t)std::clamp(sc.Number, 1, 256); }
 				else if (sc.Compare("offset")) MustParseVector3(rule.offset);
 				else if (sc.Compare("offsetrandom"))
@@ -1978,6 +2063,23 @@ namespace
 		AppendLine(text, 2, FStringf("temperature %s", FormatLightOverlayFloat(rule.temperature).GetChars()));
 		AppendLine(text, 2, FStringf("momentumscale %s", FormatLightOverlayFloat(rule.momentumScale).GetChars()));
 		AppendLine(text, 2, FStringf("coolinghalflife %s", FormatLightOverlayFloat(rule.coolingHalfLife).GetChars()));
+		AppendLine(text, 2, FStringf("opticalamountscale %s", FormatLightOverlayFloat(rule.opticalAmountScale).GetChars()));
+		AppendLine(text, 2, FStringf("transientlifetimeseconds %s", FormatLightOverlayFloat(rule.transientLifetimeSeconds).GetChars()));
+		AppendLine(text, 2, FStringf("densityattackseconds %s", FormatLightOverlayFloat(rule.densityAttackSeconds).GetChars()));
+		AppendLine(text, 2, FStringf("densitysustainseconds %s", FormatLightOverlayFloat(rule.densitySustainSeconds).GetChars()));
+		AppendLine(text, 2, FStringf("densityreleaseseconds %s", FormatLightOverlayFloat(rule.densityReleaseSeconds).GetChars()));
+		AppendLine(text, 2, FStringf("radiusexponent %s", FormatLightOverlayFloat(rule.radiusExponent).GetChars()));
+		AppendLine(text, 2, FStringf("intrinsicemission %s", FormatLightOverlayFloat(rule.intrinsicEmission).GetChars()));
+		AppendLine(text, 2, FStringf("emissionhalflife %s", FormatLightOverlayFloat(rule.emissionHalfLife).GetChars()));
+		AppendLine(text, 2, FStringf("clusterspread %s", FormatLightOverlayFloat(rule.clusterSpread).GetChars()));
+		AppendLine(text, 2, FStringf("loberadiusrandom %s %s",
+			FormatLightOverlayFloat(rule.lobeRadiusRandom[0]).GetChars(),
+			FormatLightOverlayFloat(rule.lobeRadiusRandom[1]).GetChars()));
+		AppendLine(text, 2, FStringf("curlvelocity %s", FormatLightOverlayFloat(rule.curlVelocity).GetChars()));
+		AppendLine(text, 2, FStringf("coreplateau %s", FormatLightOverlayFloat(rule.corePlateau).GetChars()));
+		AppendLine(text, 2, FStringf("edgeerosion %s", FormatLightOverlayFloat(rule.edgeErosion).GetChars()));
+		AppendLine(text, 2, FStringf("noisescale %s", FormatLightOverlayFloat(rule.noiseScale).GetChars()));
+		AppendLine(text, 2, FStringf("noisestrength %s", FormatLightOverlayFloat(rule.noiseStrength).GetChars()));
 		AppendLine(text, 1, "}");
 	}
 
@@ -1994,7 +2096,10 @@ namespace
 		AppendLine(text, 2, FStringf("queuepolicy %s", SmokeQueuePolicyName(rule.queuePolicy)));
 		if (rule.hasMaxLatencySeconds) AppendLine(text, 2, FStringf("maxlatencyseconds %s", FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars()));
 		AppendLine(text, 2, FStringf("analyticcarriers %u", rule.analyticCarrierCount));
+		AppendLine(text, 2, FStringf("lobecount %u", rule.transientLobeCount));
+		AppendLine(text, 2, FStringf("effectclass %s", SmokeTransientClassName(rule.transientClass)));
 		AppendLine(text, 2, FStringf("emitterforeground %s", rule.emitterForeground ? "on" : "off"));
+		AppendLine(text, 2, FStringf("burstborrow %s", rule.burstBorrow ? "on" : "off"));
 		AppendLine(text, 2, FStringf("style %s", QuoteLightOverlayString(rule.styleId).GetChars()));
 		AppendLine(text, 2, FStringf("count %u", rule.count));
 		AppendVector3Field(text, 2, "offset", rule.offset);
@@ -2023,6 +2128,9 @@ namespace
 		AppendLine(text, 2, FStringf("queuepolicy %s", SmokeQueuePolicyName(rule.queuePolicy)));
 		if (rule.hasMaxLatencySeconds) AppendLine(text, 2, FStringf("maxlatencyseconds %s", FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars()));
 		AppendLine(text, 2, FStringf("analyticcarriers %u", rule.analyticCarrierCount));
+		AppendLine(text, 2, FStringf("lobecount %u", rule.transientLobeCount));
+		AppendLine(text, 2, FStringf("effectclass %s", SmokeTransientClassName(rule.transientClass)));
+		AppendLine(text, 2, FStringf("burstborrow %s", rule.burstBorrow ? "on" : "off"));
 		AppendLine(text, 2, FStringf("count %u", rule.count));
 		AppendVector3Field(text, 2, "offset", rule.offset);
 		AppendVector3Field(text, 2, "offsetrandom", rule.offsetRandom);
@@ -2471,17 +2579,27 @@ namespace
 			Printf("LIGHTOVR smokestyle %s: density=%.3f extinction=%.4f radius=%.3f lifetime=%.3f half_life=%.3f source=%s\n",
 				rule->id.GetChars(), rule->density, rule->extinction, rule->radius, rule->lifetime, rule->densityHalfLife,
 				SourceLocationText(rule->source).GetChars());
+			Printf("  transient optical_amount_scale=%.6f transient_lifetime_seconds=%.3f density_envelope=(%.3f,%.3f,%.3f) radius_exponent=%.3f intrinsic_emission=%.3f emission_half_life=%.3f cluster_spread=%.3f lobe_radius_random=(%.3f,%.3f) curl_velocity=%.3f core_plateau=%.3f edge_erosion=%.3f noise=(%.4f,%.3f)\n",
+				rule->opticalAmountScale, rule->transientLifetimeSeconds,
+				rule->densityAttackSeconds, rule->densitySustainSeconds,
+				rule->densityReleaseSeconds, rule->radiusExponent,
+				rule->intrinsicEmission, rule->emissionHalfLife, rule->clusterSpread,
+				rule->lobeRadiusRandom[0], rule->lobeRadiusRandom[1],
+				rule->curlVelocity, rule->corePlateau, rule->edgeErosion,
+				rule->noiseScale, rule->noiseStrength);
 		}
 		for (const auto* rule : SortRulesByOrder(database.smokeActorRules))
 		{
-			Printf("LIGHTOVR smokeactorrule %s: actorclass=%s ownerclass=%s excludeownerclass=%s trigger=%s activation=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u emitterforeground=%s style=%s "
+			Printf("LIGHTOVR smokeactorrule %s: actorclass=%s ownerclass=%s excludeownerclass=%s trigger=%s activation=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s emitterforeground=%s burstborrow=%s style=%s "
 				"count=%u offset=(%.3f,%.3f,%.3f) spawnradius=%.3f densityscale=%.3f radiusscale=%.3f "
 				"velocitycone=%.3f velocityscale=%.3f intervalseconds=%.3f pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f starttime=%.3f startdistance=%.3f spacing=%.3f maxsegmentsperframe=%u source=%s\n",
 				rule->id.GetChars(), rule->actorClassName.GetChars(),
 				rule->ownerClassName.IsNotEmpty() ? rule->ownerClassName.GetChars() : "none",
 				rule->excludeOwnerClassName.IsNotEmpty() ? rule->excludeOwnerClassName.GetChars() : "none",
 				SmokeTriggerName(rule->trigger), ActorActivationPolicyName(rule->activationPolicy), SmokeRepresentationName(rule->representation), SmokeQueuePolicyName(rule->queuePolicy),
-				rule->hasMaxLatencySeconds ? FormatLightOverlayFloat(rule->maxLatencySeconds).GetChars() : "none", rule->analyticCarrierCount, rule->emitterForeground ? "on" : "off", rule->styleId.GetChars(), rule->count,
+				rule->hasMaxLatencySeconds ? FormatLightOverlayFloat(rule->maxLatencySeconds).GetChars() : "none", rule->analyticCarrierCount,
+				rule->transientLobeCount, SmokeTransientClassName(rule->transientClass),
+				rule->emitterForeground ? "on" : "off", rule->burstBorrow ? "on" : "off", rule->styleId.GetChars(), rule->count,
 				rule->offset[0], rule->offset[1], rule->offset[2], rule->spawnRadius, rule->densityScale,
 				rule->radiusScale, rule->velocityCone, rule->velocityScale, rule->intervalSeconds,
 				rule->pulseAmount, rule->pulsePeriodCadences, rule->pulsePhase,
@@ -2490,10 +2608,11 @@ namespace
 		}
 		for (const auto* rule : SortRulesByOrder(database.smokeEventRules))
 		{
-			Printf("LIGHTOVR smokeeventrule %s: style=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u count=%u offsetrandom=(%.3f,%.3f,%.3f) spawnradius=%.3f velocityscale=%.3f "
+			Printf("LIGHTOVR smokeeventrule %s: style=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s burstborrow=%s count=%u offsetrandom=(%.3f,%.3f,%.3f) spawnradius=%.3f velocityscale=%.3f "
 				"normaloffset=%.3f direction=%s source=%s\n",
 				rule->id.GetChars(), rule->styleId.GetChars(), SmokeRepresentationName(rule->representation), SmokeQueuePolicyName(rule->queuePolicy),
-				rule->hasMaxLatencySeconds ? FormatLightOverlayFloat(rule->maxLatencySeconds).GetChars() : "none", rule->analyticCarrierCount, rule->count,
+				rule->hasMaxLatencySeconds ? FormatLightOverlayFloat(rule->maxLatencySeconds).GetChars() : "none", rule->analyticCarrierCount,
+				rule->transientLobeCount, SmokeTransientClassName(rule->transientClass), rule->burstBorrow ? "on" : "off", rule->count,
 				rule->offsetRandom[0], rule->offsetRandom[1], rule->offsetRandom[2], rule->spawnRadius, rule->velocityScale,
 				rule->normalOffset, SmokeDirectionPolicyName(rule->directionPolicy),
 				SourceLocationText(rule->source).GetChars());
@@ -2650,8 +2769,14 @@ namespace
 
 		for (const auto& rule : resolved.smokeStyles)
 		{
-			Printf("LIGHTOVR resolved smokestyle %s: style_index=%u source=%s\n",
-				rule.id.GetChars(), rule.styleIndex, SourceLocationText(rule.source).GetChars());
+			Printf("LIGHTOVR resolved smokestyle %s: style_index=%u optical_amount_scale=%.6f transient_lifetime_seconds=%.3f density_envelope=(%.3f,%.3f,%.3f) radius_exponent=%.3f intrinsic_emission=%.3f emission_half_life=%.3f cluster_spread=%.3f lobe_radius_random=(%.3f,%.3f) curl_velocity=%.3f core_plateau=%.3f edge_erosion=%.3f noise=(%.4f,%.3f) source=%s\n",
+				rule.id.GetChars(), rule.styleIndex, rule.opticalAmountScale,
+				rule.transientLifetimeSeconds, rule.densityAttackSeconds,
+				rule.densitySustainSeconds, rule.densityReleaseSeconds,
+				rule.radiusExponent, rule.intrinsicEmission, rule.emissionHalfLife,
+				rule.clusterSpread, rule.lobeRadiusRandom[0], rule.lobeRadiusRandom[1],
+				rule.curlVelocity, rule.corePlateau, rule.edgeErosion,
+				rule.noiseScale, rule.noiseStrength, SourceLocationText(rule.source).GetChars());
 		}
 		for (const auto& rule : resolved.smokeActorRules)
 		{
@@ -2664,19 +2789,21 @@ namespace
 				rule.excludeOwnerClassName.IsEmpty() ? "n/a" : (rule.excludeOwnerClassResolved ? "yes" : "no"),
 				SmokeTriggerName(rule.trigger), ActorActivationPolicyName(rule.activationPolicy), rule.emitterForeground ? "on" : "off", rule.startTime, rule.styleId.GetChars(), rule.styleResolved ? "yes" : "no", rule.styleIndex,
 				SourceLocationText(rule.source).GetChars());
-			Printf("  smoke_policy representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f\n",
+			Printf("  smoke_policy representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s burstborrow=%s pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f\n",
 				SmokeRepresentationName(rule.representation), SmokeQueuePolicyName(rule.queuePolicy),
 				rule.hasMaxLatencySeconds ? FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars() : "none", rule.analyticCarrierCount,
-				rule.pulseAmount, rule.pulsePeriodCadences, rule.pulsePhase);
+				rule.transientLobeCount, SmokeTransientClassName(rule.transientClass),
+				rule.burstBorrow ? "on" : "off", rule.pulseAmount, rule.pulsePeriodCadences, rule.pulsePhase);
 		}
 		for (const auto& rule : resolved.smokeEventRules)
 		{
-			Printf("LIGHTOVR resolved smokeeventrule %s: style=%s style_resolved=%s style_index=%u representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u "
+			Printf("LIGHTOVR resolved smokeeventrule %s: style=%s style_resolved=%s style_index=%u representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s burstborrow=%s "
 				"offsetrandom=(%.3f,%.3f,%.3f) velocityscale=%.3f normaloffset=%.3f direction=%s source=%s\n",
 				rule.id.GetChars(), rule.styleId.GetChars(), rule.styleResolved ? "yes" : "no", rule.styleIndex,
 				SmokeRepresentationName(rule.representation), SmokeQueuePolicyName(rule.queuePolicy),
 				rule.hasMaxLatencySeconds ? FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars() : "none", rule.analyticCarrierCount,
-				rule.offsetRandom[0], rule.offsetRandom[1], rule.offsetRandom[2], rule.velocityScale, rule.normalOffset, SmokeDirectionPolicyName(rule.directionPolicy),
+				rule.transientLobeCount, SmokeTransientClassName(rule.transientClass),
+				rule.burstBorrow ? "on" : "off", rule.offsetRandom[0], rule.offsetRandom[1], rule.offsetRandom[2], rule.velocityScale, rule.normalOffset, SmokeDirectionPolicyName(rule.directionPolicy),
 				SourceLocationText(rule.source).GetChars());
 		}
 		for (const auto& rule : resolved.mapSmokeEmitterRules)

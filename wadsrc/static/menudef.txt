@@ -1075,7 +1075,14 @@ OptionMenu "VideoOptions" protected
 	StaticText ""
 
 	StaticText "Rendering Profile"
+	ifoption(Windows)
+	{
 	Option "Graphics API",						"nri_api",						"NRIGraphicsAPI"
+	}
+	else
+	{
+		Option "Graphics API", "nri_api", "NRIVulkanAPI"
+	}
 	StaticText "$VK_RESTART"
 	Option "HDR / SDR",							"nri_ptoutputmode",				"NRIPTOutputMode"
 	Option "Settings Profile",					"nri_settingsprofile",			"NRISettingsProfile"
@@ -1643,6 +1650,11 @@ OptionValue NRISmokeWorkProfile
 	1, "High"
 	2, "Medium"
 	3, "Low"
+}
+
+OptionString NRIVulkanAPI
+{
+	"vulkan", "Vulkan"
 }
 
 OptionString NRIGraphicsAPI

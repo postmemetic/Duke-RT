@@ -43,7 +43,7 @@ bool UseRrGuides()
 
 bool UseRelaxDenoiser()
 {
-	return (gTraceConstants.ReservedTrace1 & 0xffu) == 1u;
+	return (gTraceConstants.ReservedTrace1 & 0x3fu) == 1u;
 }
 
 float4 MultiplyVsMatrixPoint(float4 v, float4 matrixColumns[4])

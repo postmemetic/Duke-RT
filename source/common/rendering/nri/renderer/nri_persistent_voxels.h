@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_voxel_admission_scheduler.h"
+#include "nri_voxel_publication_order.h"
 
 #include "nri_persistent_voxel_admission_index.h"
 #include "nri_persistent_voxel_material_closure.h"
@@ -847,6 +848,11 @@ struct NRIPersistentVoxelBatchStats
 	uint64_t persistentVoxelOnboardingByteBudget = 0;
 	uint32_t persistentVoxelInstanceTransformUpdates = 0;
 	uint32_t persistentVoxelBatchSerialFastPathCount = 0;
+	uint32_t persistentVoxelPublicationResyncs = 0;
+	uint32_t persistentVoxelPublicationPatchedRows = 0;
+	uint32_t persistentVoxelPublicationFastPaths = 0;
+	uint32_t persistentVoxelPublicationStateChecks = 0;
+	uint32_t persistentVoxelPublicationStateMismatches = 0;
 };
 
 struct NRIPersistentVoxelBatchServices
@@ -1154,6 +1160,10 @@ public:
 	void RecomputeBatchState(PersistentVoxelBatch& targetBatch) const;
 	void RefreshActiveResourceReferences(uint32_t frameIndex);
 	void ClearActorInstances(const NRIPersistentVoxelResetServices& services);
+	bool TryApplyPublishedActors(uint64_t cacheSerial, uint32_t frameIndex,
+		const NRIPersistentVoxelSettings& settings, bool validate, NRIPersistentVoxelBatchStats& outStats);
+	void RememberPublishedActors(bool buildPending);
+	void ResetActorPublicationConsumer();
 	bool ValidateActorGeometry(
 		uint64_t identityKey,
 		uint64_t surfaceSignature,
@@ -1215,6 +1225,32 @@ public:
 	NRIBufferResource primitiveBuffer;
 	NRIBufferResource materialBuffer;
 	PersistentVoxelBatch batch = {};
+	nri_scene::VoxelActorPublicationCursor actorPublicationCursor;
+	std::shared_ptr<const nri_scene::VoxelActorPublicationSnapshot> actorPublication;
+	nri_scene::VoxelPublicationGenerations batchPublicationGenerations;
+	std::unordered_map<uint64_t, uint32_t> publicationActorIndices;
+	std::vector<nri_scene::PersistentVoxelCacheEntryView> publicationLegacyEntries;
+	std::vector<uint8_t> publicationTransformDirty;
+	NRIVoxelPublicationOrder publicationAdmissionOrder;
+	NRIVoxelPublicationOrder publicationTlasOrder;
+	NRIVoxelFrameKeyCounts publicationTlasOwners;
+	NRIVoxelFrameKeyCounts publicationBatchKeys;
+	NRIVoxelFrameKeyCounts publicationTlasMeshes;
+	std::vector<PersistentVoxelBatch::ActorEntry*> publicationTlasActors;
+	struct PublicationFastActor
+	{
+		uint32_t actorIndex = 0, entryIndex = 0;
+		PersistentVoxelInstanceRecord* instance = nullptr;
+		PersistentVoxelMeshVariantResource* mesh = nullptr;
+		PersistentVoxelMaterialVariantResource* material = nullptr;
+		std::array<float, 12> transform = {};
+		bool changed = false;
+	};
+	std::vector<PublicationFastActor> publicationFastActors;
+	bool publicationBatchReady = false;
+	bool publicationConsumerQuarantined = false;
+	bool publicationResynchronized = false;
+	bool publicationValidateThisFrame = false;
 	std::unordered_map<uint64_t, PersistentVoxelMeshVariantResource> meshVariantResources;
 	std::unordered_map<uint64_t, PersistentVoxelMaterialVariantResource> materialVariantResources;
 	std::unordered_map<uint64_t, PersistentVoxelInstanceRecord> instances;

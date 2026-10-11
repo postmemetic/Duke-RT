@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "nri_scene_frame_scratch.h"
 #include "nri_smoke.h"
 #include "nri_cvars.h"
 
@@ -66,7 +67,9 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace
 {
@@ -1779,6 +1782,8 @@ void NRIRenderer::Shutdown()
 	mNrd.Shutdown();
 	mUpscaler.Shutdown(*mFrameBuffer);
 	mIndirectRadianceCache.Destroy(BuildResourceServices());
+	mStaticTangents.scratch.Destroy(BuildResourceServices());
+	mStaticTangents = {};
 	DestroyNRIVoxelComputeMeshingDiagnostics(*this);
 	DestroyAccelerationStructures();
 	ClearRuntimePointLights();
@@ -1935,6 +1940,8 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 
 	mMapWorld = {};
 	mObservedMapWorldBuildSerial = 0;
+	mWallDecals.Reset();
+	mWallDecalTraceFrameIndex = UINT32_MAX;
 	mMapMoverShadow.Reset();
 	mMapMoverRigidRoute.Reset();
 	mSE29FloorDeformerRoute.Reset();
@@ -2099,6 +2106,8 @@ void NRIRenderer::OnLevelLoadBegin(const LevelTransitionInfo& info)
 
 	mMapWorld = {};
 	mObservedMapWorldBuildSerial = 0;
+	mWallDecals.Reset();
+	mWallDecalTraceFrameIndex = UINT32_MAX;
 	mMapMoverShadow.Reset();
 	mMapMoverRigidRoute.Reset();
 	mSE29FloorDeformerRoute.Reset();
@@ -2698,6 +2707,8 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 	accumulateBuffer(mVisibleFlatPlaneBuffer, telemetry.sceneBufferBytes);
 	accumulateBuffer(mSpatialAbsenceBuffer, telemetry.sceneBufferBytes);
 	accumulateBuffer(mSpatialAbsenceTypedBuffer, telemetry.sceneBufferBytes);
+	accumulateBuffer(mWallDecalHeaderBuffer, telemetry.sceneBufferBytes);
+	accumulateBuffer(mWallDecalBuffer, telemetry.sceneBufferBytes);
 	for (const SceneDataFrameSlot& slot : mSceneDataFrameRing)
 	{
 		accumulateBuffer(slot.reprojectionBuffer, telemetry.sceneBufferBytes);
@@ -2705,6 +2716,8 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 		accumulateBuffer(slot.visibleFlatPlaneBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.spatialAbsenceBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.spatialAbsenceTypedBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.wallDecalHeaderBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.wallDecalBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.sceneInstanceBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.portalBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.runtimeLightBuffer, telemetry.sceneBufferBytes);
@@ -3318,7 +3331,7 @@ const char* NRIRenderer::GetAvailabilityReason() const
 	const size_t requiredRootConstantSize = std::max({ sizeof(NRITraceSceneConstants), sizeof(NRITemporalConstants), sizeof(NRIPresentConstants), sizeof(NRIExposureConstants), sizeof(NRISmokeConstants) });
 	if (deviceDesc.pipelineLayout.rootConstantMaxSize < requiredRootConstantSize ||
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum < 1 ||
-		deviceDesc.pipelineLayout.descriptorSetMaxNum < 5)
+		deviceDesc.pipelineLayout.descriptorSetMaxNum < NRISmokeSystem::PipelineDescriptorSetCount)
 	{
 		return "device pipeline layout limits are below the NRI PT backend requirements";
 	}
@@ -3349,7 +3362,7 @@ bool NRIRenderer::CheckPathTracingSupport()
 	if (deviceDesc.tiers.rayTracing == 0 ||
 		deviceDesc.pipelineLayout.rootConstantMaxSize < requiredRootConstantSize ||
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum < 1 ||
-		deviceDesc.pipelineLayout.descriptorSetMaxNum < 5)
+		deviceDesc.pipelineLayout.descriptorSetMaxNum < NRISmokeSystem::PipelineDescriptorSetCount)
 	{
 		mPathTracingSupported = false;
 		LogFallback(GetAvailabilityReason());

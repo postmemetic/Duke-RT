@@ -1,6 +1,7 @@
 #include "nri_smoke.h"
 
 #include "nri_pass_dispatch.h"
+#include "nri_smoke_descriptor_budget.h"
 #include "nri_renderer.h"
 #include "../system/nri_gpu_timing.h"
 #include "../system/nri_renderdevice.h"
@@ -30,23 +31,25 @@ namespace
 	constexpr uint32_t kSmokeAnalyticStorageBufferCount = 5u;
 	constexpr uint32_t kSmokeDormantStorageBufferCount =
 		NRISmokeDormantGrid::EvaluationDescriptorCount;
-	constexpr uint32_t kSmokeStorageDescriptorCount = kSmokeCoreStorageBufferCount + NRISmokeGrid::EvaluationDescriptorCount +
+	constexpr uint32_t kSmokeTransientStorageBase = kSmokeCoreStorageBufferCount + NRISmokeGrid::EvaluationDescriptorCount +
 		kSmokeDirectStorageBufferCount + kSmokeGridLightingStorageBufferCount + kSmokeViewStorageBufferCount +
 		kSmokePromptStorageBufferCount + kSmokeAnalyticStorageBufferCount +
 		kSmokeDormantStorageBufferCount;
-	constexpr uint32_t kSmokeViewStorageBase = kSmokeStorageDescriptorCount -
+	constexpr uint32_t kSmokeStorageDescriptorCount = kSmokeTransientStorageBase + NRISmokeTransientResources::StorageDescriptorCount;
+	static_assert(kSmokeTransientStorageBase == 61u, "Transient UAVs follow live dormant-grid storage");
+	constexpr uint32_t kSmokeViewStorageBase = kSmokeTransientStorageBase -
 		kSmokeDormantStorageBufferCount - kSmokeAnalyticStorageBufferCount -
 		kSmokePromptStorageBufferCount - kSmokeViewStorageBufferCount;
-	constexpr uint32_t kSmokePromptStorageBase = kSmokeStorageDescriptorCount -
+	constexpr uint32_t kSmokePromptStorageBase = kSmokeTransientStorageBase -
 		kSmokeDormantStorageBufferCount - kSmokeAnalyticStorageBufferCount -
 		kSmokePromptStorageBufferCount;
-	constexpr uint32_t kSmokeAnalyticStorageBase = kSmokeStorageDescriptorCount -
+	constexpr uint32_t kSmokeAnalyticStorageBase = kSmokeTransientStorageBase -
 		kSmokeDormantStorageBufferCount - kSmokeAnalyticStorageBufferCount;
-	constexpr uint32_t kSmokeDormantStorageBase = kSmokeStorageDescriptorCount -
+	constexpr uint32_t kSmokeDormantStorageBase = kSmokeTransientStorageBase -
 		kSmokeDormantStorageBufferCount;
-	constexpr uint32_t kSmokeFilteredSceneBufferCount = 8u;
+	constexpr uint32_t kSmokeFilteredSceneBufferCount = nri_smoke_descriptors::FilteredSceneCount;
 	constexpr uint32_t kSmokeEmissiveSceneBufferCount = 7u;
-	constexpr uint32_t kSmokeExtendedSceneBufferCount = 10u;
+	constexpr uint32_t kSmokeExtendedSceneBufferCount = nri_smoke_descriptors::ExtendedSceneCount;
 	constexpr uint32_t kSmokeFlagDirectReuseShift = 14u;
 	constexpr uint32_t kSmokeFlagCompareRepresentation = 0x10000u;
 	constexpr uint32_t kSmokeFlagGridRepresentation = 0x20000u;
@@ -71,7 +74,7 @@ namespace
 	constexpr uint32_t kSmokeFlagGridLightingDebugShift = 27u;
 	constexpr uint32_t kSmokeFlagViewMask = 0x40000000u;
 	constexpr uint32_t kSmokeFlagGridLightingLocalProposals = 0x80000000u;
-	const char* const kSmokePipelineNames[] = { "SmokeClear", "SmokeSimulate", "SmokeSpawn", "SmokeBin", "SmokeLightDirectionalCarriers", "SmokeEvaluateMedium", "SmokeEvaluateGrid", "SmokeLightPoint", "SmokeLightDirectional", "SmokeLightDirectTemporal", "SmokeLightDirectSpatial", "SmokeLightEmissive", "SmokeLightEmissiveTemporal", "SmokeLightEmissiveSpatial", "SmokeLightIndirectReference", "SmokeLightIndirectTemporal", "SmokeLightIndirectSpatial", "SmokeIntegrate", "SmokeResolveVolume", "SmokeTemporalVolume", "SmokeComposite", "SmokeEvaluateGridCompact", "SmokePromptFallback", "SmokeAnalyticClear", "SmokeAnalyticBuildTiles", "SmokeAnalyticMaterialize", "SmokeAnalyticEmissiveBuild", "SmokeAnalyticEmissiveResolve" };
+	const char* const kSmokePipelineNames[] = { "SmokeClear", "SmokeSimulate", "SmokeSpawn", "SmokeBin", "SmokeLightDirectionalCarriers", "SmokeEvaluateMedium", "SmokeEvaluateGrid", "SmokeLightPoint", "SmokeLightDirectional", "SmokeLightDirectTemporal", "SmokeLightDirectSpatial", "SmokeLightEmissive", "SmokeLightEmissiveTemporal", "SmokeLightEmissiveSpatial", "SmokeLightIndirectReference", "SmokeLightIndirectTemporal", "SmokeLightIndirectSpatial", "SmokeIntegrate", "SmokeResolveVolume", "SmokeTemporalVolume", "SmokeComposite", "SmokeEvaluateGridCompact", "SmokePromptFallback", "SmokeAnalyticClear", "SmokeAnalyticBuildTiles", "SmokeAnalyticMaterialize", "SmokeAnalyticEmissiveBuild", "SmokeAnalyticEmissiveResolve", "SmokeTransientClear", "SmokeTransientBuildBins", "SmokeTransientLightBuild", "SmokeTransientMaterialize" };
 	static_assert(std::size(kSmokePipelineNames) == (size_t)NRISmokePass::Count);
 
 	uint32_t PackDirectionalLightColor24(const float color[3])
@@ -113,6 +116,7 @@ namespace
 		case NRISmokePass::LightEmissiveTemporal:
 		case NRISmokePass::LightEmissiveSpatial:
 		case NRISmokePass::AnalyticEmissiveResolve:
+		case NRISmokePass::TransientMaterialize:
 			return true;
 		default:
 			return false;
@@ -271,7 +275,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 
 	nri::DescriptorRangeDesc input = {};
 	input.baseRegisterIndex = 0;
-	input.descriptorNum = 3;
+	input.descriptorNum = nri_smoke_descriptors::InputCount;
 	input.descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
 	input.shaderStages = nri::StageBits::COMPUTE_SHADER;
 	input.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
@@ -295,11 +299,12 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	output.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
 	nri::DescriptorRangeDesc lights = {};
 	lights.baseRegisterIndex = 0;
-	lights.descriptorNum = 3;
+	lights.descriptorNum = nri_smoke_descriptors::LightCount;
 	lights.descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
 	lights.shaderStages = nri::StageBits::COMPUTE_SHADER;
 	lights.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
-	nri::DescriptorRangeDesc filteredSceneRanges[5] = {};
+	const bool vulkan = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK;
+	nri::DescriptorRangeDesc filteredSceneRanges[6] = {};
 	filteredSceneRanges[0].baseRegisterIndex = 0;
 	filteredSceneRanges[0].descriptorNum = kSmokeFilteredSceneBufferCount;
 	filteredSceneRanges[0].descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
@@ -327,7 +332,24 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	filteredSceneRanges[4].descriptorType = nri::DescriptorType::ACCELERATION_STRUCTURE;
 	filteredSceneRanges[4].shaderStages = nri::StageBits::COMPUTE_SHADER;
 	filteredSceneRanges[4].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
-	nri::DescriptorSetDesc sets[6] = {};
+	if (vulkan)
+	{
+		// Vulkan has one binding namespace and represents the scene textures as an array.
+		filteredSceneRanges[5] = filteredSceneRanges[4];
+		filteredSceneRanges[4] = filteredSceneRanges[3];
+		filteredSceneRanges[4].baseRegisterIndex = smokeWorldTlasRegister + 1;
+		filteredSceneRanges[3] = filteredSceneRanges[2];
+		filteredSceneRanges[3].baseRegisterIndex = 20;
+		filteredSceneRanges[3].descriptorNum = NRI_MAX_SCENE_TEXTURES;
+		filteredSceneRanges[3].flags = NRIResourceFlags(filteredSceneRanges[3].flags, nri::DescriptorRangeBits::ARRAY);
+		filteredSceneRanges[2].descriptorNum = 2;
+	}
+	// Opaque scene shadows can be available before the filtered scene tables,
+	// and emissive inputs can be available without a TLAS. Each shader access is
+	// readiness-gated; Vulkan must also permit the unused ranges to be unbound.
+	for (auto& range : filteredSceneRanges)
+		range.flags = NRIResourceFlags(range.flags, nri::DescriptorRangeBits::PARTIALLY_BOUND);
+	nri::DescriptorSetDesc sets[PipelineDescriptorSetCount] = {};
 	nri::DescriptorRangeDesc* ranges[] = { &input, &buffers, &textures, &output, &lights };
 	for (uint32_t i = 0; i < 5; ++i)
 	{
@@ -338,7 +360,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	}
 	sets[5].registerSpace = 6;
 	sets[5].ranges = filteredSceneRanges;
-	sets[5].rangeNum = 5;
+	sets[5].rangeNum = vulkan ? 6 : 5;
 	sets[5].flags = nri::DescriptorSetBits::ALLOW_UPDATE_AFTER_SET;
 	nri::RootConstantDesc root = {};
 	root.registerIndex = 0;
@@ -349,7 +371,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	layout.rootConstants = &root;
 	layout.rootConstantNum = 1;
 	layout.descriptorSets = sets;
-	layout.descriptorSetNum = 6;
+	layout.descriptorSetNum = PipelineDescriptorSetCount;
 	layout.shaderStages = nri::StageBits::COMPUTE_SHADER;
 	if (renderer.mFrameBuffer->mCore.CreatePipelineLayout(*renderer.mFrameBuffer->mDevice, layout, mPipelineLayout) != nri::Result::SUCCESS)
 		return false;
@@ -536,7 +558,8 @@ void NRISmokeSystem::UpdateResourceStatus()
 		mIndirectScratch.memorySize + mEmissiveCurrent.memorySize + mEmissiveTemporal.memorySize + mEmissiveHistory.memorySize +
 		mDirectCurrent.memorySize + mDirectHistory.memorySize + mAnalyticTileHeaders.memorySize +
 		mAnalyticTileIndices.memorySize + mAnalyticFroxelMedium.memorySize + mAnalyticEmissiveA.memorySize +
-		mAnalyticEmissiveB.memorySize + mStyleBuffer.memorySize + mCompatibilityStorage.memorySize;
+		mAnalyticEmissiveB.memorySize + mStyleBuffer.memorySize + mCompatibilityStorage.memorySize +
+		mTransientResources.ResidentBytes();
 	mStatus.indirectCacheBytes = mIndirectHistory.memorySize + mIndirectScratch.memorySize;
 	mStatus.emissiveReservoirBytes = mEmissiveCurrent.memorySize + mEmissiveTemporal.memorySize + mEmissiveHistory.memorySize;
 	mStatus.directHistoryBytes = mDirectCurrent.memorySize + mDirectHistory.memorySize;
@@ -820,6 +843,8 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 		if (completedSlot.readbackPending && completedSlot.controlReadback.buffer != nullptr)
 		{
 			mStatus.gpuStatsValid = false;
+			mStatus.transient.valid = false;
+			mStatus.analyticLight.valid = false;
 			const void* mapped = renderer.mFrameBuffer->mCore.MapBuffer(*completedSlot.controlReadback.buffer, 0, sizeof(NRISmokeControlGpu));
 			if (mapped != nullptr && completedSlot.readbackEpoch == mStatus.simulationEpoch)
 			{
@@ -828,6 +853,14 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 				mStatus.gpuStatsValid = true;
 				mStatus.gpuStatsFrame = completedSlot.readbackFrame;
 				mStatus.gpuStatsEpoch = completedSlot.readbackEpoch;
+				mStatus.transient.valid = true;
+				mStatus.transient.rendererFrame = completedSlot.readbackFrame;
+				mStatus.transient.epoch = completedSlot.readbackEpoch;
+				mStatus.transient.profile = completedSlot.analyticProfile;
+				mStatus.transient.residentBytes = completedSlot.transientResidentBytes;
+				mStatus.transient.cpu = completedSlot.transientSnapshot;
+				mStatus.transient.gpu = control;
+				if (mSettings.traceMode != 0u) NRIPrintSmokeTransientTelemetry(mStatus.transient);
 				mStatus.activeParticles = control.activeApprox;
 				mStatus.spawnedParticles = control.spawned;
 				mStatus.expiredParticles = control.expired;
@@ -1028,6 +1061,7 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 	if (!mSettings.readback)
 	{
 		mStatus.gpuStatsValid = false;
+		mStatus.transient.valid = false;
 		mStatus.analyticLight.valid = false;
 	}
 	const bool worldLightingRequired = mSettings.representation != 0u &&
@@ -1082,6 +1116,7 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 	interestInput.mapWorld = &renderer.mMapWorld;
 	interestInput.visibleChunkWords = &renderer.mCurrentVisibleChunkWords;
 	interestInput.overlays = &GetResolvedLightOverlaySet();
+	interestInput.mapEmittersEnabled = mSettings.mapEmitters;
 	mInterest.Update(interestInput);
 	const NRISmokeDormantGridStatusSnapshot& dormantStatus =
 		mDormantGrid.GetStatusSnapshot();
@@ -1194,11 +1229,28 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 	const uint32_t previousGeneration = mEmitters.GetGeneration();
 	const double gameplayTimeSeconds = PlayClock > 0 ? (double)PlayClock * (1.0 / 120.0) : 0.0;
 	mEmitters.SetContinuousSourceWorkQuantity(dormantConfig.maximumEvolutionPerFrame);
+	mEmitters.SetTransientClassMask(mSettings.transientClassMask);
+	mEmitters.SetSourceClassMask(mSettings.sourceClassMask);
+	mEmitters.SetActorEmittersEnabled(mSettings.actorEmitters);
+	mEmitters.SetMapEmittersEnabled(mSettings.mapEmitters);
 	mEmitters.Gather(mStatus.simulationEpoch, gameplayTimeSeconds, weaponEvents, renderer.mSceneLights,
 		mStyles, mPendingCommands, mPendingPulseEnqueueInfo, mPendingTrailObservations,
-		mPendingAnalyticRequests,
+		mPendingAnalyticRequests, mPendingTransientRequests,
 		mNextCommandSerial, mSettings.traceMode, mInterest.GetSnapshot(),
 		mSettings.gridCellSize, mSettings.gridBrickCapacity);
+	if (mSettings.traceMode != 0u)
+	{
+		const auto& routes = mEmitters.GetRouteSnapshot();
+		Printf("PERF pt smoke route frame NRI: renderer_frame=%llu simulation_frame=%u epoch=%u gather=%llu mask=%u source_mask=%u actor_emitters=%u suppressed_actor_rules=%u suppressed_event_rules=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u compact=1\n",
+			(unsigned long long)renderer.mFrameBuffer->mFrameIndex, renderer.mFrameIndex, mStatus.simulationEpoch,
+			(unsigned long long)routes.gatherId, routes.classMask, routes.sourceClassMask,
+			routes.actorEmittersEnabled ? 1u : 0u, routes.suppressedActorRules, routes.suppressedEventRules,
+			routes.mapEmittersEnabled ? 1u : 0u,
+			routes.suppressedMapRules, routes.suppressedMapPreviews, routes.ambientMapCommands,
+			routes.previewMapCommands, routes.gridCommands, routes.analyticCarriers,
+			routes.transientGroups, routes.transientLobes, routes.fallbackGridCommands,
+			routes.fallbackAnalyticCarriers, routes.trailBridgeObservations);
+	}
 	std::set<NRISmokeSpatialCoordinate> promotionCoordinates;
 	for (const NRISmokeDormantGridWorkGpu& work : mDormantPromotions)
 		promotionCoordinates.insert({ work.coordinate[0], work.coordinate[1], work.coordinate[2] });
@@ -1244,6 +1296,7 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 		mStatus.gpuStatsValid = false;
 		for (NRISmokeInjectionCommandGpu& command : mPendingCommands) command.epoch = mStatus.simulationEpoch;
 		for (NRISmokeAnalyticCarrierRequest& request : mPendingAnalyticRequests) request.epoch = mStatus.simulationEpoch;
+		for (NRISmokeTransientLobeRequest& request : mPendingTransientRequests) request.epoch = mStatus.simulationEpoch;
 		mGrid.Reset(mStatus.simulationEpoch, mStatus.resetReason);
 		mDormantGrid.Reset(mStatus.simulationEpoch, mStatus.resetReason);
 		mSpatialInterest.Reset(mStatus.simulationEpoch);
@@ -1335,16 +1388,20 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 		std::vector<NRISmokeAnalyticTrailObservationBatch> transitionTrailObservations =
 			std::move(mPendingTrailObservations);
 		std::vector<NRISmokeAnalyticCarrierRequest> transitionAnalytic = std::move(mPendingAnalyticRequests);
+		auto transitionTransient = std::move(mPendingTransientRequests);
 		Reset("authority-transition");
 		mPendingCommands = std::move(transitionCommands);
 		mPendingPulseEnqueueInfo = std::move(transitionEnqueueInfo);
 		mPendingTrailObservations = std::move(transitionTrailObservations);
 		mPendingAnalyticRequests = std::move(transitionAnalytic);
+		mPendingTransientRequests = std::move(transitionTransient);
 		mStatus.preparedFrame = renderer.mFrameIndex;
 		mLastPreparedFrame = renderer.mFrameIndex;
 		for (NRISmokeInjectionCommandGpu& command : mPendingCommands)
 			command.epoch = mStatus.simulationEpoch;
 		for (NRISmokeAnalyticCarrierRequest& request : mPendingAnalyticRequests)
+			request.epoch = mStatus.simulationEpoch;
+		for (NRISmokeTransientLobeRequest& request : mPendingTransientRequests)
 			request.epoch = mStatus.simulationEpoch;
 		if (authorityDecision.mode == NRISmokeAuthorityMode::Grid || authorityDecision.mode == NRISmokeAuthorityMode::Compare)
 		{
@@ -1583,6 +1640,9 @@ bool NRISmokeSystem::RecordSimulation(NRIRenderer& renderer)
 	const uint32_t dueSubsteps = (uint32_t)std::min<double>(
 		std::floor(mAccumulator / step), (double)UINT32_MAX);
 	const NRISmokeWorkTable& workTable = mWorkScheduler.GetSnapshot().table;
+	if (!PrepareTransientFrame(renderer, now))
+		return false;
+	UpdateResourceStatus();
 	const uint32_t substeps = std::min(dueSubsteps, workTable.simulationSubsteps);
 	mAccumulator -= (float)substeps * step;
 	const uint32_t debtSubsteps = (uint32_t)std::min<double>(
@@ -1838,7 +1898,9 @@ bool NRISmokeSystem::RecordSimulation(NRIRenderer& renderer)
 	nri::BarrierDesc computeBarrier = {}; computeBarrier.buffers = compute.data(); computeBarrier.bufferNum = (uint32_t)compute.size();
 	renderer.mFrameBuffer->mCore.CmdBarrier(*renderer.mFrameBuffer->mCommandBuffer, computeBarrier);
 
-	const nri::Descriptor* inputs[] = { mStyleBuffer.shaderView, slot.device.shaderView, slot.analyticDevice.shaderView };
+	const auto transientInputs = mTransientResources.Inputs(BuildGridServices(renderer).queuedFrameIndex);
+	const nri::Descriptor* inputs[] = { mStyleBuffer.shaderView, slot.device.shaderView, slot.analyticDevice.shaderView,
+		transientInputs[0], transientInputs[1], transientInputs[2] };
 	const nri::Descriptor* particleView = mParticles.storageView != nullptr ? mParticles.storageView : mCompatibilityParticleView;
 	const nri::Descriptor* cellView = mFineCells.storageView != nullptr ? mFineCells.storageView : mCompatibilityCellView;
 	const nri::Descriptor* wideCellView = mWideCells.storageView != nullptr ? mWideCells.storageView : mCompatibilityCellView;
@@ -1880,7 +1942,9 @@ bool NRISmokeSystem::RecordSimulation(NRIRenderer& renderer)
 	std::copy(dormantDescriptors.begin(), dormantDescriptors.end(),
 		outputs.begin() + kSmokeDormantStorageBase);
 	nri::UpdateDescriptorRangeDesc updates[2] = {};
-	updates[0].descriptorSet = slot.inputSet; updates[0].rangeIndex = 0; updates[0].descriptors = inputs; updates[0].descriptorNum = 3;
+	const auto transientStorage = mTransientResources.Storage();
+	std::copy(transientStorage.begin(), transientStorage.end(), outputs.begin() + kSmokeTransientStorageBase);
+	updates[0].descriptorSet = slot.inputSet; updates[0].rangeIndex = 0; updates[0].descriptors = inputs; updates[0].descriptorNum = nri_smoke_descriptors::InputCount;
 	updates[1].descriptorSet = slot.bufferSet; updates[1].rangeIndex = 0; updates[1].descriptors = outputs.data(); updates[1].descriptorNum = kSmokeStorageDescriptorCount;
 	renderer.mFrameBuffer->mCore.UpdateDescriptorRanges(updates, 2);
 
@@ -2132,7 +2196,11 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	NRITextureResource& volumeMetaRead = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing);
 	NRITextureResource& volumeMetaWrite = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong);
 	const bool fieldDiagnostics = mSettings.debugMode >= 12u;
-	const bool volumeHistoryAllowed = mSettings.volumeHistory && !fieldDiagnostics;
+	// Empty transient frames never read the retained motion field. Its allocation
+	// is stable, but it is only cleared/materialized for a nonempty transient view.
+	const bool transientHistoryAllowed = mSettings.transientHistory && !fieldDiagnostics &&
+		!mTransientClouds.GetGpuLobes().empty();
+	const bool volumeHistoryAllowed = (mSettings.volumeHistory || transientHistoryAllowed) && !fieldDiagnostics;
 	const bool bypassVolumeTemporal = !volumeHistoryAllowed && mSettings.debugMode != 6u;
 	if (input.shaderView == nullptr || depth.shaderView == nullptr || output.storageView == nullptr ||
 		volumeCurrent.shaderView == nullptr || volumeCurrent.storageView == nullptr ||
@@ -2237,6 +2305,7 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		renderer.mFrameBuffer->mSamplers[(size_t)NRISamplerMode::ClampPoint],
 	};
 	nri::UpdateDescriptorRangeDesc updates[11] = {};
+	const bool vulkan = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::VK;
 	updates[0].descriptorSet = slot.textureSet; updates[0].rangeIndex = 0; updates[0].descriptors = textures; updates[0].descriptorNum = 8;
 	updates[1].descriptorSet = slot.outputSet; updates[1].rangeIndex = 0; updates[1].descriptors = outputTextures; updates[1].descriptorNum = 5;
 	uint32_t updateCount = 2;
@@ -2252,13 +2321,17 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		{
 			updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 1; updates[updateCount].descriptors = extendedSceneBuffers.data(); updates[updateCount].descriptorNum = kSmokeExtendedSceneBufferCount; updateCount++;
 		}
-		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 2; updates[updateCount].descriptors = smokeSceneTextures.data(); updates[updateCount].descriptorNum = (uint32_t)smokeSceneTextures.size(); updateCount++;
-		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 3; updates[updateCount].descriptors = filteredSamplers; updates[updateCount].descriptorNum = 3; updateCount++;
+		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 2; updates[updateCount].descriptors = smokeSceneTextures.data(); updates[updateCount].descriptorNum = vulkan ? 2u : (uint32_t)smokeSceneTextures.size(); updateCount++;
+		if (vulkan)
+		{
+			updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 3; updates[updateCount].descriptors = smokeSceneTextures.data() + 2; updates[updateCount].descriptorNum = NRI_MAX_SCENE_TEXTURES; updateCount++;
+		}
+		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = vulkan ? 4 : 3; updates[updateCount].descriptors = filteredSamplers; updates[updateCount].descriptorNum = 3; updateCount++;
 	}
 	const nri::Descriptor* worldTlas[] = { worldTlasDescriptor };
 	if (shadowReady)
 	{
-		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = 4; updates[updateCount].descriptors = worldTlas; updates[updateCount].descriptorNum = 1; updateCount++;
+		updates[updateCount].descriptorSet = slot.filteredSceneSet; updates[updateCount].rangeIndex = vulkan ? 5 : 4; updates[updateCount].descriptors = worldTlas; updates[updateCount].descriptorNum = 1; updateCount++;
 	}
 	renderer.mFrameBuffer->mCore.UpdateDescriptorRanges(updates, updateCount);
 
@@ -2305,6 +2378,9 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	constants.directionalDirectionZ = renderer.mDirectionalLightState.direction[2];
 	constants.directionalAngularSize = std::clamp(renderer.mDirectionalLightState.angularSize, 0.001f, 1.2f);
 	std::copy(renderer.mCurrentJitter, renderer.mCurrentJitter + 2, constants.currentJitter);
+	const uint32_t transientGroupCount = mTransientClouds.GetSnapshot().visibleGroups != 0u
+		? uint32_t(mTransientClouds.GetGpuGroups().size()) : 0u;
+	const uint32_t transientLobeCount = uint32_t(mTransientClouds.GetGpuLobes().size());
 	NRIPopulateSmokeVisualConstants(mSettings.visuals, constants);
 	uint64_t visualHistoryHash = NRIHashSmokeVisualSettings(mSettings.visuals);
 	visualHistoryHash = HashCombine64(visualHistoryHash, mSettings.debugMode);
@@ -2334,6 +2410,12 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		(emissiveLightsReady ? 0x8u : 0u);
 	if (mSettings.indirect && indirectResourcesReady)
 		constants.lightSourceFlags |= 0x10u;
+	if (mSettings.transientSelfShadow)
+		constants.lightSourceFlags |= 0x200u; // Transient analytic self-shadow is grid-independent.
+	if (mSettings.transientCoverage)
+		constants.lightSourceFlags |= 0x400u; // Shared with resolve; spatial filtering is not a light-cache key.
+	if (transientHistoryAllowed)
+		constants.lightSourceFlags |= 0x800u; // Smoke-aware motion/opacity history, not legacy radiance reuse.
 	const bool filteredVisibilityEffective = constants.lightMode >= 2u && mSettings.filteredVisibility && filteredResourcesReady && shadowReady;
 	const uint32_t requestedEmissivePointCandidates = std::clamp(mSettings.emissivePointCandidates, 1u, 8u);
 	const uint32_t effectiveEmissivePointCandidates = mSettings.emissiveReference ? 1u : requestedEmissivePointCandidates;
@@ -2476,16 +2558,29 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	volumeLightingHash = HashCombine64(volumeLightingHash,
 		worldEmissiveRequested ? effectiveEmissiveEstimatorKey : 0u);
 	volumeLightingHash = HashCombine64(volumeLightingHash, visualHistoryHash);
+	// Reconstruction controls invalidate only the final smoke layer, not frozen
+	// per-carrier lighting. Profile changes may resize froxels without changing
+	// the full-resolution history extent.
+	volumeLightingHash = HashCombine64(volumeLightingHash,
+		(mSettings.volumeHistory ? 1u : 0u) | (mSettings.transientHistory ? 2u : 0u) |
+		(mSettings.transientCoverage ? 4u : 0u));
+	volumeLightingHash = HashCombine64(volumeLightingHash, mResourceFroxelWidth);
+	volumeLightingHash = HashCombine64(volumeLightingHash, mResourceFroxelHeight);
+	volumeLightingHash = HashCombine64(volumeLightingHash, mResourceFroxelDepth);
+	volumeLightingHash = HashCombine64(volumeLightingHash, FloatBits(mSettings.froxelMaxDistance));
 	const bool volumeHistoryCompatible = volumeHistoryAllowed && mVolumeHistoryValid && mLastVolumeHistoryEnabled &&
+		reprojectionResourcesReady &&
 		!renderer.mResetHistory && mLastVolumeFrame + 1u == renderer.mFrameIndex &&
 		mLastVolumeWidth == route.width && mLastVolumeHeight == route.height &&
 		mLastVolumePlacement == (uint32_t)route.placement && mLastVolumeSimulationEpoch == mStatus.simulationEpoch &&
 		mLastVolumeLightingHash == volumeLightingHash;
-	if (volumeHistoryAllowed)
+	if (mSettings.volumeHistory && !fieldDiagnostics)
 		constants.flags |= 0x2000u;
 	if (volumeHistoryCompatible)
 		constants.flags |= 0x1000u;
-	mStatus.volumeHistoryRequested = mSettings.volumeHistory;
+	mStatus.volumeHistoryRequested = mSettings.volumeHistory || mSettings.transientHistory;
+	mStatus.transientHistoryRequested = mSettings.transientHistory;
+	mStatus.transientHistoryEffective = transientHistoryAllowed && reprojectionResourcesReady;
 	mStatus.volumeHistoryEffective = volumeHistoryAllowed && reprojectionResourcesReady;
 	mStatus.volumeHistoryValid = volumeHistoryCompatible;
 	mStatus.volumeHistoryAge = volumeHistoryCompatible ? std::min(mStatus.volumeHistoryAge + 1u, 255u) : 0u;
@@ -2499,7 +2594,7 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		mStatus.volumeHistoryResetReason = "none";
 	else if (fieldDiagnostics)
 		mStatus.volumeHistoryResetReason = "field-debug";
-	else if (!mSettings.volumeHistory)
+	else if (!volumeHistoryAllowed)
 		mStatus.volumeHistoryResetReason = "disabled";
 	else if (!reprojectionResourcesReady)
 		mStatus.volumeHistoryResetReason = "missing-reprojection";
@@ -2529,6 +2624,29 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 			NRIPopulateSmokeVisualPhaseConstants(mSettings.visuals, passConstants);
 		if (pass == NRISmokePass::EvaluateGrid || pass == NRISmokePass::EvaluateGridCompact)
 			NRIPopulateSmokeVisualMaterializationConstants(mSettings.visuals, passConstants);
+		if (pass >= NRISmokePass::TransientClear && pass <= NRISmokePass::TransientMaterialize)
+		{
+			// These passes have no particle simulation, grid command generation,
+			// or per-froxel light sampling. Reuse those four pass-local words so
+			// the established 216-byte root ABI still fits NRI's ten ranges.
+			passConstants.commandCount = transientGroupCount;
+			passConstants.particleCapacity = transientLobeCount;
+			passConstants.maxLightCandidates = mTransientProfile.maximumFullLightBuilds;
+			passConstants.lightSamples = mSettings.pointLights ? 4u : 0u;
+			// Grid profiles may force emissive lighting on (Medium) or off (Low).
+			// A transient cache uses the requested family with its own sample budget.
+			const bool transientEmissiveReady = !fieldDiagnostics &&
+				mSettings.transientEmissiveLights && emissiveResourcesReady;
+			passConstants.lightSourceFlags = (passConstants.lightSourceFlags & ~0x8u) |
+				(transientEmissiveReady ? 0x8u : 0u);
+			passConstants.lightMode = !fieldDiagnostics &&
+				(pointLightsReady || directionalLightReady || transientEmissiveReady)
+				? mSettings.lightMode : 0u;
+			const bool transientFiltered = passConstants.lightMode >= 2u &&
+				mSettings.filteredVisibility && filteredResourcesReady && shadowReady;
+			passConstants.filteredVisibilityEnabled =
+				(passConstants.filteredVisibilityEnabled & ~1u) | (transientFiltered ? 1u : 0u);
+		}
 		return passConstants;
 	};
 	auto dispatch = [&](NRISmokePass pass, uint32_t x, uint32_t y, uint32_t z)
@@ -2890,6 +3008,46 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	{
 		mIndirectHistoryValid = false;
 	}
+	// Grid/legacy incident lighting is complete before transient optics become visible.
+	// The transient cache is group-owned and does not enter per-froxel light sampling.
+	if (!fieldDiagnostics && (transientGroupCount != 0u || mTransientResources.ResetPending()))
+	{
+		const auto transientServices = BuildGridServices(renderer);
+		const uint32_t savedFlags = constants.flags;
+		constants.flags = (constants.flags & ~1u) | (mTransientResources.ResetPending() ? 1u : 0u);
+		{
+			NRIScopedGpuTiming timing(renderer.mFrameBuffer, NRIGpuTimingScope::SmokeTransientBins);
+			const uint64_t clearCount = transientGroupCount != 0u
+				? std::max<uint64_t>(64u, std::max(froxelCount, mTransientResources.BinCount())) : 64u;
+			dispatch(NRISmokePass::TransientClear, Groups(clearCount), 1, 1);
+			mTransientResources.StorageBarrier(transientServices);
+			storageBarrier();
+			mTransientResources.DidClear();
+			constants.flags = savedFlags;
+			if (transientGroupCount != 0u)
+			{
+				dispatch(NRISmokePass::TransientBuildBins, Groups(transientGroupCount), 1, 1);
+				mTransientResources.StorageBarrier(transientServices);
+			}
+		}
+		if (transientGroupCount != 0u)
+		{
+			{
+				NRIScopedGpuTiming timing(renderer.mFrameBuffer, NRIGpuTimingScope::SmokeTransientLightBuild);
+				dispatch(NRISmokePass::TransientLightBuild, Groups(transientGroupCount), 1, 1);
+				mTransientClouds.CommitLightDispatchSchedule();
+				mTransientResources.StorageBarrier(transientServices);
+				storageBarrier();
+			}
+			{
+				NRIScopedGpuTiming timing(renderer.mFrameBuffer, NRIGpuTimingScope::SmokeTransientMaterialize);
+				dispatch(NRISmokePass::TransientMaterialize, (mResourceFroxelWidth + 3u) / 4u,
+					(mResourceFroxelHeight + 3u) / 4u, (mResourceFroxelDepth + 3u) / 4u);
+				mTransientResources.StorageBarrier(transientServices);
+				storageBarrier();
+			}
+		}
+	}
 	{
 		NRIScopedGpuTiming timing(renderer.mFrameBuffer, NRIGpuTimingScope::SmokeIntegrate);
 		dispatch(NRISmokePass::Integrate, (mResourceFroxelWidth + 7) / 8, (mResourceFroxelHeight + 7) / 8, 1);
@@ -2939,6 +3097,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		slot.analyticProfile = (uint32_t)analyticWork.effectiveProfile;
 		slot.analyticProfileRevision = analyticWork.table.revision;
 		slot.analyticSnapshot = mAnalyticCarriers.GetSnapshot();
+		slot.transientSnapshot = mTransientClouds.GetSnapshot();
+		slot.transientResidentBytes = mTransientResources.ResidentBytes();
 		mControlCopyPending = true;
 	}
 	return true;
@@ -2956,6 +3116,9 @@ bool NRISmokeSystem::DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDes
 	mStatus.routePlacement = (uint32_t)route.placement;
 	mStatus.dlrrModeEffective = route.placement == NRISmokeRoutePlacement::DlrrPreUpscaleMainInput && route.supported ? 1u : 0u;
 	mStatus.exposureDomain = (uint32_t)route.exposureDomain;
+	mStatus.volumeHistoryEffective = false;
+	mStatus.transientHistoryRequested = mSettings.transientHistory;
+	mStatus.transientHistoryEffective = false;
 	if (!mSettings.enabled || !mStatus.mainViewEligible || !route.supported || !mStatus.authorityOperational)
 	{
 		mStatus.volumeResolvedSlot = UINT32_MAX;
@@ -2965,7 +3128,12 @@ bool NRISmokeSystem::DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDes
 			renderer.CopyTexture(renderer.GetFrameTexture(route.inputSlot), renderer.GetFrameTexture(route.outputSlot));
 		return true;
 	}
-	if (mStatus.representationEffective == 0u && !mMayHaveParticleSmoke)
+	// The particle authority may be empty while independent analytic/transient
+	// sources still own visible medium. Their view work must not depend on an
+	// unrelated legacy particle command keeping this route alive.
+	if (mStatus.representationEffective == 0u && !mMayHaveParticleSmoke &&
+		mAnalyticCarriers.GetGpuCarriers().empty() &&
+		mTransientClouds.GetSnapshot().visibleGroups == 0u)
 	{
 		mStatus.volumeResolvedSlot = UINT32_MAX;
 		mStatus.volumeMetaSlot = UINT32_MAX;
@@ -3006,6 +3174,7 @@ void NRISmokeSystem::Reset(const char* reason)
 	mStatus.resetReason = reason != nullptr ? reason : "unspecified";
 	mStatus.gpuStatsValid = false;
 	mStatus.gpuStatsFrame = UINT64_MAX;
+	mStatus.transient = {};
 	mStatus.analyticLight = {};
 	mStatus.activeParticles = 0;
 	mStatus.spawnedParticles = 0;
@@ -3152,6 +3321,11 @@ void NRISmokeSystem::Reset(const char* reason)
 	mPulsePlanToken = 0u;
 	mPromptFallback.Reset();
 	mAnalyticCarriers.Reset(mStatus.simulationEpoch);
+	mTransientClouds.Reset(mStatus.simulationEpoch);
+	mTransientResidency.Reset(mStatus.simulationEpoch);
+	mTransientLightingPolicyKey = UINT32_MAX;
+	mTransientResources.InvalidateCache();
+	mPendingTransientRequests.clear();
 	mAnalyticTrailBridge.Reset(mStatus.simulationEpoch);
 	mStatus.analytic = mAnalyticCarriers.GetSnapshot();
 	if (std::strcmp(mStatus.resetReason, "authority-transition") == 0)
@@ -3192,6 +3366,8 @@ void NRISmokeSystem::Reset(const char* reason)
 	mStatus.volumeMetaSlot = UINT32_MAX;
 	mStatus.volumeHistoryAge = 0;
 	mStatus.volumeHistoryResetReason = mStatus.resetReason;
+	mStatus.volumeHistoryEffective = false;
+	mStatus.transientHistoryEffective = false;
 	if (std::strcmp(mStatus.resetReason, "authority-transition") != 0)
 	{
 		mEmitters.Reset();
@@ -3267,6 +3443,7 @@ void NRISmokeSystem::DestroyResources(NRIRenderer& renderer)
 void NRISmokeSystem::Shutdown(NRIRenderer& renderer)
 {
 	mViewWork.Shutdown(BuildGridServices(renderer));
+	mTransientResources.Shutdown(BuildGridServices(renderer));
 	mGridLighting.Shutdown(BuildGridServices(renderer));
 	mDormantGrid.Shutdown(BuildGridServices(renderer));
 	mGrid.Shutdown(BuildGridServices(renderer));
@@ -3338,6 +3515,8 @@ void NRISmokeSystem::PrintStatus(const NRIRenderer& renderer) const
 		work.simulationMaximumDebtSubsteps, work.simulationConsecutiveCappedFrames,
 		(unsigned long long)work.simulationCappedFrames);
 	const NRISmokeAnalyticCarrierSnapshot& analytic = mAnalyticCarriers.GetSnapshot();
+	NRIPrintSmokeTransientTelemetry(mStatus.transient);
+	PrintTransientResidency();
 	Printf("NRI PT smoke analytic: epoch=%u active=%u limit=%u high_water=%u oldest_ms=%u requested=%llu admitted=%llu expired=%llu drop_not_prepared=%llu drop_disabled=%llu drop_invalid=%llu drop_epoch=%llu drop_expired=%llu drop_stale=%llu drop_capacity=%llu lighting=%s policy=immediate-or-drop\n",
 		analytic.epoch, analytic.activeQuantity, analytic.maximumActiveQuantity,
 		analytic.highWaterQuantity, analytic.oldestActiveAgeMilliseconds,
@@ -3545,9 +3724,10 @@ void NRISmokeSystem::PrintStatus(const NRIRenderer& renderer) const
 		renderer.GetFrameTextureSlotName((NRIRenderer::FrameTextureSlot)mStatus.volumeResolvedSlot) : "none";
 	const char* volumeMetaName = mStatus.volumeMetaSlot < (uint32_t)NRIRenderer::FrameTextureSlot::Count ?
 		renderer.GetFrameTextureSlotName((NRIRenderer::FrameTextureSlot)mStatus.volumeMetaSlot) : "none";
-	Printf("NRI PT smoke volume status: history_requested=%s history_effective=%s history_valid=%s history_age=%u reset=%s layer_mib=%.2f resolved=%s metadata=%s dlrr_mode_requested=%u dlrr_mode_effective=%u field_readback=0\n",
+	Printf("NRI PT smoke volume status: history_requested=%s history_effective=%s history_valid=%s history_age=%u reset=%s layer_mib=%.2f resolved=%s metadata=%s dlrr_mode_requested=%u dlrr_mode_effective=%u field_readback=0 transient_history_requested=%s transient_history_effective=%s\n",
 		mStatus.volumeHistoryRequested ? "yes" : "no", mStatus.volumeHistoryEffective ? "yes" : "no",
 		mStatus.volumeHistoryValid ? "yes" : "no", mStatus.volumeHistoryAge, mStatus.volumeHistoryResetReason,
 		(double)mStatus.volumeHistoryBytes / (1024.0 * 1024.0), volumeName, volumeMetaName,
-		mStatus.dlrrModeRequested, mStatus.dlrrModeEffective);
+		mStatus.dlrrModeRequested, mStatus.dlrrModeEffective,
+		mStatus.transientHistoryRequested ? "yes" : "no", mStatus.transientHistoryEffective ? "yes" : "no");
 }

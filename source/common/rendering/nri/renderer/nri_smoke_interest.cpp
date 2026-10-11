@@ -151,45 +151,48 @@ void NRISmokeInterestTracker::Update(const NRISmokeInterestFrameInput& input)
 		}
 	}
 
-	for (const auto& rule : input.overlays->mapSmokeEmitterRules)
+	if (input.mapEmittersEnabled)
 	{
-		if (!input.overlays->currentMapAvailable || !rule.styleResolved ||
-			!rule.hasPosition || !rule.hasNormal || !rule.hasSize ||
-			rule.mapName.CompareNoCase(input.overlays->activeMapName) != 0)
-			continue;
-		const uint32_t sourceId = NRIMakeSmokeSourceId("map", input.overlays->activeMapName.GetChars(), rule.id.GetChars());
-		SourceState& state = mSourceStates[sourceId];
-		state.observed = true;
-		float center[3];
-		DVector3 worldCenter;
-		MapEmitterCenter(rule, center, worldCenter);
-		const uint32_t chunkIndex = ResolveEmitterChunk(worldCenter, *input.mapWorld);
-		const bool positive = chunkIndex != UINT32_MAX && ChunkMarked(positiveChunks, chunkIndex);
-		if (positive)
-			state.lastPositiveFrame = input.rendererFrame;
-		const bool recentPositive = state.lastPositiveFrame != UINT32_MAX &&
-			input.rendererFrame - state.lastPositiveFrame <= RecentVisibilityFrames;
-		const bool hotDistance = DistanceSquared(center, input.cameraPosition) <=
-			(state.tier == NRISmokeInterestTier::Hot ? HotLeaveDistance * HotLeaveDistance : HotEnterDistance * HotEnterDistance);
-		const bool prefetch = DistanceSquared(center, predictedCamera) <= HotEnterDistance * HotEnterDistance;
-		const bool warmDistance = DistanceSquared(center, input.cameraPosition) <=
-			(state.tier != NRISmokeInterestTier::Dormant ? WarmLeaveDistance * WarmLeaveDistance : WarmEnterDistance * WarmEnterDistance);
-		const bool teleportGrace = input.rendererFrame <= mJumpGraceUntil &&
-			DistanceSquared(center, mJumpOrigin) <= WarmLeaveDistance * WarmLeaveDistance;
+		for (const auto& rule : input.overlays->mapSmokeEmitterRules)
+		{
+			if (!input.overlays->currentMapAvailable || !rule.styleResolved ||
+				!rule.hasPosition || !rule.hasNormal || !rule.hasSize ||
+				rule.mapName.CompareNoCase(input.overlays->activeMapName) != 0)
+				continue;
+			const uint32_t sourceId = NRIMakeSmokeSourceId("map", input.overlays->activeMapName.GetChars(), rule.id.GetChars());
+			SourceState& state = mSourceStates[sourceId];
+			state.observed = true;
+			float center[3];
+			DVector3 worldCenter;
+			MapEmitterCenter(rule, center, worldCenter);
+			const uint32_t chunkIndex = ResolveEmitterChunk(worldCenter, *input.mapWorld);
+			const bool positive = chunkIndex != UINT32_MAX && ChunkMarked(positiveChunks, chunkIndex);
+			if (positive)
+				state.lastPositiveFrame = input.rendererFrame;
+			const bool recentPositive = state.lastPositiveFrame != UINT32_MAX &&
+				input.rendererFrame - state.lastPositiveFrame <= RecentVisibilityFrames;
+			const bool hotDistance = DistanceSquared(center, input.cameraPosition) <=
+				(state.tier == NRISmokeInterestTier::Hot ? HotLeaveDistance * HotLeaveDistance : HotEnterDistance * HotEnterDistance);
+			const bool prefetch = DistanceSquared(center, predictedCamera) <= HotEnterDistance * HotEnterDistance;
+			const bool warmDistance = DistanceSquared(center, input.cameraPosition) <=
+				(state.tier != NRISmokeInterestTier::Dormant ? WarmLeaveDistance * WarmLeaveDistance : WarmEnterDistance * WarmEnterDistance);
+			const bool teleportGrace = input.rendererFrame <= mJumpGraceUntil &&
+				DistanceSquared(center, mJumpOrigin) <= WarmLeaveDistance * WarmLeaveDistance;
 
-		if (positive || hotDistance)
-			state.tier = NRISmokeInterestTier::Hot;
-		else if (prefetch || warmDistance || recentPositive || teleportGrace || mSnapshot.runtimePortalUncertain)
-			state.tier = NRISmokeInterestTier::Warm;
-		else
-			state.tier = NRISmokeInterestTier::Dormant;
+			if (positive || hotDistance)
+				state.tier = NRISmokeInterestTier::Hot;
+			else if (prefetch || warmDistance || recentPositive || teleportGrace || mSnapshot.runtimePortalUncertain)
+				state.tier = NRISmokeInterestTier::Warm;
+			else
+				state.tier = NRISmokeInterestTier::Dormant;
 
-		mSnapshot.sources.push_back({ sourceId, state.tier, chunkIndex, state.lastPositiveFrame,
-			positive, prefetch, recentPositive, teleportGrace });
-		if (state.tier == NRISmokeInterestTier::Hot) mSnapshot.hotCount++;
-		else if (state.tier == NRISmokeInterestTier::Warm) mSnapshot.warmCount++;
-		else mSnapshot.dormantCount++;
-		if (positive) mSnapshot.positiveCount++;
+			mSnapshot.sources.push_back({ sourceId, state.tier, chunkIndex, state.lastPositiveFrame,
+				positive, prefetch, recentPositive, teleportGrace });
+			if (state.tier == NRISmokeInterestTier::Hot) mSnapshot.hotCount++;
+			else if (state.tier == NRISmokeInterestTier::Warm) mSnapshot.warmCount++;
+			else mSnapshot.dormantCount++;
+			if (positive) mSnapshot.positiveCount++;
+		}
 	}
 
 	for (auto it = mSourceStates.begin(); it != mSourceStates.end(); )

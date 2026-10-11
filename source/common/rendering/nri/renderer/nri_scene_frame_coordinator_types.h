@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_runtime_mutation.h"
+#include "nri_scene_upload_identity.h"
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_material_bridge.h"
@@ -109,6 +110,7 @@ struct RenderSceneFrameBuildResult
 	const nri_scene::SceneView* activeDynamicSceneView = nullptr;
 	const nri_scene::GeometryData* activeDynamicGeometry = nullptr;
 	const nri_scene::MaterialBridgeData* activeDynamicMaterials = nullptr;
+	std::vector<NRISceneBufferUploadDomainSpan> uploadDomainSpans;
 	nri_scene::SceneDebugStats activeStats = {};
 	bool paletteReady = true;
 	bool texturesReady = true;

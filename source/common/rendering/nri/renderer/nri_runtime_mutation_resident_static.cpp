@@ -506,6 +506,7 @@ bool NRIRenderer::RefreshResidentStaticMaterialSlices(
 			remappedChunkBridge.lightMetadata.data(),
 			atlasChunk.materialCount,
 			mStaticMapScene.materialBridge.lightMetadata.data() + atlasChunk.materialOffset);
+		++chunkCache.lightGeneration;
 
 		if (!reusedCachedGpuPayload)
 		{
@@ -635,6 +636,7 @@ bool NRIRenderer::RebuildResidentStaticMaterialState(const char* reason)
 		&mSkyEnvironment.PreservedStaticMapSky().sceneView :
 		nullptr;
 	nri_scene::BuildMapSceneView(mMapWorld, mStaticMapScene.sceneView, preservedSkyView);
+	mStaticMapScene.animatedMaterials.aggregateSkyPreserved = preservedSkyView != nullptr;
 	if (!nri_static_scene::RebuildResidentStaticMaterialBridgeFromChunks(
 		mStaticMapScene,
 		mStaticMapChunkAtlas,

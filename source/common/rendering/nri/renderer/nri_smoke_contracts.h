@@ -33,6 +33,10 @@ enum class NRISmokePass : uint32_t
 	AnalyticMaterialize,
 	AnalyticEmissiveBuild,
 	AnalyticEmissiveResolve,
+	TransientClear,
+	TransientBuildBins,
+	TransientLightBuild,
+	TransientMaterialize,
 	Count,
 };
 
@@ -281,6 +285,32 @@ struct NRISmokeControlGpu
 	uint32_t analyticLightMissingGroupRecords = 0;
 	uint32_t analyticLightIdentityRejects = 0;
 	uint32_t analyticLightApplyVisibilityRays = 0;
+	uint32_t transientBinsTouched = 0;
+	uint32_t transientBinCandidates = 0;
+	uint32_t transientBinOverflow = 0;
+	uint32_t transientLightBuildGroups = 0;
+	uint32_t transientLightFullBuildClaims = 0;
+	uint32_t transientLightFullBuilds = 0;
+	uint32_t transientLightFallbackBuilds = 0;
+	uint32_t transientLightAnchorsWritten = 0;
+	uint32_t transientLightPublishedFull = 0;
+	uint32_t transientLightPublishedFallback = 0;
+	uint32_t transientLightPointCandidatesTested = 0;
+	uint32_t transientLightPointSelected = 0;
+	uint32_t transientLightDirectionalSamples = 0;
+	uint32_t transientLightEmissiveSamples = 0;
+	uint32_t transientLightVisibilityRays = 0;
+	uint32_t transientLightSelfTransmittanceTests = 0;
+	uint32_t transientLightObservedGroups = 0;
+	uint32_t transientLightObservedFull = 0;
+	uint32_t transientLightObservedFallback = 0;
+	uint32_t transientLightMissing = 0;
+	uint32_t transientLightIdentityRejects = 0;
+	uint32_t transientMaterializeFroxelsTested = 0;
+	uint32_t transientMaterializeFroxelsApplied = 0;
+	uint32_t transientMaterializeLobeTests = 0;
+	uint32_t transientMaterializeLobeContributions = 0;
+	uint32_t transientLightApplyVisibilityRays = 0;
 };
 
 struct NRISmokeIndirectCacheGpu
@@ -313,6 +343,43 @@ struct NRISmokeAnalyticEmissiveStorageGpu
 	uint32_t data[16] = {};
 };
 
+struct NRISmokeTransientBinHeaderGpu
+{
+	uint32_t count = 0;
+	uint32_t overflow = 0;
+};
+
+struct NRISmokeTransientLightAnchorGpu
+{
+	uint32_t data[16] = {};
+};
+
+struct NRISmokeTransientLightHeaderGpu
+{
+	uint32_t groupSlot = UINT32_MAX;
+	uint32_t groupGeneration = 0;
+	uint32_t epoch = 0;
+	uint32_t publishedState = 0;
+	uint32_t requiredAnchorMask = 0;
+	uint32_t publishedAnchorMask = 0;
+	uint32_t shapeRevision = 0;
+	uint32_t lightingBoundsRevision = 0;
+	uint32_t buildFrame = 0;
+	uint32_t observedFrame = UINT32_MAX;
+	uint32_t selectedPointKeyLo = 0;
+	uint32_t selectedPointKeyHi = 0;
+	uint32_t selectedEmissiveKeyLo = 0;
+	uint32_t selectedEmissiveKeyHi = 0;
+	uint32_t familyAttemptMask = 0;
+	uint32_t familySuccessMask = 0;
+};
+
+static_assert(sizeof(NRISmokeTransientBinHeaderGpu) == 8);
+static_assert(sizeof(NRISmokeTransientLightAnchorGpu) == 64);
+static_assert(sizeof(NRISmokeTransientLightHeaderGpu) == 64);
+static_assert(offsetof(NRISmokeTransientLightHeaderGpu, publishedState) == 12);
+static_assert(offsetof(NRISmokeTransientLightHeaderGpu, observedFrame) == 36);
+
 static_assert(sizeof(NRISmokeParticleGpu) == 64);
 static_assert(sizeof(NRISmokeStyleGpu) == 80);
 static_assert(sizeof(NRISmokeInjectionCommandGpu) == 112);
@@ -326,7 +393,7 @@ static_assert(offsetof(NRISmokeInjectionCommandGpu, rangeBegin) == 96);
 static_assert(offsetof(NRISmokeInjectionCommandGpu, rangeCount) == 100);
 static_assert(offsetof(NRISmokeInjectionCommandGpu, pulseIdLow) == 104);
 static_assert(offsetof(NRISmokeInjectionCommandGpu, pulseIdHigh) == 108);
-static_assert(sizeof(NRISmokeControlGpu) == 640);
+static_assert(sizeof(NRISmokeControlGpu) == 744);
 static_assert(sizeof(NRISmokeIndirectCacheGpu) == 32);
 static_assert(sizeof(NRISmokeDirectCacheGpu) == 40);
 static_assert(sizeof(NRISmokeEmissiveStorageGpu) == 48);

@@ -364,6 +364,14 @@ std::string GetRuntimeMutationWorklistCandidateSourceSummary(uint32_t sourceMask
 	{
 		AppendMutationReasonToken(text, "deferred_structural_rebuild");
 	}
+	if ((sourceMask & RuntimeMutationWorklistCandidateSource_MotionSettle) != 0)
+	{
+		AppendMutationReasonToken(text, "motion_settle");
+	}
+	if ((sourceMask & RuntimeMutationWorklistCandidateSource_ValidationRecovery) != 0)
+	{
+		AppendMutationReasonToken(text, "validation_recovery");
+	}
 	if (text.empty())
 	{
 		text = "none";
@@ -482,8 +490,11 @@ const RuntimeMapMutationCache::ChunkReplacement* NRIRuntimeMutationSystem::FindR
 	return chunkIndex < cache.chunks.size() ? &cache.chunks[chunkIndex] : nullptr;
 }
 
-RuntimeMapMutationCache::ChunkReplacement* NRIRuntimeMutationSystem::FindReplacement(uint32_t chunkIndex)
+RuntimeMapMutationCache::ChunkReplacement* NRIRuntimeMutationSystem::FindReplacementForUpdate(uint32_t chunkIndex)
 {
+	// Explicit update accesses include startup baseline correction. Ordinary
+	// readers cannot enlist the full cache into per-frame reconciliation.
+	discovery.NoteTouchedChunk(chunkIndex);
 	return chunkIndex < cache.chunks.size() ? &cache.chunks[chunkIndex] : nullptr;
 }
 
@@ -908,7 +919,10 @@ bool NRIRuntimeMutationSystem::BuildFrameOverlay(
 	const NRIRuntimeMutationOverlayServices& services,
 	NRIRuntimeMutationFrameOutput& outFrame)
 {
-	outFrame = {};
+	nri_scene::ClearGeometryRetainingCapacity(outFrame.geometry);
+	nri_scene::ClearMaterialBridgeRetainingCapacity(outFrame.materialBridge);
+	outFrame.hasOverlay = false;
+	outFrame.residentStaticSceneChanged = false;
 	outFrame.hasOverlay = BuildOverlay(
 		services,
 		outFrame.geometry,
@@ -1016,12 +1030,14 @@ void NRIRuntimeMutationSystem::NoteResidentAtlasGrow()
 
 void NRIRuntimeMutationSystem::ResetCacheAndFrame()
 {
+	discovery.Reset();
 	cache.chunks.clear();
 	lastFrame = {};
 }
 
 void NRIRuntimeMutationSystem::ResetCacheForStaticSceneBuild(uint32_t chunkCount)
 {
+	discovery.Reset();
 	cache.chunks.clear();
 	cache.chunks.resize(chunkCount);
 }
@@ -1060,12 +1076,15 @@ void NRIRuntimeMutationSystem::InitializeStaticChunkReplacement(const nri_scene:
 	replacement.triangleCount = 0;
 	replacement.residentAuthoritative = true;
 	ClearReplacementPayload(replacement, true);
+	discovery.NoteTouchedChunk(chunk.chunkIndex);
 }
 
 void NRIRuntimeMutationSystem::ResetWorklist()
 {
 	worklist.Reset();
+	discovery.Reset();
 	signatureWatchlist.clear();
+	signatureWatchlistChunks.clear();
 	signatureWatchlistBuildSerial = 0;
 	worklistSweepCursor = 0;
 }
@@ -1139,6 +1158,9 @@ bool NRIRuntimeMutationSystem::CanApplyStartupCorrection(uint32_t chunkCount) co
 
 void NRIRuntimeMutationSystem::PrepareSignatureWatchlist(uint64_t buildSerial, uint32_t chunkCount)
 {
+	discovery.Reset();
+	signatureWatchlistChunks.clear();
+	signatureWatchlistChunks.reserve(chunkCount);
 	signatureWatchlist.clear();
 	signatureWatchlist.resize(chunkCount, 0u);
 	signatureWatchlistBuildSerial = buildSerial;
@@ -1168,6 +1190,7 @@ bool NRIRuntimeMutationSystem::SeedSignatureWatchlist(uint32_t chunkIndex)
 	}
 
 	signatureWatchlist[chunkIndex] = 1u;
+	signatureWatchlistChunks.push_back(chunkIndex);
 	return true;
 }
 
@@ -1178,7 +1201,7 @@ bool NRIRuntimeMutationSystem::IsSignatureWatchlistSeeded(uint32_t chunkIndex) c
 
 uint32_t NRIRuntimeMutationSystem::GetSignatureWatchlistSeedCount() const
 {
-	return (uint32_t)std::count(signatureWatchlist.begin(), signatureWatchlist.end(), (uint8_t)1u);
+	return (uint32_t)signatureWatchlistChunks.size();
 }
 
 uint32_t NRIRuntimeMutationSystem::GetWorklistSweepChunkIndex(uint32_t sweepOffset, uint32_t chunkCount) const

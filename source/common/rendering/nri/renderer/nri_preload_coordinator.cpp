@@ -6,6 +6,7 @@
 #include "nri_sky_environment.h"
 #include "nri_voxel_compute_meshing.h"
 #include "nri_voxel_compute_preload.h"
+#include "../scene/nri_hash.h"
 #include "../system/nri_renderdevice.h"
 
 #include "mapinfo.h"
@@ -583,6 +584,8 @@ NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadResidentSceneRes
 
 	NRIRenderer::EmissiveSamplingBuildContext emissiveSamplingContext = {};
 	emissiveSamplingContext.staticGeometry = &renderer.mStaticMapScene.geometry;
+	emissiveSamplingContext.staticGeometryIdentity = nri_scene::HashCombine64(
+		renderer.mStaticMapScene.contentBuildSerial, renderer.mStaticMapScene.geometryGeneration);
 	const NRIPersistentVoxelOverlayStats persistentVoxelStats = renderer.mPersistentVoxels.BuildOverlayStats();
 	auto deferStandaloneEmissiveTlas = [&](const char* reason) -> StepResult
 	{

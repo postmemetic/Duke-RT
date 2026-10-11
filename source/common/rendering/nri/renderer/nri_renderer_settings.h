@@ -125,6 +125,14 @@ struct NRISmokeSettings
 	bool viewCompare = false;
 	uint32_t viewRoute = 0;
 	uint32_t workProfile = 2;
+	uint32_t transientClassMask = 63;
+	uint32_t sourceClassMask = 63;
+	bool transientSelfShadow = true;
+	bool transientCoverage = true;
+	bool transientHistory = true;
+	bool actorEmitters = true;
+	bool mapEmitters = true;
+	bool transientEmissiveLights = true; // Requested family, independent of grid work-profile overrides.
 	uint32_t quality = 2;
 	uint32_t particleCapacity = 8192;
 	uint32_t froxelPixelSize = 16;
@@ -162,7 +170,7 @@ struct NRISmokeSettings
 	uint32_t multipleScatterDebug = 0;
 	bool selfShadow = false;
 	uint32_t selfShadowDebug = 0;
-	uint32_t lightMode = 3;
+	uint32_t lightMode = 2;
 	uint32_t lightSamples = 4;
 	uint32_t maxLightCandidates = 8;
 	bool filteredVisibility = true;
@@ -171,7 +179,7 @@ struct NRISmokeSettings
 	float froxelMaxDistance = 4096.0f;
 	float timeScale = 1.0f;
 	float wind[3] = { 5.0f, 20.0f, 5.0f };
-	float densityScale = 5.0f;
+	float densityScale = 1.0f;
 	float radianceScale = 1.0f;
 	float indirectScale = 1.0f;
 	uint32_t representation = 1;

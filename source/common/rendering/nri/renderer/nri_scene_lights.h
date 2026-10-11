@@ -5,6 +5,8 @@
 #include "../scene/nri_map_world.h"
 #include "../scene/nri_scene_bridge.h"
 #include "nri_emissive_sampling_distribution.h"
+#include "nri_emissive_response_lookup.h"
+#include "nri_emissive_sampling_geometry.h"
 #include "nri_runtime_light_shadow_selection.h"
 #include "lightoverlay.h"
 #include "v_video.h"
@@ -214,14 +216,6 @@ inline NRIEmissivePrimitiveShaderData PackNRIEmissivePrimitiveShaderData(
 	return target;
 }
 
-struct NRIEmissiveMaterialResponseGpuData
-{
-	uint32_t dataSource = 0;
-	uint32_t primitiveIndex = UINT32_MAX;
-	float materialScale = 1.0f;
-	uint32_t flags = 0;
-};
-
 struct NRIEmissivePrimitiveDebugRecord
 {
 	uint64_t stableKey = 0;
@@ -255,6 +249,26 @@ struct NRIEmissivePrimitiveDebugRecord
 	float materialResponseScale = 1.0f;
 	bool materialResponseEnabled = false;
 	bool sectorResponseApplied = false;
+};
+
+// CPU outputs are consumed synchronously by UpdateEmissiveSamplingBuffers;
+// GPU writes still use the existing queued-frame resource slots.
+struct NRIEmissiveSamplingUploadScratch
+{
+	NRIEmissivePrimitiveHeaderGpuData header = {};
+	std::vector<NRIEmissivePrimitiveGpuData> primitives;
+	std::vector<NRIEmissivePrimitiveShaderData> shaderPrimitives;
+	std::vector<float> cdf;
+	std::vector<NRIEmissiveMaterialResponseGpuData> materialResponses;
+	std::vector<NRIEmissivePrimitiveDebugRecord> debugRecords;
+	uint64_t CapacityBytes() const
+	{
+		return primitives.capacity() * sizeof(NRIEmissivePrimitiveGpuData) +
+			shaderPrimitives.capacity() * sizeof(NRIEmissivePrimitiveShaderData) +
+			cdf.capacity() * sizeof(float) +
+			materialResponses.capacity() * sizeof(NRIEmissiveMaterialResponseGpuData) +
+			debugRecords.capacity() * sizeof(NRIEmissivePrimitiveDebugRecord);
+	}
 };
 
 struct NRILightingSettings
@@ -348,12 +362,17 @@ public:
 	struct EmissiveSamplingBuildContext
 	{
 		const nri_scene::GeometryData* staticGeometry = nullptr;
+		uint64_t staticGeometryIdentity = 0;
 		const nri_scene::GeometryData* capturedGeometry = nullptr;
+		uint64_t capturedGeometryIdentity = 0;
 		const nri_scene::GeometryData* runtimeMutationGeometry = nullptr;
+		uint64_t runtimeMutationGeometryIdentity = 0;
 		uint32_t runtimeMutationPrimitiveBaseOffset = 0;
 		const nri_scene::GeometryData* dynamicGeometry = nullptr;
+		uint64_t dynamicGeometryIdentity = 0;
 		uint32_t dynamicPrimitiveBaseOffset = 0;
 		const nri_scene::GeometryData* surfaceLightOverlayGeometry = nullptr;
+		uint64_t surfaceLightOverlayGeometryIdentity = 0;
 		uint32_t surfaceLightOverlayPrimitiveBaseOffset = 0;
 	};
 
@@ -684,6 +703,77 @@ public:
 		uint32_t occurrenceGeneration = 0;
 	};
 
+
+	// Ranges refer to the immutable static prefix while a frame is consumed.
+	// Publication changes happen only inside the assembly owner.
+	struct StaticLightSlice
+	{
+		uint64_t lightGeneration = 0;
+		uint32_t chunkIndex = UINT32_MAX;
+		uint32_t materialOffset = 0;
+		uint32_t materialCount = 0;
+		uint32_t recordOffset = 0;
+		uint32_t recordCount = 0;
+		bool valid = false;
+		bool included = false;
+	};
+
+	struct StaticLightRegistry
+	{
+		uint64_t contentBuildSerial = 0;
+		uint64_t materialGeneration = 0;
+		uint64_t generation = 0;
+		uint32_t recordCount = 0;
+		bool quarantined = false;
+		std::vector<StaticLightSlice> slices;
+		std::unordered_set<int32_t> suppressedActors;
+	};
+
+	struct LightRegistryStats
+	{
+		uint32_t staticSlicesReused = 0;
+		uint32_t staticSlicesPatched = 0;
+		uint32_t staticRecordsCopied = 0;
+		uint32_t staticMaterialRowsChecked = 0;
+		uint32_t ruleCacheHits = 0;
+		uint32_t ruleCacheRebuilds = 0;
+		uint32_t validationChecks = 0;
+		uint32_t validationMismatches = 0;
+		uint32_t ruleValidationChecks = 0;
+		uint32_t ruleValidationMismatches = 0;
+		uint64_t retainedVectorBytes = 0;
+		uint64_t highWaterVectorBytes = 0;
+		uint32_t vectorGrowthEvents = 0;
+	};
+
+	struct LightTopologyScratch
+	{
+		std::unordered_map<uint64_t, uint64_t> propertyHashes;
+		std::unordered_map<uint64_t, uint64_t> bindingHashes;
+		std::unordered_map<uint64_t, uint32_t> diagnosticFlags;
+	};
+
+	struct CompiledOverlayRules
+	{
+		struct ActorTemplate
+		{
+			PClass* actorClass = nullptr;
+			AnalyticLightRegistry::ActorOverlayRule rule;
+		};
+		bool valid = false;
+		uint32_t resolvedGeneration = 0;
+		uint64_t mapBuildSerial = 0;
+		bool mapValid = false;
+		bool quarantined = false;
+		std::vector<ActorTemplate> actorTemplates;
+		std::unordered_map<int32_t, std::vector<AnalyticLightRegistry::ActorOverlayRule>> liveActorRules;
+		std::unordered_map<uint32_t, AnalyticLightRegistry::ActorOverlayRule> actorRulesById;
+		std::vector<AnalyticLightRegistry::MapOverlayRule> mapRules;
+		std::vector<EmissiveOverrideRule> emissiveRules;
+		std::vector<EmissiveOverrideRule> fixtureRules;
+		std::vector<EmissiveMaterialResponseRule> materialResponseRules;
+	};
+
 	struct FrameAppendStats
 	{
 		uint32_t totalRecordCount = 0;
@@ -703,9 +793,45 @@ public:
 
 		void Clear()
 		{
-			spriteRecordsByTextureId.clear();
-			spriteRecordsByActorIndex.clear();
-			spriteRecordsByActorTexture.clear();
+			auto clearValues = [](auto& index)
+			{
+				for (auto& entry : index) entry.second.clear();
+			};
+			clearValues(spriteRecordsByTextureId);
+			clearValues(spriteRecordsByActorIndex);
+			clearValues(spriteRecordsByActorTexture);
+		}
+
+		void PruneUnused()
+		{
+			auto prune = [](auto& index)
+			{
+				for (auto it = index.begin(); it != index.end();)
+				{
+					if (it->second.empty()) it = index.erase(it);
+					else ++it;
+				}
+			};
+			prune(spriteRecordsByTextureId);
+			prune(spriteRecordsByActorIndex);
+			prune(spriteRecordsByActorTexture);
+		}
+
+		void RetainPrefix(uint32_t recordCount)
+		{
+			auto trim = [recordCount](auto& index)
+			{
+				for (auto& entry : index)
+				{
+					while (!entry.second.empty() && entry.second.back() >= recordCount)
+					{
+						entry.second.pop_back();
+					}
+				}
+			};
+			trim(spriteRecordsByTextureId);
+			trim(spriteRecordsByActorIndex);
+			trim(spriteRecordsByActorTexture);
 		}
 	};
 
@@ -714,6 +840,8 @@ public:
 		uint64_t frameSerial = 0;
 		uint32_t frameIndex = 0;
 		bool voxelStats = false;
+		bool useRegistry = true;
+		bool validateRegistry = false;
 		bool usedStaticMapScene = false;
 		const StaticMapSceneCache* staticScene = nullptr;
 		const nri_scene::SceneView* capturedSceneView = nullptr;
@@ -829,6 +957,9 @@ public:
 	FrameAssemblyTimingStats AssembleFrameSurfaceRecords(
 		const FrameAssemblyInput& input,
 		const FrameAssemblyServices& services);
+	const CompiledOverlayRules& RefreshCompiledOverlayRules(const ResolvedLightOverlaySet& resolved, const nri_scene::PTMapWorld& mapWorld);
+	void TraceLightRegistryStats() const;
+	const LightRegistryStats& GetLightRegistryStats() const { return mLightRegistryStats; }
 	void AppendSceneView(
 		const nri_scene::SceneView& sceneView,
 		const nri_scene::MaterialBridgeData& materials,
@@ -885,6 +1016,14 @@ public:
 
 	struct EmissiveSamplingUploadStats
 	{
+		uint32_t buildCapacityGrowths = 0;
+		uint64_t buildCapacityGrowthBytes = 0;
+		uint64_t fullStaticPrimitivesScanned = 0;
+		uint64_t fullDynamicPrimitivesScanned = 0;
+		uint32_t payloadValidationChecks = 0;
+		uint32_t payloadValidationMismatches = 0;
+		double payloadValidationMs = 0.0;
+		double weightsBuildMs = 0.0;
 		uint32_t surfaceStatic = 0;
 		uint32_t surfaceCaptured = 0;
 		uint32_t surfaceRuntimeMutation = 0;
@@ -917,7 +1056,9 @@ public:
 		std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
 		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
 		EmissiveSamplingUploadStats* outStats = nullptr);
-	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context) const;
+	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming = false);
+	const NRIEmissiveGeometryCacheStats& GetEmissiveGeometryCacheStats() const { return mEmissiveGeometryCache.Stats(); }
+	uint64_t GetEmissiveGeometryCacheCapacityBytes() const { return mEmissiveGeometryCache.CapacityBytes(); }
 	void BuildSectorLightingUpload(
 		float sectorLightMultiplier,
 		bool sectorLightingEnabled,
@@ -1048,6 +1189,15 @@ private:
 	bool IsActorPublishedForOverlayActivation(int32_t actorIndex) const;
 	bool IsActorSuppressedForFrame(int32_t actorIndex) const;
 	void AppendSurfaceRecord(SurfaceRecord record, uint32_t materialIndexBase);
+	void IndexSurfaceRecord(uint32_t recordIndex);
+	void RefreshStaticLightRegistry(const FrameAssemblyInput& input, const FrameAssemblyServices& services);
+	FrameAssemblyTimingStats AssembleFrameSurfaceRecordsFull(const FrameAssemblyInput& input, const FrameAssemblyServices& services);
+	void AppendFrameSurfaceTail(const FrameAssemblyInput& input, const FrameAssemblyServices& services, FrameAssemblyTimingStats& timings);
+	void ValidateFrameSurfaceRecords(const FrameAssemblyInput& input, const FrameAssemblyServices& services);
+	void ValidateCompiledOverlayRules(const ResolvedLightOverlaySet& resolved, const nri_scene::PTMapWorld& mapWorld);
+	static void BuildFullOverlayRules(const ResolvedLightOverlaySet& resolved, const nri_scene::PTMapWorld& mapWorld, CompiledOverlayRules& out);
+	static nri_scene::MaterialLightingMetadata ResolveSurfaceMaterial(const nri_scene::MaterialBridgeData& materials, uint32_t materialIndex);
+
 	void AppendSurfaceList(
 		const std::vector<nri_scene::SurfaceRef>& surfaces,
 		const nri_scene::MaterialBridgeData& materials,
@@ -1064,8 +1214,44 @@ private:
 	PersistentDynamicEmissiveCache mPersistentDynamicEmissiveCache = {};
 	PersistentDynamicEmissiveHighWaterStats mPersistentDynamicEmissiveHighWaterStats = {};
 	ActorSpriteDebugStats mActorSpriteDebugStats = {};
+	struct EmissiveSamplingBuiltCandidate
+	{
+		NRIEmissivePrimitiveGpuData gpu = {};
+		NRIEmissivePrimitiveDebugRecord debug = {};
+		float referenceProposalWeight = 0.0f;
+		bool hasReferenceProposalWeight = false;
+	};
+	void BuildEmissiveSamplingUploadImpl(
+		const EmissiveSamplingBuildContext& context,
+		NRIEmissivePrimitiveHeaderGpuData& outHeader,
+		std::vector<NRIEmissivePrimitiveGpuData>& outPrimitives,
+		std::vector<float>& outCdf,
+		std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
+		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
+		EmissiveSamplingUploadStats* outStats,
+		bool useGeometryCache);
 	NRIEmissiveSamplingDistribution mEmissiveSamplingDistribution;
+	NRIEmissiveGeometryCache mEmissiveGeometryCache;
+	std::vector<EmissiveSamplingBuiltCandidate> mEmissiveSamplingCandidates;
+	std::vector<NRIEmissiveSamplingDistributionCandidate> mEmissiveDistributionCandidates;
+	std::vector<NRIEmissiveSamplingDistributionEntry> mEmissiveDistributionEntries;
+	std::unordered_map<uint64_t, uint32_t> mEmissiveMaterialResponseLookup;
 	std::vector<SurfaceRecord> mSurfaceRecords;
+	StaticLightRegistry mStaticLightRegistry;
+	std::vector<SurfaceRecord> mStaticLightPatchScratch;
+	LightRegistryStats mLightRegistryStats;
+	CompiledOverlayRules mCompiledOverlayRules;
+	std::vector<SceneAnalyticLight> mNextAnalyticLights;
+	std::vector<EmissiveSurfaceRegistry::EmissiveSurfaceRecord> mNextEmissiveSurfaces;
+	std::vector<uint64_t> mNextAnalyticTopologyKeys;
+	std::vector<uint64_t> mNextEmissiveTopologyKeys;
+	std::vector<uint32_t> mNextSectorTopologyKeys;
+	std::vector<uint8_t> mSeenLightSectors;
+	LightTopologyScratch mAnalyticTopologyScratch;
+	LightTopologyScratch mEmissiveTopologyScratch;
+	std::unordered_map<uint64_t, size_t> mAnalyticKeyToIndex;
+	std::unordered_map<uint64_t, uint32_t> mPreviousAnalyticIndices;
+	std::unordered_set<uint64_t> mLiveActorOverlayKeysScratch;
 	SurfaceRecordIndex mSurfaceRecordIndex = {};
 	FrameAppendStats mFrameAppendStats = {};
 	uint64_t mFrameSerial = 0;

@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "nri_scene_frame_scratch.h"
 #include "nri_cvars.h"
 
 #include "../framegen/nri_framegen.h"
@@ -627,12 +628,15 @@ bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
 	}
 	mMapMotionHistory.BeginStage(proposedSerial, mMapWorld.buildSerial);
 	bool valid = true;
-	std::unordered_set<uint32_t> stagedChunks;
 	const ResidentMapChunkRegistry& registry = mStaticSceneResidency.Registry();
+	if (!mSceneFrameScratch)
+		mSceneFrameScratch = std::make_unique<NRISceneFrameScratch>();
+	auto& stagedChunks = mSceneFrameScratch->stagedChunks;
+	stagedChunks.Begin(registry.entries.size());
 	for (const SceneInstanceData& instance : mBoundSceneInstances)
 	{
 		if (instance.dataSource != nri_diag::SceneDataSourceStatic ||
-			instance.metadata0 == UINT32_MAX || !stagedChunks.insert(instance.metadata0).second)
+			instance.metadata0 == UINT32_MAX)
 		{
 			continue;
 		}
@@ -641,6 +645,8 @@ bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
 			valid = false;
 			continue;
 		}
+		if (!stagedChunks.Insert(instance.metadata0))
+			continue;
 		const ResidentMapChunkRegistry::Entry& entry = registry.entries[instance.metadata0];
 		if (!entry.valid || !entry.active || !entry.mappedInStaticScene ||
 			entry.staticSceneChunkListIndex >= mStaticMapScene.lightChunkViews.size())
@@ -1189,7 +1195,12 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 	sceneFrameInputs.bootstrapCapturedBaseColor = bootstrapCapturedBaseColor;
 	sceneFrameInputs.rawTraceDirectScene = rawTraceDirectScene;
 	sceneFrameInputs.preserveHistory = preserveHistory;
-	RenderSceneFrameBuildResult sceneFrame;
+	if (!mSceneFrameScratch)
+		mSceneFrameScratch = std::make_unique<NRISceneFrameScratch>();
+	auto frameLease = mSceneFrameScratch->views[preserveHistory ? 1 : 0].Acquire();
+	RenderSceneFrameBuildResult& sceneFrame = frameLease.Get();
+	NRISceneFrameScratchReset frameReset(sceneFrame);
+	NRISceneFrameScratchTrace scratchTrace(sceneFrame, traceFrameIndex, preserveHistory, (int)nri_pttraceframes > 0);
 	if (!BuildRenderSceneFrame(di, sceneFrameInputs, history, sceneFrame))
 	{
 		mRuntimeLightShadowSelectionHistory.Discard(mFrameIndex);

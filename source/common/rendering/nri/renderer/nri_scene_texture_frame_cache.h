@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <unordered_set>
 
 namespace nri
 {
@@ -33,6 +34,13 @@ struct NRISceneTextureDynamicDependency
 {
 	uint32_t uploadIndex = 0;
 	uint32_t descriptorIndex = 0;
+};
+
+struct NRISceneTextureScratch
+{
+	std::vector<nri::Descriptor*> descriptors;
+	std::vector<NRISceneTextureDynamicDependency> dynamicDependencies;
+	std::unordered_set<uint32_t> pendingTextureSlots;
 };
 
 struct NRISceneTextureFrameProductTelemetry

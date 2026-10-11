@@ -446,6 +446,7 @@ set( PLAT_SDL_SOURCES
 	common/platform/posix/sdl/i_main.cpp
 	common/platform/posix/sdl/i_system.cpp
 	common/platform/posix/sdl/sdlglvideo.cpp
+	common/platform/posix/sdl/sdlnrivideo.cpp
 	common/platform/posix/sdl/st_start.cpp )
 set( PLAT_UNIX_SOURCES
 	common/platform/posix/unix/i_specialpaths.cpp
@@ -630,7 +631,7 @@ file( GLOB HEADER_FILES
 	core/vmstubs.cpp
 )
 
-file(GLOB NRI_SHADER_FILES
+file(GLOB NRI_SHADER_FILES CONFIGURE_DEPENDS
 	common/rendering/nri/shaders/*.cfg
 	common/rendering/nri/shaders/*.hlsl
 	common/rendering/nri/shaders/*.hlsli
@@ -936,6 +937,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_descriptor_sets.cpp
 	common/rendering/nri/renderer/nri_dynamic_scene_status.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas.cpp
+	common/rendering/nri/renderer/nri_dynamic_overlay_blas_diagnostics.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_build.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_geometry.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_distribution.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_upload.cpp
 	common/rendering/nri/renderer/nri_cvars.cpp
@@ -970,6 +974,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp
 	common/rendering/nri/renderer/nri_persistent_voxels.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_publication.cpp
+	common/rendering/nri/renderer/nri_voxel_publication_order.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_ledger.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_policy.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_diagnostics.cpp
@@ -992,6 +998,12 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_smoke.cpp
 	common/rendering/nri/renderer/nri_smoke_visuals.cpp
 	common/rendering/nri/renderer/nri_smoke_analytic_carriers.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_clouds.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_residency.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_motion.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_renderer.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_resources.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_diagnostics.cpp
 	common/rendering/nri/renderer/nri_smoke_analytic_trail_bridge.cpp
 	common/rendering/nri/renderer/nri_smoke_work_scheduler.cpp
 	common/rendering/nri/renderer/nri_smoke_interest.cpp
@@ -1015,11 +1027,15 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_overlay.cpp
 	common/rendering/nri/renderer/nri_scene_frame_selection.cpp
 	common/rendering/nri/renderer/nri_filter_candidate_policy.cpp
+	common/rendering/nri/renderer/nri_occurrence_workload_mask_policy.cpp
+	common/rendering/nri/renderer/nri_occurrence_workload_mask_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_build.cpp
 	common/rendering/nri/renderer/nri_scene_frame_state.cpp
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_builder.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_material_product.cpp
+	common/rendering/nri/renderer/nri_scene_material_product_policy.cpp
 	common/rendering/nri/renderer/nri_scene_material_texture_slots.cpp
 	common/rendering/nri/renderer/nri_scene_texture_frame_cache.cpp
 	common/rendering/nri/renderer/nri_scene_texture_slot_table.cpp
@@ -1029,6 +1045,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_static_scene_geometry_upload.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_worklist.cpp
+	common/rendering/nri/renderer/nri_runtime_mutation_discovery.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_overlay.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_resident_apply.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_resident_static.cpp
@@ -1043,16 +1060,28 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_buffer_residency.cpp
 	common/rendering/nri/renderer/nri_sector_lighting.cpp
 	common/rendering/nri/renderer/nri_scene_lights.cpp
+	common/rendering/nri/renderer/nri_scene_light_registry.cpp
+	common/rendering/nri/renderer/nri_scene_light_rules.cpp
+	common/rendering/nri/renderer/nri_scene_light_rule_validation.cpp
 	common/rendering/nri/renderer/nri_scene_upload.cpp
 	common/rendering/nri/renderer/nri_scene_upload_identity.cpp
 	common/rendering/nri/renderer/nri_scene_upload_dirty_plan.cpp
 	common/rendering/nri/renderer/nri_scene_upload_ranges.cpp
 	common/rendering/nri/renderer/nri_static_scene.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated_bindings.cpp
+	common/rendering/nri/renderer/nri_static_material_slices.cpp
 	common/rendering/nri/renderer/nri_static_scene_diagnostics.cpp
 	common/rendering/nri/renderer/nri_static_scene_residency.cpp
 	common/rendering/nri/renderer/nri_surface_probe.cpp
 	common/rendering/nri/renderer/nri_surface_light_overlay.cpp
 	common/rendering/nri/renderer/nri_trace_stats.cpp
+	common/rendering/nri/renderer/nri_primary_temporal_geometry_diagnostics.cpp
+	common/rendering/nri/renderer/nri_spatial_absence_diagnostics.cpp
+	common/rendering/nri/renderer/nri_static_shading_diagnostics.cpp
+	common/rendering/nri/renderer/nri_static_tangent_scratch.cpp
+	common/rendering/nri/renderer/nri_static_tangent_integration.cpp
+	common/rendering/nri/renderer/nri_static_tangent_diagnostics.cpp
 	common/rendering/nri/renderer/nri_upscaler.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_preload.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_batch_plan.cpp
@@ -1061,6 +1090,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_voxel_compute_meshing.cpp
 	common/rendering/nri/renderer/nri_world_tlas_slots.cpp
 	common/rendering/nri/renderer/nri_world_tlas_policy.cpp
+	common/rendering/nri/renderer/nri_wall_decals.cpp
+	common/rendering/nri/renderer/nri_wall_decal_upload.cpp
 	common/rendering/nri/renderer/nri_voxel_policy_editor.cpp
 	common/rendering/nri/scene/nri_map_world.cpp
 	common/rendering/nri/scene/nri_map_motion_correspondence.cpp
@@ -1080,11 +1111,13 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_voxel_palette_policy.cpp
 	common/rendering/nri/scene/nri_voxel_actor_cache_maintenance.cpp
 	common/rendering/nri/scene/nri_scene_bridge.cpp
+	common/rendering/nri/scene/nri_voxel_actor_publication.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
 	common/rendering/nri/scene/nri_fluid_material_binding.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
+	common/rendering/nri/scene/nri_wall_decals.cpp
 	../libraries/ShaderMake/ShaderMake/ShaderBlob.cpp
 	../libraries/NRD/Source/Wrapper.cpp
 	../libraries/NRD/Source/InstanceImpl.cpp
@@ -1341,6 +1374,7 @@ set (PCH_SOURCES
 	common/thirdparty/libsmackerdec/src/SmackerDecoder.cpp
 	common/engine/cycler.cpp
 	common/engine/d_event.cpp
+	common/engine/input_lineage.cpp
 	common/engine/perf_capture.cpp
 	common/engine/date.cpp
 	common/engine/stats.cpp
@@ -1513,7 +1547,26 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 add_executable( ${PROJECT_NAME} WIN32 MACOSX_BUNDLE ${GAME_SOURCES} )
 
 if (HAVE_NRI)
-	add_compile_definitions(
+	if (WIN32)
+		# NRI normally generates this header in its own configure step, which is
+		# skipped when Raze uses prebuilt runtime DLLs. Match the staged Agility
+		# runtime (the vendored NRI default is 619) and its post-build directory.
+		set(RAZE_NRI_AGILITY_SDK_VERSION "619" CACHE STRING "Agility SDK version; must match the staged D3D12Core.dll in RAZE_NRI_RUNTIME_DIR/AgilitySDK.")
+		if (NOT RAZE_NRI_AGILITY_SDK_VERSION MATCHES "^[1-9][0-9]*$")
+			message(FATAL_ERROR "RAZE_NRI_AGILITY_SDK_VERSION must be a positive integer matching the staged Agility SDK.")
+		endif()
+		set(_raze_nri_generated_include "${CMAKE_CURRENT_BINARY_DIR}/nri")
+		string(CONCAT _raze_nri_agility_exports
+			"// Generated from the Raze NRI runtime configuration.\n"
+			"extern \"C\" {\n"
+			"__declspec(dllexport) extern const uint32_t D3D12SDKVersion;\n"
+			"const uint32_t D3D12SDKVersion = ${RAZE_NRI_AGILITY_SDK_VERSION};\n"
+			"__declspec(dllexport) extern const char* D3D12SDKPath;\n"
+			"const char* D3D12SDKPath = \"AgilitySDK/\";\n"
+			"}\n")
+		file(GENERATE OUTPUT "${_raze_nri_generated_include}/NRIAgilitySDK.h" CONTENT "${_raze_nri_agility_exports}")
+	endif()
+	set(RAZE_NRD_CONFIGURATION
 		NRD_NORMAL_ENCODING=2
 		NRD_ROUGHNESS_ENCODING=1
 		NRD_SUPPORTS_VIEWPORT_OFFSET=0
@@ -1523,6 +1576,38 @@ if (HAVE_NRI)
 		NRD_SUPPORTS_BASECOLOR_METALNESS=1
 		NRD_SUPPORTS_ANTIFIREFLY=0
 		REBLUR_PERFORMANCE_MODE=0
+	)
+	set(RAZE_NRD_SHADER_HEADER_DIR "${RAZE_NRD_DIR}/_Shaders" CACHE PATH "Precompiled NRD shader headers matching the Raze NRD source and RAZE_NRD_CONFIGURATION.")
+	foreach(_nrd_backend IN ITEMS dxbc dxil spirv)
+		if (NOT EXISTS "${RAZE_NRD_SHADER_HEADER_DIR}/REFERENCE_Copy.cs.${_nrd_backend}.h")
+			message(FATAL_ERROR
+				"Missing generated NRD shader headers in ${RAZE_NRD_SHADER_HEADER_DIR}. "
+				"Set RAZE_NRD_SHADER_HEADER_DIR to a compatible precompiled NRD header directory "
+				"containing DXBC, DXIL and SPIR-V headers matching RAZE_NRD_CONFIGURATION.")
+		endif()
+	endforeach()
+	message(STATUS "NRD embedded shader headers: ${RAZE_NRD_SHADER_HEADER_DIR}")
+	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND TARGET_ARCHITECTURE MATCHES "x86_64")
+		# Match upstream NRD's MathLib CPU requirement without raising the ISA
+		# for unrelated engine code or reusing a PCH built with different flags.
+		foreach(_nrd_source IN LISTS NRI_SOURCES)
+			if(_nrd_source MATCHES "libraries/NRD/Source/.*[.]cpp$")
+				set_source_files_properties(${_nrd_source} PROPERTIES
+					COMPILE_OPTIONS "-mssse3" SKIP_PRECOMPILE_HEADERS TRUE)
+			endif()
+		endforeach()
+	endif()
+	# NRD's shader headers require this generated configuration even when the
+	# runtime is supplied prebuilt and NRD's own CMake project is not configured.
+	set(_nrd_shader_config "// Generated from the Raze NRD integration settings.\n")
+	foreach(_definition IN LISTS RAZE_NRD_CONFIGURATION)
+		string(REPLACE "=" " " _shader_definition "${_definition}")
+		string(APPEND _nrd_shader_config "#define ${_shader_definition}\n")
+	endforeach()
+	set(RAZE_NRD_SHADER_CONFIG "${CMAKE_SOURCE_DIR}/libraries/NRD/Shaders/NRDConfig.hlsli")
+	file(GENERATE OUTPUT "${RAZE_NRD_SHADER_CONFIG}" CONTENT "${_nrd_shader_config}")
+	add_compile_definitions(
+		${RAZE_NRD_CONFIGURATION}
 		NRD_EMBEDS_DXBC_SHADERS=1
 		NRD_EMBEDS_DXIL_SHADERS=1
 		NRD_EMBEDS_SPIRV_SHADERS=1
@@ -1535,6 +1620,16 @@ endif()
 
 if (HAVE_NRI)
 	set(RAZE_NRI_SHADER_OUTPUT_DIR "${COMPILE_OUTPUT_DIRECTORY}/shaders/nri")
+	# Transient entry points have independent rules; changing one must not rebuild
+	# the unrelated production/diagnostic TraceOpaque batches. Shared includes still
+	# invalidate every consumer through the conservative common dependency list.
+	set(NRI_SHARED_SHADER_FILES ${NRI_SHADER_FILES})
+	list(APPEND NRI_SHARED_SHADER_FILES "${RAZE_NRD_SHADER_CONFIG}")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransient[^/]*[.]cs[.]hlsl$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientLighting[.]hlsli$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientCoverage[.]hlsli$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientHistory[.]hlsli$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/Smoke(ResolveVolume|TemporalVolume|Composite)[.]cs[.]hlsl$")
 	if (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin/dxc.exe")
 		set(RAZE_DXC_EXECUTABLE "$ENV{VULKAN_SDK}/Bin/dxc.exe" CACHE FILEPATH "DXC executable used for NRI shader compilation." FORCE)
 	elseif (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin32/dxc.exe")
@@ -1549,6 +1644,46 @@ if (HAVE_NRI)
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders"
 		-I "${CMAKE_SOURCE_DIR}/libraries/NRD/Shaders"
 		-I "${CMAKE_SOURCE_DIR}/libraries/NRIFramework/External/NRI/Include")
+	foreach(_transient_pass Clear BuildBins LightBuild Materialize)
+		set(_transient_source "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTransient${_transient_pass}.cs.hlsl")
+		set(_transient_target cs_6_0)
+		set(_transient_spirv_args)
+		if(_transient_pass STREQUAL "LightBuild")
+			set(_transient_target cs_6_6)
+			set(_transient_spirv_args -fspv-extension=SPV_KHR_ray_query)
+		endif()
+		add_custom_command(
+			OUTPUT "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.dxil"
+				"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.spirv"
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_SHADER_OUTPUT_DIR}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS}
+				-T ${_transient_target} -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.dxil" "${_transient_source}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS}
+				-spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${_transient_spirv_args}
+				-T ${_transient_target} -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.spirv" "${_transient_source}"
+			DEPENDS "${_transient_source}" ${NRI_SHARED_SHADER_FILES}
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientLighting.hlsli"
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientCoverage.hlsli"
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientHistory.hlsli"
+			VERBATIM)
+	endforeach()
+	# Reconstruction is independently tunable, just like transient materialization.
+	# A history/clamp change must not recompile every world-tracing permutation.
+	foreach(_smoke_reconstruction_pass ResolveVolume TemporalVolume Composite)
+		set(_smoke_reconstruction_source "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Smoke${_smoke_reconstruction_pass}.cs.hlsl")
+		add_custom_command(
+			OUTPUT "${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.dxil"
+				"${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.spirv"
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_SHADER_OUTPUT_DIR}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main
+				-Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.dxil" "${_smoke_reconstruction_source}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2
+				-fvk-use-dx-layout -T cs_6_0 -E main
+				-Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.spirv" "${_smoke_reconstruction_source}"
+			DEPENDS "${_smoke_reconstruction_source}" ${NRI_SHARED_SHADER_FILES}
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientHistory.hlsli"
+			VERBATIM)
+	endforeach()
 	add_custom_command(
 		OUTPUT
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.dxil"
@@ -1557,6 +1692,10 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -1693,12 +1832,6 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeLightIndirectSpatial.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil"
@@ -1747,7 +1880,11 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T vs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T ps_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -1884,12 +2021,6 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeLightIndirectSpatial.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeLightIndirectSpatial.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeIntegrate.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeIntegrate.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeResolveVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeResolveVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
@@ -1933,7 +2064,7 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/BloomComposite.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/BloomComposite.cs.hlsl"
 		DEPENDS
-			${NRI_SHADER_FILES}
+			${NRI_SHARED_SHADER_FILES}
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -2019,9 +2150,6 @@ if (HAVE_NRI)
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeFroxel.hlsli"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeLighting.hlsli"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeIntegrate.cs.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeResolveVolume.cs.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/RawPresent.cs.hlsl"
@@ -2046,12 +2174,16 @@ if (HAVE_NRI)
 		VERBATIM)
 	add_custom_target(raze_nri_shaders ALL
 		DEPENDS
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -2081,6 +2213,14 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokePromptFallback.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokePromptFallback.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticClear.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientClear.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientClear.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientBuildBins.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientBuildBins.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientLightBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientLightBuild.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientMaterialize.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientMaterialize.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticClear.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticBuildTiles.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticBuildTiles.cs.spirv"
@@ -2247,6 +2387,8 @@ if (HAVE_NRI)
 			OUTPUT
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -2260,6 +2402,8 @@ if (HAVE_NRI)
 			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -DNRI_SPATIAL_ABSENCE_FORMAT=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -2273,11 +2417,13 @@ if (HAVE_NRI)
 			DEPENDS
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
-				${NRI_SHADER_FILES}
+				${NRI_SHARED_SHADER_FILES}
 			VERBATIM)
 		add_custom_target(raze_nri_diagnostic_shaders DEPENDS
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -2337,6 +2483,27 @@ if( UNIX )
 endif()
 
 target_link_libraries( ${PROJECT_NAME} ${PROJECT_LIBRARIES} ${ZMUSIC_LIBRARIES} lzma )
+
+if(HAVE_NRI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	set(RAZE_NRI_RUNTIME_DIR "" CACHE PATH "Linux NRI runtime directory (libNRI.so and optional DLSS SR/RR libraries).")
+	if(RAZE_NRI_RUNTIME_DIR)
+		if(NOT EXISTS "${RAZE_NRI_RUNTIME_DIR}/libNRI.so")
+			message(FATAL_ERROR "RAZE_NRI_RUNTIME_DIR must contain a Linux libNRI.so")
+		endif()
+		file(GLOB _nri_linux_runtime CONFIGURE_DEPENDS
+			"${RAZE_NRI_RUNTIME_DIR}/libNRI.so*"
+			"${RAZE_NRI_RUNTIME_DIR}/libnvidia-ngx-dlss.so*"
+			"${RAZE_NRI_RUNTIME_DIR}/libnvidia-ngx-dlssd.so*")
+		foreach(_library IN LISTS _nri_linux_runtime)
+			add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_library}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+				VERBATIM)
+		endforeach()
+	else()
+		message(STATUS "Stage libNRI.so beside raze before launch, or set RAZE_NRI_RUNTIME_DIR.")
+	endif()
+endif()
+
 
 if( WIN32 )
 	function( raze_stage_runtime_artifacts target_name source_dir label )
@@ -2546,11 +2713,16 @@ include_directories(
 	../libraries/ShaderMake
 	../libraries/NRD/Include
 	../libraries/NRD/Integration
-	../libraries/NRD/_Shaders
+	${RAZE_NRD_SHADER_HEADER_DIR}
 	../libraries/ZWidget/include
 	../libraries/webp/include
 	${SYSTEM_SOURCES_DIR}
 )
+
+if (HAVE_NRI AND WIN32)
+	# Prefer the runtime configuration over an older generated vendor header.
+	target_include_directories(${PROJECT_NAME} BEFORE PRIVATE "${_raze_nri_generated_include}")
+endif()
 
 if (NOT WIN32)
 	include_directories(platform/posix)

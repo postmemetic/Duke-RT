@@ -88,6 +88,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "tiletexture.h"
 #include "tilesetbuilder.h"
 #include "gameinput.h"
+#include "input_lineage.h"
 
 #include "buildtiles.h"
 
@@ -220,9 +221,14 @@ bool System_DispatchEvent(event_t* ev)
 {
 	if (ev->type == EV_Mouse && !System_WantGuiCapture())
 	{
+		PerfInputLineageNoteMouseDispatch(ev->inputSequence);
 		PerfLoopTraceNoteMouseDispatch(ev->x, ev->y);
 		gameInput.MouseAddToPos(ev->x, ev->y);
 		return true;
+	}
+	if (ev->type == EV_Mouse)
+	{
+		PerfInputLineageNoteMouseExcluded(ev->inputSequence);
 	}
 
 	inputState.AddEvent(ev);

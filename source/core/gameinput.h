@@ -3,6 +3,7 @@
 #include "serializer.h"
 #include "coreplayer.h"
 #include "d_net.h"
+#include "input_lineage.h"
 
 enum : unsigned
 {
@@ -19,6 +20,24 @@ enum : unsigned
 
 class GameInput
 {
+	enum class LateMouseMode : uint8_t
+	{
+		None,
+		Movement,
+		Vehicle,
+	};
+
+	struct LateMouseRoute
+	{
+		LateMouseMode mode;
+		double turnscale;
+		double vehicleBaseVel;
+		double vehicleVelScale;
+		unsigned vehicleFlags;
+		bool yawLook;
+		bool pitchLook;
+	};
+
 	/*
 	// Turbo turn time.
 	Blood:     24 * 30 = 720;
@@ -36,6 +55,8 @@ class GameInput
 	// Input received from the OS.
 	float joyAxes[NUM_JOYAXIS];
 	FVector2 mouseInput;
+	DRotator lateAppliedMouseAngles;
+	LateMouseRoute lateMouseRoute;
 
 	// Internal variables when generating a packet.
 	InputPacket inputBuffer;
@@ -59,6 +80,13 @@ class GameInput
 
 	// Prototypes for private member functions.
 	void processInputBits();
+	DRotator getDesiredLateMouseAngles();
+	void applyLocalCameraDelta(const DRotator& delta);
+	void reconcileLocalCamera(
+		const DRotator& commandAngles,
+		const DRotator& commandMouseAngles,
+		bool yawLook,
+		bool pitchLook);
 
 public:
 	// Bit sender updates.
@@ -74,6 +102,8 @@ public:
 	// Clear all values within this object.
 	void Clear()
 	{
+		CancelLateMouseLook();
+		PerfInputLineageDiscardPendingMouse();
 		memset(this, 0, sizeof(*this));
 	}
 
@@ -96,6 +126,9 @@ public:
 	{
 		return syncinput || cl_syncinput || cl_capfps;
 	}
+	bool LateMouseLatchEnabled() const;
+	bool ApplyLateMouseLook();
+	void CancelLateMouseLook();
 	double GetInputScale() const
 	{
 		return scaleAdjust;

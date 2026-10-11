@@ -6,6 +6,7 @@
 #include "nri_upload_hash.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 
 namespace
@@ -27,6 +28,7 @@ namespace
 	static uint64_t BuildDynamicOverlayBlasKey(
 		const NRIRenderer::SceneBufferUploadDomainSpan& span,
 		uint32_t filterPolicyMask,
+		nri::AccelerationStructureBits buildFlags,
 		const std::vector<nri_scene::SceneVertex>& vertices,
 		const std::vector<uint32_t>& indices)
 	{
@@ -36,6 +38,7 @@ namespace
 		key = NRIHashCombine64(key, (uint64_t)span.indexCount);
 		key = NRIHashCombine64(key, (uint64_t)span.primitiveCount);
 		key = NRIHashCombine64(key, (uint64_t)filterPolicyMask);
+		key = NRIHashCombine64(key, (uint64_t)buildFlags);
 		// A BLAS depends only on geometry build input. Producer stamps also
 		// cover primitive/material publication and can conservatively advance
 		// every frame (notably for local-player reflection capture), which would
@@ -72,6 +75,50 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 	const bool filterPartitionEnabled = (bool)nri_ptfilterquery;
 	const bool buildEnabled = (bool)nri_ptdynamicoverlayblasbuild || filterPartitionEnabled;
 	const bool routeEnabled = (bool)nri_ptdynamicoverlayblasroute || filterPartitionEnabled;
+	const int32_t requestedPolicy = (int)nri_ptdynamicoverlayblaspolicy;
+	const uint32_t effectivePolicy = requestedPolicy == 1 ? 1u : 0u;
+	const nri::AccelerationStructureBits buildFlags = effectivePolicy == 1u ?
+		nri::AccelerationStructureBits::PREFER_FAST_TRACE : nri::AccelerationStructureBits::PREFER_FAST_BUILD;
+	NRIDynamicOverlayBlasPolicyStats& policyStats = mLastPerfShellTraceStats.dynamicOverlayBlasPolicy;
+	policyStats.requestedPolicy = requestedPolicy;
+	policyStats.effectivePolicy = effectivePolicy;
+	policyStats.buildFlags = (uint32_t)buildFlags;
+	policyStats.requestedBuild = (bool)nri_ptdynamicoverlayblasbuild;
+	policyStats.requestedRoute = (bool)nri_ptdynamicoverlayblasroute;
+	policyStats.filterPartition = filterPartitionEnabled;
+	policyStats.effectiveBuild = buildEnabled;
+	policyStats.effectiveRoute = routeEnabled;
+	policyStats.cacheLimit = (uint32_t)MaxDynamicOverlayBlasAssets;
+	// The snapshot is refreshed on every exit, including disabled/fallback
+	// routes. This bounded scan never grows with historical map churn.
+	struct CacheSnapshotScope
+	{
+		const std::vector<DynamicOverlayBlasAsset>& assets;
+		const NRIBufferResource& sharedScratch;
+		uint64_t frame;
+		NRIDynamicOverlayBlasPolicyStats& stats;
+		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+		~CacheSnapshotScope()
+		{
+			stats.cachedAssets = (uint32_t)assets.size();
+			stats.touchedAssets = 0u;
+			stats.cachedAsBytes = 0u;
+			stats.cachedGeometryBytes = 0u;
+			stats.touchedAsBytes = 0u;
+			for (const DynamicOverlayBlasAsset& asset : assets)
+			{
+				stats.cachedAsBytes += asset.accelerationStructure.memorySize;
+				stats.cachedGeometryBytes += asset.vertexBuffer.memorySize + asset.indexBuffer.memorySize;
+				if (asset.lastUsedFrame == frame)
+				{
+					stats.touchedAssets++;
+					stats.touchedAsBytes += asset.accelerationStructure.memorySize;
+				}
+			}
+			stats.sharedScratchBytes = sharedScratch.memorySize;
+			stats.totalCpuMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+		}
+	} cacheSnapshotScope { mDynamicOverlayBlasAssets, mScratchBuffer, mFrameIndex, policyStats };
 	const uint32_t buildBudget = (uint32_t)std::max(0, (int)nri_ptdynamicoverlayblasbuilds);
 	uint32_t remainingBuildBudget = buildBudget;
 	if (!buildEnabled && !routeEnabled)
@@ -191,7 +238,7 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 			mDynamicOverlayBlasIndexScratch.push_back(index - span.vertexOffset);
 		}
 
-		const uint64_t key = BuildDynamicOverlayBlasKey(span, planned.filterPolicyMask, mDynamicOverlayBlasVertexScratch, mDynamicOverlayBlasIndexScratch);
+		const uint64_t key = BuildDynamicOverlayBlasKey(span, planned.filterPolicyMask, buildFlags, mDynamicOverlayBlasVertexScratch, mDynamicOverlayBlasIndexScratch);
 		auto found = std::find_if(mDynamicOverlayBlasAssets.begin(), mDynamicOverlayBlasAssets.end(),
 			[key](const DynamicOverlayBlasAsset& asset)
 			{
@@ -201,14 +248,19 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 		DynamicOverlayBlasAsset* asset = found != mDynamicOverlayBlasAssets.end() ? &*found : nullptr;
 		if (asset != nullptr &&
 			asset->accelerationStructure.accelerationStructure != nullptr &&
+			asset->accelerationStructure.buildFlags == buildFlags &&
 			asset->vertexBuffer.buffer != nullptr &&
 			asset->indexBuffer.buffer != nullptr)
 		{
 			mLastPerfShellTraceStats.dynamicOverlayBlasCacheHits++;
+			const uint64_t age = mFrameIndex >= asset->lastUsedFrame ? mFrameIndex - asset->lastUsedFrame : 0u;
+			policyStats.cacheHitAgeSumFrames += age;
+			policyStats.cacheHitAgeMaxFrames = (uint32_t)std::max((uint64_t)policyStats.cacheHitAgeMaxFrames, std::min(age, (uint64_t)UINT32_MAX));
 			asset->lastUsedFrame = mFrameIndex;
 		}
 		else
 		{
+			const auto coldStart = std::chrono::steady_clock::now();
 			mLastPerfShellTraceStats.dynamicOverlayBlasCacheMisses++;
 			if (!buildEnabled || remainingBuildBudget == 0)
 			{
@@ -283,11 +335,17 @@ bool NRIRenderer::BuildDynamicOverlayBlasRoute(
 				span.indexCount,
 				span.primitiveCount,
 				asset->accelerationStructure,
-				false))
+				false,
+				nullptr,
+				buildFlags,
+				true))
 			{
 				return false;
 			}
 			mLastPerfShellTraceStats.dynamicOverlayBlasBuildSuccesses++;
+			policyStats.coldCpuMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - coldStart).count();
+			policyStats.builtAsBytes += asset->accelerationStructure.memorySize;
+			policyStats.buildScratchMaxBytes = std::max(policyStats.buildScratchMaxBytes, asset->accelerationStructure.buildScratchSize);
 		}
 
 		if (routeEnabled && asset != nullptr && asset->accelerationStructure.accelerationStructure != nullptr)

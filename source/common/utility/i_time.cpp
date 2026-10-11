@@ -48,6 +48,7 @@ static uint64_t StartupTimeNS;
 static uint64_t FirstFrameStartTime;
 static uint64_t CurrentFrameStartTime;
 static uint64_t FreezeTime;
+static uint64_t FrozenElapsedTimeNS = UINT64_MAX;
 static double lastinputtime;
 int GameTicRate = 35;	// make sure it is not 0, even if the client doesn't set it.
 
@@ -169,35 +170,42 @@ uint64_t I_msTimeFS() // from "start"
 
 uint64_t I_GetTimeNS()
 {
+	if (FreezeTime != 0 && FrozenElapsedTimeNS != UINT64_MAX)
+	{
+		return FrozenElapsedTimeNS;
+	}
 	return CurrentFrameStartTime - FirstFrameStartTime;
 }
 
 int I_GetTime(double const ticrate)
 {
-	return NSToTic(CurrentFrameStartTime - FirstFrameStartTime, ticrate);
+	return NSToTic(I_GetTimeNS(), ticrate);
 }
 
 double I_GetTimeFrac(double const ticrate)
 {
-	int currentTic = NSToTic(CurrentFrameStartTime - FirstFrameStartTime, ticrate);
-	uint64_t ticStartTime = FirstFrameStartTime + TicToNS(currentTic, ticrate);
-	uint64_t ticNextTime = FirstFrameStartTime + TicToNS(currentTic + 1, ticrate);
+	const uint64_t elapsed = I_GetTimeNS();
+	int currentTic = NSToTic(elapsed, ticrate);
+	uint64_t ticStartTime = TicToNS(currentTic, ticrate);
+	uint64_t ticNextTime = TicToNS(currentTic + 1, ticrate);
 
-	return (CurrentFrameStartTime - ticStartTime) / (double)(ticNextTime - ticStartTime);
+	return (elapsed - ticStartTime) / (double)(ticNextTime - ticStartTime);
 }
 
-void I_FreezeTime(bool frozen)
+void I_FreezeTime(bool frozen, uint64_t fixedElapsedNS)
 {
 	if (frozen)
 	{
 		assert(FreezeTime == 0);
 		FreezeTime = GetClockTimeNS();
+		FrozenElapsedTimeNS = fixedElapsedNS;
 	}
 	else
 	{
 		assert(FreezeTime != 0);
 		if (FirstFrameStartTime != 0) FirstFrameStartTime += GetClockTimeNS() - FreezeTime;
 		FreezeTime = 0;
+		FrozenElapsedTimeNS = UINT64_MAX;
 		I_SetFrameTime();
 	}
 }

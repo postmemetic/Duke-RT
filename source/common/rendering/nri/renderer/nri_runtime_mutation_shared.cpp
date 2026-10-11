@@ -473,11 +473,14 @@ namespace nri_runtime_mutation
 	}
 
 	template <typename SurfaceContainer>
-	static void HashAnimatedSurfaces(const SurfaceContainer& surfaces, uint64_t& hash, bool includeDisplaySignature)
+	static void HashAnimatedSurfaces(const SurfaceContainer& surfaces, uint64_t& hash, bool includeDisplaySignature,
+		FGameTexture* const* bindings = nullptr)
 	{
 		hash = RuntimeMutationHashCombine64(hash, (uint64_t)surfaces.size());
+		size_t bindingIndex = 0;
 		for (const auto& surface : surfaces)
 		{
+			FGameTexture* texture = bindings != nullptr ? bindings[bindingIndex++] : surface.material.texture;
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.provenance.sourceType);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)(surface.provenance.sectorIndex + 1));
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)(surface.provenance.wallIndex + 1));
@@ -489,10 +492,10 @@ namespace nri_runtime_mutation
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.material.palette);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.material.shade);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(surface.material.alpha));
-			hash = RuntimeMutationHashCombine64(hash, HashAnimatedTextureBindingSignature(surface.material.texture));
+			hash = RuntimeMutationHashCombine64(hash, HashAnimatedTextureBindingSignature(texture));
 			if (includeDisplaySignature)
 			{
-				hash = RuntimeMutationHashCombine64(hash, HashAnimatedTextureDisplaySignature(surface.material.texture));
+				hash = RuntimeMutationHashCombine64(hash, HashAnimatedTextureDisplaySignature(texture));
 			}
 		}
 	}
@@ -548,6 +551,23 @@ namespace nri_runtime_mutation
 		HashAnimatedSurfaces(sceneView.opaqueFlats, hash, false);
 		HashAnimatedSurfaces(sceneView.opaqueSprites, hash, false);
 		return hash;
+	}
+
+	bool ComputeAnimatedMaterialSignatureWithBindings(
+		const nri_scene::SceneView& sceneView,
+		const std::vector<FGameTexture*>& bindings,
+		uint64_t& outSignature)
+	{
+		const size_t wallCount = sceneView.opaqueWalls.size();
+		const size_t flatCount = sceneView.opaqueFlats.size();
+		if (bindings.size() != wallCount + flatCount + sceneView.opaqueSprites.size()) return false;
+		uint64_t hash = 1469598103934665603ull;
+		FGameTexture* const* data = bindings.empty() ? nullptr : bindings.data();
+		HashAnimatedSurfaces(sceneView.opaqueWalls, hash, false, data);
+		HashAnimatedSurfaces(sceneView.opaqueFlats, hash, false, data != nullptr ? data + wallCount : nullptr);
+		HashAnimatedSurfaces(sceneView.opaqueSprites, hash, false, data != nullptr ? data + wallCount + flatCount : nullptr);
+		outSignature = hash;
+		return true;
 	}
 
 	uint64_t ComputeAnimatedGeometrySignature(const nri_scene::SceneView& sceneView)

@@ -7,6 +7,7 @@
 #include "nri_frame_resources.h"
 #include "nri_filter_candidate_policy.h"
 #include "nri_material_policy.h"
+#include "nri_occurrence_workload_mask_policy.h"
 #include "nri_pass_dispatch.h"
 #include "nri_persistent_voxel_services.h"
 #include "nri_ray_scene_builder.h"
@@ -236,8 +237,9 @@ namespace
 		NRIRenderer::PerfShellTraceStats& stats,
 		const std::vector<NRIRenderer::SceneBufferUploadDomainSpan>& uploadSpans)
 	{
-		stats.dynamicOverlayBlasBuildEnabled = (bool)nri_ptdynamicoverlayblasbuild;
-		stats.dynamicOverlayBlasRouteEnabled = (bool)nri_ptdynamicoverlayblasroute;
+		const bool filterPartitionEnabled = (bool)nri_ptfilterquery;
+		stats.dynamicOverlayBlasBuildEnabled = (bool)nri_ptdynamicoverlayblasbuild || filterPartitionEnabled;
+		stats.dynamicOverlayBlasRouteEnabled = (bool)nri_ptdynamicoverlayblasroute || filterPartitionEnabled;
 		stats.dynamicOverlayBlasBuildBudget = (uint32_t)std::max(0, (int)nri_ptdynamicoverlayblasbuilds);
 
 		for (const NRIRenderer::SceneBufferUploadDomainSpan& span : uploadSpans)
@@ -261,6 +263,18 @@ namespace
 				stats.dynamicOverlayBlasRejectDisabled += span.primitiveCount;
 			}
 
+			if (filterPartitionEnabled)
+			{
+				// Candidate filtering partitions every valid geometry domain,
+				// including local-player reflection and surface-light overlays.
+				// Actual malformed/run-budget failures retain the fallback totals.
+				if (span.primitiveCount != 0u && span.indexCount != 0u && span.vertexCount != 0u)
+				{
+					stats.dynamicOverlayBlasEligibleDomains++;
+					stats.dynamicOverlayBlasEligiblePrimitives += span.primitiveCount;
+				}
+				continue;
+			}
 			switch (span.domain)
 			{
 			case NRIRenderer::SceneBufferUploadDomain::Dynamic:
@@ -624,6 +638,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	const bool bootstrapCapturedBaseColor = inputs.bootstrapCapturedBaseColor;
 	const bool rawTraceDirectScene = inputs.rawTraceDirectScene;
 	const bool preserveHistory = inputs.preserveHistory;
+	// Paint is captured from live actors, independently of primary-view sprite
+	// visibility, so reflections and reused static scenes see the same marks.
+	mWallDecals.Capture(di);
+	if (mWallDecals.MaterialChanged()) mSceneTextureFrameCache.Reset();
 	if (!preserveHistory)
 	{
 		mWeaponEventBatch.Capture(*mFrameBuffer, mFrameIndex);
@@ -673,13 +691,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	auto& dynamicGpuMaterials = mSelectDynamicGpuMaterialScratch;
 	auto& persistentVoxelGpuMaterials = mSelectPersistentVoxelGpuMaterialScratch;
 	auto& combinedGpuMaterials = mSelectCombinedGpuMaterialScratch;
-	auto& refreshedCombinedGpuMaterials = mSelectRefreshedCombinedGpuMaterialScratch;
 	auto& deferredTextureMaterialIndices = mSelectDeferredTextureMaterialIndexScratch;
 	capturedGpuMaterials.clear();
 	dynamicGpuMaterials.clear();
 	persistentVoxelGpuMaterials.clear();
 	combinedGpuMaterials.clear();
-	refreshedCombinedGpuMaterials.clear();
 	deferredTextureMaterialIndices.clear();
 	nri_scene::ClearGeometryRetainingCapacity(mSelectLocalPlayerReflectionGeometryScratch);
 	nri_scene::ClearGeometryRetainingCapacity(actorFilteredDynamicGeometry);
@@ -690,7 +706,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	mSelectCapturedTopLevelInstanceScratch.clear();
 	mSelectCapturedSceneInstanceScratch.clear();
 	mSelectedDynamicOverlayBlasOccurrences.clear();
-	std::vector<SelectedDynamicOverlayBlasOccurrence> selectedDynamicOverlayBlasOccurrences;
+	auto& selectedDynamicOverlayBlasOccurrences = mSelectDynamicOverlayOccurrenceScratch;
+	selectedDynamicOverlayBlasOccurrences.clear();
 	const nri_scene::SceneView*& activeSceneView = frame.activeSceneView;
 	const nri_scene::GeometryData*& activeGeometry = frame.activeGeometry;
 	const std::vector<nri_scene::MaterialData>*& activeGpuMaterials = frame.activeGpuMaterials;
@@ -709,7 +726,18 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	nri_scene::GeometryData& localPlayerReflectionGeometry = mSelectLocalPlayerReflectionGeometryScratch;
 	NRILocalPlayerReflectionCaptureStats localPlayerReflectionCaptureStats = {};
 	nri_scene::GeometryBuildTraceStats localPlayerReflectionGeometryTraceStats = {};
-	std::vector<SceneBufferUploadDomainSpan> sceneUploadDomainSpans;
+	auto& sceneUploadDomainSpans = frame.uploadDomainSpans;
+	sceneUploadDomainSpans.clear();
+	const NRISmokeSettings workloadMaskSmokeSettings = BuildNRISmokeSettingsFromCVars();
+	NRIOccurrenceWorkloadMaskFacts workloadMaskFacts = {};
+	workloadMaskFacts.enabled = (bool)nri_ptoccurrenceworkloadmasks;
+	// Smoke can fall back to force-opaque shadow visibility even with filtered
+	// visibility requested: final descriptor readiness is resolved after TLAS
+	// assembly. Retain SHADOW until all of its consumers have a current proof.
+	workloadMaskFacts.shadowRemovalPermitted = !workloadMaskSmokeSettings.enabled;
+	// SmokeTraceIndirectClosest deliberately does not reject ReflectionOnly.
+	workloadMaskFacts.giRemovalPermitted = !workloadMaskSmokeSettings.enabled || !workloadMaskSmokeSettings.indirect;
+	mLastPerfShellTraceStats.occurrenceWorkloadMasks.facts = workloadMaskFacts;
 	uint32_t activeStaticProbePrimitiveCount = 0;
 	EmissiveSamplingBuildContext emissiveSamplingContext = {};
 	NRIActorOccurrenceFrame actorOccurrenceFrame = {};
@@ -978,7 +1006,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			{
 				Clocker clock(NriPTGeometryBuild);
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.geometryBuildDynamicLiveMs);
-				nri_scene::BuildGeometry(dynamicSceneView, dynamicGeometry);
+				nri_scene::BuildGeometry(dynamicSceneView, dynamicGeometry, nullptr, true);
 				AssignGeometryPortalIndices(mMapWorld, dynamicGeometry);
 			}
 			mLastPerfShellTraceStats.geometryBuildDynamicLivePrimitives += (uint32_t)dynamicGeometry.primitives.size();
@@ -1209,7 +1237,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						Clocker clock(NriPTGeometryBuild);
 						ScopedPtPerfTimer geometryPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeGeometryMs);
 						ScopedPtPerfTimer legacyGeometryPerfTimer(mLastPerfShellTraceStats.geometryBuildMergedDynamicMs);
-						nri_scene::BuildGeometry(mergedDynamicSceneView, mergedDynamicGeometry);
+						nri_scene::BuildGeometry(mergedDynamicSceneView, mergedDynamicGeometry, nullptr, true);
 					}
 					{
 						ScopedPtPerfTimer portalPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergePortalAssignMs);
@@ -1669,8 +1697,12 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					accelerationReady = persistentVoxelAsReady && dynamicAsReady;
 				}
 				emissiveSamplingContext.runtimeMutationGeometry = hasRuntimeMutationOverlay ? &runtimeMutationFrame.geometry : nullptr;
+				emissiveSamplingContext.runtimeMutationGeometryIdentity = nri_scene::HashCombine64(
+					overlayInputs.runtimeMutationStamp.vertexPayloadStamp, overlayInputs.runtimeMutationStamp.primitivePayloadStamp);
 				emissiveSamplingContext.runtimeMutationPrimitiveBaseOffset = (uint32_t)runtimeSpaceLinkGeometry.primitives.size();
 				emissiveSamplingContext.dynamicGeometry = hasActiveDynamicOverlay ? activeDynamicGeometry : nullptr;
+				emissiveSamplingContext.dynamicGeometryIdentity = nri_scene::HashCombine64(
+					overlayInputs.activeDynamicStamp.vertexPayloadStamp, overlayInputs.activeDynamicStamp.primitivePayloadStamp);
 				emissiveSamplingContext.dynamicPrimitiveBaseOffset = (uint32_t)(runtimeSpaceLinkGeometry.primitives.size() + runtimeMutationFrame.geometry.primitives.size());
 				if (hasSurfaceLightOverlay)
 				{
@@ -1679,6 +1711,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					if (surfaceLightSpan != nullptr)
 					{
 						emissiveSamplingContext.surfaceLightOverlayGeometry = &surfaceLightGeometry;
+						emissiveSamplingContext.surfaceLightOverlayGeometryIdentity = nri_scene::HashCombine64(
+							overlayInputs.surfaceLightStamp.vertexPayloadStamp, overlayInputs.surfaceLightStamp.primitivePayloadStamp);
 						emissiveSamplingContext.surfaceLightOverlayPrimitiveBaseOffset = surfaceLightSpan->primitiveOffset;
 					}
 				}
@@ -1765,6 +1799,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 								occurrence.span.primitiveCount,
 								dynamicInstance,
 								mLastPerfShellTraceStats);
+							dynamicInstance.mask = ApplyNRIOccurrenceWorkloadMaskPolicy(
+								overlayGeometry, dynamicGpuMaterials, occurrence.span,
+								NRIOccurrenceWorkloadMaskScope::UploadSpan, dynamicInstance.mask,
+								workloadMaskFacts, mLastPerfShellTraceStats.occurrenceWorkloadMasks);
 							dynamicInstance.accelerationStructureHandle =
 								mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*occurrence.accelerationStructure->accelerationStructure);
 							SceneInstanceData sceneRecord = {};
@@ -1806,6 +1844,14 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 							liveOverlayPrimitiveCount,
 							dynamicInstance,
 							mLastPerfShellTraceStats);
+						const SceneBufferUploadDomainSpan* coveringMaskSpan = FindNRIUniqueCoveringWorkloadMaskSpan(
+							sceneUploadDomainSpans, 0u, liveOverlayPrimitiveCount, liveOverlayIndexOffset, liveOverlayIndexCount);
+						SceneBufferUploadDomainSpan aggregateMaskSpan = {};
+						aggregateMaskSpan.primitiveCount = liveOverlayPrimitiveCount;
+						dynamicInstance.mask = ApplyNRIOccurrenceWorkloadMaskPolicy(
+							overlayGeometry, dynamicGpuMaterials, coveringMaskSpan != nullptr ? *coveringMaskSpan : aggregateMaskSpan,
+							coveringMaskSpan != nullptr ? NRIOccurrenceWorkloadMaskScope::UploadSpan : NRIOccurrenceWorkloadMaskScope::AmbiguousAggregate,
+							dynamicInstance.mask, workloadMaskFacts, mLastPerfShellTraceStats.occurrenceWorkloadMasks);
 						dynamicInstance.accelerationStructureHandle = mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicBottomLevelAS.accelerationStructure);
 						NRIRaySceneBuilder builder(instances, sceneInstances);
 						SceneInstanceData sceneRecord = {};
@@ -2029,7 +2075,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					mLastStateCommitDomainGenerations = generationResult.current;
 					mHasLastStateCommitDomainGenerations = true;
 				}
-				mSelectedDynamicOverlayBlasOccurrences = std::move(selectedDynamicOverlayBlasOccurrences);
+				mSelectedDynamicOverlayBlasOccurrences.swap(selectedDynamicOverlayBlasOccurrences);
 			}
 			else
 			{
@@ -2124,7 +2170,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		{
 			Clocker clock(NriPTGeometryBuild);
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.geometryBuildCapturedMs);
-			nri_scene::BuildGeometry(capturedSceneView, capturedGeometry);
+			nri_scene::BuildGeometry(capturedSceneView, capturedGeometry, nullptr, true);
 			AssignGeometryPortalIndices(mMapWorld, capturedGeometry);
 		}
 
@@ -2217,6 +2263,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					(uint32_t)capturedGeometry.primitives.size(),
 					instance,
 					mLastPerfShellTraceStats);
+				SceneBufferUploadDomainSpan capturedMaskSpan = {};
+				capturedMaskSpan.primitiveCount = (uint32_t)capturedGeometry.primitives.size();
+				instance.mask = ApplyNRIOccurrenceWorkloadMaskPolicy(
+					capturedGeometry, capturedGpuMaterials, capturedMaskSpan, NRIOccurrenceWorkloadMaskScope::CapturedGeometry,
+					instance.mask, workloadMaskFacts, mLastPerfShellTraceStats.occurrenceWorkloadMasks);
 				instance.accelerationStructureHandle = mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicBottomLevelAS.accelerationStructure);
 
 				auto& instances = mSelectCapturedTopLevelInstanceScratch;
@@ -2277,13 +2328,19 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			mSceneTextureStableSlotsActive ?
 			mSceneMaterialFrameCache.ResolveTextureSlots(mSceneTextures.SlotTable()) :
 			combinedMaterialBridge;
-		refreshedCombinedGpuMaterials = refreshedMaterialSource.materials;
-		ApplyEmissiveMaterialOverrides(refreshedMaterialSource, refreshedCombinedGpuMaterials);
-		ApplyActorShadowMaterialOverrides(refreshedMaterialSource, refreshedCombinedGpuMaterials);
-		const uint32_t preservedPendingTextureMaterialCount = NRIPreservePendingTextureMaterialProxies(
-			combinedGpuMaterials,
-			refreshedCombinedGpuMaterials,
-			deferredTextureMaterialIndices);
+		const auto materialPatch = RefreshCombinedMaterialProduct(
+			refreshedMaterialSource,
+			mStaticMapScene.gpuMaterials.size(),
+			mSceneMaterialFrameCache.PersistentMaterialCount(),
+			deferredTextureMaterialIndices,
+			combinedGpuMaterials, persistentVoxelGpuMaterials, dynamicGpuMaterials);
+		if (!materialPatch.valid)
+		{
+			LogFallback("PT runtime overlay material refresh produced an invalid material slice.");
+			if (preserveHistory) RestoreRenderSceneHistorySnapshot(history);
+			return false;
+		}
+		const uint32_t preservedPendingTextureMaterialCount = (uint32_t)materialPatch.preservedRows;
 		if (preservedPendingTextureMaterialCount > 0 && nri_ptscenestats)
 		{
 			Printf(
@@ -2291,29 +2348,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				(uint32_t)deferredTextureMaterialIndices.size(),
 				preservedPendingTextureMaterialCount);
 		}
-		if (!nri_material_policy::MaterialDataVectorEqual(refreshedCombinedGpuMaterials, combinedGpuMaterials))
+		if (materialPatch.changed)
 		{
-			const size_t staticMaterialCount = mStaticMapScene.gpuMaterials.size();
-			const size_t persistentVoxelMaterialCount = mSceneMaterialFrameCache.PersistentMaterialCount();
-			if (refreshedCombinedGpuMaterials.size() < staticMaterialCount + persistentVoxelMaterialCount)
-			{
-				LogFallback("PT runtime overlay material refresh produced an invalid material slice.");
-				if (preserveHistory)
-				{
-					RestoreRenderSceneHistorySnapshot(history);
-				}
-				return false;
-			}
-
-			combinedGpuMaterials.swap(refreshedCombinedGpuMaterials);
-			persistentVoxelGpuMaterials.assign(
-				combinedGpuMaterials.begin() + staticMaterialCount,
-				combinedGpuMaterials.begin() + staticMaterialCount + persistentVoxelMaterialCount);
-			dynamicGpuMaterials.assign(
-				combinedGpuMaterials.begin() + staticMaterialCount + persistentVoxelMaterialCount,
-				combinedGpuMaterials.end());
-			if (!UploadSceneBuffers(overlayGeometry, dynamicGpuMaterials) ||
-				(persistentVoxelMaterialCount != 0 && !UploadPersistentVoxelArenaMaterialBuffers(persistentVoxelGpuMaterials, true)) ||
+			if ((materialPatch.dynamicChanged && !UploadSceneBuffers(overlayGeometry, dynamicGpuMaterials)) ||
+				(materialPatch.persistentChanged && !UploadPersistentVoxelArenaMaterialBuffers(persistentVoxelGpuMaterials, true)) ||
 				!NRISceneUploadManager::UpdateSceneDataSet(*this,
 					mStaticVertexBuffer,
 					mStaticIndexBuffer,
@@ -2423,6 +2461,13 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		}
 	}
 
+	if (emissiveSamplingContext.staticGeometry != nullptr)
+	{
+		emissiveSamplingContext.staticGeometryIdentity = nri_scene::HashCombine64(
+			mStaticMapScene.contentBuildSerial, mStaticMapScene.geometryGeneration);
+	}
+	if (emissiveSamplingContext.capturedGeometry != nullptr)
+		emissiveSamplingContext.capturedGeometryIdentity = NRIEmissiveGeometryCache::PublishTransientIdentity();
 	if (!UpdateEmissiveSamplingBuffers(emissiveSamplingContext, nullptr, true))
 	{
 		LogFallback("PT emissive primitive update failed.");
@@ -2439,6 +2484,27 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		{
 			RestoreRenderSceneHistorySnapshot(history);
 		}
+		return false;
+	}
+
+	// Static-only reuse may skip the ordinary texture and scene-data refreshes.
+	// Still reconcile changed/deleted decals before publishing this frame.
+	if (mWallDecals.NeedsTextureResolve())
+	{
+		std::vector<nri_scene::MaterialData> decalTextureMaterialScratch;
+		if (!EnsureSceneTextures(*activeSceneView, *activeMaterialBridge, decalTextureMaterialScratch,
+			preserveHistory, "wall_decal_refresh", nullptr, NRISceneTextureMissPolicy::Synchronous, nullptr, true))
+		{
+			LogFallback("PT wall decal texture refresh failed.");
+			if (preserveHistory) RestoreRenderSceneHistorySnapshot(history);
+			return false;
+		}
+	}
+	bool decalWaitedForWrites = false;
+	if (!NRISceneUploadManager::UpdateWallDecalBuffers(*this, &decalWaitedForWrites, true))
+	{
+		LogFallback("PT wall decal upload failed.");
+		if (preserveHistory) RestoreRenderSceneHistorySnapshot(history);
 		return false;
 	}
 

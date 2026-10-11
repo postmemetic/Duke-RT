@@ -3,6 +3,39 @@
 
 #include "Shared.hlsli"
 #include "MotionContracts.hlsli"
+#include "StaticShadingData.hlsli"
+
+StructuredBuffer<StaticTangentData> gStaticTangents : register(t28, space2);
+
+#ifndef NRI_STATIC_TANGENT_ORACLE_ONLY
+#define NRI_STATIC_TANGENT_ORACLE_ONLY 0
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY && NRI_SHADER_DIAGNOSTICS
+#error Static tangent validation must not enable unrelated broad diagnostics
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY && (NRI_SPATIAL_ABSENCE_FORMAT == 2 || NRI_FILTER_COMPARATOR)
+#error Static tangent validation cannot select comparison workloads
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+bool StaticTangentOracleStatsEnabled()
+{
+	return (gTraceConstants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u;
+}
+void TraceStaticTangentStatAdd(uint index, uint value)
+{
+	if (StaticTangentOracleStatsEnabled())
+		InterlockedAdd(gTraceShaderStats[index], value);
+}
+#endif
+
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+// Invocation-local budgets: only four pixels, at most eight calls per pixel.
+static uint gStaticTangentProbeRemaining = 0u;
+static bool gStaticTangentCompared = false;
+static bool gStaticTangentCandidateSuccess = false;
+static float3 gStaticTangentCandidateT = 0.0;
+static float3 gStaticTangentCandidateB = 0.0;
+#endif
 
 #ifndef NRI_SPATIAL_ABSENCE_FORMAT
 #define NRI_SPATIAL_ABSENCE_FORMAT 0
@@ -232,6 +265,94 @@ static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE =
 	TRACE_STAT_MOTION_AUDIT_BASE + TRACE_STAT_MOTION_AUDIT_COUNT;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
+static const uint TRACE_STAT_PROFILE_BASE =
+	TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE + TRACE_STATS_KIND_COUNT * TRACE_STAT_INSTANCE_BUCKET_COUNT;
+static const uint TRACE_STAT_PROFILE_INDIRECT_ELIGIBLE_PIXELS = TRACE_STAT_PROFILE_BASE + 0u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_SINGLE_LOBE_PIXELS = TRACE_STAT_PROFILE_BASE + 1u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_DUAL_LOBE_PIXELS = TRACE_STAT_PROFILE_BASE + 2u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_DIFFUSE_SELECTED_PIXELS = TRACE_STAT_PROFILE_BASE + 3u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_SPECULAR_SELECTED_PIXELS = TRACE_STAT_PROFILE_BASE + 4u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_PLAIN_MIRROR_FORCED_DUAL_PIXELS = TRACE_STAT_PROFILE_BASE + 5u;
+static const uint TRACE_STAT_PROFILE_PLAIN_MIRROR_PRIMARY_REPLACEMENTS = TRACE_STAT_PROFILE_BASE + 6u;
+static const uint TRACE_STAT_PROFILE_MIRROR_CONTINUATION_BASE = TRACE_STAT_PROFILE_BASE + 7u;
+static const uint TRACE_STAT_PROFILE_PORTAL_CONTINUATION_BASE = TRACE_STAT_PROFILE_BASE + 13u;
+static const uint TRACE_STAT_PROFILE_CONTINUATION_LIMIT_BASE = TRACE_STAT_PROFILE_BASE + 19u;
+static const uint TRACE_STAT_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE = TRACE_STAT_PROFILE_BASE + 25u;
+static const uint TRACE_STAT_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE = TRACE_STAT_PROFILE_BASE + 29u;
+static const uint TRACE_STAT_PROFILE_RESTART_HISTOGRAM_BASE = TRACE_STAT_PROFILE_BASE + 33u;
+static const uint TRACE_STAT_PROFILE_RESTART_HISTOGRAM_STRIDE = TRACE_FILTER_SKIP_LIMIT + 1u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT = TRACE_STAT_PROFILE_BASE + 423u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS = TRACE_STAT_PROFILE_BASE + 424u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS = TRACE_STAT_PROFILE_BASE + 425u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES = TRACE_STAT_PROFILE_BASE + 426u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS = TRACE_STAT_PROFILE_BASE + 427u;
+// Keep 428..431 reserved for independent profiler extensions.
+static const uint TRACE_STAT_RESPONSE_LOOKUP_BASE = TRACE_STAT_PROFILE_BASE + 432u;
+static const uint TRACE_STAT_RESPONSE_LOOKUP_MODE = TRACE_STAT_RESPONSE_LOOKUP_BASE + 0u;
+static const uint TRACE_STAT_RESPONSE_LOOKUP_BINARY_CALLS = TRACE_STAT_RESPONSE_LOOKUP_BASE + 1u;
+static const uint TRACE_STAT_RESPONSE_LOOKUP_ORACLE_CALLS = TRACE_STAT_RESPONSE_LOOKUP_BASE + 2u;
+static const uint TRACE_STAT_RESPONSE_LOOKUP_ORACLE_MISMATCHES = TRACE_STAT_RESPONSE_LOOKUP_BASE + 3u;
+static const uint TRACE_STAT_RESPONSE_LOOKUP_ORACLE_ITERATIONS = TRACE_STAT_RESPONSE_LOOKUP_BASE + 4u;
+// Additive primary-geometry oracle region; preserve profile/response indices.
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE = TRACE_STAT_PROFILE_BASE + 440u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_COMPARISONS = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 0u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_MISMATCH_PIXELS = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 1u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_CURRENT_POSITION = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 2u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_PREVIOUS_POSITION = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 3u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_CURRENT_NORMAL = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 4u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_PREVIOUS_NORMAL = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 5u;
+static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_IDENTITY = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 6u;
+
+// Additive absence profiling region: absolute indices 9038..9069.
+// 20..23 hold the footprint oracle; 24..31 profile DATA2 applicability.
+#if NRI_SHADER_DIAGNOSTICS
+static const uint TRACE_STAT_ABSENCE_PROFILE_BASE = TRACE_STAT_PROFILE_BASE + 447u;
+static const uint TRACE_STAT_ABSENCE_FOOTPRINT_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 0u;
+static const uint TRACE_STAT_ABSENCE_FOOTPRINT_ELIGIBLE = TRACE_STAT_ABSENCE_PROFILE_BASE + 1u;
+static const uint TRACE_STAT_ABSENCE_FOOTPRINT_PROBE_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 2u;
+static const uint TRACE_STAT_ABSENCE_CERTIFICATE_TESTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 3u;
+static const uint TRACE_STAT_ABSENCE_CERTIFICATE_HITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 4u;
+static const uint TRACE_STAT_ABSENCE_REFERENCE_VISITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 5u;
+static const uint TRACE_STAT_ABSENCE_REFERENCE_AFTER_HIT = TRACE_STAT_ABSENCE_PROFILE_BASE + 6u;
+static const uint TRACE_STAT_ABSENCE_TRIANGLE_VISITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 7u;
+static const uint TRACE_STAT_ABSENCE_TRIANGLE_AFTER_HIT = TRACE_STAT_ABSENCE_PROFILE_BASE + 8u;
+static const uint TRACE_STAT_ABSENCE_TRIANGLE_FIRST_HITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 9u;
+static const uint TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES = TRACE_STAT_ABSENCE_PROFILE_BASE + 10u;
+static const uint TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES = TRACE_STAT_ABSENCE_PROFILE_BASE + 11u;
+static const uint TRACE_STAT_ABSENCE_CANDIDATE_EVALUATIONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 12u;
+static const uint TRACE_STAT_ABSENCE_CANDIDATE_REJECTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 13u;
+static const uint TRACE_STAT_ABSENCE_FALLBACK_EVALUATIONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 14u;
+static const uint TRACE_STAT_ABSENCE_STATIC_RESTARTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 15u;
+static const uint TRACE_STAT_ABSENCE_ACTOR_RESTARTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 16u;
+static const uint TRACE_STAT_ABSENCE_PAIR_VISITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 17u;
+static const uint TRACE_STAT_ABSENCE_PAIR_BOUNDS_HITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 18u;
+static const uint TRACE_STAT_ABSENCE_POSITIVE_EVALUATIONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 19u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_COMPARISONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 20u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_INSIDE_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 21u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_VALIDITY_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 22u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_PROBE_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 23u;
+#endif
+#if NRI_SHADER_DIAGNOSTICS
+static const uint TRACE_STAT_DATA2_STATIC_TANGENT_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 24u;
+static const uint TRACE_STAT_DATA2_PRIMARY_LOD_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 25u;
+static const uint TRACE_STAT_DATA2_LOD_EXPENSIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 26u;
+static const uint TRACE_STAT_DATA2_LOD_STATIC_IDENTITY = TRACE_STAT_ABSENCE_PROFILE_BASE + 27u;
+static const uint TRACE_STAT_DATA2_LOD_SELECTED_POSITIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 28u;
+static const uint TRACE_STAT_DATA2_LOD_STATIC_IDENTITY_SELECTED_POSITIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 29u;
+static const uint TRACE_STAT_DATA2_LOD_GEOMETRY_FALLBACK = TRACE_STAT_ABSENCE_PROFILE_BASE + 30u;
+static const uint TRACE_STAT_DATA2_LOD_FOOTPRINT_FALLBACK = TRACE_STAT_ABSENCE_PROFILE_BASE + 31u;
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+static const uint TRACE_STAT_STATIC_TANGENT_BASE = TRACE_STAT_PROFILE_BASE + 479u;
+static const uint TRACE_STAT_STATIC_TANGENT_COMPARISONS = TRACE_STAT_STATIC_TANGENT_BASE + 0u;
+static const uint TRACE_STAT_STATIC_TANGENT_RAW_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 1u;
+static const uint TRACE_STAT_STATIC_TANGENT_SUCCESS_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 2u;
+static const uint TRACE_STAT_STATIC_TANGENT_FRAME_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 3u;
+static const uint TRACE_STAT_STATIC_TANGENT_MAPPED_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 4u;
+static const uint TRACE_STAT_STATIC_TANGENT_VALID = TRACE_STAT_STATIC_TANGENT_BASE + 5u;
+static const uint TRACE_STAT_STATIC_TANGENT_DEGENERATE = TRACE_STAT_STATIC_TANGENT_BASE + 6u;
+static const uint TRACE_STAT_STATIC_TANGENT_UNSUPPORTED = TRACE_STAT_STATIC_TANGENT_BASE + 7u;
+#endif
 
 bool TraceShaderStatsEnabled()
 {
@@ -338,6 +459,40 @@ void TraceShaderStatInstanceKind(uint kind, uint instanceId)
 		TraceShaderStatAdd(TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE + clampedKind * TRACE_STAT_INSTANCE_BUCKET_COUNT + instanceId, 1u);
 	}
 }
+
+#if NRI_SHADER_DIAGNOSTICS
+void TraceShaderProfileRecordRestartDistribution(uint kind, uint restartCount)
+{
+	const uint clampedKind = min(kind, TRACE_STATS_KIND_FAST_EMISSIVE);
+	const uint clampedRestartCount = min(restartCount, TRACE_FILTER_SKIP_LIMIT);
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_RESTART_HISTOGRAM_BASE +
+		clampedKind * TRACE_STAT_PROFILE_RESTART_HISTOGRAM_STRIDE +
+		clampedRestartCount,
+		1u);
+}
+
+void TraceShaderProfileRecordMirrorContinuation(uint kind)
+{
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_MIRROR_CONTINUATION_BASE + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE),
+		1u);
+}
+
+void TraceShaderProfileRecordPortalContinuation(uint kind)
+{
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_PORTAL_CONTINUATION_BASE + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE),
+		1u);
+}
+
+void TraceShaderProfileRecordContinuationLimit(uint kind)
+{
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_CONTINUATION_LIMIT_BASE + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE),
+		1u);
+}
+#endif
 
 HitData MakeEmptyHitData()
 {
@@ -525,6 +680,9 @@ float4 SampleMaterialColor(MaterialData material, uint textureIndex, float2 uv, 
 
 bool TryResolveHitTangentFrame(uint dataSource, uint primitiveIndex, float3 geometricNormal, out float3 tangent, out float3 bitangent)
 {
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_STATIC_TANGENT_CALLS, dataSource == SCENE_DATA_SOURCE_STATIC ? 1u : 0u);
+#endif
 	const PrimitiveData primitive = GetPrimitiveData(dataSource, primitiveIndex);
 	const SceneVertex v0 = GetVertexData(dataSource, primitive.indices.x);
 	const SceneVertex v1 = GetVertexData(dataSource, primitive.indices.y);
@@ -566,6 +724,89 @@ bool TryResolveHitTangentFrame(uint dataSource, uint primitiveIndex, float3 geom
 	// effectively interpreting tangent-space Y upside-down on wall relief.
 	bitangent *= -handedness;
 	return true;
+}
+
+uint GetStaticTangentMode()
+{
+	return (gTraceConstants.ReservedTrace1 >> 6u) & 3u;
+}
+
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+void InitializeStaticTangentProbe(uint2 pixelPos)
+{
+	gStaticTangentProbeRemaining = 0u;
+	gStaticTangentCompared = false;
+	const uint2 center = uint2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight) / 2u;
+	if (GetStaticTangentMode() == 1u && StaticTangentOracleStatsEnabled() &&
+		all(pixelPos >= center) && all(pixelPos - center < 2u))
+		gStaticTangentProbeRemaining = 8u;
+}
+#endif
+
+bool TryResolveStaticTangentFrame(uint dataSource, uint primitiveIndex, float3 geometricNormal,
+	out float3 tangent, out float3 bitangent)
+{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	gStaticTangentCompared = false;
+#endif
+	const uint mode = GetStaticTangentMode();
+	// Mode0/unsupported never reads t28. The valid typed fallback is not data.
+	if ((mode != 1u && mode != 2u) || dataSource != SCENE_DATA_SOURCE_STATIC ||
+		primitiveIndex >= gTraceConstants.StaticPrimitiveCount)
+		return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+	if (mode == 1u)
+	{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+		if (!StaticTangentOracleStatsEnabled() || gStaticTangentProbeRemaining == 0u)
+			return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+		--gStaticTangentProbeRemaining;
+#else
+		return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+#endif
+	}
+	const StaticTangentData record = gStaticTangents[primitiveIndex];
+	float3 candidateT = 0.0, candidateB = 0.0;
+	bool candidateSuccess = false;
+	if (record.valid > 1u)
+	{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+		if (mode == 1u) TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_UNSUPPORTED, 1u);
+#endif
+		return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+	}
+	if (record.valid == 1u)
+		candidateSuccess = FinishTriangleTangentFrame(record.tangentRaw, record.bitangentRaw,
+			geometricNormal, candidateT, candidateB);
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	if (mode == 1u)
+	{
+		const bool legacySuccess = TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+		const PrimitiveData primitive = GetPrimitiveData(dataSource, primitiveIndex);
+		float3 referenceT, referenceB;
+		const bool referenceValid = ResolveRawTriangleTangents(
+			GetVertexData(dataSource, primitive.indices.x).position,
+			GetVertexData(dataSource, primitive.indices.y).position,
+			GetVertexData(dataSource, primitive.indices.z).position,
+			primitive.uv0, primitive.uv1, primitive.uv2, referenceT, referenceB);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_COMPARISONS, 1u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_RAW_MISMATCH,
+			record.valid != (referenceValid ? 1u : 0u) ||
+			any(asuint(referenceT) != asuint(record.tangentRaw)) || any(asuint(referenceB) != asuint(record.bitangentRaw)) ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_SUCCESS_MISMATCH, legacySuccess != candidateSuccess ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_FRAME_MISMATCH,
+			any(asuint(tangent) != asuint(candidateT)) || any(asuint(bitangent) != asuint(candidateB)) ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_VALID, referenceValid ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_DEGENERATE, referenceValid ? 0u : 1u);
+		gStaticTangentCompared = true;
+		gStaticTangentCandidateSuccess = candidateSuccess;
+		gStaticTangentCandidateT = candidateT;
+		gStaticTangentCandidateB = candidateB;
+		return legacySuccess;
+	}
+#endif
+	tangent = candidateT;
+	bitangent = candidateB;
+	return candidateSuccess;
 }
 
 float3 SampleMaterialNormalMap(MaterialData material, float2 uv, float3 geometricNormal, float3 tangent, float3 bitangent)
@@ -639,12 +880,31 @@ float3 ResolveHitNormal(uint materialIndex, uint dataSource, uint primitiveIndex
 
 	float3 tangent = 0.0;
 	float3 bitangent = 0.0;
-	if (!TryResolveHitTangentFrame(dataSource, primitiveIndex, resolvedNormal, tangent, bitangent))
+	const bool tangentSuccess = TryResolveStaticTangentFrame(dataSource, primitiveIndex, resolvedNormal, tangent, bitangent);
+	if (!tangentSuccess)
 	{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+		if (gStaticTangentCompared)
+		{
+			float3 candidate = resolvedNormal;
+			if (gStaticTangentCandidateSuccess)
+				candidate = SampleMaterialNormalMap(material, uv, resolvedNormal, gStaticTangentCandidateT, gStaticTangentCandidateB);
+			TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_MAPPED_MISMATCH, any(asuint(resolvedNormal) != asuint(candidate)) ? 1u : 0u);
+		}
+#endif
 		return resolvedNormal;
 	}
-
-	return SampleMaterialNormalMap(material, uv, resolvedNormal, tangent, bitangent);
+	const float3 result = SampleMaterialNormalMap(material, uv, resolvedNormal, tangent, bitangent);
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	if (gStaticTangentCompared)
+	{
+		float3 candidate = resolvedNormal;
+		if (gStaticTangentCandidateSuccess)
+			candidate = SampleMaterialNormalMap(material, uv, resolvedNormal, gStaticTangentCandidateT, gStaticTangentCandidateB);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_MAPPED_MISMATCH, any(asuint(result) != asuint(candidate)) ? 1u : 0u);
+	}
+#endif
+	return result;
 }
 
 float3 ResolveHitBarycentricWeights(HitData hit)
@@ -1105,7 +1365,16 @@ bool ValidateSpatialFootprintLookup(uint ownerChunk, SpatialAbsenceRecord lookup
 	return true;
 }
 
+#if NRI_SHADER_DIAGNOSTICS
+// Keep both oracle evaluations shared in SPIR-V; expanding this body into every
+// cache-path caller overflows DXC's compiler stack. DXIL requires it inlined.
+#if defined(__spirv__)
+[noinline]
+#endif
+bool PointInSpatialFootprintImpl(
+#else
 bool PointInSpatialFootprint(
+#endif
 	uint ownerChunk,
 	SpatialAbsenceRecord lookup,
 	float2 samplePoint,
@@ -1113,9 +1382,25 @@ bool PointInSpatialFootprint(
 	bool lookupPrevalidated,
 	bool collectProbeDetails,
 	bool structurePrevalidated,
+#if NRI_SHADER_DIAGNOSTICS
+	bool allowEarlyExit,
+	bool recordCounters,
+#endif
 	out bool recordsValid,
 	out SpatialFootprintProbeDetails probeDetails)
 {
+#if !NRI_SHADER_DIAGNOSTICS
+	const bool allowEarlyExit = true;
+	const bool recordCounters = true;
+#endif
+#if NRI_SHADER_DIAGNOSTICS
+	if (recordCounters)
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_CALLS, 1u);
+	if (recordCounters)
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_ELIGIBLE, structurePrevalidated && !collectProbeDetails ? 1u : 0u);
+	if (recordCounters)
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_PROBE_CALLS, collectProbeDetails ? 1u : 0u);
+#endif
 	probeDetails = EmptySpatialFootprintProbeDetails();
 	recordsValid = structurePrevalidated || lookupPrevalidated ||
 		ValidateSpatialFootprintLookup(ownerChunk, lookup, recordCount);
@@ -1192,7 +1477,12 @@ bool PointInSpatialFootprint(
 		recordsValid = recordsValid && certificateValid;
 		if (!certificateValid)
 			return false;
-		TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_TESTS, 1u);
+#endif
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
 		float certificateMargin = -3.402823466e+38;
 		const bool certificateInside = collectProbeDetails ?
 			PointInSpatialTriangle(
@@ -1207,6 +1497,19 @@ bool PointInSpatialFootprint(
 			probeDetails.bestTriangle = certifiedTriangleOffset;
 		}
 		inside = certificateInside;
+#if NRI_SHADER_DIAGNOSTICS
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_HITS, certificateInside ? 1u : 0u);
+		if (certificateInside && structurePrevalidated && !collectProbeDetails)
+		{
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount);
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2);
+		}
+#endif
+		if (allowEarlyExit && structurePrevalidated && !collectProbeDetails && inside)
+			return true;
 	}
 	if (cell.Data2 == 0u)
 	{
@@ -1215,8 +1518,15 @@ bool PointInSpatialFootprint(
 		return inside;
 	}
 	[loop]
-	for (uint referenceRecordOffset = 0u; referenceRecordOffset < cellReferenceRecordCount; ++referenceRecordOffset)
+	for (uint referenceRecordOffset = 0u; referenceRecordOffset < cellReferenceRecordCount &&
+		!(allowEarlyExit && structurePrevalidated && !collectProbeDetails && inside); ++referenceRecordOffset)
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_VISITS, 1u);
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_AFTER_HIT, inside ? 1u : 0u);
+#endif
 		const SpatialAbsenceRecord referenceRecord = gSpatialAbsenceRecords[cell.Data1 + referenceRecordOffset];
 		uint referenceOwner = 0u;
 		uint storedReferenceRecordOffset = 0u;
@@ -1240,12 +1550,20 @@ bool PointInSpatialFootprint(
 		{
 			if (triangleLane >= tailCount)
 				continue;
+			if (allowEarlyExit && structurePrevalidated && !collectProbeDetails && inside)
+				continue;
 			const uint triangleOffset = triangleOffsets[triangleLane];
 			const bool triangleReferenceValid = structurePrevalidated ||
 				(triangleOffset < lookup.Data1 && lookup.Data0 + triangleOffset < recordCount);
 			recordsValid = recordsValid && triangleReferenceValid;
 			if (!triangleReferenceValid)
 				continue;
+#if NRI_SHADER_DIAGNOSTICS
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_VISITS, 1u);
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_AFTER_HIT, inside ? 1u : 0u);
+#endif
 			const SpatialAbsenceRecord triangleRecord = gSpatialAbsenceRecords[lookup.Data0 + triangleOffset];
 			const bool triangleValid = structurePrevalidated ||
 				((triangleRecord.Flags & SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS) == SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS &&
@@ -1253,7 +1571,8 @@ bool PointInSpatialFootprint(
 			recordsValid = recordsValid && triangleValid;
 			if (triangleValid && !inside)
 			{
-				TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+				if (recordCounters)
+					TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
 				float edgeMargin = -3.402823466e+38;
 				const bool triangleInside = collectProbeDetails ?
 					PointInSpatialTriangle(
@@ -1267,6 +1586,20 @@ bool PointInSpatialFootprint(
 					probeDetails.bestMargin = edgeMargin;
 					probeDetails.bestTriangle = triangleOffset;
 				}
+#if NRI_SHADER_DIAGNOSTICS
+				if (triangleInside)
+				{
+					if (recordCounters)
+						TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_FIRST_HITS, 1u);
+					if (structurePrevalidated && !collectProbeDetails)
+					{
+						if (recordCounters)
+							TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount - referenceRecordOffset - 1u);
+						if (recordCounters)
+							TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2 - (referenceRecordOffset * 3u + triangleLane + 1u));
+					}
+				}
+#endif
 				inside = inside || triangleInside;
 			}
 		}
@@ -1275,6 +1608,122 @@ bool PointInSpatialFootprint(
 		probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_TRIANGLE_MISS;
 	return recordsValid && inside;
 }
+
+#if NRI_SHADER_DIAGNOSTICS && !defined(__spirv__)
+// DXIL noinline interfaces accept scalar parameters; keep aggregate values local.
+// This bridge changes call representation only, not either oracle evaluation.
+[noinline]
+bool PointInSpatialFootprintDxilScalar(
+	uint ownerChunk,
+	uint lookupFlags, uint lookupData0, uint lookupData1, uint lookupData2,
+	float payload0x, float payload0y, float payload0z, float payload0w,
+	float payload1x, float payload1y, float payload1z, float payload1w,
+	float payload2x, float payload2y, float payload2z, float payload2w,
+	float payload3x, float payload3y, float payload3z, float payload3w,
+	float sampleX, float sampleY,
+	uint recordCount,
+	bool lookupPrevalidated, bool collectProbeDetails, bool structurePrevalidated,
+	bool allowEarlyExit, bool recordCounters,
+	out bool recordsValid,
+	out uint probeStage, out uint probeCellReferenceCount,
+	out float probeBestMargin, out uint probeBestTriangle)
+{
+	SpatialAbsenceRecord lookup;
+	lookup.Flags = lookupFlags;
+	lookup.Data0 = lookupData0;
+	lookup.Data1 = lookupData1;
+	lookup.Data2 = lookupData2;
+	lookup.Payload0 = float4(payload0x, payload0y, payload0z, payload0w);
+	lookup.Payload1 = float4(payload1x, payload1y, payload1z, payload1w);
+	lookup.Payload2 = float4(payload2x, payload2y, payload2z, payload2w);
+	lookup.Payload3 = float4(payload3x, payload3y, payload3z, payload3w);
+	SpatialFootprintProbeDetails probeDetails;
+	const bool inside = PointInSpatialFootprintImpl(
+		ownerChunk, lookup, float2(sampleX, sampleY), recordCount,
+		lookupPrevalidated, collectProbeDetails, structurePrevalidated,
+		allowEarlyExit, recordCounters, recordsValid, probeDetails);
+	probeStage = probeDetails.stage;
+	probeCellReferenceCount = probeDetails.cellReferenceCount;
+	probeBestMargin = probeDetails.bestMargin;
+	probeBestTriangle = probeDetails.bestTriangle;
+	return inside;
+}
+#endif
+
+#if NRI_SHADER_DIAGNOSTICS
+// Same-call baseline oracle is diagnostic-only. Production uses the original
+// function signature and shared body directly, avoiding a wrapper call.
+bool PointInSpatialFootprint(
+	uint ownerChunk,
+	SpatialAbsenceRecord lookup,
+	float2 samplePoint,
+	uint recordCount,
+	bool lookupPrevalidated,
+	bool collectProbeDetails,
+	bool structurePrevalidated,
+	out bool recordsValid,
+	out SpatialFootprintProbeDetails probeDetails)
+{
+	bool inside = false;
+	recordsValid = false;
+	probeDetails = EmptySpatialFootprintProbeDetails();
+	// One syntactic implementation call keeps the diagnostic SPIR-V graph
+	// bounded while evaluating the exact same inputs in optimized/reference modes.
+	const uint oraclePassCount = TraceShaderStatsEnabled() ? 2u : 1u;
+	[loop]
+	for (uint oraclePass = 0u; oraclePass < oraclePassCount; ++oraclePass)
+	{
+		bool passRecordsValid = false;
+		SpatialFootprintProbeDetails passProbeDetails = EmptySpatialFootprintProbeDetails();
+		const bool selectedPass = oraclePass == 0u;
+#if defined(__spirv__)
+		const bool passInside = PointInSpatialFootprintImpl(
+			ownerChunk, lookup, samplePoint, recordCount,
+			lookupPrevalidated, collectProbeDetails, structurePrevalidated,
+			selectedPass, selectedPass, passRecordsValid, passProbeDetails);
+#else
+		uint passProbeStage, passProbeCellReferenceCount, passProbeBestTriangle;
+		float passProbeBestMargin;
+		const bool passInside = PointInSpatialFootprintDxilScalar(
+			ownerChunk, lookup.Flags, lookup.Data0, lookup.Data1, lookup.Data2,
+			lookup.Payload0.x, lookup.Payload0.y, lookup.Payload0.z, lookup.Payload0.w,
+			lookup.Payload1.x, lookup.Payload1.y, lookup.Payload1.z, lookup.Payload1.w,
+			lookup.Payload2.x, lookup.Payload2.y, lookup.Payload2.z, lookup.Payload2.w,
+			lookup.Payload3.x, lookup.Payload3.y, lookup.Payload3.z, lookup.Payload3.w,
+			samplePoint.x, samplePoint.y, recordCount,
+			lookupPrevalidated, collectProbeDetails, structurePrevalidated,
+			selectedPass, selectedPass, passRecordsValid,
+			passProbeStage, passProbeCellReferenceCount, passProbeBestMargin, passProbeBestTriangle);
+		passProbeDetails.stage = passProbeStage;
+		passProbeDetails.cellReferenceCount = passProbeCellReferenceCount;
+		passProbeDetails.bestMargin = passProbeBestMargin;
+		passProbeDetails.bestTriangle = passProbeBestTriangle;
+#endif
+		if (selectedPass)
+		{
+			inside = passInside;
+			recordsValid = passRecordsValid;
+			probeDetails = passProbeDetails;
+		}
+		else
+		{
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_COMPARISONS, 1u);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_INSIDE_MISMATCH,
+				inside != passInside ? 1u : 0u);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_VALIDITY_MISMATCH,
+				recordsValid != passRecordsValid ? 1u : 0u);
+			const bool probeMismatch =
+				probeDetails.stage != passProbeDetails.stage ||
+				probeDetails.cellReferenceCount != passProbeDetails.cellReferenceCount ||
+				probeDetails.bestTriangle != passProbeDetails.bestTriangle ||
+				asuint(probeDetails.bestMargin) != asuint(passProbeDetails.bestMargin);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_PROBE_MISMATCH, probeMismatch ? 1u : 0u);
+		}
+	}
+	return inside;
+}
+
+#endif
 
 bool GetSpatialAbsenceProbeConfig(
 	out SpatialAbsenceRecord header,
@@ -1491,11 +1940,18 @@ uint EvaluateRawSpatialAbsence(
 	for (uint pairOffset = 0u; pairOffset < pairCount; ++pairOffset)
 	{
 		const SpatialAbsenceRecord pair = gSpatialAbsenceRecords[chunkRecord.Data2 + pairOffset];
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_PAIR_VISITS, 1u);
+#endif
 		const float2 pairBoundsEpsilon = 1.0e-3;
 		if (any(worldPosition.xz < pair.Payload0.xz - pairBoundsEpsilon) ||
 			any(worldPosition.xz > pair.Payload1.xz + pairBoundsEpsilon) ||
 			worldPosition.y < pair.Payload0.y || worldPosition.y > pair.Payload1.y)
 			continue;
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_PAIR_BOUNDS_HITS, 1u);
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_POSITIVE_EVALUATIONS, 1u);
+#endif
 		pairBoundsMatched = true;
 		matchedPositiveChunk = pair.Data1;
 		bool positiveRecordsValid = false;
@@ -2022,6 +2478,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		const float traceMinDistance = accumulatedDistance > 0.0 ? (accumulatedDistance + TRACE_FILTER_CONTINUE_BIAS) : TRACE_MIN_DISTANCE;
 		if (traceMinDistance >= maxDistance)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);
+#endif
 			return false;
 		}
 
@@ -2069,16 +2528,21 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				const PrimitiveData candidatePrimitive = GetPrimitiveData(
 					candidateInstance.dataSource,
 					candidatePrimitiveIndex);
+				// Retain only these candidate-local scalars for the static gate.
+				// MaterialData stays confined to the existing filtering scope.
+				uint candidateMaterialIndex = 0xffffffffu;
+				uint candidateMaterialFlags = 0u;
 				if (candidateInstance.dataSource == SCENE_DATA_SOURCE_STATIC ||
 					candidateInstance.dataSource == SCENE_DATA_SOURCE_DYNAMIC ||
 					candidateInstance.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 				{
-					const uint candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
+					candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
 						candidateInstance,
 						candidatePrimitive);
 					const MaterialData candidateMaterial = GetMaterialData(
 						candidateMaterialIndex,
 						candidateInstance.dataSource);
+					candidateMaterialFlags = candidateMaterial.flags;
 					const bool candidateReflectionOnly = IsReflectionOnlyPrimitive(candidatePrimitive);
 					const bool candidateOneWay = (candidateMaterial.flags & MATERIAL_FLAG_ONE_WAY) != 0u;
 					const bool candidateNoShadow =
@@ -2191,9 +2655,6 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
 					continue;
 				}
-				const uint candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
-					candidateInstance,
-					candidatePrimitive);
 				const uint candidateVisibilityChunk = ResolveVisibilityChunk(
 					candidateInstance,
 					candidatePrimitive);
@@ -2227,13 +2688,13 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				}
 				const float candidateDistance = rayQuery.CandidateTriangleRayT();
 				const float3 candidatePosition = startOrigin + direction * candidateDistance;
-				const uint candidateMaterialFlags = GetMaterialData(
-					candidateMaterialIndex,
-					candidateInstance.dataSource).flags;
 				const bool exactNegativeSurfaceMembership =
 					(candidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
 				uint candidatePositiveChunk = 0xffffffffu;
 				SpatialFootprintProbeDetails candidateFootprint = EmptySpatialFootprintProbeDetails();
+#if NRI_SHADER_DIAGNOSTICS
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_CANDIDATE_EVALUATIONS, 1u);
+#endif
 			#if NRI_SPATIAL_ABSENCE_FORMAT == 1
 				const uint candidateSpatialOutcome = EvaluateTypedSpatialAbsencePrevalidated(
 					spatialTypedCandidateView,
@@ -2264,6 +2725,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			#endif
 				if (candidateSpatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
 				{
+#if NRI_SHADER_DIAGNOSTICS
+					TraceShaderStatAdd(TRACE_STAT_ABSENCE_CANDIDATE_REJECTS, 1u);
+#endif
 					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 					TraceShaderStatSource(
 						TRACE_STAT_REJECT_STATIC,
@@ -2321,6 +2785,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		if (!hasCommittedTriangle)
 		{
 			TraceShaderStatAdd(TRACE_STAT_MISS, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);
+#endif
 			return false;
 		}
 		TraceShaderStatAdd(TRACE_STAT_COMMITTED, 1u);
@@ -2386,6 +2853,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				{
 					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 					TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
+#if NRI_SHADER_DIAGNOSTICS
+					TraceShaderStatAdd(TRACE_STAT_ABSENCE_ACTOR_RESTARTS, 1u);
+#endif
 					TraceShaderStatAdd(TRACE_STAT_ACTOR_CENSUS_REJECT, 1u);
 					TraceShaderStatAdd(TRACE_STAT_REJECT_VOXEL, 1u);
 					if (statsKind == TRACE_STATS_KIND_PRIMARY)
@@ -2442,6 +2912,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			spatialCandidateMaterialFlags = GetMaterialData(materialIndex, instanceData.dataSource).flags;
 			const bool exactNegativeSurfaceMembership =
 				(spatialCandidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_FALLBACK_EVALUATIONS, 1u);
+#endif
 			spatialOutcome = EvaluateSpatialAbsence(
 				visibilityChunk,
 				committedPosition,
@@ -2479,6 +2952,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		}
 		if (spatialAbsenceGateActive && spatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_STATIC_RESTARTS, 1u);
+#endif
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
@@ -2561,10 +3037,16 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		}
 		TraceShaderStatSource(TRACE_STAT_ACCEPT_STATIC, TRACE_STAT_ACCEPT_DYNAMIC, TRACE_STAT_ACCEPT_VOXEL, instanceData.dataSource);
 		TraceShaderStatInstance(TRACE_STAT_INSTANCE_ACCEPTED_BASE, TRACE_STAT_INSTANCE_ACCEPTED_OVERFLOW, committedInstanceId);
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);
+#endif
 		return true;
 	}
 
 	TraceShaderStatAdd(TRACE_STAT_SKIP_LIMIT, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderProfileRecordRestartDistribution(statsKind, TRACE_FILTER_SKIP_LIMIT);
+#endif
 	skipLimitReached = true;
 	return false;
 }
@@ -2701,6 +3183,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 		if (reflectivePortal && mirrorBudget > 0u)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordMirrorContinuation(statsKind);
+#endif
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 			pathFlags |= HIT_PATH_FLAG_REFLECTION;
 #endif
@@ -2718,6 +3203,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 		if (transferPortal && portalBudget > 0u)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordPortalContinuation(statsKind);
+#endif
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 			pathFlags |= HIT_PATH_FLAG_SPACE_TRANSFER;
 #endif
@@ -2740,6 +3228,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 	exitDirection = direction;
 	hitData.temporalFlags = traversalTemporalFlags;
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderProfileRecordContinuationLimit(statsKind);
+#endif
 	return false;
 }
 

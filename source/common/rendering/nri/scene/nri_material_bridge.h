@@ -223,10 +223,11 @@ struct MaterialData
 	float emissiveMaskScale = 0.0f;
 	uint32_t emissiveMode = MaterialEmissiveMode_None;
 	float emissiveReserved = 0.0f;
+	uint32_t wallIndex = UINT32_MAX;
 	uint32_t fluidBindingIndex = UINT32_MAX;
 };
 
-static_assert(sizeof(MaterialData) == 88u,
+static_assert(sizeof(MaterialData) == 92u,
 	"MaterialData must match the GPU-facing HLSL contract.");
 
 struct MaterialLightingMetadata

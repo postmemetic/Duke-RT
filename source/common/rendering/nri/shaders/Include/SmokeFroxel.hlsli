@@ -1,6 +1,14 @@
 #ifndef NRI_SMOKE_FROXEL_HLSLI
 #define NRI_SMOKE_FROXEL_HLSLI
 
+// Shared by materialization and volume resolve; independent of light identity.
+#define NRI_SMOKE_TRANSIENT_COVERAGE_FILTER 0x400u
+
+bool SmokeTransientCoverageEnabled()
+{
+	return (gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_COVERAGE_FILTER) != 0u;
+}
+
 // Canonical camera/froxel reconstruction for every smoke pass. The lattice is
 // stable and unjittered; only the primary-sample lookup applies current jitter.
 

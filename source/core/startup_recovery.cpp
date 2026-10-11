@@ -61,10 +61,16 @@ constexpr const char* kRecoverableSettings[] = {
 	"nri_ptbloom",
 };
 
+#ifdef _WIN32
+constexpr const char* kDefaultNriApi = "d3d12";
+#else
+constexpr const char* kDefaultNriApi = "vulkan";
+#endif
+
 struct RecoveryState
 {
 	FString path;
-	FString selectedApi = "d3d12";
+	FString selectedApi = kDefaultNriApi;
 	FString build;
 	FString lastSettingsHash;
 	bool loaded = false;
@@ -86,7 +92,11 @@ bool IsApiName(const char* api, const char* expected)
 
 const char* NormalizeApi(const char* api)
 {
+#ifdef _WIN32
 	return IsApiName(api, "vulkan") ? "vulkan" : "d3d12";
+#else
+	return "vulkan";
+#endif
 }
 
 const char* ApiSection(const char* api)
@@ -256,7 +266,7 @@ void EnsureLoaded()
 	gRecovery.loaded = true;
 	gRecovery.build = GetBuildSignature();
 	gRecovery.path = GetRecoveryPath();
-	gRecovery.selectedApi = "d3d12";
+	gRecovery.selectedApi = kDefaultNriApi;
 }
 
 bool SnapshotAvailable(FConfigFile& file)
@@ -365,7 +375,11 @@ FString ChooseApi(FConfigFile& file, const char* configuredApi)
 	}
 
 	const char* requestedApi = NormalizeApi(configuredApi);
+#ifdef _WIN32
 	const char* alternateApi = IsApiName(requestedApi, "d3d12") ? "vulkan" : "d3d12";
+#else
+	const char* alternateApi = "vulkan";
+#endif
 	if (IsManualApiRetryAfterGoodRun(file, requestedApi))
 	{
 		return requestedApi;

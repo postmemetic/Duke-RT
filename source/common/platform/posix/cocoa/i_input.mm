@@ -174,6 +174,13 @@ void I_GetEvent()
 	[[NSRunLoop currentRunLoop] limitDateForMode:NSDefaultRunLoopMode];
 }
 
+bool I_GetLateMouseMotion()
+{
+	// Cocoa run-loop dispatch is not restricted to mouse motion, so it is not
+	// safe to enter after frame acquisition without a platform-specific filter.
+	return false;
+}
+
 void I_StartTic()
 {
 	CheckGUICapture();

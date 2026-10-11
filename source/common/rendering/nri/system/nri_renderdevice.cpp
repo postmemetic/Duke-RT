@@ -2,6 +2,14 @@
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
+#include "../renderer/nri_smoke_descriptor_budget.h"
+#include "../renderer/nri_primary_temporal_geometry_diagnostics.h"
+#include "../renderer/nri_spatial_absence_diagnostics.h"
+#include "../renderer/nri_static_shading_diagnostics.h"
+#include "../renderer/nri_static_tangent_diagnostics.h"
+#include "../renderer/nri_static_tangent_capacity.h"
+#include "../renderer/nri_dynamic_overlay_blas_diagnostics.h"
+#include "../renderer/nri_occurrence_workload_mask_diagnostics.h"
 
 #include "../framegen/nri_framegen.h"
 #include "../renderer/nri_renderer.h"
@@ -13,7 +21,13 @@
 #include "c_cvars.h"
 #include "cmdlib.h"
 #include "d_eventbase.h"
+#include "input_lineage.h"
+#ifdef _WIN32
 #include "i_mainwindow.h"
+#else
+#include "nri_native_window.h"
+#include <dlfcn.h>
+#endif
 #include "i_time.h"
 #include "printf.h"
 #include "textures.h"
@@ -34,10 +48,12 @@
 #include "lightoverlay.h"
 #include "startup_recovery.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 
+#endif
 #ifdef ERROR
 #undef ERROR
 #endif
@@ -63,6 +79,18 @@ extern int gametic;
 
 namespace
 {
+#ifdef _WIN32
+	constexpr const char* NriLibraryName = "NRI.dll";
+	static void* OpenNriLibrary(const char* path) { return LoadLibraryA(path); }
+	static void CloseNriLibrary(void* module) { FreeLibrary((HMODULE)module); }
+	static auto FindNriSymbol(void* module, const char* name) { return GetProcAddress((HMODULE)module, name); }
+#else
+	constexpr const char* NriLibraryName = "libNRI.so";
+	static void* OpenNriLibrary(const char* path) { return dlopen(path, RTLD_NOW | RTLD_LOCAL); }
+	static void CloseNriLibrary(void* module) { dlclose(module); }
+	static void* FindNriSymbol(void* module, const char* name) { return dlsym(module, name); }
+#endif
+
 	static int64_t DeltaUnsigned(uint64_t current, uint64_t previous)
 	{
 		return current >= previous ? (int64_t)(current - previous) : -(int64_t)(previous - current);
@@ -799,6 +827,7 @@ namespace
 		}
 	}
 
+#ifdef _WIN32
 	static HRESULT CreateDxgiFactoryForTelemetry(IDXGIFactory4** factory)
 	{
 		if (factory == nullptr)
@@ -827,6 +856,7 @@ namespace
 		return createFactory2(0u, IID_PPV_ARGS(factory));
 	}
 
+#endif
 	static bool IsFullscreenPaletteBlendCommand(const F2DDrawer& drawer, const F2DDrawer::RenderCommand& cmd)
 	{
 		if (cmd.isSpecial != SpecialDrawCommand::NotSpecial ||
@@ -1045,8 +1075,10 @@ namespace
 {
 	static nri::Result(NRI_CALL* gNriGetInterfaceForwarder)(const nri::Device&, const char*, size_t, void*) = nullptr;
 	static void (NRI_CALL* gNriDestroyDeviceForwarder)(nri::Device*) = nullptr;
+#ifdef _WIN32
 	using PFN_D3D12_GET_DEBUG_INTERFACE = HRESULT(WINAPI*)(REFIID, void**);
 
+#endif
 	template<typename T>
 	static T NRIFlags(T a, T b)
 	{
@@ -1076,6 +1108,7 @@ namespace
 		return remainder == 0 ? value : value + alignment - remainder;
 	}
 
+#ifdef _WIN32
 	static const char* GetDxgiErrorName(HRESULT hr)
 	{
 		switch (hr)
@@ -1424,6 +1457,7 @@ namespace
 		infoQueue->Release();
 	}
 
+#endif
 	template<typename T>
 	static void SetNriDebugName(const nri::CoreInterface& core, T* object, const char* name)
 	{
@@ -1435,6 +1469,7 @@ namespace
 		core.SetDebugName(reinterpret_cast<nri::Object*>(object), name);
 	}
 
+#ifdef _WIN32
 	static void LogD3D12DeviceRemovedReason(const nri::CoreInterface& core, nri::Device* device, const char* context)
 	{
 		if (device == nullptr || core.GetDeviceNativeObject == nullptr)
@@ -1515,6 +1550,8 @@ namespace
 		infoQueue->ClearStoredMessages();
 		infoQueue->Release();
 	}
+
+#endif
 
 	static NRIRenderDevice* GetActiveNRIRenderDevice()
 	{
@@ -2095,7 +2132,7 @@ CCMD(nri_ptsmoke_test)
 	if (argv.argc() < 2)
 	{
 		frameBuffer->QueueSyntheticPathTracingSmoke();
-		Printf("NRI PT smoke synthetic injection queued. Use nri_ptsmoke_test <event_rule_id> to test authored weapon-event fan-out.\n");
+		Printf("NRI PT smoke synthetic injection queued. Use nri_ptsmoke_test <event_rule_id> [forward_distance] to test authored weapon-event fan-out.\n");
 		return;
 	}
 
@@ -2112,7 +2149,10 @@ CCMD(nri_ptsmoke_test)
 
 	PathTracingWeaponLightEvent event;
 	FString error;
-	if (!BuildLocalPlayerWeaponLightEvent(rule->id.GetChars(), DefaultPtTestLightOffset, event, error))
+	const float requestedOffset = argv.argc() > 2 ? (float)atof(argv[2]) : DefaultPtTestLightOffset;
+	const float forwardOffset = std::isfinite(requestedOffset)
+		? std::clamp(requestedOffset, 1.0f, 4096.0f) : DefaultPtTestLightOffset;
+	if (!BuildLocalPlayerWeaponLightEvent(rule->id.GetChars(), forwardOffset, event, error))
 	{
 		Printf("nri_ptsmoke_test: %s.\n", error.GetChars());
 		return;
@@ -2711,6 +2751,7 @@ NRIRenderDevice::~NRIRenderDevice()
 	{
 		mRenderer->Shutdown();
 	}
+	mRenderState->DestroyPipelines();
 	DestroyRenderResources();
 
 	DestroyQueuedFrames();
@@ -2740,7 +2781,7 @@ NRIRenderDevice::~NRIRenderDevice()
 
 	if (mNriModule != nullptr)
 	{
-		FreeLibrary((HMODULE)mNriModule);
+		CloseNriLibrary(mNriModule);
 		mNriModule = nullptr;
 	}
 
@@ -2886,9 +2927,9 @@ void NRIRenderDevice::InitializeState()
 
 void NRIRenderDevice::ToggleFullscreen(bool yes)
 {
-	const NRIWindowPresentationMode previousMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+	const NRIWindowPresentationMode previousMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 	Super::ToggleFullscreen(yes);
-	const NRIWindowPresentationMode currentMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+	const NRIWindowPresentationMode currentMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 	if (previousMode == currentMode || !mInitialized)
 		return;
 
@@ -2987,6 +3028,7 @@ void NRIRenderDevice::BeginFrame()
 	mAcquireSemaphoreIndex = mSwapChainImages.empty() ? 0 : (uint32_t)(mFrameIndex % mSwapChainImages.size());
 	mLastFrameBoundaryStats.acquireSemaphoreIndex = mAcquireSemaphoreIndex;
 
+#ifdef _WIN32
 	if (IsFrameGenerationPresentPathActive())
 	{
 		IDXGISwapChain4* frameGenSwapChain = mFrameGeneration.GetPresentSwapChain();
@@ -3015,6 +3057,7 @@ void NRIRenderDevice::BeginFrame()
 		mCurrentPresentTarget = &mFrameGenerationPresentImages[mCurrentSwapChainImage];
 	}
 	else
+#endif
 	{
 		const bool waitableSwapChain = ((uint32_t)mSwapChainFlags & (uint32_t)nri::SwapChainBits::WAITABLE) != 0;
 		const bool allowWaitForPresent = waitableSwapChain;
@@ -3355,7 +3398,7 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 			return;
 
 		const auto& provider = mFrameGeneration.GetProviderState();
-		const NRIWindowPresentationMode currentMode = m_Fullscreen ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
+		const NRIWindowPresentationMode currentMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 		Printf("NRI framegen window transition: serial=%llu from=%s to=%s reason=window-mode-change coalesced_requests=%u recreates=1 present_drain=%s drain_count=%llu owner=%s dxgi_state=%s result=%s\n",
 			(unsigned long long)mWindowModeTransitionSerial,
 			NRIFrameGenerationContext::GetWindowModeName(mWindowModeTransitionFrom),
@@ -3785,6 +3828,7 @@ void NRIRenderDevice::WaitForCommands(bool finish)
 			return;
 		}
 		mCore.DeviceWaitIdle(mDevice);
+#ifdef _WIN32
 		if (mCreatedDeviceApi == nri::GraphicsAPI::D3D12 &&
 			mNativeD3D12Device != nullptr &&
 			mNativeD3D12Device->GetDeviceRemovedReason() != S_OK)
@@ -3796,6 +3840,7 @@ void NRIRenderDevice::WaitForCommands(bool finish)
 				FatalTerminalDeviceLoss("DeviceWaitIdle");
 			}
 		}
+#endif
 		return;
 	}
 
@@ -3944,12 +3989,14 @@ bool NRIRenderDevice::SubmitAndWaitCurrentCommandBuffer()
 		if (mGpuTiming != nullptr) mGpuTiming->AbandonSlot(mCurrentQueuedFrameIndex);
 		AbandonRecordingCommandFenceValue();
 		mLastSubmitAndWaitResult = fenceResult;
+#ifdef _WIN32
 		if (mCreatedDeviceApi == nri::GraphicsAPI::D3D12 &&
 			mNativeD3D12Device != nullptr &&
 			mNativeD3D12Device->GetDeviceRemovedReason() != S_OK)
 		{
 			mLastSubmitAndWaitResult = nri::Result::DEVICE_LOST;
 		}
+#endif
 		return false;
 	}
 
@@ -4046,11 +4093,13 @@ void NRIRenderDevice::MarkTerminalDeviceLoss(const char* context)
 	MarkTerminalDeviceLoss(failureContext);
 
 	FString reason = "device_lost";
+#ifdef _WIN32
 	if (mCreatedDeviceApi == nri::GraphicsAPI::D3D12 && mNativeD3D12Device != nullptr)
 	{
 		const HRESULT hr = mNativeD3D12Device->GetDeviceRemovedReason();
 		reason = FStringf("%s (0x%08X)", GetDxgiErrorName(hr), (unsigned)hr);
 	}
+#endif
 
 	I_FatalError("NRI renderer device lost during %s: %s.\n"
 		"The renderer cannot recover this graphics device during the current run. "
@@ -4734,6 +4783,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			shell.dynamicOverlayBlasCacheMisses,
 			shell.dynamicOverlayBlasRoutedInstances,
 			shell.dynamicOverlayBlasMonolithicRefs);
+		LogNRIDynamicOverlayBlasPolicyStats(mLastFrameBoundaryStats.frameNumber, shell.dynamicOverlayBlasPolicy);
 		Printf(
 			"PERF pt filter candidate certificate NRI: frame=%llu enabled=%u occurrences=%u certified=%u certified_prims=%u reject_empty=%u reject_range=%u reject_mixed=%u\n",
 			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
@@ -4744,6 +4794,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			shell.filterCandidateRejectEmpty,
 			shell.filterCandidateRejectRange,
 			shell.filterCandidateRejectMixed);
+		LogNRIOccurrenceWorkloadMaskStats(mLastFrameBoundaryStats.frameNumber, shell.occurrenceWorkloadMasks);
 		Printf(
 			"PERF pt world tlas detail NRI: frame=%llu total=%.3f retire=%.3f instance_upload=%.3f create=%.3f memory=%.3f scratch=%.3f descriptor=%.3f build=%.3f update=%.3f barrier=%.3f calls=%u exact_reuses=%u updates=%u update_reason_mask=0x%08x update_dirty_ranges=%u update_dirty_instances=%u update_dirty_bytes=%llu blas_override_updates=%u full_builds=%u full_reason_mask=0x%08x full_change_mask=0x%08x full_update_reject_mask=0x%08x full_update_gate_mask=0x%08x full_destination_reuses=%u full_destination_creates=%u full_growths=%u full_growth_mask=0x%08x full_reuse_reject_mask=0x%08x full_reuse_runtime_fallbacks=%u same_command_rotations=%u blas_generation=%llu instances=%u creates=%u scratch_queries=%u scratch_grows=%u scratch_requested=%llu build_scratch_requested=%llu update_scratch_requested=%llu scratch_allocated=%llu memory_bytes=%llu descriptor_creates=%u barriers=%u\n",
 			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
@@ -4971,6 +5022,146 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[NRI_TRACE_SHADER_FILTER_CANDIDATE_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_UNEXPECTED_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_POSTCOMMIT_RESTARTS]);
+			const auto& profileMetadata = shader.dispatchMetadata;
+			LogNRIPrimaryTemporalGeometryOracle(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRISpatialAbsenceProfile(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRIStaticShadingApplicability(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRIStaticTangentTrial(mLastFrameBoundaryStats.frameNumber, shader);
+			Printf("PERF pt shader emissive response lookup NRI: frame=%llu stats_frame=%llu mode=%u binary_calls=%u oracle_calls=%u oracle_mismatches=%u oracle_iterations=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_MODE],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_BINARY_CALLS],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_CALLS],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_MISMATCHES],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_ITERATIONS]);
+			Printf(
+				"PERF pt shader profile NRI: schema=1 frame=%llu stats_frame=%llu reset=%u stats=%u render_w=%u render_h=%u light_bounces=%u indirect_requested=%u indirect_effective=%u indirect_active=%u eligible=%u single=%u dual=%u diffuse_selected=%u specular_selected=%u plain_mirror_forced_dual=%u diffuse_calls=%u specular_calls=%u diffuse_depth_1=%u diffuse_depth_2=%u diffuse_depth_3=%u diffuse_depth_4plus=%u specular_depth_1=%u specular_depth_2=%u specular_depth_3=%u specular_depth_4plus=%u response_records=%u response_lookups=%u response_iterations=%u response_hits=%u response_misses=%u response_max_iterations=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				(profileMetadata.traceFlags & NRI_FLAG_RESET_HISTORY) != 0u ? 1u : 0u,
+				(profileMetadata.traceFlags & NRI_FLAG_TRACE_SHADER_STATS) != 0u ? 1u : 0u,
+				profileMetadata.renderWidth,
+				profileMetadata.renderHeight,
+				profileMetadata.lightBounceCount,
+				profileMetadata.indirectSamplingRequested,
+				profileMetadata.indirectSamplingEffective,
+				profileMetadata.indirectSamplingActive,
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_ELIGIBLE_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_SINGLE_LOBE_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_DUAL_LOBE_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_DIFFUSE_SELECTED_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_SPECULAR_SELECTED_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_PLAIN_MIRROR_FORCED_DUAL_PIXELS],
+				c[52],
+				c[54],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS] + c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS]);
+			Printf(
+				"PERF pt shader continuation NRI: schema=1 frame=%llu stats_frame=%llu plain_mirror_replacements=%u mirror_primary=%u mirror_ungated=%u mirror_sun=%u mirror_point=%u mirror_emissive=%u mirror_fast_emissive=%u portal_primary=%u portal_ungated=%u portal_sun=%u portal_point=%u portal_emissive=%u portal_fast_emissive=%u limit_primary=%u limit_ungated=%u limit_sun=%u limit_point=%u limit_emissive=%u limit_fast_emissive=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_PROFILE_PLAIN_MIRROR_PRIMARY_REPLACEMENTS],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 4u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 5u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 4u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 5u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 4u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 5u]);
+			static const char* restartKindNames[NRI_TRACE_SHADER_RAY_KIND_COUNT] = {
+				"primary", "ungated", "sun", "point", "emissive", "fast_emissive"
+			};
+			for (uint32_t kind = 0; kind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++kind)
+			{
+				const uint32_t histogramBase = NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_BASE +
+					kind * NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE;
+				uint64_t routes = 0;
+				uint64_t weightedRestarts = 0;
+				uint32_t maximum = 0;
+				for (uint32_t restartCount = 0; restartCount < NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE; ++restartCount)
+				{
+					const uint32_t routeCount = c[histogramBase + restartCount];
+					routes += routeCount;
+					weightedRestarts += (uint64_t)restartCount * routeCount;
+					if (routeCount != 0u)
+					{
+						maximum = restartCount;
+					}
+				}
+				const auto percentile = [&](uint32_t percentileValue)
+				{
+					if (routes == 0u)
+					{
+						return 0u;
+					}
+					const uint64_t target = (routes * percentileValue + 99u) / 100u;
+					uint64_t cumulative = 0;
+					for (uint32_t restartCount = 0; restartCount < NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE; ++restartCount)
+					{
+						cumulative += c[histogramBase + restartCount];
+						if (cumulative >= target)
+						{
+							return restartCount;
+						}
+					}
+					return NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE - 1u;
+				};
+				const auto sumBin = [&](uint32_t first, uint32_t last)
+				{
+					uint64_t sum = 0;
+					for (uint32_t restartCount = first; restartCount <= last; ++restartCount)
+					{
+						sum += c[histogramBase + restartCount];
+					}
+					return sum;
+				};
+				Printf(
+					"PERF pt shader restart distribution NRI: schema=1 frame=%llu stats_frame=%llu kind=%s routes=%llu expected_routes=%u weighted_restarts=%llu zero_restart_routes=%u p50=%u p95=%u p99=%u max=%u bin_0=%u bin_1=%u bin_2=%u bin_3=%u bin_4_7=%llu bin_8_15=%llu bin_16_31=%llu bin_32_63=%llu bin_64=%u\n",
+					(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+					(unsigned long long)shader.frameNumber,
+					restartKindNames[kind],
+					(unsigned long long)routes,
+					c[1u + kind],
+					(unsigned long long)weightedRestarts,
+					c[histogramBase + 0u],
+					percentile(50u),
+					percentile(95u),
+					percentile(99u),
+					maximum,
+					c[histogramBase + 0u],
+					c[histogramBase + 1u],
+					c[histogramBase + 2u],
+					c[histogramBase + 3u],
+					(unsigned long long)sumBin(4u, 7u),
+					(unsigned long long)sumBin(8u, 15u),
+					(unsigned long long)sumBin(16u, 31u),
+					(unsigned long long)sumBin(32u, 63u),
+					c[histogramBase + 64u]);
+			}
 			Printf(
 				"PERF pt shader filter compare NRI: frame=%llu stats_frame=%llu total=%u excluded_probe=%u match=%u hit_miss=%u identity=%u distance=%u surface=%u portal=%u temporal=%u skip_limit=%u\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
@@ -7386,6 +7577,7 @@ TArray<uint8_t> NRIRenderDevice::GetScreenshotBuffer(int& pitch, ESSType& color_
 
 void NRIRenderDevice::RefreshNativeFrameGenerationHandles()
 {
+#ifdef _WIN32
 	mNativeD3D12Device = nullptr;
 	mNativeD3D12GraphicsQueue = nullptr;
 
@@ -7403,11 +7595,14 @@ void NRIRenderDevice::RefreshNativeFrameGenerationHandles()
 	{
 		mNativeD3D12GraphicsQueue = static_cast<ID3D12CommandQueue*>(mCore.GetQueueNativeObject(mGraphicsQueue));
 	}
+#endif
 }
 
 void NRIRenderDevice::RefreshNativeFrameGenerationSwapChain()
 {
+#ifdef _WIN32
 	mNativeD3D12SwapChain = nullptr;
+#endif
 }
 
 bool NRIRenderDevice::RefreshFrameGenerationPresentTargets()
@@ -7601,9 +7796,9 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		frameGenPresentContract.hdrPaperWhiteScale,
 		frameGenPresentContract.resolvedReason);
 	Printf("NRI PT framegen native: device=%s queue=%s swapchain=%s path=%s\n",
-		mNativeD3D12Device != nullptr ? "ok" : "missing",
-		mNativeD3D12GraphicsQueue != nullptr ? "ok" : "missing",
-		mNativeD3D12SwapChain != nullptr ? "ok" : "missing",
+		BuildBackendCapabilities().nativeD3D12DeviceAvailable ? "ok" : "missing",
+		BuildBackendCapabilities().nativeD3D12GraphicsQueueAvailable ? "ok" : "missing",
+		BuildBackendCapabilities().nativeD3D12SwapChainAvailable ? "ok" : "missing",
 		GetLiveAPI() == nri::GraphicsAPI::D3D12 ? "nri-public-device-queue-only" : "unsupported-api");
 	const auto& frameGenProvider = mFrameGeneration.GetProviderState();
 	Printf("NRI PT framegen context: generation=%llu created=%s hdr=%s transfer=%s backbuffer=%s hudless=%s create_flags=0x%X luminance_units=nits min_nits=%.3f max_nits=%.3f\n",
@@ -8190,9 +8385,9 @@ void NRIRenderDevice::PrintSwapChainStatus() const
 		GetNriResultName(mSwapChainDisplayDescResult),
 		mSwapChainOutputResolveReason.IsEmpty() ? "unknown" : mSwapChainOutputResolveReason.GetChars());
 	Printf("NRI PT ui output: present_contract=%s gamma=%.3f hdr_scale=%.3f active_target=%s framegen_ui_target=%s\n",
-		hdrUiContractActive ? "hdr-paperwhite" : "sdr-direct",
+		hdrUiContractActive ? "hdr-ui-white" : "sdr-direct",
 		hdrUiContractActive ? 2.2f : 1.0f,
-		hdrUiContractActive ? hdrPaperWhiteScale : 1.0f,
+		hdrUiContractActive ? GetNRIPTHdrUiWhiteScale(outputPolicy) : 1.0f,
 		mActiveTarget == mCurrentPresentTarget ? "present" :
 			(mActiveTarget == &mSceneTarget ? "scene" : (mActiveTarget == &mSaveTarget ? "save" : "other")),
 		mFrameGenerationUiTargetActive ? "yes" : "no");
@@ -9154,29 +9349,29 @@ bool NRIRenderDevice::LoadNRI()
 		return true;
 	}
 
-	HMODULE module = LoadLibraryA("NRI.dll");
+	void* module = OpenNriLibrary(NriLibraryName);
 	if (module == nullptr)
 	{
 		FString localPath = progdir;
-		localPath << "NRI.dll";
-		module = LoadLibraryA(localPath.GetChars());
+		localPath << NriLibraryName;
+		module = OpenNriLibrary(localPath.GetChars());
 	}
 
 	if (module == nullptr)
 	{
-		Printf(TEXTCOLOR_RED "Failed to load NRI.dll.\n");
+		Printf(TEXTCOLOR_RED "Failed to load %s.\n", NriLibraryName);
 		return false;
 	}
 
-	mEnumerateAdapters = (PFN_nriEnumerateAdapters)GetProcAddress(module, "nriEnumerateAdapters");
-	mCreateDeviceFn = (PFN_nriCreateDevice)GetProcAddress(module, "nriCreateDevice");
-	mDestroyDeviceFn = (PFN_nriDestroyDevice)GetProcAddress(module, "nriDestroyDevice");
-	mGetInterfaceFn = (PFN_nriGetInterface)GetProcAddress(module, "nriGetInterface");
+	mEnumerateAdapters = (PFN_nriEnumerateAdapters)FindNriSymbol(module, "nriEnumerateAdapters");
+	mCreateDeviceFn = (PFN_nriCreateDevice)FindNriSymbol(module, "nriCreateDevice");
+	mDestroyDeviceFn = (PFN_nriDestroyDevice)FindNriSymbol(module, "nriDestroyDevice");
+	mGetInterfaceFn = (PFN_nriGetInterface)FindNriSymbol(module, "nriGetInterface");
 
 	if (mEnumerateAdapters == nullptr || mCreateDeviceFn == nullptr || mDestroyDeviceFn == nullptr || mGetInterfaceFn == nullptr)
 	{
-		Printf(TEXTCOLOR_RED "NRI.dll is missing required exports.\n");
-		FreeLibrary(module);
+		Printf(TEXTCOLOR_RED "%s is missing required exports.\n", NriLibraryName);
+		CloseNriLibrary(module);
 		return false;
 	}
 
@@ -9197,11 +9392,13 @@ bool NRIRenderDevice::CreateDevice()
 		Printf("NRI Vulkan graphics API validation is temporarily disabled; continuing with NRI validation only.\n");
 	}
 
+#ifdef _WIN32
 	if (selectedApi == nri::GraphicsAPI::D3D12)
 	{
 		ConfigureD3D12DebugLayer();
 		ConfigureD3D12Dred();
 	}
+#endif
 
 	nri::AdapterDesc adapters[8] = {};
 	uint32_t adapterCount = (uint32_t)std::size(adapters);
@@ -9281,6 +9478,7 @@ bool NRIRenderDevice::CreateDevice()
 		StartupRecovery_MarkNriStartupFailure("nri_get_interfaces", "get_interfaces_failed");
 		return false;
 	}
+#ifdef _WIN32
 	if (selectedApi == nri::GraphicsAPI::D3D12)
 	{
 		ConfigureD3D12InfoQueue(mCore, mDevice);
@@ -9290,6 +9488,7 @@ bool NRIRenderDevice::CreateDevice()
 			mWrapperD3D12 = {};
 		}
 	}
+#endif
 
 	mLowLatency = {};
 	const nri::Result lowLatencyResult = mGetInterfaceFn(*mDevice, NRI_INTERFACE(nri::LowLatencyInterface), &mLowLatency);
@@ -9316,8 +9515,8 @@ bool NRIRenderDevice::CreateDevice()
 	RefreshNativeFrameGenerationHandles();
 	Printf("NRI framegen native handles: api=%s device=%s queue=%s swapchain=%s\n",
 		startupApi,
-		mNativeD3D12Device != nullptr ? "ok" : "missing",
-		mNativeD3D12GraphicsQueue != nullptr ? "ok" : "missing",
+		BuildBackendCapabilities().nativeD3D12DeviceAvailable ? "ok" : "missing",
+		BuildBackendCapabilities().nativeD3D12GraphicsQueueAvailable ? "ok" : "missing",
 		"pending");
 
 	if (!CreateQueuedFrames())
@@ -9348,6 +9547,7 @@ bool NRIRenderDevice::CreateDevice()
 
 void NRIRenderDevice::LogD3D12FailureDiagnostics(const char* context)
 {
+#ifdef _WIN32
 	if (GetLiveAPI() != nri::GraphicsAPI::D3D12)
 	{
 		return;
@@ -9535,11 +9735,12 @@ void NRIRenderDevice::LogD3D12FailureDiagnostics(const char* context)
 	}
 
 	dred->Release();
+#endif
 }
 
 bool NRIRenderDevice::CreateSwapChain()
 {
-	if (mDevice == nullptr || mGraphicsQueue == nullptr || mainwindow.GetHandle() == nullptr)
+	if (mDevice == nullptr || mGraphicsQueue == nullptr)
 	{
 		return false;
 	}
@@ -9556,7 +9757,17 @@ bool NRIRenderDevice::CreateSwapChain()
 	const uint32_t height = (uint32_t)(std::max)(GetClientHeight(), 1);
 
 	nri::SwapChainDesc swapChainDesc = {};
+#ifdef _WIN32
 	swapChainDesc.window.windows.hwnd = mainwindow.GetHandle();
+	if (!swapChainDesc.window.windows.hwnd)
+		return false;
+#else
+	if (!I_GetNRIWindow(swapChainDesc.window))
+	{
+		Printf(TEXTCOLOR_RED "NRI requires an SDL X11 or Wayland window.\n");
+		return false;
+	}
+#endif
 	swapChainDesc.queue = mGraphicsQueue;
 	swapChainDesc.width = width;
 	swapChainDesc.height = height;
@@ -9622,9 +9833,9 @@ bool NRIRenderDevice::CreateSwapChain()
 					mSwapChainOutputResolveReason.GetChars());
 				Printf("NRI framegen native handles: api=%s device=%s queue=%s swapchain=%s\n",
 					(const char*)nri_api,
-					mNativeD3D12Device != nullptr ? "ok" : "missing",
-					mNativeD3D12GraphicsQueue != nullptr ? "ok" : "missing",
-					mNativeD3D12SwapChain != nullptr ? "ok" : "missing");
+					BuildBackendCapabilities().nativeD3D12DeviceAvailable ? "ok" : "missing",
+					BuildBackendCapabilities().nativeD3D12GraphicsQueueAvailable ? "ok" : "missing",
+					BuildBackendCapabilities().nativeD3D12SwapChainAvailable ? "ok" : "missing");
 				if (mRenderer != nullptr)
 				{
 					mRenderer->PrintSwapChainRenderConfig();
@@ -9753,9 +9964,9 @@ bool NRIRenderDevice::CreateSwapChain()
 			mSwapChainOutputResolveReason.GetChars());
 		Printf("NRI framegen native handles: api=%s device=%s queue=%s swapchain=%s\n",
 			(const char*)nri_api,
-			mNativeD3D12Device != nullptr ? "ok" : "missing",
-			mNativeD3D12GraphicsQueue != nullptr ? "ok" : "missing",
-			mNativeD3D12SwapChain != nullptr ? "ok" : "missing");
+			BuildBackendCapabilities().nativeD3D12DeviceAvailable ? "ok" : "missing",
+			BuildBackendCapabilities().nativeD3D12GraphicsQueueAvailable ? "ok" : "missing",
+			BuildBackendCapabilities().nativeD3D12SwapChainAvailable ? "ok" : "missing");
 		if (mRenderer != nullptr)
 		{
 			mRenderer->PrintSwapChainRenderConfig();
@@ -9929,12 +10140,15 @@ bool NRIRenderDevice::CreateRenderResources()
 	}
 
 	nri::DescriptorPoolDesc poolDesc = {};
+	poolDesc.flags = nri::DescriptorPoolBits::ALLOW_UPDATE_AFTER_SET;
 	poolDesc.descriptorSetMaxNum = 4096;
 	poolDesc.samplerMaxNum = 32;
 	poolDesc.textureMaxNum = 16384;
 	poolDesc.storageTextureMaxNum = 128;
-	poolDesc.structuredBufferMaxNum = 512;
-	poolDesc.storageStructuredBufferMaxNum = 512;
+	// Budget the expanded scene snapshots and all lazily initialized smoke sets.
+	poolDesc.structuredBufferMaxNum = NRIStaticTangentStructuredPoolCapacity(NRIFrameShell::QueuedFrameCount);
+	// Seven transient UAVs per queued smoke set, including the motion guide.
+	poolDesc.storageStructuredBufferMaxNum = nri_smoke_descriptors::SharedStoragePoolCapacity(QueuedFrameCount);
 	poolDesc.accelerationStructureMaxNum = 16;
 
 	if (mCore.CreateDescriptorPool(*mDevice, poolDesc, mDescriptorPool) != nri::Result::SUCCESS)
@@ -10255,6 +10469,11 @@ bool NRIRenderDevice::RefreshSwapChainDisplayDesc(bool logChanges)
 
 void NRIRenderDevice::EndFrameAndPresent()
 {
+	const bool inputLineageActive = PerfInputLineageActive();
+	const uint64_t inputLineagePresentation = inputLineageActive
+		? GetGameUpdateSnapshot().presentationGeneration : 0;
+	const PerfInputLineageViewSnapshot inputLineageView = inputLineageActive
+		? PerfInputLineageGetLatestViewSnapshot() : PerfInputLineageViewSnapshot{};
 	const double presentShellStartMs = I_msTimeF();
 	double frameGenEndMs = 0.0;
 	double configureDispatchMs = 0.0;
@@ -10331,14 +10550,56 @@ void NRIRenderDevice::EndFrameAndPresent()
 	submitDesc.signalFences = signalFences;
 	submitDesc.signalFenceNum = signalFenceCount;
 	nri::Result submitResult = nri::Result::FAILURE;
+	bool completedFrameFenceValid = false;
+	uint64_t completedFrameFence = 0;
+	uint32_t inputLineageOutstandingBefore = 0;
 	stageStartMs = I_msTimeF();
 	mFrameGeneration.OnRenderSubmitStart(*this);
 	submitPrepMs = I_msTimeF() - stageStartMs;
+	if (inputLineageActive && mFrameFence != nullptr)
+	{
+		completedFrameFenceValid = TryGetFenceValue(
+			*mFrameFence,
+			"GetFenceValue(InputLineageBeforeSubmit)",
+			completedFrameFence);
+		if (completedFrameFenceValid)
+		{
+			for (const QueuedFrame& queuedFrame : mQueuedFrames)
+			{
+				if (queuedFrame.hasSubmittedWork && queuedFrame.lastSubmittedFenceValue > completedFrameFence)
+				{
+					inputLineageOutstandingBefore++;
+				}
+			}
+		}
+	}
+	const uint64_t inputLineageSubmitStartUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
 	{
 		ScopedNriTiming submitTiming(NriPTQueueSubmit, mLastFrameBoundaryStats.submitMs);
 		stageStartMs = I_msTimeF();
 		submitResult = mCore.QueueSubmit(*mGraphicsQueue, submitDesc);
 		submitCallMs = I_msTimeF() - stageStartMs;
+	}
+	const uint64_t inputLineageSubmitEndUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
+	if (inputLineageActive)
+	{
+		PerfInputLineageNoteNriSubmit(
+			inputLineagePresentation,
+			inputLineageView,
+			mFrameIndex,
+			mCurrentQueuedFrameIndex,
+			mCurrentSwapChainImage,
+			submittedFenceValue,
+			completedFrameFenceValid,
+			completedFrameFence,
+			inputLineageOutstandingBefore,
+			completedFrameFenceValid
+				? inputLineageOutstandingBefore + (submitResult == nri::Result::SUCCESS ? 1u : 0u)
+				: 0,
+			inputLineageSubmitStartUs,
+			inputLineageSubmitEndUs,
+			(int32_t)submitResult,
+			submitResult == nri::Result::SUCCESS);
 	}
 	if (mRenderer != nullptr)
 	{
@@ -10377,9 +10638,11 @@ void NRIRenderDevice::EndFrameAndPresent()
 	FPSLimit();
 	nri::Result presentResult = nri::Result::FAILURE;
 	mFrameGeneration.OnPresentStart(*this);
+	uint64_t inputLineagePresentStartUs = 0;
 	{
 		ScopedNriTiming presentTiming(NriPTQueuePresent, mLastFrameBoundaryStats.presentMs);
 		stageStartMs = I_msTimeF();
+		inputLineagePresentStartUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
 		if (IsFrameGenerationPresentPathActive())
 		{
 			if (!mFrameGeneration.Present(*this, !!vid_vsync, mFrameGenerationPresentAllowsTearing, presentResult))
@@ -10392,6 +10655,18 @@ void NRIRenderDevice::EndFrameAndPresent()
 			presentResult = mSwapChainInterface.QueuePresent(*mSwapChain, *mSwapChainImages[mCurrentSwapChainImage].releaseSemaphore);
 		}
 		presentCallMs = I_msTimeF() - stageStartMs;
+	}
+	const uint64_t inputLineagePresentEndUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
+	if (inputLineageActive)
+	{
+		PerfInputLineageNoteNriPresent(
+			inputLineagePresentation,
+			mFrameIndex,
+			inputLineagePresentStartUs,
+			inputLineagePresentEndUs,
+			(int32_t)presentResult,
+			presentResult == nri::Result::SUCCESS,
+			IsFrameGenerationPresentPathActive());
 	}
 	mFrameGeneration.OnPresentEnd(*this, presentResult);
 	mLastFrameBoundaryStats.presentResult = presentResult;
@@ -10433,7 +10708,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 			Printf(TEXTCOLOR_YELLOW "NRI framegen present fallback: scheduled native swapchain recreation for the next frame boundary.\n");
 		}
 	}
-	if (mCurrentQueuedFrameIndex < mQueuedFrames.size())
+	if (submitResult == nri::Result::SUCCESS && mCurrentQueuedFrameIndex < mQueuedFrames.size())
 	{
 		QueuedFrame& queuedFrame = mQueuedFrames[mCurrentQueuedFrameIndex];
 		queuedFrame.lastSubmittedFenceValue = submittedFenceValue;
@@ -10441,7 +10716,10 @@ void NRIRenderDevice::EndFrameAndPresent()
 		queuedFrame.hasSubmittedWork = true;
 	}
 	CaptureCompactPerfFrameBoundary(presentResult == nri::Result::SUCCESS);
-	RecordFrameSequence(mCurrentSwapChainImage, submittedFenceValue, presentResult);
+	RecordFrameSequence(
+		mCurrentSwapChainImage,
+		submitResult == nri::Result::SUCCESS ? submittedFenceValue : 0,
+		presentResult);
 	FinishPendingScreenshotReadbacks(submitResult == nri::Result::SUCCESS, submittedFenceValue);
 	const bool tracedGameplayFrame = mTraceThisFrame && (mLastFrameBoundaryStats.pathTracedSceneRendered || mLastFrameBoundaryStats.postProcessInvoked);
 	if (tracedGameplayFrame)
@@ -11393,6 +11671,8 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 		FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
 	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueTyped.cs.dxil") == 0 ||
@@ -11436,6 +11716,11 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 			Printf(TEXTCOLOR_ORANGE "NRI diagnostic shader variant is unavailable; using production shaders.\n");
 			mShaderVariantWarningEmitted = true;
 		}
+	}
+	else if (diagnosticCandidate && !mShaderVariantSelectionEmitted)
+	{
+		Printf("NRI shader variant: production (manifest base, first=%s).\n", fileName);
+		mShaderVariantSelectionEmitted = true;
 	}
 	shaderPath << fileName;
 

@@ -129,10 +129,18 @@ CUSTOM_CVAR(Int, vid_preferbackend, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	Printf("Changing the video backend requires a restart for " GAMENAME ".\n");
 }
 
+#ifdef _WIN32
 CUSTOM_CVAR(String, nri_api, "d3d12", CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
+#else
+CUSTOM_CVAR(String, nri_api, "vulkan", CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
+#endif
 {
 	const char *api = self;
+#ifdef _WIN32
 	if (stricmp(api, "vulkan") != 0 && stricmp(api, "d3d12") != 0)
+#else
+	if (stricmp(api, "vulkan") != 0)
+#endif
 	{
 		Printf("Unknown NRI API '%s'; using Vulkan.\n", api);
 		self = "vulkan";

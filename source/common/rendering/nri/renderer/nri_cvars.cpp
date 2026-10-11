@@ -1,5 +1,6 @@
 #include "nri_cvars.h"
 
+#include "nri_scene_lights.h"
 #include "nri_settings_profiles.h"
 #include "../scene/nri_map_builder.h"
 #include "../system/nri_renderdevice.h"
@@ -211,6 +212,18 @@ CVAR(Bool, nri_ptscenedataring, true, 0)
 CVAR(Bool, nri_ptscenedataringtrace, false, 0)
 
 CVAR(Bool, nri_ptemissivestabilitytrace, false, 0)
+// Sorted binary lookup by default; session-only rollback:
+// 0=legacy, 1=reuse resolved scale, 2=sorted binary lookup.
+CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 2, 0)
+{
+	if (self < 0) self = 0;
+	else if (self > 2) self = 2;
+}
+CVAR(Bool, nri_ptemissivecache, true, 0)
+// Full geometry/payload shadow validation; intentionally expensive and session-only.
+CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
+CVAR(Bool, nri_ptlightregistry, true, 0)
+CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
 CVAR(Bool, nri_ptindirectradiancecache, false, 0)
 CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
@@ -363,6 +376,12 @@ CUSTOM_CVAR(Int, nri_ptscenedataringmaxbytes, 0, 0)
 
 CVAR(Bool, nri_voxelstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
+CVAR(Bool, nri_ptvoxelpublication, true, 0)
+CVAR(Int, nri_ptvoxelpublicationvalidate, 0, 0)
+CVAR(Bool, nri_ptmaterialpatch, true, 0)
+CVAR(Bool, nri_ptmaterialpatchvalidate, false, 0)
+CVAR(Bool, nri_ptstaticmaterialpatch, true, 0)
+CVAR(Bool, nri_ptstaticmaterialpatchvalidate, false, 0)
 CVAR(Bool, nri_ptvoxelactorstatetrace, false, 0)
 
 CVAR(Bool, nri_ptvoxelactorlifecycle, true, 0)
@@ -580,7 +599,7 @@ CUSTOM_CVAR(Float, nri_ptautoexposuretarget, 0.03225f, CVAR_ARCHIVE | CVAR_GLOBA
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrautoexposuretarget, 0.0445f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrautoexposuretarget, 0.0353125f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.02f)
 	{
@@ -604,7 +623,7 @@ CUSTOM_CVAR(Float, nri_ptautoexposuremin, 2.74561f, CVAR_ARCHIVE | CVAR_GLOBALCO
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrautoexposuremin, 0.604004f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrautoexposuremin, 1.30127f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.03125f)
 	{
@@ -628,7 +647,7 @@ CUSTOM_CVAR(Float, nri_ptautoexposuremax, 4.00977f, CVAR_ARCHIVE | CVAR_GLOBALCO
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrautoexposuremax, 7.09766f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrautoexposuremax, 1.81836f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.125f)
 	{
@@ -652,7 +671,7 @@ CUSTOM_CVAR(Float, nri_ptautoexposurebias, 0.469531f, CVAR_ARCHIVE | CVAR_GLOBAL
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrautoexposurebias, 0.371094f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrautoexposurebias, 1.03555f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.125f)
 	{
@@ -791,6 +810,9 @@ CUSTOM_CVAR(Int, nri_ptbloomdebug, 0, 0)
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer.cpp
 
+// Session-only A/B switch for lighting-independent raw debug views.
+CVAR(Bool, nri_ptrawdebuglightingelision, false, 0)
+
 CUSTOM_CVAR(Int, nri_ptdebug, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	const int resolvedMode = ResolvePtDebugModeFromMenuIndex(ResolvePtDebugMenuIndexFromMode(self));
@@ -879,7 +901,7 @@ CVAR(Float, nri_ptsmoketimescale, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokewindx, 5.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokewindy, 20.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokewindz, 5.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
-CVAR(Float, nri_ptsmokedensityscale, 5.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, nri_ptsmokedensityscale, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokeradiancescale, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokeextinctionthreshold, 0.0f, 0)
 CVAR(Float, nri_ptsmokeextinctionknee, 0.0f, 0)
@@ -961,7 +983,7 @@ CVAR(Int, nri_ptsmokemultiplescatteriterations, 0, 0)
 CVAR(Int, nri_ptsmokemultiplescatterdebug, 0, 0)
 CVAR(Bool, nri_ptsmokeselfshadow, false, 0)
 CVAR(Int, nri_ptsmokeselfshadowdebug, 0, 0)
-CVAR(Int, nri_ptsmokelightmode, 3, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Int, nri_ptsmokelightmode, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, nri_ptsmokelightsamples, 4, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, nri_ptsmokemaxlightcandidates, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, nri_ptsmokefilteredvisibility, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -972,6 +994,19 @@ CVAR(Bool, nri_ptsmokeviewcompare, false, 0)
 CVAR(Int, nri_ptsmokeviewroute, 2, 0)
 CVAR(Float, nri_ptsmokeindirectscale, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, nri_ptsmokerepresentation, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// Session-only class rollback: explosion, trail, fire, muzzle, impact, diagnostic.
+CVAR(Int, nri_ptsmoketransientmask, 63, 0)
+// Session-only authored-source isolation using the same six class bits.
+CVAR(Int, nri_ptsmokesourceclassmask, 63, 0)
+CVAR(Bool, nri_ptsmoketransientselfshadow, true, 0)
+// Session-only A/B for spatial footprint coverage; never changes cached lighting identity.
+CVAR(Bool, nri_ptsmoketransientcoverage, true, 0)
+// Session A/B control; independent of the older radiance-only volume history.
+CVAR(Bool, nri_ptsmoketransienthistory, true, 0)
+// Session-only validation isolation. Production actor smoke remains enabled by default.
+CVAR(Bool, nri_ptsmokeactoremitters, true, 0)
+// Session-only validation isolation. Production map smoke remains enabled by default.
+CVAR(Bool, nri_ptsmokemapemitters, true, 0)
 CVAR(Int, nri_ptsmokegridbricks, 512, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, nri_ptsmokedormantgrid, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokegridcellsize, 8.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -1142,7 +1177,7 @@ CUSTOM_CVAR(Float, nri_pttoe, 1.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Float, nri_ptpaperwhite, 300.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_ptpaperwhite, 201.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 80.0f)
 	{
@@ -1154,7 +1189,7 @@ CUSTOM_CVAR(Float, nri_ptpaperwhite, 300.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Int, nri_pthdrtonemap, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Int, nri_pthdrtonemap, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0)
 	{
@@ -1166,7 +1201,7 @@ CUSTOM_CVAR(Int, nri_pthdrtonemap, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrexposure, 0.986328f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrexposure, 2.01992f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.125f)
 	{
@@ -1178,7 +1213,7 @@ CUSTOM_CVAR(Float, nri_pthdrexposure, 0.986328f, CVAR_ARCHIVE | CVAR_GLOBALCONFI
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrcontrast, 1.10312f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrcontrast, 1.00312f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.50f)
 	{
@@ -1190,7 +1225,7 @@ CUSTOM_CVAR(Float, nri_pthdrcontrast, 1.10312f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrsaturation, 1.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrsaturation, 1.33125f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.00f)
 	{
@@ -1202,7 +1237,7 @@ CUSTOM_CVAR(Float, nri_pthdrsaturation, 1.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrshoulder, 0.84375f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrshoulder, 0.828125f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.50f)
 	{
@@ -1214,7 +1249,7 @@ CUSTOM_CVAR(Float, nri_pthdrshoulder, 0.84375f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG
 	}
 }
 
-CUSTOM_CVAR(Float, nri_pthdrtoe, 1.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, nri_pthdrtoe, 1.04688f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0.50f)
 	{
@@ -1420,15 +1455,17 @@ CUSTOM_CVAR(Float, nri_ptanalyticsoftshadowradius, 4.0f, 0)
 	NotifyActiveAnalyticLightSettingsChange();
 }
 
-CUSTOM_CVAR(Int, nri_ptanalyticshadowbudget, 8, 0)
+// Unselected lights remain unoccluded, so the default must cover every runtime
+// light. Smaller budgets are retained only as an explicit diagnostic override.
+CUSTOM_CVAR(Int, nri_ptanalyticshadowbudget, (int)NRI_MAX_RUNTIME_POINT_LIGHTS, 0)
 {
 	if (self < 0)
 	{
 		self = 0;
 	}
-	else if (self > 64)
+	else if (self > (int)NRI_MAX_RUNTIME_POINT_LIGHTS)
 	{
-		self = 64;
+		self = (int)NRI_MAX_RUNTIME_POINT_LIGHTS;
 	}
 	NotifyActiveAnalyticLightSettingsChange();
 }
@@ -1704,10 +1741,17 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // into the existing inline ray query. Session-only and independently
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
+// Whole-occurrence workload certificates are independently benchmarkable.
+// Enabled by default with session-only rollback; optional smoke consumers
+// can withhold bits when they cannot certify a workload.
+CVAR(Bool, nri_ptoccurrenceworkloadmasks, true, 0)
 CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
 CVAR(Bool, nri_ptfiltercompare, false, 0)
+// Consume queued static tangents by default, with legacy fallback for
+// ineligible work. Session-only: 0=legacy, 1=diagnostic reference, 2=sidecar.
+CVAR(Int, nri_ptstatictangents, 2, 0)
 
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.
@@ -1816,6 +1860,11 @@ CVAR(Bool, nri_ptdynamicoverlayblasbuild, false, 0)
 CVAR(Bool, nri_ptdynamicoverlayblasroute, false, 0)
 
 CVAR(Int, nri_ptdynamicoverlayblasbuilds, 1, 0)
+// Prefer fast-trace for retained overlay BLASes; session-only rollback:
+// 0=fast-build, 1=fast-trace.
+// Effective flags participate in the retained BLAS key, so live A/B switching
+// cannot silently reuse an AS built under the other policy.
+CVAR(Int, nri_ptdynamicoverlayblaspolicy, 1, 0)
 
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer_settings.cpp

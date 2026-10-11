@@ -222,6 +222,19 @@ bool IsNRIFrameGraphRawTraceDebugMode(uint32_t debugMode)
 		IsInRange(debugMode, nri_diag::PtDebugFluidBinding, nri_diag::PtDebugFluidNormal);
 }
 
+bool IsNRIFrameGraphLightingIndependentDebugMode(uint32_t debugMode)
+{
+	// Keep this allowlist aligned with RawPresent's selected input and TraceOpaque's
+	// debug colors. In particular, metalness/roughness use material guides, not
+	// TraceOpaque's final color; radiance, shadow and lobe-selection views are excluded.
+	return
+		IsInRange(debugMode, 1u, 5u) ||
+		debugMode == 18u ||
+		debugMode == 19u ||
+		debugMode == 20u ||
+		debugMode == nri_diag::PtDebugMotionValidity;
+}
+
 bool IsNRIFrameGraphFinalShaderDebugMode(uint32_t)
 {
 	return false;

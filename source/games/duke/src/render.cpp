@@ -33,6 +33,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "automap.h"
 #include "dukeactor.h"
 #include "interpolate.h"
+#include "input_lineage.h"
 #include "render.h"
 
 // temporary hack to pass along RRRA's global fog. Needs to be done better later.
@@ -504,6 +505,7 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 	auto cstat = viewer->spr.cstat;
 	if (camview) viewer->spr.cstat = CSTAT_SPRITE_INVISIBLE;
 	if (!sceneonly) drawweapon(interpfrac);
+	PerfInputLineageNoteViewCapture((float)cangles.Yaw.Degrees(), (float)cangles.Pitch.Degrees());
 	render_drawrooms(viewer, cpos, sect, cangles, interpfrac, fov);
 	if (p->newOwner != nullptr)
 	{

@@ -130,6 +130,14 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 		{
 			return static_cast<NRIRenderer*>(user)->BindSceneRootDescriptors();
 		};
+		service.recordStaticTangents = [](void* user, uint32_t count, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand)
+		{
+			return static_cast<NRIRenderer*>(user)->RecordStaticTangents(count, supported, diagnosticWindow, consumingCommand);
+		};
+		service.staticTangentState = [](void* user)
+		{
+			return static_cast<NRIRenderer*>(user)->mStaticTangents.dispatch;
+		};
 		return service;
 	};
 

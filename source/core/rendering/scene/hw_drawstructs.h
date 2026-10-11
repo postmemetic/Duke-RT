@@ -237,6 +237,9 @@ public:
 public:
 	void Process(HWDrawInfo* di, walltype* seg, sectortype* frontsector, sectortype* backsector);
 	void ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* frontsector);
+	// Builds the shared wall-sprite quad without publishing a draw item. A null
+	// view skips camera culling/orientation for view-independent material decals.
+	bool PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* frontsector);
 
 	float PointOnSide(float x,float y)
 	{

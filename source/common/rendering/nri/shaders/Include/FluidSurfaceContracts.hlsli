@@ -75,7 +75,7 @@ struct FluidFrameData
 	uint foamStyleMode;
 };
 
-StructuredBuffer<FluidBindingData> gFluidBindings : register(t28, space2);
-StructuredBuffer<FluidFrameData> gFluidFrames : register(t29, space2);
+StructuredBuffer<FluidBindingData> gFluidBindings : register(t31, space2);
+StructuredBuffer<FluidFrameData> gFluidFrames : register(t32, space2);
 
 #endif

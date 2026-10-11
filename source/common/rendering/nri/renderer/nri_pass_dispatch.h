@@ -134,15 +134,21 @@ public:
 	{
 		using GetCurrentSceneDescriptorSetFn = nri::DescriptorSet* (*)(void* user);
 		using BindSceneRootDescriptorsFn = bool (*)(void* user);
+		using RecordStaticTangentsFn = uint32_t (*)(void* user, uint32_t primitiveCount, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand);
+		using StaticTangentStateFn = NRIStaticTangentDispatchState (*)(void* user);
 
 		void* user = nullptr;
 		GetCurrentSceneDescriptorSetFn getCurrentSceneTextureSet = nullptr;
 		GetCurrentSceneDescriptorSetFn getCurrentSceneDataSet = nullptr;
 		BindSceneRootDescriptorsFn bindSceneRootDescriptors = nullptr;
+		RecordStaticTangentsFn recordStaticTangents = nullptr;
+		StaticTangentStateFn staticTangentState = nullptr;
 
 		nri::DescriptorSet* GetCurrentSceneTextureSet() const;
 		nri::DescriptorSet* GetCurrentSceneDataSet() const;
 		bool BindSceneRootDescriptors() const;
+		uint32_t RecordStaticTangents(uint32_t primitiveCount, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand) const;
+		NRIStaticTangentDispatchState StaticTangentState() const;
 	};
 
 	struct ExposureService

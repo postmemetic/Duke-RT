@@ -89,6 +89,21 @@ namespace nri_material_policy
 		float fullbrightBoost,
 		nri_scene::MaterialBridgeData& materials);
 
+	// Begin with the unmodified base row when rebuilding a final material product;
+	// these operations preserve unrelated fields and do not undo prior overrides.
+	void ApplyEmissiveMaterialOverride(
+		const SceneLightSystem& sceneLights,
+		const ResolvedLightOverlaySet& resolved,
+		float glowmapVisibleBlendScale,
+		const nri_scene::MaterialLightingMetadata& metadata,
+		nri_scene::MaterialData& inOutGpuMaterial);
+
+	void ApplyActorShadowMaterialOverride(
+		const ActorMaterialOverrideMap& actorOverrides,
+		float fullbrightBoost,
+		const nri_scene::MaterialLightingMetadata& metadata,
+		nri_scene::MaterialData& inOutGpuMaterial);
+
 	void ApplyEmissiveMaterialOverrides(
 		const SceneLightSystem& sceneLights,
 		const ResolvedLightOverlaySet& resolved,

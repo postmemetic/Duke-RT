@@ -24,6 +24,7 @@ struct event_t
 	int16_t		data3;
 	float 		x;			// mouse/joystick x move
 	float 		y;			// mouse/joystick y move
+	uint64_t	inputSequence = 0;	// trace-only mouse lineage; zero when capture is inactive
 };
 
 

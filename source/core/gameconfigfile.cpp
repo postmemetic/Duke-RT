@@ -45,7 +45,7 @@
 #include "gamecontrol.h"
 #include "version.h"
 
-#define LASTRUNVERSION "10"
+#define LASTRUNVERSION "11"
 
 #if !defined _MSC_VER && !defined __APPLE__
 #include "i_system.h"  // for SHARE_DIR
@@ -354,6 +354,7 @@ void FGameConfigFile::DoGlobalSetup ()
 	// Apply explicit overrides after the legacy cleanup above. If startup recovery
 	// applies Safe Mode later, it reapplies only these explicitly requested diagnostics.
 	ApplyEarlyNriDiagnosticOverrides();
+	double last = 0;
 	if (SetSection ("LastRun"))
 	{
 		const char *lastver = GetValueForKey ("Version");
@@ -369,7 +370,7 @@ void FGameConfigFile::DoGlobalSetup ()
 					var->SetGenericRep(v, CVAR_Float);
 				}
 			};
-			double last = atof (lastver);
+			last = atof (lastver);
 			if (last < 2)
 			{
 				auto var = FindCVar("mod_dumb_mastervolume", nullptr);
@@ -474,6 +475,18 @@ void FGameConfigFile::DoGlobalSetup ()
 					value.Int = 1;
 					var->SetGenericRep(value, CVAR_Int);
 				}
+			}
+		}
+	}
+	if (last < 11)
+	{
+		// Adopt the approved smoke look once, including configs without a version.
+		// Later user edits and explicit command-line overrides remain authoritative.
+		for (const char* name : { "nri_ptsmokedensityscale", "nri_ptsmokelightmode" })
+		{
+			if (auto var = FindCVar(name, nullptr))
+			{
+				var->ResetToDefault();
 			}
 		}
 	}
@@ -587,6 +600,12 @@ void FGameConfigFile::ReadCVars (uint32_t flags)
 	flags |= CVAR_ARCHIVE|CVAR_UNSETTABLE|CVAR_AUTO;
 	while (NextInSection (key, value))
 	{
+		// A saved experimental budget can override the full-shadow default even
+		// though this CVar is session-only. Keep overrides in console/exec commands.
+		if (stricmp(key, "nri_ptanalyticshadowbudget") == 0)
+		{
+			continue;
+		}
 		cvar = FindCVar (key, NULL);
 		if (cvar == NULL)
 		{
@@ -594,6 +613,11 @@ void FGameConfigFile::ReadCVars (uint32_t flags)
 		}
 		val.String = const_cast<char *>(value);
 		cvar->SetGenericRep (val, CVAR_String);
+	}
+	// Remove obsolete entries after iteration so the next config save drops them.
+	while (GetValueForKey("nri_ptanalyticshadowbudget") != nullptr)
+	{
+		ClearKey("nri_ptanalyticshadowbudget");
 	}
 }
 

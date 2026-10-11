@@ -823,6 +823,7 @@ namespace
 			outMaterials);
 
 		material.sectorIndex = surface.provenance.sectorIndex >= 0 ? (uint32_t)surface.provenance.sectorIndex : UINT32_MAX;
+		material.wallIndex = surface.provenance.wallIndex >= 0 ? (uint32_t)surface.provenance.wallIndex : UINT32_MAX;
 		outMaterials.materials.push_back(material);
 		uint32_t glowmapTextureIndex = UINT32_MAX;
 		uint64_t glowmapContentKey = 0;
@@ -1156,7 +1157,7 @@ void AppendMaterialBridge(
 
 void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials)
 {
-	outMaterials = {};
+	ClearMaterialBridgeRetainingCapacity(outMaterials);
 	const auto paletteStart = std::chrono::steady_clock::now();
 	const bool paletteBuilt = BuildPaletteLookup(outMaterials);
 	outMaterials.buildStats.paletteMs = std::chrono::duration<double, std::milli>(

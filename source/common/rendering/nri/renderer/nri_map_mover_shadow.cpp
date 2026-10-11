@@ -716,7 +716,7 @@ void NRIMapMoverShadow::EndFrame(
 	if (traceMode <= 0) return;
 	uint64_t oldestAge = 0;
 	for (const auto& pending : m_pendingPairs)
-		oldestAge = std::max(oldestAge, frameIndex >= pending.second.firstQueuedFrame
+		oldestAge = std::max<uint64_t>(oldestAge, frameIndex >= pending.second.firstQueuedFrame
 			? frameIndex - pending.second.firstQueuedFrame : 0ull);
 
 	const NRIMapMoverShadowStateStats& stateStats = m_state.GetStats();

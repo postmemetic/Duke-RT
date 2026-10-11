@@ -752,6 +752,9 @@ void S_WorldTourMappingsForOldSounds()
 			if (lump >= 0)
 			{
 				auto newsfx = soundEngine->AllocateSound();
+				// Allocation can relocate the sound array. Reacquire the source
+				// before both copying it and writing its World Tour mapping.
+				sfx = soundEngine->GetSfx(FSoundID::fromInt(i));
 				*newsfx = *sfx;
 				newsfx->ResourceId = -1;
 				newsfx->name = fname;

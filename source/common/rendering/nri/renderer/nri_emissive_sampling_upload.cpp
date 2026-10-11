@@ -22,9 +22,14 @@ namespace
 		return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
 	}
 
+	static bool ShouldTraceSceneDataTiming()
+	{
+		return (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace;
+	}
+
 	static bool ShouldCollectSceneDataTiming()
 	{
-		return (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return ShouldTraceSceneDataTiming() || PerfCompactCaptureTimingActive();
 	}
 
 	class ScopedPtPerfTimer
@@ -110,7 +115,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	bool allowSceneDataFrameSlot)
 {
 	ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.emissiveUpdateMs);
-	const uint64_t payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context);
+	const uint64_t payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming());
 	const uint64_t sectorResponsePayloadHash = mSceneLights.BuildEmissiveSectorResponsePayloadHash();
 	const bool sectorResponseChanged =
 		mEmissiveSectorResponsePayloadCacheValid &&
@@ -140,21 +145,56 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		frameSlot != nullptr ? frameSlot->emissivePrimitiveCdfStats : mEmissivePrimitiveCdfBufferStats;
 	SceneBufferDebugStats& emissiveMaterialResponseStats =
 		frameSlot != nullptr ? frameSlot->emissiveMaterialResponseStats : mEmissiveMaterialResponseBufferStats;
-	const bool destinationCacheValid =
+	bool destinationCacheValid =
 		frameSlot != nullptr ?
 			frameSlot->emissiveSamplingPayloadValid && frameSlot->emissiveSamplingPayloadHash == payloadHash :
 			mEmissiveSamplingPayloadCacheValid && mEmissiveSamplingPayloadHash == payloadHash;
-	NRIEmissivePrimitiveHeaderGpuData emissiveHeader = {};
-	std::vector<NRIEmissivePrimitiveGpuData> emissivePrimitives;
-	std::vector<NRIEmissivePrimitiveShaderData> emissiveShaderPrimitives;
-	std::vector<float> emissiveCdf;
-	std::vector<NRIEmissiveMaterialResponseGpuData> emissiveMaterialResponses;
-	std::vector<NRIEmissivePrimitiveDebugRecord> emissiveDebugRecords;
+	const uint64_t uploadCapacityBefore = mEmissiveSamplingUploadScratch.CapacityBytes();
+	auto& emissiveHeader = mEmissiveSamplingUploadScratch.header;
+	auto& emissivePrimitives = mEmissiveSamplingUploadScratch.primitives;
+	auto& emissiveShaderPrimitives = mEmissiveSamplingUploadScratch.shaderPrimitives;
+	auto& emissiveCdf = mEmissiveSamplingUploadScratch.cdf;
+	auto& emissiveMaterialResponses = mEmissiveSamplingUploadScratch.materialResponses;
+	auto& emissiveDebugRecords = mEmissiveSamplingUploadScratch.debugRecords;
+	emissiveHeader = {};
+	emissivePrimitives.clear();
+	emissiveShaderPrimitives.clear();
+	emissiveCdf.clear();
+	emissiveMaterialResponses.clear();
+	emissiveDebugRecords.clear();
 	SceneLightSystem::EmissiveSamplingUploadStats emissiveStats = {};
-	if (stabilityTraceEnabled)
+	const bool buildForValidation = stabilityTraceEnabled || (bool)nri_ptemissivecachevalidate;
+	if (buildForValidation)
 	{
 		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
 	}
+
+	if (emissiveStats.payloadValidationMismatches != 0)
+		destinationCacheValid = false;
+
+	const auto emitCacheTrace = [&](bool destinationReused)
+	{
+		const auto& cache = mSceneLights.GetEmissiveGeometryCacheStats();
+		// Compact capture records timing without synchronous per-frame logging.
+		const bool verboseTrace = (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace;
+		if (!verboseTrace && !(bool)nri_ptemissivecachevalidate && cache.identityMismatches == 0)
+			return;
+		Printf("PERF pt emissive cache NRI: frame=%u destination_reused=%u identity=%.3f full_hash=%.3f topology=%.3f weights=%.3f validation=%.3f identities=%u mismatches=%u quarantines=%u payload_checks=%u payload_mismatches=%u hashed_vertices=%llu hashed_primitives=%llu static_scanned=%llu dynamic_scanned=%llu topology_builds=%u topology_reuses=%u primitive_builds=%u primitive_reuses=%u weights_only=%u capacity_growths=%u capacity_growth_bytes=%llu capacity_bytes=%llu upload_growth_bytes=%llu upload_capacity_bytes=%llu build_growths=%u build_growth_bytes=%llu\n",
+			mFrameIndex, destinationReused ? 1u : 0u,
+			cache.identityMs, cache.validationHashMs, cache.topologyMs, emissiveStats.weightsBuildMs,
+			emissiveStats.payloadValidationMs, cache.identityChecks, cache.identityMismatches,
+			cache.quarantinedDomains, emissiveStats.payloadValidationChecks, emissiveStats.payloadValidationMismatches,
+			(unsigned long long)cache.hashedVertices, (unsigned long long)cache.hashedPrimitives,
+			(unsigned long long)(cache.staticPrimitivesScanned + emissiveStats.fullStaticPrimitivesScanned),
+			(unsigned long long)(cache.dynamicPrimitivesScanned + emissiveStats.fullDynamicPrimitivesScanned),
+			cache.topologyBuilds, cache.topologyReuses, cache.primitiveBuilds, cache.primitiveReuses,
+			cache.topologyBuilds == 0 && cache.primitiveBuilds == 0 && !destinationReused ? 1u : 0u,
+			cache.capacityGrowths, (unsigned long long)cache.capacityGrowthBytes,
+			(unsigned long long)mSceneLights.GetEmissiveGeometryCacheCapacityBytes(),
+			(unsigned long long)(mEmissiveSamplingUploadScratch.CapacityBytes() - std::min(uploadCapacityBefore, mEmissiveSamplingUploadScratch.CapacityBytes())),
+			(unsigned long long)mEmissiveSamplingUploadScratch.CapacityBytes(),
+			emissiveStats.buildCapacityGrowths, (unsigned long long)emissiveStats.buildCapacityGrowthBytes);
+	};
 
 	const auto commitEmissiveDescriptors = [&]()
 	{
@@ -317,10 +357,11 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		mEmissiveSectorResponsePayloadCacheValid = true;
 		mEmissiveSectorResponsePayloadHash = sectorResponsePayloadHash;
 		emitStabilityTrace(0);
+		emitCacheTrace(true);
 		return true;
 	}
 
-	if (!stabilityTraceEnabled)
+	if (!buildForValidation)
 	{
 		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
 	}
@@ -438,9 +479,19 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	mBoundEmissiveDominantDataSource = emissiveHeader.dominantIndex != UINT32_MAX && emissiveHeader.dominantIndex < emissivePrimitives.size() ? emissivePrimitives[emissiveHeader.dominantIndex].dataSource : 0u;
 	mBoundEmissiveDominantPower = emissiveHeader.dominantIndex != UINT32_MAX && emissiveHeader.dominantIndex < emissivePrimitives.size() ? emissivePrimitives[emissiveHeader.dominantIndex].powerEstimate : 0.0f;
 	emitStabilityTrace(waitCount);
-	mBoundEmissivePrimitiveRecords = std::move(emissiveDebugRecords);
+	emitCacheTrace(false);
+	mBoundEmissivePrimitiveRecords.swap(emissiveDebugRecords);
 
 	commitEmissiveDescriptors();
+	const uint32_t responseMode = GetNRIEmissiveResponseHeaderMode(emissiveMaterialResponses[0].flags);
+	static uint32_t lastResponseMode = UINT32_MAX;
+	if (lastResponseMode != responseMode)
+	{
+		Printf("NRI PT emissive response lookup: requested=%u mode=%u records=%u marker=0x%x\n",
+			ResolveNRIEmissiveResponseLookupMode((int)nri_ptemissiveresponselookup), responseMode,
+			emissiveMaterialResponses[0].dataSource, emissiveMaterialResponses[0].flags);
+		lastResponseMode = responseMode;
+	}
 	if (frameSlot != nullptr)
 	{
 		frameSlot->emissiveSamplingPayloadValid = true;
@@ -455,7 +506,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		frameSlot->emissivePrimitiveDebugRecords = mBoundEmissivePrimitiveRecords;
 	}
 
-	if (ShouldCollectSceneDataTiming())
+	if (ShouldTraceSceneDataTiming())
 	{
 		const uint32_t growCount =
 			emissivePrimitiveHeaderStats.growEventsLastFrame +

@@ -1,4 +1,5 @@
 #include "nri_smoke_grid.h"
+#include "nri_smoke_descriptor_budget.h"
 #include "nri_smoke_grid_reserve_policy.h"
 
 #include "../system/nri_gpu_timing.h"
@@ -161,7 +162,7 @@ bool NRISmokeGrid::Initialize(const NRISmokeGridServices& services)
 
 	nri::DescriptorRangeDesc inputRange = {};
 	inputRange.baseRegisterIndex = 0;
-	inputRange.descriptorNum = 2;
+	inputRange.descriptorNum = nri_smoke_descriptors::GridInputCount;
 	inputRange.descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
 	inputRange.shaderStages = nri::StageBits::COMPUTE_SHADER;
 	inputRange.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;

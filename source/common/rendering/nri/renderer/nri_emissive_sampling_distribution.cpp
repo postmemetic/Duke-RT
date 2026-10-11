@@ -25,11 +25,28 @@ void NRIEmissiveSamplingDistribution::Build(
 	NRIEmissiveSamplingDistributionStats* outStats)
 {
 	NRIEmissiveSamplingDistributionStats stats = {};
+	const size_t oldCapacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
+		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity() };
+	const auto recordScratchGrowth = [&]()
+	{
+		const size_t capacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
+			mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity() };
+		const size_t strides[] = { sizeof(size_t), sizeof(size_t), sizeof(uint64_t), sizeof(uint64_t), sizeof(float) };
+		for (size_t i = 0; i < 5; ++i)
+		{
+			if (capacities[i] > oldCapacities[i])
+			{
+				stats.scratchCapacityGrowths++;
+				stats.scratchCapacityGrowthBytes += (capacities[i] - oldCapacities[i]) * strides[i];
+			}
+		}
+	};
 	stats.inputCount = (uint32_t)candidates.size();
 	outEntries.clear();
 	outCdf.clear();
 
-	std::vector<size_t> orderedIndices(candidates.size());
+	auto& orderedIndices = mOrderedIndices;
+	orderedIndices.resize(candidates.size());
 	for (size_t i = 0; i < candidates.size(); ++i)
 	{
 		orderedIndices[i] = i;
@@ -53,9 +70,11 @@ void NRIEmissiveSamplingDistribution::Build(
 		return aIndex < bIndex;
 	});
 
-	std::vector<size_t> uniqueIndices;
+	auto& uniqueIndices = mUniqueIndices;
+	uniqueIndices.clear();
 	uniqueIndices.reserve(orderedIndices.size());
-	std::vector<uint64_t> resolvedStableKeys(candidates.size(), 0);
+	auto& resolvedStableKeys = mResolvedStableKeys;
+	resolvedStableKeys.assign(candidates.size(), 0);
 	for (size_t first = 0; first < orderedIndices.size();)
 	{
 		size_t last = first + 1u;
@@ -79,7 +98,8 @@ void NRIEmissiveSamplingDistribution::Build(
 		first = last;
 	}
 	stats.uniqueCount = (uint32_t)uniqueIndices.size();
-	std::vector<uint64_t> liveKeys;
+	auto& liveKeys = mLiveKeys;
+	liveKeys.clear();
 	liveKeys.reserve(uniqueIndices.size());
 	for (size_t index : uniqueIndices)
 	{
@@ -99,7 +119,8 @@ void NRIEmissiveSamplingDistribution::Build(
 		}
 	}
 
-	std::vector<float> resolvedWeights(candidates.size(), 0.0f);
+	auto& resolvedWeights = mResolvedWeights;
+	resolvedWeights.assign(candidates.size(), 0.0f);
 	constexpr float BoundAbsoluteTolerance = 1e-6f;
 	constexpr float BoundRelativeTolerance = 1e-4f;
 	for (size_t index : uniqueIndices)
@@ -194,6 +215,7 @@ void NRIEmissiveSamplingDistribution::Build(
 	if (outEntries.empty())
 	{
 		outCdf.assign(1, 1.0f);
+		recordScratchGrowth();
 		if (outStats != nullptr)
 		{
 			*outStats = stats;
@@ -213,6 +235,7 @@ void NRIEmissiveSamplingDistribution::Build(
 		outCdf.push_back(i + 1u == outEntries.size() ? 1.0f : std::min(runningCdf, 1.0f));
 	}
 
+	recordScratchGrowth();
 	if (outStats != nullptr)
 	{
 		*outStats = stats;

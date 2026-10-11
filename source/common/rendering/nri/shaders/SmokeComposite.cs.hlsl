@@ -31,7 +31,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	else if (SmokeDebugMode(gSmokeConstants.DebugMode) == 5u)
 		color = max(volume.rgb, 0.0);
 	else if (SmokeDebugMode(gSmokeConstants.DebugMode) == 6u)
-		color = meta.w.xxx;
+		color = saturate(meta.w > 2.0 ? meta.w - 2.0 : meta.w).xxx;
 	else if (SmokeDebugMode(gSmokeConstants.DebugMode) == 7u)
 		color = meta.x.xxx;
 	gSmokeOutput[pixel] = float4(color, scene.a);

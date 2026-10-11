@@ -3,6 +3,7 @@
 #include "nri_resources.h"
 #include "nri_scene_lights.h"
 #include "nri_runtime_mutation_worklist.h"
+#include "nri_runtime_mutation_discovery.h"
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_builder.h"
@@ -64,6 +65,8 @@ enum RuntimeMutationWorklistCandidateSourceBits : uint32_t
 	RuntimeMutationWorklistCandidateSource_BackgroundSweep = 1 << 9,
 	RuntimeMutationWorklistCandidateSource_DeferredMaterialRefresh = 1 << 10,
 	RuntimeMutationWorklistCandidateSource_DeferredStructuralRebuild = 1 << 11,
+	RuntimeMutationWorklistCandidateSource_MotionSettle = 1 << 12,
+	RuntimeMutationWorklistCandidateSource_ValidationRecovery = 1 << 13,
 };
 
 const char* GetRuntimeMutationTraceActionName(RuntimeMutationTraceAction action);
@@ -382,7 +385,7 @@ public:
 		uint32_t chunkCount,
 		std::vector<RuntimeMutationResidentReplacementInfo>& outReplacements) const;
 	const RuntimeMapMutationCache::ChunkReplacement* FindReplacement(uint32_t chunkIndex) const;
-	RuntimeMapMutationCache::ChunkReplacement* FindReplacement(uint32_t chunkIndex);
+	RuntimeMapMutationCache::ChunkReplacement* FindReplacementForUpdate(uint32_t chunkIndex);
 	bool IsReplacementActive(uint32_t chunkIndex) const;
 	bool IsReplacementActiveAndValid(uint32_t chunkIndex) const;
 	uint32_t AppendSceneLightRecords(SceneLightSystem& sceneLights) const;
@@ -449,6 +452,7 @@ public:
 	bool SeedSignatureWatchlist(uint32_t chunkIndex);
 	bool IsSignatureWatchlistSeeded(uint32_t chunkIndex) const;
 	uint32_t GetSignatureWatchlistSeedCount() const;
+	const std::vector<uint32_t>& GetSignatureWatchlistChunks() const { return signatureWatchlistChunks; }
 	uint32_t GetWorklistSweepChunkIndex(uint32_t sweepOffset, uint32_t chunkCount) const;
 	void AdvanceWorklistSweepCursor(uint32_t sweepCount, uint32_t chunkCount);
 	void FinalizeFrameActive();
@@ -481,7 +485,9 @@ public:
 	RuntimeMutationCacheStats cacheHighWaterStats = {};
 	std::vector<RuntimeMutationResidentUploadRange> residentGeometryUploadRanges;
 	NRIRuntimeMutationWorklist worklist;
+	NRIRuntimeMutationDiscovery discovery;
 	std::vector<uint8_t> signatureWatchlist;
+	std::vector<uint32_t> signatureWatchlistChunks;
 	uint64_t signatureWatchlistBuildSerial = 0;
 	uint32_t worklistSweepCursor = 0;
 };

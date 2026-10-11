@@ -62,9 +62,13 @@
 #include <zvulkan/vulkanbuilders.h>
 #endif
 
+#ifdef HAVE_NRI
+#include "nri/system/nri_renderdevice.h"
+#endif
+
 // MACROS ------------------------------------------------------------------
 
-#if defined HAVE_VULKAN
+#if defined(HAVE_VULKAN) || defined(HAVE_NRI)
 #include <SDL_vulkan.h>
 #endif // HAVE_VULKAN
 
@@ -116,6 +120,7 @@ namespace Priv
 {
 	SDL_Window *window;
 	bool vulkanEnabled;
+	bool nriEnabled;
 	bool softpolyEnabled;
 	bool fullscreenSwitch;
 	int numberOfDisplays;
@@ -341,6 +346,16 @@ SDLVideo::SDLVideo ()
 		I_FatalError("Only SDL 2.0.6 or later is supported.");
 	}
 
+#ifdef HAVE_NRI
+	Priv::nriEnabled = V_GetBackend() == 4;
+	if (Priv::nriEnabled)
+	{
+		Priv::CreateWindow(SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN | (vid_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+		if (Priv::window == nullptr)
+			I_FatalError("NRI SDL window creation failed: %s", SDL_GetError());
+	}
+#endif
+
 #ifdef HAVE_VULKAN
 	Priv::vulkanEnabled = V_GetBackend() == 1;
 
@@ -361,6 +376,8 @@ SDLVideo::~SDLVideo ()
 #ifdef HAVE_VULKAN
 	surface.reset();
 #endif
+	if (Priv::nriEnabled)
+		Priv::DestroyWindow();
 }
 
 void SDLVideo::DumpAdapters()
@@ -381,6 +398,10 @@ void SDLVideo::DumpAdapters()
 
 DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 {
+#ifdef HAVE_NRI
+	if (Priv::nriEnabled)
+		return new NRIRenderDevice(nullptr, vid_fullscreen);
+#endif
 	SystemBaseFrameBuffer *fb = nullptr;
 
 	// first try Vulkan, if that fails OpenGL
@@ -458,8 +479,8 @@ int SystemBaseFrameBuffer::GetClientWidth()
 	int width = 0;
 
 
-#ifdef HAVE_VULKAN
-	assert(Priv::vulkanEnabled);
+#if defined(HAVE_VULKAN) || defined(HAVE_NRI)
+	assert(Priv::vulkanEnabled || Priv::nriEnabled);
 	SDL_Vulkan_GetDrawableSize(Priv::window, &width, nullptr);
 #endif
 
@@ -470,8 +491,8 @@ int SystemBaseFrameBuffer::GetClientHeight()
 {
 	int height = 0;
 
-#ifdef HAVE_VULKAN
-	assert(Priv::vulkanEnabled);
+#if defined(HAVE_VULKAN) || defined(HAVE_NRI)
+	assert(Priv::vulkanEnabled || Priv::nriEnabled);
 	SDL_Vulkan_GetDrawableSize(Priv::window, nullptr, &height);
 #endif
 
@@ -697,4 +718,14 @@ void I_SetWindowTitle(const char* caption)
 		default_caption.Format(GAMENAME " %s (%s)", GetVersionString(), GetGitTime());
 		SDL_SetWindowTitle(Priv::window, default_caption.GetChars());
 	}
+}
+
+SDL_Window* I_GetSDLWindowForNRI()
+{
+	return Priv::nriEnabled ? Priv::window : nullptr;
+}
+
+bool SystemBaseFrameBuffer::IsFullscreenModeActive() const
+{
+	return (SDL_GetWindowFlags(Priv::window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
 }

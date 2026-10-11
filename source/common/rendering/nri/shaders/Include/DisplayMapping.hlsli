@@ -2,6 +2,7 @@
 #define RAZE_NRI_PT_DISPLAY_MAPPING_HLSLI
 
 #include "PresentConstants.hlsli"
+#include "HdrOutputMath.hlsli"
 
 float SanitizeFiniteChannel(float value)
 {
@@ -181,9 +182,7 @@ float3 ApplySdrTonemap(float3 color, uint tonemapMode)
 
 float GetHdrSafePaperWhiteNits(float paperWhiteNits, float displaySdrLuminance, float displayMaxLuminance)
 {
-	const float safeDisplaySdr = max(displaySdrLuminance, 1.0);
-	const float safeDisplayMax = max(displayMaxLuminance, safeDisplaySdr);
-	return clamp(max(paperWhiteNits, safeDisplaySdr), safeDisplaySdr, safeDisplayMax);
+	return NriHdrScenePaperWhite(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
 }
 
 float GetHdrPaperWhiteScale(float paperWhiteNits, float displaySdrLuminance, float displayMaxLuminance)
@@ -193,16 +192,14 @@ float GetHdrPaperWhiteScale(float paperWhiteNits, float displaySdrLuminance, flo
 
 float GetHdrHeadroomInPaperWhites(float paperWhiteNits, float displaySdrLuminance, float displayMaxLuminance)
 {
-	const float safeDisplaySdr = max(displaySdrLuminance, 1.0);
-	const float safeDisplayMax = max(displayMaxLuminance, safeDisplaySdr);
+	const float safeDisplayMax = NriHdrSafePeak(displaySdrLuminance, displayMaxLuminance);
 	const float safePaperWhite = GetHdrSafePaperWhiteNits(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
 	return max(safeDisplayMax / safePaperWhite, 1.0);
 }
 
 float GetHdrMaxOutputScale(float paperWhiteNits, float displaySdrLuminance, float displayMaxLuminance)
 {
-	return GetHdrPaperWhiteScale(paperWhiteNits, displaySdrLuminance, displayMaxLuminance) *
-		GetHdrHeadroomInPaperWhites(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
+	return NriHdrSafePeak(displaySdrLuminance, displayMaxLuminance) / 80.0;
 }
 
 float3 ApplyHdrOutputMapping(
@@ -215,15 +212,22 @@ float3 ApplyHdrOutputMapping(
 	float displaySdrLuminance,
 	float displayMaxLuminance)
 {
-	const float paperWhiteScale = GetHdrPaperWhiteScale(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
 	const float headroomInPaperWhites = GetHdrHeadroomInPaperWhites(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
-	const float referenceInput = 1.0 / headroomInPaperWhites;
-	const float referenceCurve = max(ApplySdrTonemap(referenceInput.xxx, tonemapMode).x, 1e-5);
-	const float3 mappedPaperWhiteUnits = ApplySdrTonemap(color / headroomInPaperWhites, tonemapMode) / referenceCurve;
-	const float3 normalized = saturate(mappedPaperWhiteUnits / headroomInPaperWhites.xxx);
-	const float3 calibrated = ApplyDisplayCalibration(normalized, saturation, toe, shoulder);
-	const float3 restoredPaperWhiteUnits = min(calibrated * headroomInPaperWhites, headroomInPaperWhites.xxx);
-	return max(restoredPaperWhiteUnits * paperWhiteScale, 0.0);
+	const float3 peakRelativeInput = color / headroomInPaperWhites;
+	// Scene paper white is a brightness scale, not a finite input forced to
+	// display peak. Even at headroom == 1, brighter inputs keep rolling off.
+	const float3 normalized = float3(
+		NriHdrTonemapChannel(peakRelativeInput.x, tonemapMode),
+		NriHdrTonemapChannel(peakRelativeInput.y, tonemapMode),
+		NriHdrTonemapChannel(peakRelativeInput.z, tonemapMode));
+	const float3 shaped = ApplyDisplayToeAndShoulder(normalized, toe, shoulder);
+	const float luma = dot(shaped, float3(0.2126, 0.7152, 0.0722));
+	const float chromaScale = NriHdrSaturationScale(luma,
+		min(shaped.x, min(shaped.y, shaped.z)), max(shaped.x, max(shaped.y, shaped.z)), saturation);
+	const float3 calibrated = luma.xxx + (shaped - luma.xxx) * chromaScale;
+	// The final clamp handles roundoff only; the curve and chroma limiter
+	// already fit the display range, with no early highlight flattening.
+	return saturate(calibrated) * GetHdrMaxOutputScale(paperWhiteNits, displaySdrLuminance, displayMaxLuminance);
 }
 
 float LinearToSrgbChannel(float value)

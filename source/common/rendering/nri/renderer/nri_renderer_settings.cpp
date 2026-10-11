@@ -285,6 +285,7 @@ NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 	settings.pointLights = (bool)nri_ptsmokepointlights;
 	settings.directionalLight = (bool)nri_ptsmokedirectionallight;
 	settings.emissiveLights = (bool)nri_ptsmokeemissivelights;
+	settings.transientEmissiveLights = settings.emissiveLights;
 	settings.emissiveReuseMode = (uint32_t)std::clamp((int)nri_ptsmokeemissivereuse, 0, 2);
 	settings.emissiveReference = (bool)nri_ptsmokeemissivereference;
 	settings.emissivePointCandidates = (uint32_t)std::clamp((int)nri_ptsmokeemissivepoints, 1, 8);
@@ -330,6 +331,13 @@ NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 	settings.radianceScale = std::clamp((float)nri_ptsmokeradiancescale, 0.0f, 16.0f);
 	settings.indirectScale = std::clamp((float)nri_ptsmokeindirectscale, 0.0f, 16.0f);
 	settings.representation = (uint32_t)std::clamp((int)nri_ptsmokerepresentation, 0, 2);
+	settings.transientClassMask = (uint32_t)std::clamp((int)nri_ptsmoketransientmask, 0, 63);
+	settings.sourceClassMask = (uint32_t)std::clamp((int)nri_ptsmokesourceclassmask, 0, 63);
+	settings.transientSelfShadow = nri_ptsmoketransientselfshadow;
+	settings.transientCoverage = nri_ptsmoketransientcoverage;
+	settings.transientHistory = nri_ptsmoketransienthistory;
+	settings.actorEmitters = nri_ptsmokeactoremitters;
+	settings.mapEmitters = nri_ptsmokemapemitters;
 	settings.gridBrickCapacity = (uint32_t)std::clamp((int)nri_ptsmokegridbricks, 64, 4096);
 	settings.dormantGrid = (bool)nri_ptsmokedormantgrid;
 	settings.gridCellSize = std::clamp((float)nri_ptsmokegridcellsize, 1.0f, 64.0f);

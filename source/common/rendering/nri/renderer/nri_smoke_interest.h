@@ -57,6 +57,7 @@ struct NRISmokeInterestFrameInput
 	const nri_scene::PTMapWorld* mapWorld = nullptr;
 	const std::vector<uint32_t>* visibleChunkWords = nullptr;
 	const ResolvedLightOverlaySet* overlays = nullptr;
+	bool mapEmittersEnabled = true;
 };
 
 class NRISmokeInterestTracker

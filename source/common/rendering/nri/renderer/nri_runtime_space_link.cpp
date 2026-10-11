@@ -54,8 +54,8 @@ namespace
 
 bool NRIRenderer::BuildRuntimeSpaceLinkOverlay(HWDrawInfo& di, nri_scene::GeometryData& outGeometry, nri_scene::MaterialBridgeData& outMaterials)
 {
-	outGeometry = {};
-	outMaterials = {};
+	nri_scene::ClearGeometryRetainingCapacity(outGeometry);
+	nri_scene::ClearMaterialBridgeRetainingCapacity(outMaterials);
 	mRuntimeSpaceLinkLastFrame = {};
 	mRuntimeSpaceLinkLastFrame.orphanLocalSpaceCount = CountOrphanLocalSpaces(mMapWorld);
 	mRuntimeSpaceLinkLastFrame.unresolvedRuntimePortalCount = mMapWorld.stats.runtimePortalCount;

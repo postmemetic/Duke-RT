@@ -207,6 +207,7 @@ void NRITraceShaderStats::ClearReadbackSlot(uint32_t slotIndex)
 	ReadbackSlot& slot = mReadbackSlots[slotIndex];
 	slot.attribution.clear();
 	slot.frameNumber = 0;
+	slot.dispatchMetadata = {};
 	slot.fenceValue = 0;
 	slot.copySerial = 0;
 	slot.pending = false;
@@ -316,6 +317,7 @@ void NRITraceShaderStats::CopyForReadback(
 		0,
 		byteSize);
 	slot.frameNumber = input.frameNumber;
+	slot.dispatchMetadata = input.dispatchMetadata;
 	slot.fenceValue = fenceValue;
 	slot.copySerial = mNextCopySerial++;
 	slot.pending = true;
@@ -408,6 +410,7 @@ void NRITraceShaderStats::Readback(
 
 	outStats.valid = true;
 	outStats.frameNumber = slot.frameNumber;
+	outStats.dispatchMetadata = slot.dispatchMetadata;
 	std::memcpy(outStats.counters.data(), mapped, (size_t)byteSize);
 	outStats.hotInstanceCount = 0;
 	outStats.hotInstances = {};

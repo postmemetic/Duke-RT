@@ -34,7 +34,8 @@ public:
 		NRIAccelerationStructureResource& outAccelerationStructure,
 		bool updateDynamicPerfStats,
 		NRIBufferResource* buildScratchBuffer = nullptr,
-		nri::AccelerationStructureBits buildFlags = nri::AccelerationStructureBits::PREFER_FAST_BUILD);
+		nri::AccelerationStructureBits buildFlags = nri::AccelerationStructureBits::PREFER_FAST_BUILD,
+		bool recordDynamicOverlayGpuTiming = false);
 	static bool BuildEmissiveTopLevel(NRIRenderer& renderer);
 	static bool BuildTopLevel(
 		NRIRenderer& renderer,

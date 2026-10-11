@@ -72,6 +72,8 @@ struct NRIFrameGraphExecutionRequest
 const char* GetNRIFramePassName(NRIFramePass pass);
 bool IsNRIFrameGraphSupportedDebugMode(uint32_t debugMode);
 bool IsNRIFrameGraphRawTraceDebugMode(uint32_t debugMode);
+// Only these raw presenters are independent of all hit-lighting/radiance outputs.
+bool IsNRIFrameGraphLightingIndependentDebugMode(uint32_t debugMode);
 bool IsNRIFrameGraphFinalShaderDebugMode(uint32_t debugMode);
 NRIPresentRouteInfo ResolveNRIFrameRoute(const NRIFrameRouteRequest& request);
 bool ExecuteNRIFrameGraph(

@@ -484,6 +484,13 @@ void I_GetEvent ()
 	}
 }
 
+bool I_GetLateMouseMotion()
+{
+	// SDL event filtering needs its own ordered queue-head contract. Keep the
+	// render-only latch disabled rather than dispatch arbitrary window events.
+	return false;
+}
+
 void I_StartTic ()
 {
 	I_CheckGUICapture ();

@@ -1,4 +1,5 @@
 #include "nri_static_scene.h"
+#include "nri_static_scene_animated_bindings.h"
 #include "nri_cvars.h"
 
 #include "nri_renderer.h"
@@ -393,84 +394,6 @@ namespace
 		std::chrono::steady_clock::time_point mStart = {};
 	};
 
-	static FTextureID ResolveAuthoredTextureIdForStaticMapSurface(const nri_scene::PTMapSurface& surface)
-	{
-		const int32_t authoredTextureId = surface.surface.material.authoredTextureId;
-		if (authoredTextureId >= 0)
-		{
-			return FSetTextureID(authoredTextureId);
-		}
-		return FNullTextureID();
-	}
-
-	static bool IsAnimatedStaticMapSurfaceCandidate(const nri_scene::PTMapSurface& surface)
-	{
-		const FTextureID textureId = ResolveAuthoredTextureIdForStaticMapSurface(surface);
-		return textureId.isValid() && GetExtInfo(textureId).picanm.type() != 0;
-	}
-
-	static bool ChunkHasAnimatedStaticMapSurfaceCandidates(const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk)
-	{
-		const uint32_t endSurface = std::min<uint32_t>(chunk.firstSurface + chunk.surfaceCount, (uint32_t)mapWorld.surfaces.size());
-		for (uint32_t surfaceIndex = chunk.firstSurface; surfaceIndex < endSurface; ++surfaceIndex)
-		{
-			if (IsAnimatedStaticMapSurfaceCandidate(mapWorld.surfaces[surfaceIndex]))
-			{
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	static bool RefreshAnimatedBindingsForStaticMapChunk(
-		const nri_scene::PTMapWorld& mapWorld,
-		const nri_scene::PTMapChunk& chunk,
-		nri_scene::SceneView& ioChunkView)
-	{
-		uint32_t wallSurfaceIndex = 0;
-		uint32_t flatSurfaceIndex = 0;
-		const uint32_t endSurface = std::min<uint32_t>(chunk.firstSurface + chunk.surfaceCount, (uint32_t)mapWorld.surfaces.size());
-		for (uint32_t surfaceIndex = chunk.firstSurface; surfaceIndex < endSurface; ++surfaceIndex)
-		{
-			const auto& mapSurface = mapWorld.surfaces[surfaceIndex];
-			if ((mapSurface.surface.material.flags & nri_scene::MaterialFlag_Sky) != 0 && mapSurface.surface.material.texture != nullptr)
-			{
-				continue;
-			}
-
-			nri_scene::SurfaceRef* targetSurface = nullptr;
-			switch (mapSurface.kind)
-			{
-			case nri_scene::PTMapSurfaceKind::Floor:
-			case nri_scene::PTMapSurfaceKind::Ceiling:
-				if (flatSurfaceIndex >= ioChunkView.opaqueFlats.size())
-				{
-					return false;
-				}
-				targetSurface = &ioChunkView.opaqueFlats[flatSurfaceIndex++];
-				break;
-			default:
-				if (wallSurfaceIndex >= ioChunkView.opaqueWalls.size())
-				{
-					return false;
-				}
-				targetSurface = &ioChunkView.opaqueWalls[wallSurfaceIndex++];
-				break;
-			}
-
-			if (!IsAnimatedStaticMapSurfaceCandidate(mapSurface))
-			{
-				continue;
-			}
-
-			const FTextureID textureId = ResolveAuthoredTextureIdForStaticMapSurface(mapSurface);
-			FGameTexture* liveTexture = textureId.isValid() ? TexMan.GetGameTexture(textureId, true) : nullptr;
-			targetSurface->material.texture = liveTexture;
-		}
-
-		return wallSurfaceIndex == ioChunkView.opaqueWalls.size() && flatSurfaceIndex == ioChunkView.opaqueFlats.size();
-	}
 }
 
 void NRIRenderer::ResetResidentMapChunkRegistry()
@@ -589,13 +512,20 @@ bool NRIRenderer::RefreshStaticMapAnimatedMaterials()
 	input.runtimeAnimatedSuppressionEmitCount = &mLastPerfShellTraceStats.runtimeAnimatedSuppressionEmitCount;
 	input.traceStats = nri_ptscenestats;
 	input.traceMaterialBridgeFailures = nri_ptscenestats && ShouldTracePtPerf();
+	input.patchMaterials = nri_ptstaticmaterialpatch;
+	input.validateMaterialPatches = nri_ptstaticmaterialpatchvalidate;
 
 	NRIStaticSceneAnimatedMaterialRefreshServices services = {};
 	services.user = this;
 	services.refreshAnimatedBindingsForStaticMapChunk = [](void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk, nri_scene::SceneView& ioChunkView)
 	{
 		(void)user;
-		return RefreshAnimatedBindingsForStaticMapChunk(mapWorld, chunk, ioChunkView);
+		return nri_static_scene::RefreshAnimatedBindings(mapWorld, chunk, ioChunkView);
+	};
+	services.resolveAnimatedBindingsForStaticMapChunk = [](void*, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk,
+		const nri_scene::SceneView& chunkView, std::vector<FGameTexture*>& bindings)
+	{
+		return nri_static_scene::ResolveAnimatedBindings(mapWorld, chunk, chunkView, bindings);
 	};
 	services.buildMaterialsWithActorOverrides = [](void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label)
 	{
@@ -677,7 +607,7 @@ bool NRIRenderer::EnsureStaticMapScene()
 	};
 	staticSceneCacheBuildServices.chunkHasAnimatedStaticMapSurfaceCandidates = [](void*, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk)
 	{
-		return ChunkHasAnimatedStaticMapSurfaceCandidates(mapWorld, chunk);
+		return nri_static_scene::ChunkHasAnimatedSurfaceCandidates(mapWorld, chunk);
 	};
 	staticSceneCacheBuildServices.geometryBuildStaticChunkMs = &mLastPerfShellTraceStats.geometryBuildStaticChunkMs;
 	staticSceneCacheBuildServices.geometryBuildStaticChunkCalls = &mLastPerfShellTraceStats.geometryBuildStaticChunkCalls;
@@ -774,253 +704,6 @@ bool NRIRenderer::EnsureStaticMapScene()
 	return result;
 }
 
-bool nri_static_scene::RebuildResidentStaticMaterialBridgeFromChunks(
-	StaticMapSceneCache& staticScene,
-	const StaticMapChunkAtlas& atlas,
-	bool traceFailures)
-{
-	if (!atlas.valid || atlas.chunks.size() != staticScene.chunks.size())
-	{
-		return false;
-	}
-
-	nri_scene::MaterialBridgeData bridge = {};
-	std::vector<uint32_t> chunkListIndices;
-	chunkListIndices.reserve(staticScene.chunks.size());
-	for (uint32_t chunkListIndex = 0; chunkListIndex < staticScene.chunks.size(); ++chunkListIndex)
-	{
-		const auto& chunkCache = staticScene.chunks[chunkListIndex];
-		const auto& atlasChunk = atlas.chunks[chunkListIndex];
-		if (!chunkCache.active || !atlasChunk.valid || atlasChunk.materialCount == 0)
-		{
-			continue;
-		}
-
-		chunkListIndices.push_back(chunkListIndex);
-	}
-
-	std::sort(
-		chunkListIndices.begin(),
-		chunkListIndices.end(),
-		[&atlas](uint32_t lhs, uint32_t rhs)
-		{
-			const auto& lhsChunk = atlas.chunks[lhs];
-			const auto& rhsChunk = atlas.chunks[rhs];
-			if (lhsChunk.materialOffset != rhsChunk.materialOffset)
-			{
-				return lhsChunk.materialOffset < rhsChunk.materialOffset;
-			}
-
-			return lhs < rhs;
-		});
-
-	for (uint32_t chunkListIndex : chunkListIndices)
-	{
-		const auto& chunkCache = staticScene.chunks[chunkListIndex];
-		const auto& atlasChunk = atlas.chunks[chunkListIndex];
-
-		if (bridge.materials.size() < atlasChunk.materialOffset)
-		{
-			bridge.materials.resize(atlasChunk.materialOffset);
-			bridge.lightMetadata.resize(atlasChunk.materialOffset);
-		}
-
-		const uint32_t nextMaterialOffset = (uint32_t)bridge.materials.size();
-		if (nextMaterialOffset != atlasChunk.materialOffset ||
-			(uint32_t)chunkCache.materialBridge.materials.size() != atlasChunk.materialCount)
-		{
-			if (traceFailures)
-			{
-				Printf("NRI PT static scene trace: event=resident_material_bridge_failed chunk=%u atlas_offset=%u next_offset=%u atlas_count=%u bridge_count=%u\n",
-					chunkCache.chunkIndex,
-					atlasChunk.materialOffset,
-					nextMaterialOffset,
-					atlasChunk.materialCount,
-					(uint32_t)chunkCache.materialBridge.materials.size());
-			}
-			return false;
-		}
-
-		nri_scene::AppendMaterialBridge(chunkCache.materialBridge, bridge);
-	}
-
-	if (bridge.materials.size() < atlas.materialCount)
-	{
-		bridge.materials.resize(atlas.materialCount);
-		bridge.lightMetadata.resize(atlas.materialCount);
-	}
-
-	staticScene.materialBridge = std::move(bridge);
-	++staticScene.materialGeneration;
-	if (staticScene.materialGeneration == 0)
-	{
-		staticScene.materialGeneration = 1;
-	}
-	return true;
-}
-
-bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
-	const NRIStaticSceneAnimatedMaterialRefreshInput& input,
-	const NRIStaticSceneAnimatedMaterialRefreshServices& services)
-{
-	if (input.mapWorld == nullptr || input.staticScene == nullptr || input.atlas == nullptr)
-	{
-		return true;
-	}
-
-	const nri_scene::PTMapWorld& mapWorld = *input.mapWorld;
-	StaticMapSceneCache& staticScene = *input.staticScene;
-	const StaticMapChunkAtlas& atlas = *input.atlas;
-	if (!staticScene.valid ||
-		!staticScene.texturesResident ||
-		!staticScene.buffersResident ||
-		!staticScene.accelerationResident ||
-		staticScene.buildSerial != mapWorld.buildSerial)
-	{
-		return true;
-	}
-
-	bool refreshedAnyChunk = false;
-	uint32_t refreshedChunkCount = 0;
-	const auto recoverStaticScene = [&](const char* reason) -> bool
-	{
-		return services.recoverStaticScene != nullptr ?
-			services.recoverStaticScene(services.user, reason) :
-			false;
-	};
-	const auto suppressAnimatedChunkRefresh = [&](StaticMapSceneCache::ChunkCache& targetChunk, const char* reason)
-	{
-		if (targetChunk.animatedRefreshSuppressed)
-		{
-			return;
-		}
-
-		targetChunk.animatedRefreshSuppressed = true;
-		staticScene.animatedRefreshSuppressedChunkCount++;
-		if (input.registry != nullptr &&
-			targetChunk.chunkIndex < input.registry->entries.size() &&
-			input.registry->entries[targetChunk.chunkIndex].valid)
-		{
-			auto& entry = input.registry->entries[targetChunk.chunkIndex];
-			entry.animatedRefreshSuppressed = true;
-			entry.animatedSuppressionEmitCount++;
-		}
-		if (input.runtimeAnimatedSuppressionEmitCount != nullptr)
-		{
-			(*input.runtimeAnimatedSuppressionEmitCount)++;
-		}
-		if (input.traceStats)
-		{
-			Printf("NRI PT static scene anim: suppressing chunk=%u resident animated refresh (%s).\n",
-				targetChunk.chunkIndex,
-				reason != nullptr ? reason : "unknown");
-		}
-	};
-
-	for (size_t chunkListIndex = 0; chunkListIndex < staticScene.chunks.size(); ++chunkListIndex)
-	{
-		auto& chunkCache = staticScene.chunks[chunkListIndex];
-		if (chunkListIndex >= staticScene.lightChunkViews.size() || chunkCache.chunkIndex >= mapWorld.chunks.size())
-		{
-			return recoverStaticScene("animated-refresh-layout-mismatch");
-		}
-		if (!chunkCache.active)
-		{
-			continue;
-		}
-		if (!chunkCache.hasAnimatedTextureCandidates ||
-			chunkCache.animatedRefreshSuppressed ||
-			input.visibleChunkWords == nullptr ||
-			!nri_runtime_mutation::IsChunkMarkedVisible(*input.visibleChunkWords, chunkCache.chunkIndex))
-		{
-			continue;
-		}
-
-		nri_scene::SceneView liveChunkView = staticScene.lightChunkViews[chunkListIndex];
-		if (services.refreshAnimatedBindingsForStaticMapChunk == nullptr ||
-			!services.refreshAnimatedBindingsForStaticMapChunk(services.user, mapWorld, mapWorld.chunks[chunkCache.chunkIndex], liveChunkView))
-		{
-			suppressAnimatedChunkRefresh(chunkCache, "surface-mapping-mismatch");
-			continue;
-		}
-		const uint64_t liveAnimatedMaterialSignature = nri_runtime_mutation::ComputeAnimatedMaterialSignature(liveChunkView);
-		if (liveAnimatedMaterialSignature == chunkCache.animatedMaterialSignature)
-		{
-			continue;
-		}
-
-		const uint64_t liveAnimatedGeometrySignature = nri_runtime_mutation::ComputeAnimatedGeometrySignature(liveChunkView);
-		if (liveAnimatedGeometrySignature != chunkCache.animatedGeometrySignature)
-		{
-			staticScene.animatedGeometryFallbackCount++;
-			suppressAnimatedChunkRefresh(chunkCache, "display-metric-mismatch");
-			continue;
-		}
-
-		nri_scene::MaterialBridgeData liveChunkMaterials;
-		{
-			Clocker clock(NriPTMaterialBuild);
-			if (services.buildMaterialsWithActorOverrides != nullptr)
-			{
-				services.buildMaterialsWithActorOverrides(services.user, liveChunkView, liveChunkMaterials, "static_map_anim_chunk");
-			}
-		}
-		if ((uint32_t)liveChunkMaterials.materials.size() != chunkCache.materialCount)
-		{
-			staticScene.animatedGeometryFallbackCount++;
-			suppressAnimatedChunkRefresh(chunkCache, "material-slice-mismatch");
-			continue;
-		}
-
-		staticScene.lightChunkViews[chunkListIndex] = std::move(liveChunkView);
-		chunkCache.materialBridge = std::move(liveChunkMaterials);
-		chunkCache.animatedMaterialSignature = liveAnimatedMaterialSignature;
-		refreshedAnyChunk = true;
-		refreshedChunkCount++;
-	}
-
-	if (!refreshedAnyChunk)
-	{
-		return true;
-	}
-
-	nri_scene::BuildMapSceneView(mapWorld, staticScene.sceneView, input.preservedSkyView);
-	if (!RebuildResidentStaticMaterialBridgeFromChunks(
-		staticScene,
-		atlas,
-		input.traceMaterialBridgeFailures))
-	{
-		staticScene.animatedGeometryFallbackCount++;
-		return recoverStaticScene("animated-refresh-material-bridge-failed");
-	}
-
-	const bool uploaded =
-		services.ensurePaletteTexture != nullptr &&
-		services.ensurePaletteTexture(services.user, staticScene.materialBridge) &&
-		services.ensureSceneTextures != nullptr &&
-		services.ensureSceneTextures(services.user, staticScene.sceneView, staticScene.materialBridge, staticScene.gpuMaterials, false, "static_map_scene_anim") &&
-		services.uploadStaticMaterialAtlas != nullptr &&
-		services.uploadStaticMaterialAtlas(services.user);
-	if (!uploaded)
-	{
-		return recoverStaticScene("animated-refresh-upload-failed");
-	}
-
-	staticScene.texturesResident = true;
-	staticScene.buffersResident = true;
-	staticScene.gpuUploadCount++;
-	staticScene.animatedRefreshCount += refreshedChunkCount;
-	staticScene.animatedRefreshUploadCount++;
-	if (services.syncResidentRegistry != nullptr)
-	{
-		services.syncResidentRegistry(services.user);
-	}
-	if (services.markUploadedStaticMapSceneLastFrame != nullptr)
-	{
-		services.markUploadedStaticMapSceneLastFrame(services.user);
-	}
-	return true;
-}
 
 bool nri_static_scene::RefreshStaticMapSceneMaterialLighting(
 	const NRIStaticSceneMaterialLightingRefreshInput& input,
@@ -1914,6 +1597,9 @@ void nri_static_scene::InitializeStaticMapSceneCacheBuild(
 	outStaticScene.texturesResident = false;
 	outStaticScene.buffersResident = false;
 	outStaticScene.accelerationResident = false;
+	// This publication identity survives same-map cache destruction/reconstruction.
+	static uint64_t nextContentBuildSerial = 0;
+	outStaticScene.contentBuildSerial = ++nextContentBuildSerial;
 	outStaticScene.buildSerial = mapWorld.buildSerial;
 	outStaticScene.materialGeneration = 1;
 	outStaticScene.sceneBuildCount = 0;
@@ -1925,9 +1611,13 @@ void nri_static_scene::InitializeStaticMapSceneCacheBuild(
 	outStaticScene.animatedGeometryFallbackCount = 0;
 	outStaticScene.animatedRefreshSuppressedChunkCount = 0;
 	outStaticScene.reuseCount = 0;
+	outStaticScene.animatedMaterials = {};
+	outStaticScene.animatedMaterials.canonicalTopologyRevision = mapWorld.topologyRevision;
+	outStaticScene.animatedMaterials.aggregateSkyPreserved = preservedSkyState != nullptr;
 	outStaticScene.sceneView = {};
 	outStaticScene.lightChunkViews.clear();
 	outStaticScene.geometry = {};
+	++outStaticScene.geometryGeneration;
 	outStaticScene.materialBridge = {};
 	outStaticScene.gpuMaterials.clear();
 	outStaticScene.chunks.clear();
@@ -2023,6 +1713,7 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 	chunkCache.animatedRefreshSuppressed = false;
 
 	AppendGeometry(chunkGeometry, chunkCache.materialOffset, outStaticScene.geometry);
+	++outStaticScene.geometryGeneration;
 	nri_scene::AppendMaterialBridge(chunkMaterials, outStaticScene.materialBridge);
 	chunkCache.geometryPayloadHash = nri_static_scene_geometry::HashResidentGeometryPayload(
 		mapWorld,
@@ -2042,6 +1733,7 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 	}
 	outStaticScene.lightChunkViews.push_back(std::move(chunkSceneView));
 	outStaticScene.chunks.push_back(std::move(chunkCache));
+	UpdateAnimatedMaterialCandidate(outStaticScene, (uint32_t)outStaticScene.chunks.size() - 1u);
 }
 
 bool nri_static_scene::BuildStaticMapSceneCache(

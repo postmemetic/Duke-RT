@@ -627,6 +627,7 @@ bool RebuildResidentStaticCpuAtlasMirror(
 			chunkCache.primitiveCount = 0;
 			chunkCache.materialCount = 0;
 			chunkCache.geometryPayloadHash = 0;
+			nri_static_scene::UpdateAnimatedMaterialCandidate(staticScene, (uint32_t)chunkListIndex);
 			continue;
 		}
 
@@ -662,6 +663,7 @@ bool RebuildResidentStaticCpuAtlasMirror(
 		chunkCache.primitiveCount = atlasChunk.primitiveCount;
 		chunkCache.materialOffset = atlasChunk.materialOffset;
 		chunkCache.materialCount = atlasChunk.materialCount;
+		nri_static_scene::UpdateAnimatedMaterialCandidate(staticScene, (uint32_t)chunkListIndex);
 		chunkCache.geometryPayloadHash = HashResidentGeometryPayload(
 			mapWorld,
 			atlasGeometry,
@@ -676,6 +678,7 @@ bool RebuildResidentStaticCpuAtlasMirror(
 	}
 
 	staticScene.geometry = std::move(atlasGeometry);
+	++staticScene.geometryGeneration;
 	staticScene.gpuMaterials = std::move(atlasGpuMaterials);
 	return true;
 }

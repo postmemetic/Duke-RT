@@ -132,6 +132,15 @@ bool NRIPassDispatchContext::SceneBindingService::BindSceneRootDescriptors() con
 	return bindSceneRootDescriptors != nullptr && bindSceneRootDescriptors(user);
 }
 
+uint32_t NRIPassDispatchContext::SceneBindingService::RecordStaticTangents(uint32_t count, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand) const
+{
+	return recordStaticTangents != nullptr ? recordStaticTangents(user, count, supported, diagnosticWindow, consumingCommand) : 0u;
+}
+NRIStaticTangentDispatchState NRIPassDispatchContext::SceneBindingService::StaticTangentState() const
+{
+	return staticTangentState != nullptr ? staticTangentState(user) : NRIStaticTangentDispatchState{};
+}
+
 void NRIPassDispatchContext::ExposureService::ReadbackAutoExposureStats() const
 {
 	readbackAutoExposureStats(user);
@@ -225,7 +234,10 @@ bool NRIPassDispatchContext::SmokeService::DispatchRoute(const NRISmokeRouteDesc
 
 NRIPassDispatchContext::FrameTextureSlot NRIPassDispatchContext::SmokeService::GetVolumeSlot(bool metadata) const
 {
-	return getVolumeSlot != nullptr ? (FrameTextureSlot)getVolumeSlot(user, metadata) : FrameTextureSlot::Count;
+	const uint32_t slot = getVolumeSlot != nullptr ? getVolumeSlot(user, metadata) : UINT32_MAX;
+	// Smoke snapshots use UINT32_MAX for empty/disabled output. Consumers use
+	// Count as their typed sentinel; never expose an out-of-range texture index.
+	return slot < (uint32_t)FrameTextureSlot::Count ? (FrameTextureSlot)slot : FrameTextureSlot::Count;
 }
 
 NRIIndirectRadianceCachePrepareResult NRIPassDispatchContext::IndirectRadianceCacheService::Prepare(bool enabled) const

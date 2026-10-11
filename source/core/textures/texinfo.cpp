@@ -36,6 +36,18 @@
 #include "texinfo.h"
 #include "m_crc32.h"
 #include "buildtiles.h"
+#include "c_cvars.h"
+#include "printf.h"
+
+// Session-only benchmark control. Pin texture animation before map capture
+// without changing the clocks consumed by gameplay or performance timers.
+CUSTOM_CVAR(Int, perf_tileanimationtime_ms, -1, 0)
+{
+	if (self < -1)
+	{
+		self = -1;
+	}
+}
 
 
 //==========================================================================
@@ -50,7 +62,16 @@ static int tileAnimateOfs(FTextureID texid, int randomize)
 	int framecount = ext.picanm.num;
 	if (framecount > 0)
 	{
-		int frametime = !isBlood() ? I_GetBuildTime() : PlayClock;
+		const int fixedTimeMs = perf_tileanimationtime_ms;
+		int frametime = fixedTimeMs >= 0 ? int(int64_t(fixedTimeMs) * 120 / 1000) :
+			(!isBlood() ? I_GetBuildTime() : PlayClock);
+		static int lastReportedTimeMs = -1;
+		if (fixedTimeMs != lastReportedTimeMs)
+		{
+			Printf("PERF tile animation clock: requested_ms=%d build_tics=%d pinned=%d blood=%d\n",
+				fixedTimeMs, frametime, fixedTimeMs >= 0 ? 1 : 0, isBlood() ? 1 : 0);
+			lastReportedTimeMs = fixedTimeMs;
+		}
 
 		if (isBlood() && randomize)
 		{
@@ -119,5 +140,4 @@ int tilehasmodelorvoxel(FTextureID texid, int pal)
 	*/
 	return false;
 }
-
 

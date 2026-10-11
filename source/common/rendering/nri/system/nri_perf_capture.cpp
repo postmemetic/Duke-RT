@@ -15,6 +15,11 @@ void NRIRenderDevice::CaptureCompactPerfRendererStats(bool rendered)
 	stats.traceRendererFrame = shell.traceRendererFrame;
 	stats.traceSettingsKey = shell.traceSettingsKey;
 	stats.traceWorkloadKey = shell.traceWorkloadKey;
+	stats.traceSettingsKeyWithoutStaticTangent = shell.traceSettingsKeyWithoutStaticTangent;
+	stats.traceWorkloadKeyWithoutStaticTangent = shell.traceWorkloadKeyWithoutStaticTangent;
+	stats.traceStaticTangentRequested = shell.traceStaticTangentRequested;
+	stats.traceStaticTangentActive = shell.traceStaticTangentActive;
+	stats.traceAux1 = shell.traceAux1;
 	stats.totalMs = shell.totalMs;
 	stats.initMs = shell.initResourcesMs;
 	stats.mapMs = shell.mapWorldMs;

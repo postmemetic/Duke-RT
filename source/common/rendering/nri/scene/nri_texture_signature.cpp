@@ -12,7 +12,9 @@
 #endif
 
 #include <algorithm>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace
 {
@@ -28,14 +30,18 @@ namespace
 		}
 
 		FTexture* baseTexture = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			baseTexture = texture->GetTexture();
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			baseTexture = nullptr;
 		}
+#endif
 
 		return baseTexture;
 	}
@@ -70,14 +76,18 @@ namespace
 		}
 
 		FGameTexture* face = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			face = skybox->GetSkyFace(index);
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			face = nullptr;
 		}
+#endif
 
 		return IsUsableGameTexturePointer(face) ? face : nullptr;
 	}
@@ -90,14 +100,18 @@ namespace
 		}
 
 		FGameTexture* previous = nullptr;
+#ifdef _WIN32
 		__try
+#endif
 		{
 			previous = skybox->previous;
 		}
+#ifdef _WIN32
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 			previous = nullptr;
 		}
+#endif
 
 		return IsUsableGameTexturePointer(previous) ? previous : nullptr;
 	}

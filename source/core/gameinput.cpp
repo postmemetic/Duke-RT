@@ -33,6 +33,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //---------------------------------------------------------------------------
 
 CVAR(Bool, cl_noturnscaling, false, CVAR_GLOBALCONFIG | CVAR_ARCHIVE);
+CVAR(Bool, cl_latelatchmouse, true, CVAR_GLOBALCONFIG | CVAR_ARCHIVE);
 CVAR(Float, m_pitch, 1.f, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 CVAR(Float, m_yaw, 1.f, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 CVAR(Float, m_forward, 1.f, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
@@ -111,6 +112,115 @@ void GameInput::resetCrouchToggle()
 	crouch_toggle = false;
 }
 
+bool GameInput::LateMouseLatchEnabled() const
+{
+	return cl_latelatchmouse;
+}
+
+void GameInput::applyLocalCameraDelta(const DRotator& delta)
+{
+	if (PlayerArray[myconnectindex] == nullptr)
+	{
+		return;
+	}
+	PlayerArray[myconnectindex]->CameraAngles += delta;
+	if (delta.Yaw.Degrees() != 0.0 || delta.Pitch.Degrees() != 0.0)
+	{
+		PerfLoopTraceNoteFastCameraApply((float)delta.Yaw.Degrees(), (float)delta.Pitch.Degrees());
+	}
+}
+
+void GameInput::reconcileLocalCamera(
+	const DRotator& commandAngles,
+	const DRotator& commandMouseAngles,
+	bool yawLook,
+	bool pitchLook)
+{
+	const DRotator provisional = lateAppliedMouseAngles;
+	if (SyncInput())
+	{
+		applyLocalCameraDelta(-provisional);
+		PerfInputLineageNoteRenderMouseSample(
+			yawLook,
+			pitchLook,
+			(float)-provisional.Yaw.Degrees(),
+			(float)-provisional.Pitch.Degrees(),
+			false);
+	}
+	else
+	{
+		applyLocalCameraDelta(commandAngles - provisional);
+		const DRotator mouseDelta = commandMouseAngles - provisional;
+		PerfInputLineageNoteRenderMouseSample(
+			yawLook,
+			pitchLook,
+			(float)mouseDelta.Yaw.Degrees(),
+			(float)mouseDelta.Pitch.Degrees(),
+			false);
+	}
+	lateAppliedMouseAngles = {};
+}
+
+DRotator GameInput::getDesiredLateMouseAngles()
+{
+	DRotator result = {};
+	if (lateMouseRoute.mode == LateMouseMode::Movement)
+	{
+		if (lateMouseRoute.yawLook)
+		{
+			result.Yaw = MOUSE_SCALE * mouseInput.X * m_yaw * lateMouseRoute.turnscale;
+		}
+		if (lateMouseRoute.pitchLook)
+		{
+			result.Pitch = -MOUSE_SCALE * mouseInput.Y * m_pitch * lateMouseRoute.turnscale;
+		}
+	}
+	else if (lateMouseRoute.mode == LateMouseMode::Vehicle &&
+		(lateMouseRoute.vehicleFlags & VEH_CANTURN) != 0)
+	{
+		const auto hidLeft = mouseInput.X < 0 || joyAxes[JOYAXIS_Yaw] > 0;
+		const auto hidRight = mouseInput.X > 0 || joyAxes[JOYAXIS_Yaw] < 0;
+		const auto hidDir = hidRight - hidLeft;
+		const auto scaleVel = !(lateMouseRoute.vehicleFlags & VEH_SCALETURN) &&
+			(cl_noturnscaling || hidDir || isTurboTurnTime());
+		const auto turnVel = scaleVel
+			? lateMouseRoute.vehicleBaseVel
+			: lateMouseRoute.vehicleBaseVel * lateMouseRoute.vehicleVelScale;
+		const auto mouseVel = abs(turnVel * mouseInput.X * m_yaw) * (45. / 2048.) / scaleAdjust;
+		result.Yaw = DAngle::fromDeg(
+			((mouseVel > 1) ? g_sqrt(mouseVel) : mouseVel) *
+			Sgn(turnVel) * Sgn(mouseInput.X) * Sgn(m_yaw)) * scaleAdjust;
+	}
+	return result;
+}
+
+bool GameInput::ApplyLateMouseLook()
+{
+	if (!cl_latelatchmouse || SyncInput() || lateMouseRoute.mode == LateMouseMode::None)
+	{
+		CancelLateMouseLook();
+		return false;
+	}
+
+	const DRotator desired = getDesiredLateMouseAngles();
+	const DRotator delta = desired - lateAppliedMouseAngles;
+	applyLocalCameraDelta(delta);
+	lateAppliedMouseAngles = desired;
+	PerfInputLineageNoteRenderMouseSample(
+		lateMouseRoute.yawLook,
+		lateMouseRoute.pitchLook,
+		(float)delta.Yaw.Degrees(),
+		(float)delta.Pitch.Degrees(),
+		true);
+	return true;
+}
+
+void GameInput::CancelLateMouseLook()
+{
+	applyLocalCameraDelta(-lateAppliedMouseAngles);
+	lateAppliedMouseAngles = {};
+}
+
 
 //---------------------------------------------------------------------------
 //
@@ -122,10 +232,20 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 {
 	// set up variables.
 	InputPacket thisInput{};
+	DRotator mouseAngles{};
 	keymove = 1 << int(!!(inputBuffer.actions & SB_RUN));
 	const auto hidspeed = getTicrateAngle(YAW_TURNSPEEDS[2]);
 	const bool yawUsesMouseLook = !(buttonMap.ButtonDown(gamefunc_Strafe) && allowstrafe);
 	const bool pitchUsesMouseLook = !(inputBuffer.actions & SB_AIMMODE);
+	lateMouseRoute = {
+		LateMouseMode::Movement,
+		turnscale,
+		0.0,
+		0.0,
+		0,
+		yawUsesMouseLook,
+		pitchUsesMouseLook,
+	};
 
 	// get all input amounts.
 	const auto turning = buttonMap.ButtonDown(gamefunc_Turn_Right) -
@@ -143,6 +263,7 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 		buttonMap.ButtonDown(gamefunc_Move_Down) +
 		joyAxes[JOYAXIS_Up] * scaleAdjust;
 
+	PerfInputLineageNoteInputMode(SyncInput());
 	PerfLoopTraceNoteMouseRoute(yawUsesMouseLook, pitchUsesMouseLook, mouseInput.X, mouseInput.Y);
 
 	// process player yaw input.
@@ -152,9 +273,11 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 		const double tttscale = (cl_noturnscaling || isTurboTurnTime()) ? 1 : PRETURBOTURNSCALE;
 		const DAngle turnspeed = getTicrateAngle(YAW_TURNSPEEDS[keymove] * tttscale);
 		thisInput.ang.Yaw += MOUSE_SCALE * mouseInput.X * m_yaw;
+		mouseAngles.Yaw = thisInput.ang.Yaw;
 		thisInput.ang.Yaw -= hidspeed * joyAxes[JOYAXIS_Yaw] * scaleAdjust;
 		thisInput.ang.Yaw += turnspeed * turndir * scaleAdjust;
 		thisInput.ang.Yaw *= turnscale;
+		mouseAngles.Yaw *= turnscale;
 		if (turndir) updateTurnHeldAmt(); else turnheldtime = 0;
 	}
 	else
@@ -168,8 +291,10 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 	if (pitchUsesMouseLook)
 	{
 		thisInput.ang.Pitch -= MOUSE_SCALE * mouseInput.Y * m_pitch;
+		mouseAngles.Pitch = thisInput.ang.Pitch;
 		thisInput.ang.Pitch -= hidspeed * joyAxes[JOYAXIS_Pitch] * scaleAdjust;
 		thisInput.ang.Pitch *= turnscale;
+		mouseAngles.Pitch *= turnscale;
 	}
 	else
 	{
@@ -195,11 +320,7 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 	// In unsynced mode, local view response must always be driven from this path.
 	// Lagged frames can push scaleAdjust above 1, so gating on the fraction creates
 	// a dead zone where ticcmds are built but neither the local camera nor actor moves.
-	if (!SyncInput())
-	{
-		PlayerArray[myconnectindex]->CameraAngles += thisInput.ang;
-		PerfLoopTraceNoteFastCameraApply((float)thisInput.ang.Yaw.Degrees(), (float)thisInput.ang.Pitch.Degrees());
-	}
+	reconcileLocalCamera(thisInput.ang, mouseAngles, yawUsesMouseLook, pitchUsesMouseLook);
 }
 
 
@@ -213,6 +334,18 @@ void GameInput::processVehicle(const double baseVel, const double velScale, cons
 {
 	// open up input packet for this session.
 	InputPacket thisInput{};
+	DRotator mouseAngles{};
+	lateMouseRoute = {
+		LateMouseMode::Vehicle,
+		1.0,
+		baseVel,
+		velScale,
+		flags,
+		(flags & VEH_CANTURN) != 0,
+		false,
+	};
+	PerfInputLineageNoteInputMode(SyncInput());
+	PerfLoopTraceNoteMouseRoute((flags & VEH_CANTURN) != 0, false, mouseInput.X, mouseInput.Y);
 
 	// mask out all actions not compatible with vehicles.
 	inputBuffer.actions &= ~(SB_WEAPONMASK_BITS | SB_TURNAROUND | SB_CENTERVIEW | SB_HOLSTER | SB_JUMP | SB_CROUCH | SB_RUN | 
@@ -248,8 +381,10 @@ void GameInput::processVehicle(const double baseVel, const double velScale, cons
 
 		// Apply inputs.
 		thisInput.ang.Yaw += DAngle::fromDeg(((mouseVel > 1) ? g_sqrt(mouseVel) : mouseVel) * Sgn(turnVel) * Sgn(mouseInput.X) * Sgn(m_yaw));
+		mouseAngles.Yaw = thisInput.ang.Yaw;
 		thisInput.ang.Yaw -= DAngle::fromDeg(turnVel * joyAxes[JOYAXIS_Yaw] - turnVel * kbdDir);
 		thisInput.ang.Yaw *= scaleAdjust;
+		mouseAngles.Yaw *= scaleAdjust;
 		inputBuffer.ang.Yaw += thisInput.ang.Yaw;
 		if (kbdDir) updateTurnHeldAmt(); else turnheldtime = 0;
 	}
@@ -259,11 +394,7 @@ void GameInput::processVehicle(const double baseVel, const double velScale, cons
 	}
 
 	// Unsynced vehicle turning uses the same immediate local-camera path.
-	if (!SyncInput())
-	{
-		PlayerArray[myconnectindex]->CameraAngles += thisInput.ang;
-		PerfLoopTraceNoteFastCameraApply((float)thisInput.ang.Yaw.Degrees(), 0.0f);
-	}
+	reconcileLocalCamera(thisInput.ang, mouseAngles, (flags & VEH_CANTURN) != 0, false);
 }
 
 
@@ -379,6 +510,10 @@ void GameInput::getInput(InputPacket* packet)
 
 	if (M_Active() || gamestate != GS_LEVEL)
 	{
+		CancelLateMouseLook();
+		PerfInputLineageDiscardPendingMouse();
+		mouseInput.Zero();
+		lateMouseRoute = {};
 		inputBuffer = {};
 		return;
 	}
@@ -386,6 +521,8 @@ void GameInput::getInput(InputPacket* packet)
 	I_GetAxes(joyAxes);
 	processInputBits();
 	if (!paused) gi->doPlayerMovement();
+	else CancelLateMouseLook();
+	PerfInputLineageNoteCommandSample(!paused);
 	PerfLoopTraceNoteGameInputSample(mouseInput.X, mouseInput.Y);
 	mouseInput.Zero();
 

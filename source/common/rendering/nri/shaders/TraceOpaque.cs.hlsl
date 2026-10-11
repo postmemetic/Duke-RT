@@ -1,10 +1,20 @@
+#if defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY) && defined(NRI_INDIRECT_RADIANCE_CACHE)
+#error Geometry debug elision must not remove the indirect radiance cache producer.
+#endif
+
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 // Selects the SeaScape-style D3D evaluator or the validated SPIR-V compatibility path.
 #include "Include/FluidSurface.hlsli"
+#include "Include/WallDecals.hlsli"
+#include "Include/PrimaryTemporalGeometry.hlsli"
+#if NRI_SHADER_DIAGNOSTICS
+#include "Include/PrimaryTemporalGeometryOracle.hlsli"
+#endif
 #include "Include/AnalyticLightSampling.hlsli"
 #include "Include/DirectionalLightSampling.hlsli"
+#include "Include/EmissiveResponseLookup.hlsli"
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 #include "Include/IndirectRadianceCacheTrace.hlsli"
 #endif
@@ -203,12 +213,6 @@ float3 DecodeTemporalNormal(float2 encoded)
 		normal.xy = (1.0 - abs(normal.yx)) * float2(normal.x < 0.0 ? -1.0 : 1.0, normal.y < 0.0 ? -1.0 : 1.0);
 	}
 	return normalize(normal);
-}
-
-uint4 GetPrimaryTemporalIdentity(HitData hit)
-{
-	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
-	return uint4(primitive.temporalSurfaceId, primitive.temporalGeneration, primitive.temporalFlags);
 }
 
 bool IsTemporalHistoryReset()
@@ -410,6 +414,21 @@ void RecordMotionAudit(
 	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_VALID] = 1u;
 }
 
+#if NRI_SHADER_DIAGNOSTICS
+// Applicability only: identity-dot and no-instance arithmetic are not merged.
+bool IsStaticIdentityLodProfileHit(HitData hit)
+{
+	if (hit.dataSource != SCENE_DATA_SOURCE_STATIC ||
+		hit.primitiveIndex >= gTraceConstants.StaticPrimitiveCount ||
+		hit.instanceId == 0xffffffffu || hit.instanceId >= gTraceConstants.SceneInstanceCount)
+		return false;
+	const SceneInstanceData instance = GetSceneInstanceData(hit.instanceId);
+	return instance.dataSource == SCENE_DATA_SOURCE_STATIC &&
+		all(asuint(instance.currentTransformRow0) == uint4(0x3f800000u, 0u, 0u, 0u)) &&
+		all(asuint(instance.currentTransformRow1) == uint4(0u, 0x3f800000u, 0u, 0u)) &&
+		all(asuint(instance.currentTransformRow2) == uint4(0u, 0u, 0x3f800000u, 0u));
+}
+#endif
 float3 ResolvePrimaryFootprintVertexPosition(HitData hit, float3 localPosition)
 {
 	if (hit.instanceId != 0xffffffffu)
@@ -444,6 +463,9 @@ bool TryResolvePrimaryBaseColorLod(
 {
 	selectedLod = 0.0;
 	mipCount = 0u;
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_PRIMARY_LOD_CALLS, 1u);
+#endif
 	if (material.textureIndex == 0xffffffffu)
 	{
 		return false;
@@ -466,6 +488,10 @@ bool TryResolvePrimaryBaseColorLod(
 		return true;
 	}
 
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_EXPENSIVE, 1u);
+	const bool lodProfileStaticIdentity = IsStaticIdentityLodProfileHit(hit);
+#endif
 	const PrimitiveData primitive = GetPrimitiveData(
 		hit.dataSource, hit.primitiveIndex);
 	const float3 p0 = ResolvePrimaryFootprintVertexPosition(
@@ -484,8 +510,14 @@ bool TryResolvePrimaryBaseColorLod(
 		!all(isfinite(p0)) || !all(isfinite(p1)) || !all(isfinite(p2)) ||
 		!isfinite(hit.distance))
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_GEOMETRY_FALLBACK, 1u);
+#endif
 		return true;
 	}
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_STATIC_IDENTITY, lodProfileStaticIdentity ? 1u : 0u);
+#endif
 
 	// Gradients of the UV coordinates over the placed triangle. Portal-path
 	// distance remains an approximation until HitData carries the accumulated
@@ -519,12 +551,20 @@ bool TryResolvePrimaryBaseColorLod(
 	const float texelFootprint = surfaceFootprint * texelsPerWorld;
 	if (!isfinite(texelFootprint) || texelFootprint <= 0.0)
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_FOOTPRINT_FALLBACK, 1u);
+#endif
 		return true;
 	}
 
 	const float maximumLod = (float)(mipCount - 1u);
 	selectedLod = round(clamp(
 		log2(max(texelFootprint, 1.0)), 0.0, maximumLod));
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_SELECTED_POSITIVE, selectedLod > 0.0 ? 1u : 0u);
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_STATIC_IDENTITY_SELECTED_POSITIVE,
+		lodProfileStaticIdentity && selectedLod > 0.0 ? 1u : 0u);
+#endif
 	return true;
 }
 
@@ -555,7 +595,7 @@ bool UseDirectionalPlaceholderShadow()
 
 bool UseRelaxDenoiser()
 {
-	return (gTraceConstants.ReservedTrace1 & 0xffu) == 1u;
+	return (gTraceConstants.ReservedTrace1 & 0x3fu) == 1u;
 }
 
 uint GetEmissiveDirectSampleCount()
@@ -751,19 +791,50 @@ float3 OverlayBlend(float3 target, float3 blend)
 	return lerp(low, high, step(0.5.xxx, target));
 }
 
-float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
+// Keep the diagnostic lookup/oracle shared; expanding it into each caller
+// overflows DXC's SPIR-V compiler stack in the cache variants.
+#if defined(__spirv__) && NRI_SHADER_DIAGNOSTICS
+[noinline]
+#endif
+float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex, out bool reuseVisibleResponse)
 {
-	const uint responseCount = gEmissiveMaterialResponses[0].dataSource;
-	[loop]
-	for (uint i = 1u; i <= responseCount; ++i)
+	const EmissiveMaterialResponseData header = gEmissiveMaterialResponses[0];
+	const uint mode = GetEmissiveResponseLookupMode(header.flags);
+	reuseVisibleResponse = mode != 0u;
+	EmissiveResponseLookupResult result;
+	if (mode == 2u)
 	{
-		const EmissiveMaterialResponseData response = gEmissiveMaterialResponses[i];
-		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
+		result = FindEmissiveResponseBinary(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
+	}
+	else
+	{
+		result = FindEmissiveResponseLinear(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
+	}
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS, result.examined);
+	TraceShaderStatAdd(result.found != 0u ? TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS : TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES, 1u);
+	TraceShaderStatMax(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS, result.examined);
+	if (mode == 2u && TraceShaderStatsEnabled())
+	{
+		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_BINARY_CALLS, 1u);
+		const EmissiveResponseLookupResult oracle =
+			FindEmissiveResponseLinear(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
+		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_CALLS, 1u);
+		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_ITERATIONS, oracle.examined);
+		if (result.found != oracle.found || asuint(result.scale) != asuint(oracle.scale))
 		{
-			return max(response.materialScale, 0.0);
+			TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_MISMATCHES, 1u);
+			return oracle.scale;
 		}
 	}
-	return 1.0;
+#endif
+	return result.scale;
+}
+
+float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
+{
+	bool ignoredReuse;
+	return GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, ignoredReuse);
 }
 
 float3 EvaluateMaterialEmission(uint materialIndex, uint dataSource, uint primitiveIndex, MaterialData material, float2 uv)
@@ -777,7 +848,8 @@ float3 EvaluateMaterialEmission(uint materialIndex, uint dataSource, uint primit
 
 float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint primitiveIndex, MaterialData material, float3 albedo, float2 uv)
 {
-	const float materialResponseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex);
+	bool reuseVisibleResponse;
+	const float materialResponseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuseVisibleResponse);
 	if (material.emissiveMode == 3u)
 	{
 		const float3 glow = SampleMaterialEmissionSource(materialIndex, dataSource, uv);
@@ -789,7 +861,19 @@ float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint
 		return OverlayBlend(albedo, glow) * glowCoverage * material.emissiveIntensity * visibleBlend * materialResponseScale;
 	}
 
-	return EvaluateMaterialEmission(materialIndex, dataSource, primitiveIndex, material, uv);
+	if (material.emissiveMode == 0u)
+	{
+		return 0.0;
+	}
+	// Share the non-overlay sampler between legacy and reuse modes. Keep the
+	// second legacy lookup explicit so reuse never evaluates it eagerly.
+	const float3 emissionSource = SampleMaterialEmissionSource(materialIndex, dataSource, uv);
+	float responseScale = materialResponseScale;
+	if (!reuseVisibleResponse)
+	{
+		responseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex);
+	}
+	return emissionSource * material.emissiveIntensity * responseScale;
 }
 
 uint GetEmissivePrimitiveCount()
@@ -1206,6 +1290,9 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 	for (uint bounce = 0u; bounce < bounceCount; ++bounce)
 	{
 		TraceShaderStatAdd(TRACE_STAT_INDIRECT_DIFFUSE_BOUNCES, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + min(bounce, 3u), 1u);
+#endif
 		float3 tracedDirection = direction;
 		const HitData bounceHit = TraceIndirectUngated(origin, direction, tracedDirection);
 		if (!bounceHit.hit)
@@ -1235,7 +1322,7 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 		}
 
 		const float bounceMetalness = GetSurfaceMetalness(bounceMaterial, bounceHit.uv);
-		const float4 bounceAlbedo = SampleMaterialBaseColor(bounceHit.materialIndex, bounceHit.dataSource, bounceHit.uv);
+		const float4 bounceAlbedo = SampleHitBaseColor(bounceHit);
 		if (IsMaterialEmissive(bounceMaterial))
 		{
 			indirectRadiance += throughput * EvaluateMaterialEmission(bounceHit.materialIndex, bounceHit.dataSource, bounceHit.primitiveIndex, bounceMaterial, bounceHit.uv);
@@ -1363,6 +1450,9 @@ float3 TraceIndirectSpecular(
 	for (uint bounce = 0u; bounce < bounceCount; ++bounce)
 	{
 		TraceShaderStatAdd(TRACE_STAT_INDIRECT_SPECULAR_BOUNCES, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + min(bounce, 3u), 1u);
+#endif
 		float3 tracedDirection = direction;
 		const HitData bounceHit = TraceReflectionUngated(origin, direction, tracedDirection);
 		if (!bounceHit.hit)
@@ -1391,7 +1481,7 @@ float3 TraceIndirectSpecular(
 
 		const float bounceRoughness = GetSurfaceRoughness(bounceMaterial, bounceHit.uv);
 		const float bounceMetalness = GetSurfaceMetalness(bounceMaterial, bounceHit.uv);
-		const float4 bounceAlbedo = SampleMaterialBaseColor(bounceHit.materialIndex, bounceHit.dataSource, bounceHit.uv);
+		const float4 bounceAlbedo = SampleHitBaseColor(bounceHit);
 		if ((bounceMaterial.flags & MATERIAL_FLAG_FULLBRIGHT) != 0u)
 		{
 			const float3 visibleRadiance =
@@ -1480,7 +1570,7 @@ bool TryApplyPlainMirrorPrimaryReplacement(inout HitData hit, float3 primaryRayD
 		return false;
 	}
 
-	const float4 mirrorAlbedo = SampleMaterialBaseColor(hit.materialIndex, hit.dataSource, hit.uv);
+	const float4 mirrorAlbedo = SampleHitBaseColor(hit);
 	const float mirrorMetalness = GetSurfaceMetalness(mirrorMaterial, hit.uv);
 	mirrorPlanePosition = hit.position;
 	mirrorPlaneNormal = dot(hit.normal, -primaryRayDirection) >= 0.0 ? normalize(hit.normal) : -normalize(hit.normal);
@@ -1502,7 +1592,7 @@ bool TryApplyPlainMirrorPrimaryReplacement(inout HitData hit, float3 primaryRayD
 float3 EvaluatePlainMirrorSurfaceGlint(HitData mirrorHit, float3 mirrorPlaneNormal, float3 primaryRayDirection, uint2 pixelPos)
 {
 	const MaterialData mirrorMaterial = GetMaterialData(mirrorHit.materialIndex, mirrorHit.dataSource);
-	const float4 mirrorAlbedo = SampleMaterialBaseColor(mirrorHit.materialIndex, mirrorHit.dataSource, mirrorHit.uv);
+	const float4 mirrorAlbedo = SampleHitBaseColor(mirrorHit);
 	const float mirrorMetalness = GetSurfaceMetalness(mirrorMaterial, mirrorHit.uv);
 	const float3 mirrorViewDir = normalize(-primaryRayDirection);
 	const float mirrorNoV = saturate(dot(mirrorPlaneNormal, mirrorViewDir));
@@ -1598,6 +1688,18 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 
 	const uint2 pixelPos = dispatchThreadId.xy;
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	InitializeStaticTangentProbe(pixelPos);
+#endif
+#if NRI_SHADER_DIAGNOSTICS
+	if (all(pixelPos == 0u) && TraceShaderStatsEnabled())
+	{
+		gTraceShaderStats[TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT] =
+			gEmissiveMaterialResponses[0].dataSource;
+		gTraceShaderStats[TRACE_STAT_RESPONSE_LOOKUP_MODE] =
+			GetEmissiveResponseLookupMode(gEmissiveMaterialResponses[0].flags);
+	}
+#endif
 	const bool spatialProbeTargetPixel = IsSpatialAbsenceProbeTargetPixel(pixelPos);
 	float3 visibleRayDirection = GeneratePrimaryRay(pixelPos);
 	const float3 primaryRayDirection = visibleRayDirection;
@@ -1631,6 +1733,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 plainMirrorPlaneNormal = 0.0;
 	HitData plainMirrorHit = hit;
 	const bool plainMirrorPrimaryReplacement = !directSceneTrace && TryApplyPlainMirrorPrimaryReplacement(hit, primaryRayDirection, visibleRayDirection, plainMirrorThroughput, plainMirrorPlanePosition, plainMirrorPlaneNormal);
+#if NRI_SHADER_DIAGNOSTICS
+	if (plainMirrorPrimaryReplacement)
+	{
+		TraceShaderStatAdd(TRACE_STAT_PROFILE_PLAIN_MIRROR_PRIMARY_REPLACEMENTS, 1u);
+	}
+#endif
 
 	float4 color = 0.0;
 	if (!hit.hit)
@@ -1695,28 +1803,98 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	{
 		TraceShaderStatAdd(TRACE_STAT_PRIMARY_HIT_PIXELS, 1u);
 		TraceShaderStatSource(TRACE_STAT_PRIMARY_HIT_STATIC, TRACE_STAT_PRIMARY_HIT_DYNAMIC, TRACE_STAT_PRIMARY_HIT_VOXEL, hit.dataSource);
-		float3 currentHitPosition = ResolveHitVertexPosition(hit, false);
-		float3 previousHitPosition = ResolveHitVertexPosition(hit, true);
 		float3 guideNormal = hit.normal;
-		if (plainMirrorPrimaryReplacement)
+		float currentViewZ;
+		float4 motionOutput;
+		uint temporalValidityReason;
+		// Finish temporal geometry and its consumers before lighting; only these
+		// compact guide/debug outputs need to remain live across the lighting work.
 		{
-			currentHitPosition = ReflectPointAcrossPlane(currentHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
-			previousHitPosition = ReflectPointAcrossPlane(previousHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
-			guideNormal = normalize(ReflectVectorAcrossPlane(hit.normal, plainMirrorPlaneNormal));
-		}
-		const float currentViewZ = dot(currentHitPosition - gTraceConstants.CameraPos, gTraceConstants.CameraForward);
-		float2 currentUvRaw = 0.0;
-		float2 prevUvRaw = 0.0;
-		uint currentProjectionReason = MOTION_VALIDITY_VALID;
-		uint previousProjectionReason = MOTION_VALIDITY_VALID;
-		const bool currentUvValid = ProjectWorldToUvMatrixRaw(currentHitPosition, false, currentUvRaw, currentProjectionReason);
-		const bool prevUvValid = ProjectWorldToUvMatrixRaw(previousHitPosition, true, prevUvRaw, previousProjectionReason);
-		const float previousViewZ = dot(previousHitPosition - gTraceConstants.PrevCameraPos, gTraceConstants.PrevCameraForward);
-		float3 motion = 0.0;
-		if (currentUvValid && prevUvValid)
-		{
-			motion.xy = (prevUvRaw - currentUvRaw) * float2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight);
-			motion.z = previousViewZ - currentViewZ;
+			float3 currentHitPosition;
+			float3 previousHitPosition;
+			float3 currentGeometricNormal;
+			float3 previousGeometricNormal;
+			uint4 currentTemporalIdentity;
+			ResolvePrimaryTemporalGeometry(
+				hit,
+				currentHitPosition,
+				previousHitPosition,
+				currentGeometricNormal,
+				previousGeometricNormal,
+				currentTemporalIdentity);
+#if NRI_SHADER_DIAGNOSTICS
+			RecordPrimaryTemporalGeometryOracle(
+				hit,
+				currentHitPosition,
+				previousHitPosition,
+				currentGeometricNormal,
+				previousGeometricNormal,
+				currentTemporalIdentity);
+#endif
+			if (plainMirrorPrimaryReplacement)
+			{
+				currentHitPosition = ReflectPointAcrossPlane(currentHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
+				previousHitPosition = ReflectPointAcrossPlane(previousHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
+				guideNormal = normalize(ReflectVectorAcrossPlane(hit.normal, plainMirrorPlaneNormal));
+				// Preserve the existing unreflected geometric normals for temporal guides.
+			}
+			currentViewZ = dot(currentHitPosition - gTraceConstants.CameraPos, gTraceConstants.CameraForward);
+			float2 currentUvRaw = 0.0;
+			float2 prevUvRaw = 0.0;
+			uint currentProjectionReason = MOTION_VALIDITY_VALID;
+			uint previousProjectionReason = MOTION_VALIDITY_VALID;
+			const bool currentUvValid = ProjectWorldToUvMatrixRaw(currentHitPosition, false, currentUvRaw, currentProjectionReason);
+			const bool prevUvValid = ProjectWorldToUvMatrixRaw(previousHitPosition, true, prevUvRaw, previousProjectionReason);
+			const float previousViewZ = dot(previousHitPosition - gTraceConstants.PrevCameraPos, gTraceConstants.PrevCameraForward);
+			float3 motion = 0.0;
+			if (currentUvValid && prevUvValid)
+			{
+				motion.xy = (prevUvRaw - currentUvRaw) * float2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight);
+				motion.z = previousViewZ - currentViewZ;
+			}
+
+			// A primary traversal which skipped a player-census-absent actor exposes
+			// a newly visible background sample. Keep the raw wall hit, but reject
+			// application history at this pixel so the prior actor cannot be
+			// reprojected into the foreign locality for one frame.
+			const bool actorCensusHistoryInvalid =
+				(hit.temporalFlags & HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED) != 0u;
+			const bool producerCorrespondenceValid =
+				currentUvValid && prevUvValid &&
+				((currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK) != 0u ||
+					(currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u) &&
+				!actorCensusHistoryInvalid;
+			temporalValidityReason = EvaluateTemporalCorrespondence(
+				pixelPos,
+				currentTemporalIdentity,
+				motion,
+				previousViewZ,
+				previousGeometricNormal,
+				currentUvValid,
+				currentProjectionReason,
+				prevUvValid,
+				previousProjectionReason);
+			if (actorCensusHistoryInvalid)
+			{
+				temporalValidityReason = MOTION_VALIDITY_ACTOR_CENSUS;
+			}
+			motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
+			gMotionOutput[pixelPos] = motionOutput;
+			WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, currentGeometricNormal, temporalValidityReason);
+			RecordMotionAudit(
+				pixelPos,
+				hit,
+				currentHitPosition,
+				previousHitPosition,
+				currentUvRaw,
+				prevUvRaw,
+				currentViewZ,
+				previousViewZ,
+				motionOutput,
+				currentTemporalIdentity,
+				temporalValidityReason,
+				currentProjectionReason,
+				previousProjectionReason);
 		}
 
 		float4 albedo = 1.0;
@@ -1778,11 +1956,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				visibleRayDirection,
 				primaryBaseColorLod,
 				primaryBaseColorMipCount);
-			albedo = SampleMaterialBaseColorLevel(
-				hit.materialIndex,
-				hit.dataSource,
-				hit.uv,
-				primaryBaseColorLod);
+			albedo = SampleHitBaseColorLevel(hit, primaryBaseColorLod);
 			TryEvaluateFluidSurface(
 				material,
 				hit.position,
@@ -1817,6 +1991,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				0.0 : GetSurfaceMetalness(material, hit.uv);
 			const float3 diffuseAlbedo = GetSurfaceDiffuseColor(albedo.rgb, metalness);
 			const float materialID = GetSurfaceMaterialID(material);
+#if !defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY)
+			// Lean raw/debug consumers need the exact primary/material/temporal guides
+			// but never read hit radiance. Keep their initialized output values and
+			// compile out sun, analytic, emissive, indirect and mirror-glint shading.
 			if (bootstrapBaseColor)
 			{
 				diffuse = albedo.rgb;
@@ -2045,6 +2223,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const uint lightBounceCount = GetLightBounceCount();
 				if (!directSceneTrace && lightBounceCount > 0u)
 				{
+#if NRI_SHADER_DIAGNOSTICS
+					TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_ELIGIBLE_PIXELS, 1u);
+					if (useProbabilisticIndirect)
+					{
+						TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_SINGLE_LOBE_PIXELS, 1u);
+						TraceShaderStatAdd(
+							indirectDiffuseSelected ? TRACE_STAT_PROFILE_INDIRECT_DIFFUSE_SELECTED_PIXELS : TRACE_STAT_PROFILE_INDIRECT_SPECULAR_SELECTED_PIXELS,
+							1u);
+					}
+					else
+					{
+						TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_DUAL_LOBE_PIXELS, 1u);
+						if (plainMirrorPrimaryReplacement)
+						{
+							TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_PLAIN_MIRROR_FORCED_DUAL_PIXELS, 1u);
+						}
+					}
+#endif
 					if (!useProbabilisticIndirect || indirectDiffuseSelected)
 					{
 						indirectTransportDiffuse = TraceIndirectDiffuse(hit, diffuseAlbedo, pixelPos, gTraceConstants.FrameIndex, lightBounceCount, diffuseHitDistance) / nrdDiffuseFactor;
@@ -2113,58 +2309,18 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				deferredDirectionalLighting *= plainMirrorThroughput;
 			}
 			directEmission += fluidSurface.emission;
+#endif
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);
 		}
-		// A primary traversal which skipped a player-census-absent actor exposes
-		// a newly visible background sample. Keep the raw wall hit, but reject
-		// application history at this pixel so the prior actor cannot be
-		// reprojected into the foreign locality for one frame.
-		const bool actorCensusHistoryInvalid =
-			(hit.temporalFlags & HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED) != 0u;
-		const uint4 currentTemporalIdentity = GetPrimaryTemporalIdentity(hit);
-		const bool producerCorrespondenceValid =
-			currentUvValid && prevUvValid &&
-			((currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK) != 0u ||
-				(currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u) &&
-			!actorCensusHistoryInvalid;
-		uint temporalValidityReason = EvaluateTemporalCorrespondence(
-			pixelPos,
-			currentTemporalIdentity,
-			motion,
-			previousViewZ,
-			ResolveHitGeometricNormal(hit, true),
-			currentUvValid,
-			currentProjectionReason,
-			prevUvValid,
-			previousProjectionReason);
-		if (actorCensusHistoryInvalid)
-		{
-			temporalValidityReason = MOTION_VALIDITY_ACTOR_CENSUS;
-		}
-		const float4 motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
-		gMotionOutput[pixelPos] = motionOutput;
-		WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, ResolveHitGeometricNormal(hit, false), temporalValidityReason);
+		// Temporal geometry was published before shading. Preserve its rejection
+		// signal while adding reactivity from the evaluated fluid animation.
 		if (fluidSurface.active != 0u)
 		{
 			const float existingReactive = gTemporalReactiveOutput[pixelPos].x;
 			gTemporalReactiveOutput[pixelPos] = float4(
 				max(existingReactive, fluidSurface.reactive), 0.0, 0.0, 1.0);
 		}
-		RecordMotionAudit(
-			pixelPos,
-			hit,
-			currentHitPosition,
-			previousHitPosition,
-			currentUvRaw,
-			prevUvRaw,
-			currentViewZ,
-			previousViewZ,
-			motionOutput,
-			currentTemporalIdentity,
-			temporalValidityReason,
-			currentProjectionReason,
-			previousProjectionReason);
 		gViewZOutput[pixelPos] = float4(currentViewZ, smokeForeground ? 1.0 : 0.0, 0.0, 1.0);
 		const float4 packedDiffuse = PackDiffuseRadiance(diffuse, diffuseHitDistance, currentViewZ);
 		const float4 packedSpecular = PackSpecularRadiance(specular, specularHitDistance, currentViewZ, roughness);

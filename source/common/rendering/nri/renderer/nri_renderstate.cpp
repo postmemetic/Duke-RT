@@ -818,6 +818,15 @@ nri::Pipeline* NRIRenderState::GetPipeline(int dt)
 	return pipeline;
 }
 
+void NRIRenderState::DestroyPipelines()
+{
+	for (const auto& entry : mPipelines)
+		mFrameBuffer->mCore.DestroyPipeline(entry.second);
+	mPipelines.clear();
+	mLastBoundPipeline = nullptr;
+	mHasBoundPipeline = false;
+}
+
 void NRIRenderState::BeginRenderingIfNeeded()
 {
 	if (mRendering || mFrameBuffer == nullptr || mFrameBuffer->mActiveTarget == nullptr)
@@ -900,7 +909,7 @@ void NRIRenderState::FillShaderConstants(NRIShaderConstants& constants) const
 		if ((isPresentTarget || isFrameGenerationUiTarget) && outputPolicy.hdrSwapChainActive)
 		{
 			constants.Flags |= NRI2D_OutputHdrLinear;
-			constants.OutputInfo[0] = GetNRIPTHdrPaperWhiteScale(outputPolicy);
+			constants.OutputInfo[0] = GetNRIPTHdrUiWhiteScale(outputPolicy);
 			constants.OutputInfo[1] = 2.2f;
 		}
 	}

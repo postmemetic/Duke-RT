@@ -1174,6 +1174,57 @@ void nri_material_policy::ApplyActorMaterialOverridesToBuiltMaterials(
 	}
 }
 
+void nri_material_policy::ApplyEmissiveMaterialOverride(
+	const SceneLightSystem& sceneLights,
+	const ResolvedLightOverlaySet& resolved,
+	float glowmapVisibleBlendScale,
+	const nri_scene::MaterialLightingMetadata& metadata,
+	nri_scene::MaterialData& inOutGpuMaterial)
+{
+	sceneLights.ApplyEmissiveMaterialSettings(metadata, inOutGpuMaterial);
+	if (inOutGpuMaterial.emissiveMode == nri_scene::MaterialEmissiveMode_UseGlowmapTexture)
+	{
+		inOutGpuMaterial.emissiveReserved = ResolveVisibleGlowBlendScale(resolved, metadata, glowmapVisibleBlendScale);
+	}
+}
+
+void nri_material_policy::ApplyActorShadowMaterialOverride(
+	const ActorMaterialOverrideMap& actorOverrides,
+	float fullbrightBoost,
+	const nri_scene::MaterialLightingMetadata& metadata,
+	nri_scene::MaterialData& inOutGpuMaterial)
+{
+	if (metadata.actorIndex < 0)
+	{
+		return;
+	}
+
+	const auto it = actorOverrides.find(metadata.actorIndex);
+	if (it == actorOverrides.end())
+	{
+		return;
+	}
+
+	const uint32_t overrideBits = it->second.bits;
+	const bool explicitVoxelPolicy = metadata.voxelPalettePolicyApplied;
+	if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowReceive) != 0)
+	{
+		inOutGpuMaterial.lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowReceive;
+	}
+	if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowCast) != 0)
+	{
+		inOutGpuMaterial.lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowCast;
+	}
+	if ((overrideBits & ActorMaterialOverride_SmokeForeground) != 0)
+	{
+		inOutGpuMaterial.lightingFlags |= nri_scene::MaterialLightingFlag_SmokeForeground;
+	}
+	if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_Fullbright) != 0)
+	{
+		ApplyFullbrightMaterialOverride(inOutGpuMaterial, fullbrightBoost);
+	}
+}
+
 void nri_material_policy::ApplyEmissiveMaterialOverrides(
 	const SceneLightSystem& sceneLights,
 	const ResolvedLightOverlaySet& resolved,
@@ -1184,12 +1235,8 @@ void nri_material_policy::ApplyEmissiveMaterialOverrides(
 	const uint32_t count = std::min<uint32_t>((uint32_t)inOutGpuMaterials.size(), (uint32_t)materials.lightMetadata.size());
 	for (uint32_t materialIndex = 0; materialIndex < count; ++materialIndex)
 	{
-		nri_scene::MaterialData& material = inOutGpuMaterials[materialIndex];
-		sceneLights.ApplyEmissiveMaterialSettings(materials.lightMetadata[materialIndex], material);
-		if (material.emissiveMode == nri_scene::MaterialEmissiveMode_UseGlowmapTexture)
-		{
-			material.emissiveReserved = ResolveVisibleGlowBlendScale(resolved, materials.lightMetadata[materialIndex], glowmapVisibleBlendScale);
-		}
+		ApplyEmissiveMaterialOverride(sceneLights, resolved, glowmapVisibleBlendScale,
+			materials.lightMetadata[materialIndex], inOutGpuMaterials[materialIndex]);
 	}
 }
 
@@ -1207,36 +1254,8 @@ void nri_material_policy::ApplyActorShadowMaterialOverrides(
 	const uint32_t count = std::min<uint32_t>((uint32_t)inOutGpuMaterials.size(), (uint32_t)materials.lightMetadata.size());
 	for (uint32_t materialIndex = 0; materialIndex < count; ++materialIndex)
 	{
-		const nri_scene::MaterialLightingMetadata& metadata = materials.lightMetadata[materialIndex];
-		if (metadata.actorIndex < 0)
-		{
-			continue;
-		}
-
-		auto it = actorOverrides.find(metadata.actorIndex);
-		if (it == actorOverrides.end())
-		{
-			continue;
-		}
-
-		const uint32_t overrideBits = it->second.bits;
-		const bool explicitVoxelPolicy = metadata.voxelPalettePolicyApplied;
-		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowReceive) != 0)
-		{
-			inOutGpuMaterials[materialIndex].lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowReceive;
-		}
-		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_NoShadowCast) != 0)
-		{
-			inOutGpuMaterials[materialIndex].lightingFlags |= nri_scene::MaterialLightingFlag_NoShadowCast;
-		}
-		if ((overrideBits & ActorMaterialOverride_SmokeForeground) != 0)
-		{
-			inOutGpuMaterials[materialIndex].lightingFlags |= nri_scene::MaterialLightingFlag_SmokeForeground;
-		}
-		if (!explicitVoxelPolicy && (overrideBits & ActorMaterialOverride_Fullbright) != 0)
-		{
-			ApplyFullbrightMaterialOverride(inOutGpuMaterials[materialIndex], fullbrightBoost);
-		}
+		ApplyActorShadowMaterialOverride(actorOverrides, fullbrightBoost,
+			materials.lightMetadata[materialIndex], inOutGpuMaterials[materialIndex]);
 	}
 }
 
@@ -1266,6 +1285,7 @@ bool nri_material_policy::MaterialDataEqual(
 		a.emissiveMaskScale == b.emissiveMaskScale &&
 		a.emissiveMode == b.emissiveMode &&
 		a.emissiveReserved == b.emissiveReserved &&
+		a.wallIndex == b.wallIndex &&
 		a.fluidBindingIndex == b.fluidBindingIndex;
 }
 

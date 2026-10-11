@@ -37,6 +37,10 @@ uint64_t ComputeRecurringChunkStateSignature(
 	uint32_t liveTriangleCount,
 	uint32_t liveMaterialCount);
 uint64_t ComputeAnimatedMaterialSignature(const nri_scene::SceneView& sceneView);
+bool ComputeAnimatedMaterialSignatureWithBindings(
+	const nri_scene::SceneView& sceneView,
+	const std::vector<FGameTexture*>& bindings,
+	uint64_t& outSignature);
 uint64_t ComputeAnimatedGeometrySignature(const nri_scene::SceneView& sceneView);
 uint64_t ComputeExactGeometrySignature(const nri_scene::SceneView& sceneView);
 bool SceneViewUsesHardwareCanvasTexture(const nri_scene::SceneView& sceneView);

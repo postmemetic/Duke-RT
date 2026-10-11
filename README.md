@@ -2,7 +2,12 @@
 
 ![Duke-RT gameplay](images/20.png)
 
-Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. It only works on Windows due to reliance on libraries for DLSS, frame generation, denoising, etc. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
+Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native Linux gameplay works, but it has not been thoroughly tested yet. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
+
+**For regular updates, follow me on:**
+[Twitter](https://x.com/postmemetic)
+[Bluesky](https://bsky.app/profile/postmemetic.bsky.social)
+[YouTube](https://www.youtube.com/@postmemetic)
 
 ![Duke-RT gameplay](images/EmergeFromSmoke.gif)
 
@@ -12,43 +17,56 @@ The renderer supports both Direct3D 12 and Vulkan, although feature support is m
 
 **Check out the linked project docs below to make your own lighting rules and material overrides!**
 
-## How To Run
+## How To Install and Run (Windows)
 
-- Launch `launch-duke-rt.cmd` from the packaged release folder instead of starting `raze.exe` directly.
-- You should own and have installed a Duke Nukem 3D release with a valid `DUKE3D.GRP`; `Duke Nukem 3D: 20th Anniversary World Tour` remains the intended visual baseline.
-- On first run, the launcher will either confirm the detected Duke Nukem 3D install or ask for the folder containing `DUKE3D.GRP`; the verified path is reused on later runs.
-- If auto-detection picks the wrong install, launch with `launch-duke-rt.cmd -GameRoot "D:\path\to\Duke Nukem 3D"`.
-- When the launcher detects World Tour normals, let it copy them into the packaged `release-overlay`. That is the intended setup for the current visual baseline.
-- Duke-RT can still run without those copied normals. The launcher warns and continues when the selected Duke Nukem 3D install does not include World Tour normal-map data.
-- The launcher can also guide you through installing Cheello's Voxel Duke 3D pack into the local `release-overlay`. If `voxel_duke3d.zip` is beside `launch-duke-rt.cmd`, it is used automatically; otherwise the launcher can open the ModDB page and then unpack the downloaded archive.
-- Other Build-engine games may possibly launch because the underlying Raze game support is still present, but that path is not tested here and is not supported yet.
+1. Purchase and install Duke Nukem 3D: 20th Anniversary World Tour (or otherwise have it installed on your computer - you need a commercial version of Duke 3D to use with the Duke-RT engine fork)
+2. Download the .zip file in the assets section from the latest release
+3. Unzip Duke-RT to your computer
+4. Run **launch-duke-rt.cmd** in that folder
+5. Give it the path to your Duke 3D install (if it doesn't find it automatically)
+6. Let it grab the normal maps from Duke World Tour (if that's your Duke version, will still work without them)
+7. Let it open your browser to grab the voxels
+8. Download the voxels from that site
+9. Go back to the Duke-RT console window and hit enter
+10. Let it unpack the voxels into its own directory for you
+11. Proceed into the game
+12. **Always run via launch-duke-rt.cmd in the future**
+
+## How to Install and Run (Linux)
+
+1. Purchase and install Duke Nukem 3D: 20th Anniversary World Tour (or otherwise have it installed on your computer - you need a commercial version of Duke 3D to use with the Duke-RT engine fork)
+2. Download the Linux tarball in the assets section from the latest release
+3. Untar Duke-RT to your computer
+4. Run **launch-duke-rt.sh** via CLI from that folder
+5. Give it the path to your Duke 3D install (if it doesn't find it automatically)
+6. Let it open your browser to grab the voxels
+7. Download the voxels from that site
+8. Go back to the Duke-RT console window and give it the path to your voxel zip file
+9. Let it unpack the voxels into its own directory for you
+10. Let it grab the normal maps from Duke World Tour (if that's your Duke version, will still work without them)
+11. Proceed into the game
+12. **Always run via launch-duke-rt.sh in the future**
 
 ## Current Status
 
-Duke-RT is work in progress. The core renderer is in, with full support for modern graphics APIs and libraries like D3D12, DLSS Super Resolution and Ray Reconstruction, etc. I've also gone through and **remastered Duke episodes 1 and 2 with PBR materials (based on the originals) as well as updated lighting**. Episode 3 is not yet done. There are some known issues that are on my radar but I have yet to tackle.
+Duke-RT is work in progress. The core renderer is in, with full support for modern graphics APIs and libraries like D3D12, DLSS Super Resolution and Ray Reconstruction, etc. I've also gone through and **remastered Duke episodes 1, 2, and 3 with PBR materials (based on the originals) as well as updated lighting**. The entire original game should be playable, and run with decent performance, as well as some nice bonus features like smoke that I've added. There are some known issues that are on my radar but I have yet to tackle.
 
 ![Duke-RT gameplay](images/38.png)
 
 Known high-priority issues:
-- slow perf on the start of level 1 due to large voxel objects
+- slow perf in some smokey areas
 - remaining transport-driven non-euclidean edge cases in `E5L1`
-- slow CPU-side perf on maps with lots of geometry movement like `E1L4` and `E2L7`
-- sometimes you get stuck on the level end screen rather than transitioning to the next level
-- there's an occasional crash on multiple level transitions in a session
 
 Known lower-priority issues:
-- flickering material state for the vent at the start of `E1L4`
+- some end level switches slide during the animation
 - the last scene panning sequence no longer appears on surveillance camera screens
 - framegen only works with D3D12
 
 I also have a bunch of features I'd like to tackle in the future, including some renderer improvements, as well as a complete pass on the other main Duke 3D episodes.
 
 Upcoming feature work:
-- thorough material and lighting pass on Episode 3
-- volumetrics such as rocket smoke
 - water surfaces
-- proper mirror replacements
-- better glass
+- AMD support
 
 ![cropped spheres](images/23.png)
 
@@ -107,7 +125,11 @@ Special thanks to Coraline of the 3DGE team for allowing us to use her README.md
 
 ## How to build Duke-RT
 
-These are a bit of a mess and I haven't revalidated them for a newcomer to the repo recently. Also please note that only Windows is supported for Duke-RT!
+For Linux, use [Build-LinuxReleasePackage.sh](tools/dist/Build-LinuxReleasePackage.sh)
+or the Windows/WSL wrapper [Build-LinuxReleasePackage.ps1](tools/dist/Build-LinuxReleasePackage.ps1).
+Both compile and package a release; [LINUX.md](LINUX.md#build-and-package-a-linux-release)
+lists prerequisites, commands and native hardware tests. The Windows instructions
+below have not recently been revalidated for a newcomer to the repo.
 
 ### Windows Build Instructions
 
@@ -235,7 +257,7 @@ The Windows CMake also stages the required audio runtime beside `raze.exe`:
 To build a stripped `Release` tree and stage a redistributable folder plus zip in one command, run:
 
 ```powershell
-.\tools\dist\Build-WindowsReleasePackage.cmd
+.\tools\dist\Build-WindowsReleasePackage.ps1
 ```
 
 Default outputs:
@@ -243,6 +265,46 @@ Default outputs:
 - `build\terminal-release\raze.exe`
 - `out\release\Duke-RT\`
 - `out\release\Duke-RT.zip`
+
+`Build-WindowsReleasePackage.cmd` is an equivalent entry point and forwards the same
+parameters. Both initialize the installed Visual Studio C++ environment, build
+ZMusic and the engine with production shaders, then package the result. CMake,
+Ninja and Git must be available. Existing dependency layouts still work without a
+settings file: `build\zmusic`, `build\vcpkg`, `vcpkg_installed`,
+`libraries\NRD\_Shaders`, and the sibling `..\NRD-Sample` runtime/SDK tree.
+These dependencies must already be prepared; this command does not bootstrap them.
+
+For dependencies stored elsewhere, create the ignored file
+`build\windows-release.local.json`. Only specify the paths that differ on your
+machine, for example:
+
+```json
+{
+  "ZMusicSourceDir": "D:/dependencies/ZMusic",
+  "VcpkgRoot": "D:/dependencies/vcpkg",
+  "VcpkgInstalledDir": "D:/dependencies/vcpkg_installed",
+  "NrdShaderHeaderDir": "D:/dependencies/NRD/_Shaders",
+  "NriRuntimeDir": "D:/dependencies/NRD-Sample/_Bin/Release",
+  "FfxSdkRoot": "D:/dependencies/NRD-Sample/_Build/_deps/ffx-src"
+}
+```
+
+Matching command-line parameters override local settings. `-ConfigPath` selects
+another settings file. Optional settings also include `VsDevCmd`,
+`DxcExecutable`, `CMakeExecutable`, `Jobs`, `ZMusicBuildDir`, `RazeBuildDir`,
+`PackageDir`, and `ZipPath`. Visual Studio is discovered with `vswhere` unless
+`VsDevCmd` or `RAZE_VSDEVCMD` is supplied; DXC uses the Vulkan SDK or PATH unless
+explicitly configured. Relative paths always start at this checkout, even when
+invoked from another working directory. The launcher, normal-map preparer,
+tracked authored `release-overlay`, and `vcpkg-overlays` always come from this
+checkout. Machine settings are optional and must not be committed.
+
+Build directories must be separate subdirectories of this checkout's `build`;
+package/zip outputs must be below `out\release`, with the zip outside the package
+folder. Existing caches must belong to their configured source and use Ninja
+Release. The default ZMusic output remains `build\zmusic\build-ninja-ovl2`, even
+when its source is external. Concurrent release commands in one checkout are
+rejected while compilation or packaging is in progress.
 
 To restage or re-zip an already-built `Release` tree without rebuilding, run:
 
@@ -256,7 +318,8 @@ The staged package includes:
 - staged runtime DLLs such as `zmusiclite.dll`, `OpenAL32.dll`, NRI/NRD/FFX runtimes, and codec DLLs
 - `launch-duke-rt.cmd`
 - `tools\dist\Prepare-CommercialNormals.ps1`
-- `release-overlay`
+- the tracked authored `release-overlay` (no imported normals, voxel models or GRP)
+- the staged FidelityFX runtime license
 
 The staged package includes `package\windows\launch-duke-rt.cmd`, `tools\dist\Prepare-CommercialNormals.ps1`, and `release-overlay`, and removes `*.pdb` files from the staged package.
 
@@ -279,5 +342,5 @@ build\terminal-ninja\raze.exe
 Example local overlay launch:
 
 ```powershell
-build\terminal-ninja\raze.exe -file M:\Raze\default-overlay
+build\terminal-ninja\raze.exe -file .\release-overlay
 ```

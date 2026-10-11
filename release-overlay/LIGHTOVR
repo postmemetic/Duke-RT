@@ -309,11 +309,14 @@ LIGHTOVR
     smokestyle "duke_explosion_smoke"
     {
         density 3.45
+        // Transient-only controls leave the Grid rollback optics intact.
+        opticalamountscale 0.05
         extinction 0.002
         albedo 0.34 0.32 0.3
         anisotropy 0.15
         radius 18.0
-        expansionvelocity 18.0
+        // Two-thirds of the previous growth; retain the compact burst's birth size.
+        expansionvelocity 12.0
         lifetime 5.0
         densityhalflife 2.2
         risevelocity 9.0
@@ -326,19 +329,34 @@ LIGHTOVR
         temperature 1.0
         momentumscale 1.0
         coolinghalflife 2.0
+        densityattackseconds 0.04
+        densitysustainseconds 1.55
+        densityreleaseseconds 3.45
+        radiusexponent 0.82
+        intrinsicemission 0.8
+        emissionhalflife 0.16
+        clusterspread 1.10
+        loberadiusrandom 0.42 0.68
+        curlvelocity 5.0
+        coreplateau 0.62
+        edgeerosion 0.14
+        noisescale 0.032
+        noisestrength 0.22
     }
 
     smokestyle "duke_fire_smoke"
     {
         density 3.0
+        opticalamountscale 0.25
         extinction 0.008
         albedo 0.3 0.29 0.28
         anisotropy 0.12
         radius 7.0
         expansionvelocity 10.0
         lifetime 18.0
+        transientlifetimeseconds 5.5
         densityhalflife 6.0
-        risevelocity 32.0
+        risevelocity 120.0
         velocityrandom 20.0
         velocityinherit 0.0
         buoyancy 7.0
@@ -348,17 +366,35 @@ LIGHTOVR
         temperature 5.5
         momentumscale 1.0
         coolinghalflife 5.0
+        densityattackseconds 0.20
+        // Let the denser packet thin gradually through most of its ascent.
+        densitysustainseconds 1.5
+        densityreleaseseconds 4.0
+        // Widen sooner to join adjacent columns, without enlarging the final radius.
+        radiusexponent 0.60
+        intrinsicemission 0.5
+        emissionhalflife 0.40
+        clusterspread 0.20
+        // Small central births expand into billows as they rise.
+        loberadiusrandom 0.30 0.45
+        curlvelocity 4.0
+        coreplateau 0.60
+        edgeerosion 0.16
+        noisescale 0.035
+        noisestrength 0.20
     }
 
     smokestyle "duke_impact_smoke"
     {
         density 3.2
+        opticalamountscale 0.25
         extinction 0.004
         albedo 0.4 0.39 0.38
         anisotropy 0.08
         radius 5.0
         expansionvelocity 5.0
         lifetime 3.5
+        transientlifetimeseconds 0.8
         densityhalflife 1.8
         risevelocity 2.5
         velocityrandom 3.0
@@ -370,17 +406,26 @@ LIGHTOVR
         temperature 1.0
         momentumscale 1.0
         coolinghalflife 2.0
+        densitysustainseconds 0.30
+        densityreleaseseconds 0.50
+        radiusexponent 0.90
+        clusterspread 0.52
+        loberadiusrandom 0.78 1.18
+        coreplateau 0.50
+        edgeerosion 0.08
     }
 
     smokestyle "duke_muzzle_smoke"
     {
-        density 1.2
+        density 6.0
+        opticalamountscale 0.25
         extinction 0.004
         albedo 0.44 0.43 0.42
         anisotropy 0.1
         radius 5.0
         expansionvelocity 3.0
         lifetime 1.35
+        transientlifetimeseconds 0.8
         densityhalflife 0.55
         risevelocity 0.0
         velocityrandom 0.0
@@ -392,17 +437,26 @@ LIGHTOVR
         temperature 0.0
         momentumscale 1.0
         coolinghalflife 1.0
+        densitysustainseconds 0.30
+        densityreleaseseconds 0.50
+        radiusexponent 0.90
+        clusterspread 0.52
+        loberadiusrandom 0.78 1.18
+        coreplateau 0.50
+        edgeerosion 0.08
     }
 
     smokestyle "duke_trail_smoke"
     {
         density 1.2
+        opticalamountscale 0.125
         extinction 0.004
         albedo 0.42 0.44 0.46
         anisotropy -0.1
         radius 10.0
         expansionvelocity 2.0
         lifetime 4.0
+        transientlifetimeseconds 0.75
         densityhalflife 0.5
         risevelocity 7.0
         velocityrandom 2.0
@@ -414,11 +468,21 @@ LIGHTOVR
         temperature 3.0
         momentumscale 1.0
         coolinghalflife 2.0
+        densitysustainseconds 0.18
+        densityreleaseseconds 0.57
+        radiusexponent 0.90
+        clusterspread 0.80
+        loberadiusrandom 0.78 1.10
+        curlvelocity 1.25
+        coreplateau 0.56
+        edgeerosion 0.10
+        noisescale 0.045
+        noisestrength 0.16
     }
 
     smokestyle "ground_mood_smoke"
     {
-        density 1.6
+        density 8.0
         extinction 0.0035
         albedo 0.9 0.9 0.9
         anisotropy 0.05
@@ -443,7 +507,10 @@ LIGHTOVR
         actorclass "DukeExplosion2"
         trigger spawn
         activation immediate
-        representation grid
+        representation "transient-cloud"
+        effectclass explosion
+        lobecount 12
+        burstborrow on
         queuepolicy retry
         analyticcarriers 1
         emitterforeground off
@@ -467,20 +534,27 @@ LIGHTOVR
         actorclass "DukeFire"
         trigger interval
         activation surface
-        representation grid
+        representation "transient-cloud"
+        effectclass fire
+        lobecount 5
         queuepolicy retry
         analyticcarriers 1
-        emitterforeground on
+        // Integrate smoke in front of the flame instead of punching it out.
+        emitterforeground off
         style "duke_fire_smoke"
         count 9
-        offset 0.0 0.0 0.0
+        // Start the plume inside the floor-anchored FIRE/FIRE2 flame volume.
+        // This shared placement improvement also applies to Grid rollback.
+        offset 0.0 0.0 -32.0
         spawnradius 4.0
         densityscale 3.0
         radiusscale 3.0
         velocitycone 0.0
         velocityscale 0.0
-        intervalseconds 0.28
-        pulseamount 0.90
+        // Five staggered births feed each cadence; group capacity is unchanged.
+        intervalseconds 0.5
+        // Keep billowing variation without near-empty stretches in the plume.
+        pulseamount 0.15
         pulseperiodcadences 12
         pulsephase 0.7916667
         starttime 0.0
@@ -494,7 +568,9 @@ LIGHTOVR
         actorclass "DukeRPG"
         trigger interval
         activation immediate
-        representation grid
+        representation "transient-cloud"
+        effectclass trail
+        lobecount 4
         queuepolicy latest
         maxlatencyseconds 0.15
         analyticcarriers 1
@@ -517,7 +593,9 @@ LIGHTOVR
     smokeeventrule "duke.chaingun.primary"
     {
         style "duke_muzzle_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass muzzle
+        lobecount 5
         queuepolicy drop
         maxlatencyseconds 0.075
         analyticcarriers 1
@@ -536,7 +614,9 @@ LIGHTOVR
     smokeeventrule "duke.hitscan.impact.plane"
     {
         style "duke_impact_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass impact
+        lobecount 6
         queuepolicy drop
         maxlatencyseconds 0.05
         analyticcarriers 2
@@ -555,7 +635,9 @@ LIGHTOVR
     smokeeventrule "duke.hitscan.impact.wall"
     {
         style "duke_impact_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass impact
+        lobecount 6
         queuepolicy drop
         maxlatencyseconds 0.05
         analyticcarriers 2
@@ -574,7 +656,9 @@ LIGHTOVR
     smokeeventrule "duke.pistol.primary"
     {
         style "duke_muzzle_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass muzzle
+        lobecount 5
         queuepolicy drop
         maxlatencyseconds 0.075
         analyticcarriers 1
@@ -593,7 +677,9 @@ LIGHTOVR
     smokeeventrule "duke.shotgun.primary"
     {
         style "duke_muzzle_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass muzzle
+        lobecount 5
         queuepolicy drop
         maxlatencyseconds 0.075
         analyticcarriers 1
@@ -694,7 +780,7 @@ LIGHTOVR
             count 3
             intervalseconds 0.3
             spawnradius 0.0
-            densityscale 0.8
+            densityscale 0.533333
             radiusscale 1.0
             velocityscale 0.0
             velocitycone 0.0
@@ -711,7 +797,7 @@ LIGHTOVR
             count 3
             intervalseconds 0.3
             spawnradius 0.0
-            densityscale 0.8
+            densityscale 0.533333
             radiusscale 1.0
             velocityscale 0.0
             velocitycone 0.0
@@ -728,7 +814,7 @@ LIGHTOVR
             count 20
             intervalseconds 0.2
             spawnradius 0.0
-            densityscale 1.0
+            densityscale 0.666667
             radiusscale 1.0
             velocityscale 0.0
             velocitycone 0.0
@@ -745,7 +831,7 @@ LIGHTOVR
             count 3
             intervalseconds 0.2
             spawnradius 0.0
-            densityscale 1.0
+            densityscale 0.666667
             radiusscale 1.0
             velocityscale 0.0
             velocitycone 0.0

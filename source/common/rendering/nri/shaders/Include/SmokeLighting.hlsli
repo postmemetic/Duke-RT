@@ -4,8 +4,10 @@
 #include "AnalyticLightSampling.hlsli"
 #include "SceneShadowContracts.hlsli"
 #include "EmissiveLightContracts.hlsli"
+#include "EmissiveResponseLookup.hlsli"
 #include "DirectionalLightSampling.hlsli"
 #include "SmokePhase.hlsli"
+#include "SmokeLightParameters.hlsli"
 
 #define NRI_SMOKE_RUNTIME_LIGHT_TILE_SIZE 64u
 #define NRI_SMOKE_MAX_SELECTED_LIGHTS 32u
@@ -18,11 +20,6 @@
 #define NRI_SMOKE_FILTER_CONTINUATION_LIMIT 32u
 #define NRI_SMOKE_SCENE_TEXTURE_COUNT 1024u
 #define NRI_SMOKE_WORLD_TLAS_REGISTER t1044
-#define NRI_SMOKE_LIGHT_SOURCE_POINT 0x1u
-#define NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL 0x2u
-#define NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL_SHADOW 0x4u
-#define NRI_SMOKE_LIGHT_SOURCE_EMISSIVE 0x8u
-#define NRI_SMOKE_LIGHT_SOURCE_INDIRECT 0x10u
 
 struct SmokeSectorLightHeaderData
 {
@@ -84,8 +81,17 @@ StructuredBuffer<SmokeSectorLightData> gSmokeSectorLights : register(t16, space6
 Texture2D<float4> gSmokePaletteLookup : register(t18, space6);
 TextureCube<float4> gSmokeSkyTexture : register(t19, space6);
 Texture2D<float4> gSmokeSceneTextures[NRI_SMOKE_SCENE_TEXTURE_COUNT] : register(t20, space6);
+#ifdef __spirv__
+[[vk::binding(1045, 6)]]
+#endif
 SamplerState gSmokePointWrap : register(s0, space6);
+#ifdef __spirv__
+[[vk::binding(1046, 6)]]
+#endif
 SamplerState gSmokeLinearWrap : register(s1, space6);
+#ifdef __spirv__
+[[vk::binding(1047, 6)]]
+#endif
 SamplerState gSmokePointClamp : register(s2, space6);
 RaytracingAccelerationStructure gSmokeWorldTlas : register(NRI_SMOKE_WORLD_TLAS_REGISTER, space6);
 
@@ -613,23 +619,6 @@ bool SmokeEmissiveVisibleWithBlocker(
 		receiverPosition, lightDirection, lightDistance, 0.05, 0.05, diagnostics, blocker);
 }
 
-float3 SmokeDirectionalColor()
-{
-	const uint packed = gSmokeConstants.DirectionalColorPacked;
-	return float3(
-		(float)(packed & 0xffu),
-		(float)((packed >> 8u) & 0xffu),
-		(float)((packed >> 16u) & 0xffu)) * (8.0 / 255.0);
-}
-
-float3 SmokeDirectionalDirection()
-{
-	return normalize(float3(
-		gSmokeConstants.DirectionalDirectionX,
-		gSmokeConstants.DirectionalDirectionY,
-		gSmokeConstants.DirectionalDirectionZ));
-}
-
 uint SmokeLightingRandomSeed(uint3 froxel, uint sampleIndex, uint familySalt)
 {
 	uint seed = SmokeHash(froxel.x ^ SmokeHash(froxel.y + 0x9e3779b9u));
@@ -712,15 +701,13 @@ float SmokeGetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex
 	gSmokeEmissiveMaterialResponses.GetDimensions(responseCapacity, responseStride);
 	if (responseCapacity == 0u)
 		return 1.0;
-	const uint responseCount = min(gSmokeEmissiveMaterialResponses[0].dataSource, responseCapacity - 1u);
-	[loop]
-	for (uint responseIndex = 1u; responseIndex <= responseCount; ++responseIndex)
+	const EmissiveMaterialResponseData header = gSmokeEmissiveMaterialResponses[0];
+	const uint responseCount = min(header.dataSource, responseCapacity - 1u);
+	if (GetEmissiveResponseLookupMode(header.flags) == 2u)
 	{
-		const EmissiveMaterialResponseData response = gSmokeEmissiveMaterialResponses[responseIndex];
-		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
-			return max(response.materialScale, 0.0);
+		return FindEmissiveResponseBinary(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex).scale;
 	}
-	return 1.0;
+	return FindEmissiveResponseLinear(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex).scale;
 }
 
 float SmokeResolveEmissiveRadianceScale(EmissivePrimitiveData candidate, uint primitiveIndex)

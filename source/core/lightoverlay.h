@@ -36,6 +36,17 @@ enum class LightOverlaySmokeRepresentation : uint8_t
 {
 	Grid,
 	Analytic,
+	TransientCloud,
+};
+
+enum class LightOverlaySmokeTransientClass : uint8_t
+{
+	Explosion,
+	TrailChunk,
+	FirePacket,
+	Muzzle,
+	Impact,
+	Diagnostic,
 };
 
 enum class LightOverlaySmokeQueuePolicy : uint8_t
@@ -325,6 +336,21 @@ struct ParsedLightOverlaySmokeStyle
 	float temperature = 1.0f;
 	float momentumScale = 1.0f;
 	float coolingHalfLife = 2.0f;
+	float opticalAmountScale = 1.0f;
+	float transientLifetimeSeconds = 0.0f;
+	float densityAttackSeconds = 0.0f;
+	float densitySustainSeconds = 0.0f;
+	float densityReleaseSeconds = 0.0f;
+	float radiusExponent = 1.0f;
+	float intrinsicEmission = 0.0f;
+	float emissionHalfLife = 0.25f;
+	float clusterSpread = 0.75f;
+	float lobeRadiusRandom[2] = { 0.75f, 1.25f };
+	float curlVelocity = 0.0f;
+	float corePlateau = 0.58f;
+	float edgeErosion = 0.12f;
+	float noiseScale = 0.035f;
+	float noiseStrength = 0.18f;
 };
 
 struct ParsedLightOverlaySmokeActorRule
@@ -341,6 +367,9 @@ struct ParsedLightOverlaySmokeActorRule
 	bool hasMaxLatencySeconds = false;
 	float maxLatencySeconds = 0.0f;
 	uint32_t analyticCarrierCount = 1;
+	uint32_t transientLobeCount = 8;
+	LightOverlaySmokeTransientClass transientClass = LightOverlaySmokeTransientClass::Diagnostic;
+	bool burstBorrow = false;
 	bool emitterForeground = false;
 	FString styleId;
 	uint32_t count = 1;
@@ -370,6 +399,9 @@ struct ParsedLightOverlaySmokeEventRule
 	bool hasMaxLatencySeconds = false;
 	float maxLatencySeconds = 0.0f;
 	uint32_t analyticCarrierCount = 1;
+	uint32_t transientLobeCount = 8;
+	LightOverlaySmokeTransientClass transientClass = LightOverlaySmokeTransientClass::Diagnostic;
+	bool burstBorrow = false;
 	uint32_t count = 1;
 	float offset[3] = { 0.0f, 0.0f, 0.0f };
 	float offsetRandom[3] = { 0.0f, 0.0f, 0.0f };

@@ -65,6 +65,7 @@
 #include "s_soundinternal.h"
 #include "hardware.h"
 #include "d_eventbase.h"
+#include "input_lineage.h"
 #include "v_text.h"
 #include "version.h"
 #include "engineerrors.h"
@@ -600,7 +601,26 @@ void I_GetEvent ()
 		{
 			TranslateMessage (&mess);
 		}
-		DispatchMessage (&mess);
+		const bool lineageTiming = PerfInputLineageActive() && mess.message == WM_INPUT;
+		if (lineageTiming)
+		{
+			const DWORD nowMs = GetTickCount();
+			PerfInputLineageSetWindowsMessageTiming(
+				true,
+				(DWORD)mess.time,
+				(DWORD)(nowMs - (DWORD)mess.time),
+				PerfInputLineageNowUs());
+		}
+		try
+		{
+			DispatchMessage (&mess);
+		}
+		catch (...)
+		{
+			if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
+			throw;
+		}
+		if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
 	}
 	PerfLoopTraceNoteIGetEvent(peekedMessages);
 
@@ -612,6 +632,84 @@ void I_GetEvent ()
 	{
 		Mouse->ProcessInput();
 	}
+}
+
+//==========================================================================
+//
+// I_GetLateMouseMotion
+//
+// Dispatch an ordered queue-head prefix containing pure raw mouse motion.
+// Do not remove or explicitly dispatch a queued keyboard, mouse-button, wheel,
+// focus, window, or quit message here: that could invalidate input routing or
+// the active graphics frame. (PeekMessage may itself service nonqueued sent
+// messages, so eligibility and active-frame state are rechecked by the caller.)
+//
+//==========================================================================
+
+bool I_GetLateMouseMotion()
+{
+	MSG mess;
+	while (PeekMessage(&mess, NULL, 0, 0, PM_NOREMOVE))
+	{
+		if (mess.message != WM_INPUT)
+		{
+			return false;
+		}
+
+		RAWINPUT raw{};
+		UINT size = sizeof(raw);
+		const UINT copied = GetRawInputData((HRAWINPUT)mess.lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
+		if (copied == UINT(-1) || copied < sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE) ||
+			raw.header.dwSize != copied ||
+			raw.header.dwType != RIM_TYPEMOUSE || raw.data.mouse.usButtonFlags != 0)
+		{
+			return false;
+		}
+
+		MSG removed;
+		if (!PeekMessage(&removed, NULL, WM_INPUT, WM_INPUT, PM_REMOVE))
+		{
+			return false;
+		}
+		// PeekMessage retrieves WM_QUIT regardless of the message filter. Put it
+		// back for the normal pump; never swallow quit or dispatch it here.
+		if (removed.message == WM_QUIT)
+		{
+			PostQuitMessage((int)removed.wParam);
+			return false;
+		}
+		const bool inspectedMessageRemoved = removed.message == WM_INPUT &&
+			removed.hwnd == mess.hwnd && removed.wParam == mess.wParam && removed.lParam == mess.lParam;
+
+		const bool lineageTiming = PerfInputLineageActive();
+		if (lineageTiming)
+		{
+			const DWORD nowMs = GetTickCount();
+			PerfInputLineageSetWindowsMessageTiming(
+				true,
+				(DWORD)removed.time,
+				(DWORD)(nowMs - (DWORD)removed.time),
+				PerfInputLineageNowUs());
+		}
+		try
+		{
+			DispatchMessage(&removed);
+		}
+		catch (...)
+		{
+			if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
+			throw;
+		}
+		if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
+		if (!inspectedMessageRemoved)
+		{
+			// The filtered removal can only yield raw input here. Preserve it by
+			// dispatching once, but reject the latch because this was not the packet
+			// whose type/button state was inspected.
+			return false;
+		}
+	}
+	return true;
 }
 
 //

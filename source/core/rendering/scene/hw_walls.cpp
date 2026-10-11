@@ -1128,8 +1128,14 @@ int HWWall::CheckWallSprite(tspritetype* spr, tspritetype* last)
 
 void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector)
 {
+	if (PrepareWallSprite(di, spr, sector))
+		PutWall(di, spriteHasTranslucency(Sprite));
+}
+
+bool HWWall::PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector)
+{
 	auto tex = TexMan.GetGameTexture(spr->spritetexture());
-	if (!tex || !tex->isValid()) return;
+	if (!tex || !tex->isValid()) return false;
 
 	seg = nullptr;
 	Sprite = spr;
@@ -1141,11 +1147,11 @@ void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 	glseg.x2 = pos[1].X;
 	glseg.y2 = -pos[1].Y;
 
-	if (spr->cstat & CSTAT_SPRITE_ONE_SIDE)
+	if (di != nullptr && (spr->cstat & CSTAT_SPRITE_ONE_SIDE))
 	{
 		if (PointOnLineSide(di->Viewpoint.Pos.X, di->Viewpoint.Pos.Y, glseg.x1, glseg.y1, glseg.x2 - glseg.x1, glseg.y2 - glseg.y1) <= 0)
 		{
-			return;
+			return false;
 		}
 	}
 
@@ -1247,10 +1253,10 @@ void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 		}
 	}
 	if (zbottom[0] >= ztop[0])
-		return; // nothing left to render.
+		return false; // nothing left to render.
 
 	// If the sprite is backward, flip it around so that we have guaranteed orientation when this is about to be sorted.
-	if (PointOnLineSide(di->Viewpoint.Pos.X, di->Viewpoint.Pos.Y, glseg.x1, glseg.y1, glseg.x2 - glseg.x1, glseg.y2 - glseg.y1 ) < 0)
+	if (di != nullptr && PointOnLineSide(di->Viewpoint.Pos.X, di->Viewpoint.Pos.Y, glseg.x1, glseg.y1, glseg.x2 - glseg.x1, glseg.y2 - glseg.y1 ) < 0)
 	{
 		std::swap(glseg.x1, glseg.x2);
 		std::swap(glseg.y1, glseg.y2);
@@ -1259,5 +1265,5 @@ void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 		std::swap(tcs[UPLFT], tcs[UPRGT]);
 	}
 
-	PutWall(di, spriteHasTranslucency(Sprite));
+	return true;
 }

@@ -21,10 +21,13 @@ double I_GetTimeFrac(double const ticrate = GameTicRate);
 int I_WaitForTic(int prevtic, double const ticrate = GameTicRate);
 
 // Freezes tic counting temporarily. While frozen, calls to I_GetTime()
-// will always return the same value.
+// will always return the same value. Optional elapsed nanoseconds pin the
+// I_GetTime/I_GetTimeNS/I_GetTimeFrac epoch for a deterministic capture. The
+// default preserves the current frame time. Real measurement clocks and the
+// normal epoch restored on unfreeze are unaffected.
 // You must also not call I_WaitForTic() while freezing time, since the
 // tic will never arrive (unless it's the current one).
-void I_FreezeTime(bool frozen);
+void I_FreezeTime(bool frozen, uint64_t fixedElapsedNS = UINT64_MAX);
 bool I_IsTimeFrozen();
 
 // [RH] Returns millisecond-accurate time
