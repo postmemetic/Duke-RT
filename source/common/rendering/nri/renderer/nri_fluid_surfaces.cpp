@@ -3,6 +3,7 @@
 #include "nri_cvars.h"
 #include "nri_diagnostic_names.h"
 #include "nri_fluid_surface_gpu.h"
+#include "../scene/nri_fluid_surface_normals.h"
 #include "../system/nri_renderdevice.h"
 
 #include "fluidoverlay.h"
@@ -129,6 +130,13 @@ void NRIRenderer::SyncFluidSurfaceOverlayState()
 		if (hadPreviousGeneration)
 		{
 			QueueStaticMapSceneLightingInvalidation();
+			// Newly enabled fluid floors need their carrier-normal geometry payload
+			// rebuilt too. Existing fluid floors remain watched when disabled.
+			for (const auto& chunk : mMapWorld.chunks)
+			{
+				if (nri_scene::ComputeFluidFloorNormalSignature(chunk.sectorIndex) != 0)
+					mRuntimeMutation.SeedSignatureWatchlist(chunk.chunkIndex);
+			}
 			RequestHistoryReset("fluidoverlay-resolve");
 		}
 		Printf("NRI PT fluid overlays: generation=%u bindings=%u rules=%u map=%s\n",

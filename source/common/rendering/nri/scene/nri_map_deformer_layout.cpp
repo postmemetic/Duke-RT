@@ -1,4 +1,5 @@
 #include "nri_map_deformer_layout.h"
+#include "nri_fluid_normal_math.h"
 
 #include <algorithm>
 #include <array>
@@ -782,8 +783,8 @@ namespace
 				retained.flags == current.flags &&
 				retained.portalIndex == current.portalIndex &&
 				(current.reserved0 == UINT32_MAX || retained.reserved0 == current.reserved0) &&
-				retained.smoothNormals[0] == 0 && retained.smoothNormals[1] == 0 &&
-				current.smoothNormals[0] == 0 && current.smoothNormals[1] == 0 &&
+				HasSupportedMapCarrierNormals(retained.smoothNormals) &&
+				HasSupportedMapCarrierNormals(current.smoothNormals) &&
 				IsFinitePrimitivePayload(current);
 		}
 
@@ -887,6 +888,8 @@ namespace
 					std::begin(currentPrimitive.normal),
 					std::end(currentPrimitive.normal),
 					canonicalPrimitive.normal);
+				RemapFluidCarrierNormals(currentPrimitive.smoothNormals,
+					m_currentCornersForRetained[retainedPrimitiveIndex].data(), canonicalPrimitive.smoothNormals);
 				canonicalPrimitive.temporalSurfaceId[0] = currentPrimitive.temporalSurfaceId[0];
 				canonicalPrimitive.temporalSurfaceId[1] = currentPrimitive.temporalSurfaceId[1];
 				canonicalPrimitive.temporalGeneration = currentPrimitive.temporalGeneration;
@@ -1277,8 +1280,8 @@ MapDeformerLayoutMapping MapCurrentGeometryToRetainedDeformerLayoutFast(
 
 		const PrimitiveData& retainedPrimitive = retained.primitives[retainedPrimitiveIndex];
 		const PrimitiveData& currentPrimitive = exactCurrentGeometry.primitives[currentPrimitiveIndex];
-		if (retainedPrimitive.smoothNormals[0] != 0 || retainedPrimitive.smoothNormals[1] != 0 ||
-			currentPrimitive.smoothNormals[0] != 0 || currentPrimitive.smoothNormals[1] != 0)
+		if (!HasSupportedMapCarrierNormals(retainedPrimitive.smoothNormals) ||
+			!HasSupportedMapCarrierNormals(currentPrimitive.smoothNormals))
 		{
 			Reject(result, MapDeformerLayoutReject_SmoothNormals);
 			return result;
@@ -1320,6 +1323,8 @@ MapDeformerLayoutMapping MapCurrentGeometryToRetainedDeformerLayoutFast(
 			canonicalUv[1] = currentUv[1];
 		}
 		std::copy(std::begin(currentPrimitive.normal), std::end(currentPrimitive.normal), canonicalPrimitive.normal);
+		RemapFluidCarrierNormals(currentPrimitive.smoothNormals,
+			currentCornerForRetained.data(), canonicalPrimitive.smoothNormals);
 		canonicalPrimitive.temporalSurfaceId[0] = currentPrimitive.temporalSurfaceId[0];
 		canonicalPrimitive.temporalSurfaceId[1] = currentPrimitive.temporalSurfaceId[1];
 		canonicalPrimitive.temporalGeneration = currentPrimitive.temporalGeneration;

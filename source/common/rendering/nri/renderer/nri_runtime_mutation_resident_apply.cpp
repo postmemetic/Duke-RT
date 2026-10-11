@@ -246,8 +246,19 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			replacement.certifiedResidentMaterialOnly = false;
 		}
 	}
-	const RuntimeMutationResidentApplyMode applyMode =
+	RuntimeMutationResidentApplyMode applyMode =
 		mRuntimeMutation.ClassifyResidentApplyMode(replacement, hasResidentChunk, hasResolvedAtlasChunk, resolvedAtlasMaterialCount);
+	const bool requiresMaterialUvUpload = applyMode.fastResidentMaterialOnlyUpdate &&
+		resolvedChunkListIndex < mStaticMapScene.lightChunkViews.size() &&
+		nri_scene::RequiresMapMaterialUvUpload(
+			mStaticMapScene.lightChunkViews[resolvedChunkListIndex], replacement.sceneView);
+	if (requiresMaterialUvUpload)
+	{
+		// Descriptor-only refreshes cannot publish panning UVs or clear their
+		// per-primitive rejection signal after motion stops.
+		applyMode.fastResidentMaterialOnlyUpdate = false;
+		applyMode.certifiedResidentMaterialOnlyUpdate = false;
+	}
 	const RuntimeMutationResidentApplyModeStats applyModeStats =
 		mRuntimeMutation.BuildResidentApplyModeStats(applyMode, replacement, hasResidentChunk, hasResolvedAtlasChunk, resolvedAtlasMaterialCount);
 	mLastPerfShellTraceStats.runtimeMutationResidentApplyMaterialOnlyCount += applyModeStats.materialOnlyCount;
@@ -286,7 +297,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 		residentMaterials = replacement.materialBridge;
 		appliedBaseline = replacement.replacementBaseline;
 	}
-	else if (materialOnlyReplacement && !exclusiveMaterialOnlyReplacement)
+	else if (materialOnlyReplacement && (!exclusiveMaterialOnlyReplacement || requiresMaterialUvUpload))
 	{
 		nri_scene::PTMapWorld liveWorld = {};
 		nri_scene::PTMapWorldStats ignoredStats = {};

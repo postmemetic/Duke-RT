@@ -22,6 +22,7 @@ namespace
 
 	void SeedPreviousFromCurrent(nri_scene::SurfaceRef& surface)
 	{
+		surface.temporal.materialUvReactive = 0.0f;
 		for (nri_scene::CapturedVertex& vertex : surface.vertices)
 		{
 			std::memcpy(vertex.prevPosition, vertex.position, sizeof(vertex.prevPosition));
@@ -35,6 +36,10 @@ bool NRIMapMotionHistory::PayloadEqual(
 {
 	if (a.occurrenceId != b.occurrenceId || a.topologyKey != b.topologyKey ||
 		a.generation != b.generation || a.chunkIndex != b.chunkIndex ||
+		a.materialUvAnchorValid != b.materialUvAnchorValid ||
+		(a.materialUvAnchorValid &&
+			(std::memcmp(a.materialUvAnchor, b.materialUvAnchor, sizeof(a.materialUvAnchor)) != 0 ||
+				std::memcmp(a.materialUvTexelScale, b.materialUvTexelScale, sizeof(a.materialUvTexelScale)) != 0)) ||
 		a.materialVerticalReferenceValid != b.materialVerticalReferenceValid ||
 		(a.materialVerticalReferenceValid &&
 			std::memcmp(&a.materialVerticalReference, &b.materialVerticalReference,
@@ -72,6 +77,7 @@ NRIMapMotionHistory::DiagnosticRecord NRIMapMotionHistory::FindCommitted(uint64_
 
 bool NRIMapMotionHistory::SurfaceHasMotion(const nri_scene::SurfaceRef& surface)
 {
+	if (surface.temporal.materialUvReactive > 0.0f) return true;
 	for (const nri_scene::CapturedVertex& vertex : surface.vertices)
 	{
 		for (uint32_t axis = 0; axis < 3; ++axis)
@@ -388,6 +394,52 @@ bool RunNRIMapMotionHistorySelfTests(std::string* failureReason)
 	};
 	if (!validateMixedChunkSettle(true) || !validateMixedChunkSettle(false))
 		return fail("mixed-surface chunk settlement was order-dependent");
+
+	nri_scene::SceneView panSeed;
+	panSeed.opaqueFlats.push_back(mapSurface.surface);
+	auto& panSurface = panSeed.opaqueFlats[0];
+	panSurface.provenance.sourceType = nri_scene::SurfaceSourceType::MapFloorSection;
+	panSurface.temporal.materialUvAnchorValid = true;
+	panSurface.temporal.materialUvTexelScale[0] = 64.0f;
+	panSurface.temporal.materialUvTexelScale[1] = 64.0f;
+	NRIMapMotionHistory panHistory;
+	const auto commitPan = [&](const nri_scene::SceneView& view, uint64_t serial)
+	{
+		panHistory.BeginStage(serial, 3u);
+		if (!panHistory.StagePublishedView(view)) return false;
+		panHistory.FinalizeStage();
+		return panHistory.CommitSubmitted(serial);
+	};
+	panHistory.ApplyCommitted(panSeed, 3u);
+	if (!commitPan(panSeed, 1u)) return fail("flat pan seed commit failed");
+	nri_scene::SceneView panMoved = panSeed;
+	panMoved.opaqueFlats[0].temporal.materialUvAnchor[0] = 1.0f / 128.0f;
+	panHistory.ApplyCommitted(panMoved, 3u);
+	if (panMoved.opaqueFlats[0].temporal.materialUvReactive != 0.5f ||
+		!commitPan(panMoved, 2u) || !panHistory.NeedsSettle(4u))
+		return fail("flat pan did not publish reactivity and request settlement");
+	if (!commitPan(panMoved, 3u) || !panHistory.NeedsSettle(4u))
+		return fail("stale published pan reactivity cleared settlement");
+	nri_scene::SceneView panSettled = panMoved;
+	panHistory.ApplyCommitted(panSettled, 3u);
+	if (panSettled.opaqueFlats[0].temporal.materialUvReactive != 0.0f ||
+		!commitPan(panSettled, 4u) || panHistory.NeedsSettle(4u))
+		return fail("paused flat did not clear published pan reactivity");
+	nri_scene::SceneView panDiscarded = panSettled;
+	panDiscarded.opaqueFlats[0].temporal.materialUvAnchor[0] += 1.0f / 64.0f;
+	panHistory.BeginStage(5u, 3u);
+	if (!panHistory.StagePublishedView(panDiscarded)) return fail("flat pan staging failed");
+	panHistory.FinalizeStage();
+	panHistory.DiscardStaged();
+	panHistory.ApplyCommitted(panSettled, 3u);
+	if (panSettled.opaqueFlats[0].temporal.materialUvReactive != 0.0f)
+		return fail("discarded flat pan advanced submitted history");
+	panHistory.Reset("pan-test-reset");
+	panMoved.opaqueFlats[0].temporal.materialUvReactive = 1.0f;
+	panHistory.ApplyCommitted(panMoved, 3u);
+	if (panMoved.opaqueFlats[0].temporal.correspondenceValid ||
+		panMoved.opaqueFlats[0].temporal.materialUvReactive != 0.0f)
+		return fail("reset retained flat pan reactivity");
 	if (failureReason != nullptr) failureReason->clear();
 	return true;
 }

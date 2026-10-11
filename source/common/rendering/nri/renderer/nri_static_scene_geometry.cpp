@@ -179,6 +179,12 @@ uint64_t HashResidentGeometryPayload(
 		hash = Combine(hash, (uint64_t)primitive.flags);
 		hash = Combine(hash, (uint64_t)primitive.portalIndex);
 		hash = HashResidentGeometryProvenancePayload(hash, mapWorld, geometry, primitive, primitiveIndex);
+		hash = Combine(hash, (uint64_t)primitive.smoothNormals[0]);
+		hash = Combine(hash, (uint64_t)primitive.smoothNormals[1]);
+		hash = Combine(hash, (uint64_t)primitive.temporalSurfaceId[0]);
+		hash = Combine(hash, (uint64_t)primitive.temporalSurfaceId[1]);
+		hash = Combine(hash, (uint64_t)primitive.temporalGeneration);
+		hash = Combine(hash, (uint64_t)primitive.temporalFlags);
 	}
 
 	return hash != 0 ? hash : 1;
@@ -214,6 +220,12 @@ uint64_t HashResidentGeometryPayloadOrderIndependent(
 		}
 		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.flags);
 		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.portalIndex);
+		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.smoothNormals[0]);
+		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.smoothNormals[1]);
+		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.temporalSurfaceId[0]);
+		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.temporalSurfaceId[1]);
+		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.temporalGeneration);
+		primitiveHash = Combine(primitiveHash, (uint64_t)primitive.temporalFlags);
 		primitiveHash = HashResidentGeometryProvenancePayload(primitiveHash, mapWorld, geometry, primitive, primitiveIndex);
 
 		const float* primitiveUvs[3] = { primitive.uv0, primitive.uv1, primitive.uv2 };
@@ -279,6 +291,12 @@ uint64_t ComputePrimitiveLayoutSignature(const nri_scene::GeometryData& geometry
 		hash = Combine(hash, (uint64_t)FloatBits(primitive.normal[0]));
 		hash = Combine(hash, (uint64_t)FloatBits(primitive.normal[1]));
 		hash = Combine(hash, (uint64_t)FloatBits(primitive.normal[2]));
+		hash = Combine(hash, (uint64_t)primitive.smoothNormals[0]);
+		hash = Combine(hash, (uint64_t)primitive.smoothNormals[1]);
+		hash = Combine(hash, (uint64_t)primitive.temporalSurfaceId[0]);
+		hash = Combine(hash, (uint64_t)primitive.temporalSurfaceId[1]);
+		hash = Combine(hash, (uint64_t)primitive.temporalGeneration);
+		hash = Combine(hash, (uint64_t)primitive.temporalFlags);
 		hash = Combine(hash, (uint64_t)primitive.flags);
 		hash = Combine(hash, (uint64_t)primitive.portalIndex);
 		if (i < geometry.primitiveProvenance.size())

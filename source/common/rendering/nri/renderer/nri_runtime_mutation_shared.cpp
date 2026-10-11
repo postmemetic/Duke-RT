@@ -536,6 +536,7 @@ namespace nri_runtime_mutation
 				hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(vertex.position[0]));
 				hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(vertex.position[1]));
 				hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(vertex.position[2]));
+				hash = RuntimeMutationHashCombine64(hash, (uint64_t)vertex.fluidCarrierNormal);
 			}
 			for (uint32_t index : surface.indices)
 			{

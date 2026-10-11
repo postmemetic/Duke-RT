@@ -7,6 +7,7 @@
 #include "Include/RaytracingShared.hlsli"
 // Selects the SeaScape-style D3D evaluator or the validated SPIR-V compatibility path.
 #include "Include/FluidSurface.hlsli"
+#include "Include/FluidSurfaceGeometry.hlsli"
 #include "Include/WallDecals.hlsli"
 #include "Include/PrimaryTemporalGeometry.hlsli"
 #if NRI_SHADER_DIAGNOSTICS
@@ -1807,6 +1808,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float currentViewZ;
 		float4 motionOutput;
 		uint temporalValidityReason;
+		float materialPanReactive = 0.0;
 		// Finish temporal geometry and its consumers before lighting; only these
 		// compact guide/debug outputs need to remain live across the lighting work.
 		{
@@ -1822,6 +1824,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				currentGeometricNormal,
 				previousGeometricNormal,
 				currentTemporalIdentity);
+			// CPU stores authored texture panning separately from geometric motion.
+			materialPanReactive = (float)((currentTemporalIdentity.w >> 16u) & 0xffu) * (1.0 / 255.0);
 #if NRI_SHADER_DIAGNOSTICS
 			RecordPrimaryTemporalGeometryOracle(
 				hit,
@@ -1957,10 +1961,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				primaryBaseColorLod,
 				primaryBaseColorMipCount);
 			albedo = SampleHitBaseColorLevel(hit, primaryBaseColorLod);
+			const float3 fluidGeometricNormal = ResolveHitGeometricNormal(hit, false);
+			const float3 fluidCarrierShadingNormal = material.fluidBindingIndex != NRI_FLUID_INVALID_BINDING ?
+				ResolveFluidCarrierShadingNormal(hit, fluidGeometricNormal) : fluidGeometricNormal;
 			TryEvaluateFluidSurface(
 				material,
 				hit.position,
-				ResolveHitGeometricNormal(hit, false),
+				fluidGeometricNormal,
+				fluidCarrierShadingNormal,
 				visibleRayDirection,
 				albedo.rgb,
 				ResolvePrimaryWorldFootprint(hit, visibleRayDirection),
@@ -1968,6 +1976,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				fluidSurface);
 			if (fluidSurface.active != 0u)
 			{
+				fluidSurface.reactive = max(fluidSurface.reactive, materialPanReactive);
 				albedo.rgb = fluidSurface.baseColor;
 				guideNormal = fluidSurface.shadingNormal;
 			}

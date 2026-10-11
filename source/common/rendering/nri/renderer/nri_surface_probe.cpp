@@ -206,6 +206,9 @@ namespace
 			a.shaderFluidBindingIndex == b.shaderFluidBindingIndex &&
 			a.shaderFluidActive == b.shaderFluidActive &&
 			a.primitiveFlags == b.primitiveFlags &&
+			a.cpuPrimitiveTemporalFlags == b.cpuPrimitiveTemporalFlags &&
+			a.capturedMaterialUvValid == b.capturedMaterialUvValid &&
+			a.capturedMaterialUvReactive == b.capturedMaterialUvReactive &&
 			a.sceneDataSource == b.sceneDataSource &&
 			a.sceneOwner == b.sceneOwner &&
 			a.materialIndex == b.materialIndex &&
@@ -235,6 +238,19 @@ namespace
 		case nri_diag::SurfaceProbeOwnerRuntimeMutation: return SceneLightRecordSource::RuntimeMutationScene;
 		case nri_diag::SurfaceProbeOwnerDynamicOverlay: return SceneLightRecordSource::DynamicScene;
 		default: return SceneLightRecordSource::CapturedScene;
+		}
+	}
+
+	static void CaptureMaterialUvProbe(const nri_scene::SceneView& sceneView, NRISurfaceProbeResult& result)
+	{
+		for (const nri_scene::SurfaceRef& surface : sceneView.opaqueFlats)
+		{
+			if (SurfaceProvenanceMatches(surface.provenance, result.provenance))
+			{
+				result.capturedMaterialUvValid = surface.temporal.materialUvAnchorValid;
+				result.capturedMaterialUvReactive = surface.temporal.materialUvReactive;
+				return;
+			}
 		}
 	}
 }
@@ -297,6 +313,7 @@ void NRIRenderer::UpdateSurfaceProbe(
 		result.primitiveIndex = primitiveIndex;
 		result.materialIndex = primitive.materialIndex;
 		result.primitiveFlags = primitive.flags;
+		result.cpuPrimitiveTemporalFlags = primitive.temporalFlags;
 		result.distance = hitT;
 		result.position[0] = mCurrentCameraPos[0] + direction[0] * hitT;
 		result.position[1] = mCurrentCameraPos[1] + direction[1] * hitT;
@@ -416,6 +433,15 @@ void NRIRenderer::UpdateSurfaceProbe(
 	}
 	if (result.hit && result.sceneOwner == nri_diag::SurfaceProbeOwnerStaticMap)
 	{
+		if (result.provenance.mapChunkIndex >= 0)
+		{
+			const uint32_t chunkListIndex = NRIStaticSceneResidency::FindPreferredStaticSceneChunkListIndex(
+				mStaticMapScene, mStaticMapChunkAtlas, (uint32_t)result.provenance.mapChunkIndex);
+			if (chunkListIndex < mStaticMapScene.lightChunkViews.size())
+			{
+				CaptureMaterialUvProbe(mStaticMapScene.lightChunkViews[chunkListIndex], result);
+			}
+		}
 		result.gpuMaterialsUseStableTextureSlots = mStaticMapScene.gpuMaterialsUseStableTextureSlots;
 		result.textureSlotRevision = mSceneTextures.SlotTable().MappingRevision();
 		result.materialGeneration = mStaticMapScene.materialGeneration;
@@ -436,6 +462,14 @@ void NRIRenderer::UpdateSurfaceProbe(
 		{
 			result.expectedGpuTextureValid = true;
 			result.expectedGpuTextureIndex = result.semanticTextureIndex;
+		}
+	}
+	else if (result.hit && result.sceneOwner == nri_diag::SurfaceProbeOwnerRuntimeMutation &&
+		result.provenance.mapChunkIndex >= 0)
+	{
+		if (const auto* replacement = mRuntimeMutation.FindReplacement((uint32_t)result.provenance.mapChunkIndex))
+		{
+			CaptureMaterialUvProbe(replacement->sceneView, result);
 		}
 	}
 	if (result.gpuMaterialValid && result.expectedGpuTextureValid)
@@ -557,7 +591,7 @@ void NRIRenderer::UpdateSurfaceProbe(
 			authoredFamilyTile -= (int32_t)authoredPicanm.num;
 		}
 	}
-	Printf("NRI PT fluid probe: authored_texid=%u authored_tile=%d authored_family=%d authored_texture=%s cpu_binding=%u gpu_binding=%u gpu_binding_match=%s shader_valid=%s shader_hit_match=%s shader_binding=%u shader_active=%s\n",
+	Printf("NRI PT fluid probe: authored_texid=%u authored_tile=%d authored_family=%d authored_texture=%s cpu_binding=%u gpu_binding=%u gpu_binding_match=%s shader_valid=%s shader_hit_match=%s shader_binding=%u shader_active=%s captured_pan_valid=%s captured_pan_reactive=%.4f cpu_primitive_temporal_flags=0x%x cpu_primitive_pan_reactive=%.4f\n",
 		result.authoredTextureId != UINT32_MAX ? result.authoredTextureId : 0u,
 		authoredLegacyTile,
 		authoredFamilyTile,
@@ -568,7 +602,12 @@ void NRIRenderer::UpdateSurfaceProbe(
 		YesNo(result.shaderMaterialValid),
 		YesNo(result.shaderHitMatch),
 		result.shaderFluidBindingIndex,
-		YesNo(result.shaderFluidActive));
+		YesNo(result.shaderFluidActive),
+		YesNo(result.capturedMaterialUvValid),
+		result.capturedMaterialUvReactive,
+		result.cpuPrimitiveTemporalFlags,
+		(float)((result.cpuPrimitiveTemporalFlags >> nri_scene::TemporalMaterialUvReactiveShift) &
+			nri_scene::TemporalMaterialUvReactiveMask) / (float)nri_scene::TemporalMaterialUvReactiveMask);
 	Printf("NRI PT surface probe: hit source=%s drawlist=%s owner=%s data_source=%s chunk=%d gate_visible=%s flat_drawlist_visible=%s static_resident=%s static_tlas_instanced=%s static_probe_included=%s chunk_replaced=%s chunk_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u local_space=%d portal_graph=%d sector=%d wall=%d nextsector=%d actor=%d cstat=0x%x primitive=%u material=%u cpu_tex=%u metadata_tex=%u gpu_tex=%u expected_gpu_tex=%u cpu_palette=%u metadata_palette=%u gpu_palette=%u gpu_material_valid=%s cpu_metadata_match=%s gpu_palette_match=%s gpu_texture_match=%s stable_texture_slots=%s texture_slot_revision=%llu material_generation=%llu material_buffer_hash=%llu shader_valid=%s shader_hit_match=%s shader_frame=%llu shader_source=%u shader_instance=%u shader_primitive=%u shader_material=%u shader_tex=%u shader_palette=%u shader_flags=0x%x shader_lighting=0x%x texid=%u legacy_tile=%d texture_name=%s material_texid=%u material_legacy_tile=%d material_texture_name=%s distance=%.2f pos=(%.2f, %.2f, %.2f) normal=(%.3f, %.3f, %.3f) flags=0x%x indexed=%s fullbright=%s flat=%s sprite=%s mirror=%s sky=%s portal=%s facing_billboard=%s point_sampled=%s tex_fullbright=%s glowing=%s auto_glow=%s glowmap=%s normalmap=%s metallic=%s roughness=%s normal_tex=%u metallic_tex=%u roughness_tex=%u metalness_hint=%.3f roughness_hint=%.3f material_class=%u emissive_mode=%s emissive_tex=%u light_surface=%s light_mat=%u emissive_surface=%s emissive_prims=%u emissive_hit=%s emissive_flags=0x%x emissive_rule=%u emissive_override=%u emissive_sector=%d sector_scale=%.3f sector_reach=%.3f sector_applied=%s emissive_area=%.2f emissive_power=%.3f emissive_sample_weight=%.3f emissive_pdf=%.6f emissive_intensity=%.3f material_response=%s material_scale=%.3f light=%.3f alpha=%.3f avg=(%.2f, %.2f, %.2f) emissive=(%.2f, %.2f, %.2f) glow=(%.2f, %.2f, %.2f)\n",
 		nri_diag::GetSurfaceSourceTypeName(result.provenance.sourceType),
 		nri_diag::GetDrawListTypeName(result.provenance.drawListType),

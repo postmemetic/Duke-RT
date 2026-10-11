@@ -1,4 +1,5 @@
 #include "nri_geometry_bridge.h"
+#include "nri_fluid_normal_math.h"
 #include "nri_voxel_material_slots.h"
 
 #include <algorithm>
@@ -237,6 +238,11 @@ namespace
 			(temporal.correspondenceValid ? 0x2u : 0u) |
 			(!temporal.identityValid ? 0x4u : 0u) |
 			((uint32_t)temporal.reason << 8u);
+		// Bits 16..23 carry UNORM8 material reactivity; preserve the existing
+		// validity/reason bits and the CPU/GPU primitive layout.
+		const float materialReactive = std::isfinite(temporal.materialUvReactive) ?
+			std::clamp(temporal.materialUvReactive, 0.0f, 1.0f) : 1.0f;
+		primitive.temporalFlags |= (uint32_t)std::lround(materialReactive * TemporalMaterialUvReactiveMask) << TemporalMaterialUvReactiveShift;
 	}
 
 	void AppendTriangle(const SceneVertex& v0, const SceneVertex& v1, const SceneVertex& v2, uint32_t materialIndex, uint32_t flags, const SurfaceProvenance& provenance, const TemporalSurfaceMetadata& temporal, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats)
@@ -372,6 +378,13 @@ namespace
 				primitive.smoothNormals[0] = n0 | (n1 << 16u);
 				primitive.smoothNormals[1] = n2 | 0x80000000u;
 			}
+			else
+			{
+				StoreFluidCarrierNormals(primitive.smoothNormals,
+					surface.vertices[i0].fluidCarrierNormal,
+					surface.vertices[i1].fluidCarrierNormal,
+					surface.vertices[i2].fluidCarrierNormal);
+			}
 			outGeometry.primitives.push_back(primitive);
 			outGeometry.primitiveProvenance.push_back(surface.provenance);
 		}
@@ -483,6 +496,9 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 			for (uint32_t i = 0; i + 2 < flat.vertices.size(); i += 3)
 			{
 				AppendTriangle(MakeVertex(flat.vertices[i]), MakeVertex(flat.vertices[i + 1]), MakeVertex(flat.vertices[i + 2]), materialIndex, flat.material.flags | scenePrimitiveFlags, flat.provenance, flat.temporal, outGeometry, traceStats);
+				StoreFluidCarrierNormals(outGeometry.primitives.back().smoothNormals,
+					flat.vertices[i].fluidCarrierNormal, flat.vertices[i + 1].fluidCarrierNormal,
+					flat.vertices[i + 2].fluidCarrierNormal);
 			}
 
 			materialIndex += NormalizeVoxelMaterialRowSpan(flat.materialRowSpan);

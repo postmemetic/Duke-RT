@@ -1389,6 +1389,7 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 		context.mResources.TransitionTexture(historyInput, NRIComputeShaderResourceState());
 		context.mResources.TransitionTexture(context.mTextures.Get(NRIRenderer::FrameTextureSlot::Motion), NRIComputeShaderResourceState());
 		context.mResources.TransitionTexture(context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalValidity), NRIComputeShaderResourceState());
+		context.mResources.TransitionTexture(context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalReactive), NRIComputeShaderResourceState());
 		if (exposureStateTextureValid)
 		{
 			context.mResources.TransitionTexture(*exposureStateTexture, NRIComputeShaderResourceState());
@@ -1397,13 +1398,14 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 			context.mResources.TransitionTexture(*volumeMeta, NRIComputeShaderResourceState());
 		context.mResources.TransitionTexture(historyOutput, NRIComputeStorageState());
 
-		const nri::Descriptor* taaInputs[6] = {
+		const nri::Descriptor* taaInputs[NRI_TEMPORAL_INPUT_DESCRIPTOR_NUM] = {
 			historyInput.shaderView,
 			context.mTextures.Get(NRIRenderer::FrameTextureSlot::Motion).shaderView,
 			composed.shaderView,
 			exposureStateTextureValid ? exposureStateTexture->shaderView : composed.shaderView,
 			volumeMetaValid ? volumeMeta->shaderView : composed.shaderView,
-			context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalValidity).shaderView
+			context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalValidity).shaderView,
+			context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalReactive).shaderView
 		};
 		nri::UpdateDescriptorRangeDesc taaInputUpdate = {};
 		taaInputUpdate.descriptorSet = context.mTaaFrameTextureSet;
@@ -1474,9 +1476,10 @@ bool NRIPassDispatcher::DispatchUpscaleChain(NRIPassDispatchContext& context)
 				context.mResources.TransitionTexture(*volumeMeta, NRIComputeShaderResourceState());
 				context.mResources.TransitionTexture(combinedReactive, NRIComputeStorageState());
 
-				const nri::Descriptor* reactiveInputs[6] = {
+				const nri::Descriptor* reactiveInputs[NRI_TEMPORAL_INPUT_DESCRIPTOR_NUM] = {
 					temporalReactive->shaderView,
 					volumeMeta->shaderView,
+					temporalReactive->shaderView,
 					temporalReactive->shaderView,
 					temporalReactive->shaderView,
 					temporalReactive->shaderView,

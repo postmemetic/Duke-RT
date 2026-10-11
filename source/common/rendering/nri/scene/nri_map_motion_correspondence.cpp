@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <map>
 
 namespace nri_scene
@@ -28,6 +29,38 @@ namespace
 		return std::fabs(a[0] - b[0]) <= epsilon &&
 			std::fabs(a[1] - b[1]) <= epsilon &&
 			std::fabs(a[2] - b[2]) <= epsilon;
+	}
+
+	bool ValidMaterialUvAnchor(const float anchor[2], const float texelScale[2])
+	{
+		return std::isfinite(anchor[0]) && std::isfinite(anchor[1]) &&
+			std::isfinite(texelScale[0]) && std::isfinite(texelScale[1]) &&
+			texelScale[0] > 0.0f && texelScale[1] > 0.0f;
+	}
+
+	float EvaluateMaterialUvReactive(const PTMapTemporalSurfacePayload& previous,
+		const TemporalSurfaceMetadata& current)
+	{
+		if (!previous.materialUvAnchorValid && !current.materialUvAnchorValid) return 0.0f;
+		if (!previous.materialUvAnchorValid || !current.materialUvAnchorValid ||
+			!ValidMaterialUvAnchor(previous.materialUvAnchor, previous.materialUvTexelScale) ||
+			!ValidMaterialUvAnchor(current.materialUvAnchor, current.materialUvTexelScale)) return 1.0f;
+		float texelDistanceSquared = 0.0f;
+		for (uint32_t axis = 0; axis < 2u; ++axis)
+		{
+			if (previous.materialUvTexelScale[axis] != current.materialUvTexelScale[axis]) return 1.0f;
+			float delta = current.materialUvAnchor[axis] - previous.materialUvAnchor[axis];
+			if (!std::isfinite(delta)) return 1.0f;
+			// Build pans wrap at 256, which is exactly one normalized UV repeat.
+			// Do not turn a small wrap crossing into a full-texture discontinuity.
+			delta -= std::round(delta);
+			const float texelDelta = delta * current.materialUvTexelScale[axis];
+			texelDistanceSquared += texelDelta * texelDelta;
+		}
+		// One source texel of untracked motion fully rejects material history;
+		// subtexel pan reduces confidence continuously and paused pan is zero.
+		return std::isfinite(texelDistanceSquared) ?
+			std::clamp(std::sqrt(texelDistanceSquared), 0.0f, 1.0f) : 1.0f;
 	}
 
 	uint64_t BuildOccurrenceId(const PTMapSurface& surface, uint64_t mapEpoch)
@@ -110,6 +143,7 @@ void InitializeMapTemporalSurface(const PTMapSurface& mapSurface, uint64_t mapEp
 	surface.temporal.topologyKey = BuildTopologyKey(surface);
 	surface.temporal.generation = FoldGeneration(surface.temporal.topologyKey);
 	surface.temporal.historyAge = 0;
+	surface.temporal.materialUvReactive = 0.0f;
 	surface.temporal.reason = MotionValidityReason::NoHistory;
 	surface.temporal.identityValid = true;
 	surface.temporal.correspondenceValid = false;
@@ -161,6 +195,17 @@ bool BuildMapTemporalSurfacePayload(
 	}
 	outPayload.materialVerticalReference = surface.temporal.materialVerticalReference;
 	outPayload.materialVerticalReferenceValid = surface.temporal.materialVerticalReferenceValid;
+	if (surface.temporal.materialUvAnchorValid)
+	{
+		if (!ValidMaterialUvAnchor(surface.temporal.materialUvAnchor, surface.temporal.materialUvTexelScale))
+		{
+			outReason = MotionValidityReason::CurrentNonFinite;
+			return false;
+		}
+		std::memcpy(outPayload.materialUvAnchor, surface.temporal.materialUvAnchor, sizeof(outPayload.materialUvAnchor));
+		std::memcpy(outPayload.materialUvTexelScale, surface.temporal.materialUvTexelScale, sizeof(outPayload.materialUvTexelScale));
+		outPayload.materialUvAnchorValid = true;
+	}
 	outPayload.provenance = surface.provenance;
 	outPayload.corners.reserve(uniqueCorners.size());
 	for (const auto& entry : uniqueCorners)
@@ -180,6 +225,7 @@ bool ApplyMapTemporalSurfacePayload(
 	MotionValidityReason& outReason)
 {
 	outReason = MotionValidityReason::NoHistory;
+	current.temporal.materialUvReactive = 0.0f;
 	if (previous.occurrenceId != current.temporal.occurrenceId)
 	{
 		return false;
@@ -240,8 +286,28 @@ bool ApplyMapTemporalSurfacePayload(
 			}
 		}
 	}
+	current.temporal.materialUvReactive = EvaluateMaterialUvReactive(previous, current.temporal);
 	outReason = MotionValidityReason::Valid;
 	return true;
+}
+
+bool RequiresMapMaterialUvUpload(const SceneView& resident, const SceneView& current)
+{
+	for (size_t index = 0; index < current.opaqueFlats.size(); ++index)
+	{
+		const auto& next = current.opaqueFlats[index].temporal;
+		if (index >= resident.opaqueFlats.size()) return true;
+		const auto& prior = resident.opaqueFlats[index].temporal;
+		if (!next.materialUvAnchorValid && !prior.materialUvAnchorValid &&
+			next.materialUvReactive == 0.0f && prior.materialUvReactive == 0.0f) continue;
+		if (next.occurrenceId != prior.occurrenceId ||
+			next.materialUvAnchorValid != prior.materialUvAnchorValid ||
+			next.materialUvReactive != prior.materialUvReactive) return true;
+		if (next.materialUvAnchorValid &&
+			(std::memcmp(next.materialUvAnchor, prior.materialUvAnchor, sizeof(next.materialUvAnchor)) != 0 ||
+				std::memcmp(next.materialUvTexelScale, prior.materialUvTexelScale, sizeof(next.materialUvTexelScale)) != 0)) return true;
+	}
+	return false;
 }
 
 bool RunNRIMapMotionCorrespondenceSelfTests(std::string* failureReason)
@@ -322,6 +388,64 @@ bool RunNRIMapMotionCorrespondenceSelfTests(std::string* failureReason)
 	for (const CapturedVertex& vertex : liftedCurrent.vertices)
 		if (vertex.prevPosition[1] != vertex.position[1] + 4.0f)
 			return fail("moving wall material did not receive uniform vertical motion");
+
+	SurfaceRef pannedFlat = mapSurface.surface;
+	pannedFlat.provenance.sourceType = SurfaceSourceType::MapFloorSection;
+	pannedFlat.temporal.materialUvAnchorValid = true;
+	pannedFlat.temporal.materialUvTexelScale[0] = 64.0f;
+	pannedFlat.temporal.materialUvTexelScale[1] = 32.0f;
+	pannedFlat.temporal.materialUvAnchor[0] = 255.0f / 256.0f;
+	PTMapTemporalSurfacePayload panPayload;
+	if (!BuildMapTemporalSurfacePayload(pannedFlat, panPayload, reason)) return fail("flat pan payload build failed");
+	pannedFlat.temporal.materialUvAnchor[0] = 1.0f / 256.0f;
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) ||
+		std::fabs(pannedFlat.temporal.materialUvReactive - 0.5f) > 1.0e-6f)
+		return fail("flat pan wrap did not retain subtexel distance");
+	for (const CapturedVertex& vertex : pannedFlat.vertices)
+		if (std::memcmp(vertex.position, vertex.prevPosition, sizeof(vertex.position)) != 0)
+			return fail("flat texture pan changed geometric motion");
+	pannedFlat.temporal.materialUvAnchor[0] = 0.5f;
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) || pannedFlat.temporal.materialUvReactive != 1.0f)
+		return fail("fast flat texture pan did not saturate");
+	pannedFlat.temporal.materialUvAnchor[0] = panPayload.materialUvAnchor[0] - 1.0f / 256.0f;
+	pannedFlat.temporal.materialUvAnchor[1] = 1.0f / 128.0f;
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) ||
+		std::fabs(pannedFlat.temporal.materialUvReactive - std::sqrt(0.125f)) > 1.0e-6f)
+		return fail("two-axis negative pan used wrong texture scale");
+	pannedFlat.temporal.materialUvAnchor[0] = panPayload.materialUvAnchor[0];
+	pannedFlat.temporal.materialUvAnchor[1] = panPayload.materialUvAnchor[1];
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) || pannedFlat.temporal.materialUvReactive != 0.0f)
+		return fail("paused flat retained material reactivity");
+	pannedFlat.temporal.materialUvTexelScale[0] = 128.0f;
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) || pannedFlat.temporal.materialUvReactive != 1.0f)
+		return fail("changed texture dimensions reused material history");
+	pannedFlat.temporal.materialUvTexelScale[0] = 64.0f;
+	pannedFlat.temporal.materialUvAnchorValid = false;
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) || pannedFlat.temporal.materialUvReactive != 1.0f)
+		return fail("missing flat material anchor reused history");
+	pannedFlat.temporal.materialUvAnchorValid = true;
+	pannedFlat.temporal.materialUvAnchor[0] = std::numeric_limits<float>::quiet_NaN();
+	PTMapTemporalSurfacePayload invalidPanPayload;
+	if (BuildMapTemporalSurfacePayload(pannedFlat, invalidPanPayload, reason) || reason != MotionValidityReason::CurrentNonFinite)
+		return fail("nonfinite flat material anchor accepted");
+	if (!ApplyMapTemporalSurfacePayload(panPayload, pannedFlat, reason) || pannedFlat.temporal.materialUvReactive != 1.0f)
+		return fail("invalid pan contaminated geometric correspondence");
+
+	SceneView residentPanView;
+	residentPanView.opaqueFlats.push_back(mapSurface.surface);
+	residentPanView.opaqueFlats[0].temporal.materialUvAnchorValid = true;
+	residentPanView.opaqueFlats[0].temporal.materialUvTexelScale[0] = 64.0f;
+	residentPanView.opaqueFlats[0].temporal.materialUvTexelScale[1] = 32.0f;
+	SceneView nextPanView = residentPanView;
+	if (RequiresMapMaterialUvUpload(residentPanView, nextPanView)) return fail("unchanged flat requested UV upload");
+	nextPanView.opaqueFlats[0].temporal.materialUvAnchor[0] = 1.0f / 256.0f;
+	if (!RequiresMapMaterialUvUpload(residentPanView, nextPanView)) return fail("flat pan entered material-only preservation");
+	nextPanView = residentPanView;
+	residentPanView.opaqueFlats[0].temporal.materialUvReactive = 1.0f;
+	if (!RequiresMapMaterialUvUpload(residentPanView, nextPanView)) return fail("flat settle entered material-only preservation");
+	nextPanView = residentPanView;
+	nextPanView.opaqueFlats[0].temporal.occurrenceId++;
+	if (!RequiresMapMaterialUvUpload(residentPanView, nextPanView)) return fail("unmatched pan anchor entered material-only preservation");
 
 	moved.temporal.topologyKey++;
 	if (ApplyMapTemporalSurfacePayload(payload, moved, reason) || reason != MotionValidityReason::TopologyMismatch) return fail("topology mismatch accepted");

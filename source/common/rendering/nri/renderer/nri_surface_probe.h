@@ -23,6 +23,9 @@ struct NRISurfaceProbeResult
 	uint32_t primitiveIndex = UINT32_MAX;
 	uint32_t materialIndex = UINT32_MAX;
 	uint32_t primitiveFlags = 0;
+	uint32_t cpuPrimitiveTemporalFlags = 0;
+	bool capturedMaterialUvValid = false;
+	float capturedMaterialUvReactive = 0.0f;
 	uint32_t materialLightingFlags = 0;
 	uint32_t semanticTextureIndex = UINT32_MAX;
 	uint32_t semanticPaletteIndex = UINT32_MAX;

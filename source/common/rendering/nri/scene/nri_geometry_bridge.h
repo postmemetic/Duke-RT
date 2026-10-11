@@ -6,6 +6,11 @@
 
 namespace nri_scene
 {
+// Primitive temporalFlags bits 16..23 carry UNORM8 authored-UV history rejection.
+// Keep these values aligned with MotionContracts.hlsli.
+static constexpr uint32_t TemporalMaterialUvReactiveShift = 16u;
+static constexpr uint32_t TemporalMaterialUvReactiveMask = 0xffu;
+
 struct SceneVertex
 {
 	float position[3] = {};

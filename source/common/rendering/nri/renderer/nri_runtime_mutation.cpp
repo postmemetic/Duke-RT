@@ -1051,6 +1051,12 @@ void NRIRuntimeMutationSystem::InitializeStaticChunkReplacement(const nri_scene:
 
 	auto& replacement = cache.chunks[chunk.chunkIndex];
 	nri_scene::CaptureMapChunkMutationBaseline(chunk, replacement.baseline);
+	// A neighboring wave plane can change this floor's shading normals while
+	// its own geometry/dirty bits stay unchanged. Keep fluid floors observed.
+	if (replacement.baseline.fluidNormalSignature != 0)
+	{
+		SeedSignatureWatchlist(chunk.chunkIndex);
+	}
 	replacement.replacementBaseline = replacement.baseline;
 	replacement.baselineSignature = replacement.baseline.signature;
 	replacement.liveSignature = replacement.baselineSignature;

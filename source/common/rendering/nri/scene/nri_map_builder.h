@@ -53,6 +53,7 @@ struct PTMapChunkMutationBaseline
 {
 	int32_t sectorIndex = -1;
 	uint64_t signature = 0;
+	uint64_t fluidNormalSignature = 0;
 	double floorz = 0.0;
 	double ceilingz = 0.0;
 	uint16_t floorstat = 0;

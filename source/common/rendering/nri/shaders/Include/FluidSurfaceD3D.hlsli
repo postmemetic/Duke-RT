@@ -55,6 +55,8 @@ float3 FluidFaceCarrierNormalToDirection(float3 carrierNormal, float3 direction)
 	return dot(normal, direction) >= 0.0 ? normal : -normal;
 }
 
+#include "FluidSurfaceFrame.hlsli"
+
 uint FluidHashUint(uint value)
 {
 	value ^= value >> 16u;
@@ -555,6 +557,7 @@ bool TryEvaluateFluidSurface(
 	MaterialData material,
 	float3 carrierPosition,
 	float3 geometricNormal,
+	float3 carrierShadingNormal,
 	float3 viewRayDirection,
 	float3 sampledBaseColor,
 	float worldFootprint,
@@ -615,24 +618,8 @@ bool TryEvaluateFluidSurface(
 		return false;
 	}
 
-	float3 requestedU = binding.domainAxisUFlowU.xyz;
-	requestedU -= carrierNormal * dot(requestedU, carrierNormal);
-	if (dot(requestedU, requestedU) <= 1.0e-8)
-	{
-		const float3 fallbackUp = abs(carrierNormal.z) < 0.95 ?
-			float3(0.0, 0.0, 1.0) : float3(0.0, 1.0, 0.0);
-		requestedU = cross(fallbackUp, carrierNormal);
-	}
-	const float3 axisU = normalize(requestedU);
-	float3 requestedV = binding.domainAxisVFlowV.xyz;
-	requestedV -= carrierNormal * dot(requestedV, carrierNormal) +
-		axisU * dot(requestedV, axisU);
-	float3 axisV = dot(requestedV, requestedV) > 1.0e-8 ?
-		normalize(requestedV) : normalize(cross(carrierNormal, axisU));
-	if (dot(cross(axisU, axisV), carrierNormal) < 0.0)
-	{
-		axisV = -axisV;
-	}
+	float3 axisU, axisV;
+	FluidBuildDomainAxes(material, binding, carrierNormal, axisU, axisV);
 
 	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
 	const float timeScale = frame.globalTimeScale * binding.motion.y;
@@ -713,8 +700,8 @@ bool TryEvaluateFluidSurface(
 	const float signal = heightRatio;
 
 	const float normalStrength = max(binding.surfaceResponse.z, 0.0);
-	float3 shadingNormal = normalize(carrierNormal - normalStrength *
-		(gradient.x * axisU + gradient.y * axisV));
+	float3 shadingNormal = FluidComposeShadingNormal(carrierNormal, carrierShadingNormal,
+		axisU, axisV, gradient, normalStrength);
 	if (dot(shadingNormal, viewDir) < 0.0)
 	{
 		shadingNormal = -shadingNormal;
@@ -824,10 +811,7 @@ bool TryEvaluateFluidSurface(
 	evaluation.shadingNormal = shadingNormal;
 	evaluation.roughness = lerp(fluidRoughness, foamRoughness, foam);
 	evaluation.baseColor = max(baseColor, 0.0);
-	const float carrierReactive = saturate(
-		abs(frame.currentGameplaySeconds - frame.previousGameplaySeconds) *
-		(abs(binding.motion.x) + abs(binding.domainAxisUFlowU.w) +
-		abs(binding.domainAxisVFlowV.w)));
+	const float carrierReactive = FluidAnimationReactive(frame, binding, timeScale);
 	evaluation.reactive = max(carrierReactive, abs(foam - previousFoam));
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *
 		max(binding.emissionColorIntensity.w, 0.0) * hotCrack;

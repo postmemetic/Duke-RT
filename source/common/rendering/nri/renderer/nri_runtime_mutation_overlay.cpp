@@ -3331,9 +3331,14 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				const uint64_t liveAnimatedMaterialSignature =
 					ComputeAnimatedMaterialSignature(animatedSignatureSceneView);
 				captureSectorDirtyTruth();
+				const bool requiresMaterialUvRefresh = residentEntry != nullptr && residentEntry->valid &&
+					residentEntry->staticSceneChunkListIndex < mStaticMapScene.lightChunkViews.size() &&
+					nri_scene::RequiresMapMaterialUvUpload(
+						mStaticMapScene.lightChunkViews[residentEntry->staticSceneChunkListIndex], animatedSignatureSceneView);
 				const bool residentAnimatedAlreadySynchronized =
 					!forceReplacementMaterialRefresh &&
 					!forceHardwareCanvasRefresh &&
+					!requiresMaterialUvRefresh &&
 					residentEntry != nullptr &&
 					residentEntry->valid &&
 					residentEntry->animatedGeometrySignature == liveAnimatedGeometrySignature &&
@@ -3367,6 +3372,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				}
 				if (!forceReplacementMaterialRefresh &&
 					!forceHardwareCanvasRefresh &&
+					!requiresMaterialUvRefresh &&
 					liveAnimatedMaterialSignature == replacement.animatedMaterialSignature)
 				{
 					return true;
@@ -3542,6 +3548,10 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				residentEntry->active &&
 				residentEntry->mappedInStaticScene;
 			const bool residentNoopIgnoreExcludeStatic = effectiveForceTopologyInvalidation;
+			const bool residentMaterialUvUploadRequired = residentNoopResidentAvailable &&
+				residentEntry->staticSceneChunkListIndex < mStaticMapScene.lightChunkViews.size() &&
+				nri_scene::RequiresMapMaterialUvUpload(
+					mStaticMapScene.lightChunkViews[residentEntry->staticSceneChunkListIndex], replacement.sceneView);
 			if (effectiveForceTopologyInvalidation &&
 				replacement.residentAuthoritative &&
 				residentEntry != nullptr &&
@@ -3561,6 +3571,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				replacement.animatedMaterialSignature == residentEntry->animatedMaterialSignature;
 			const bool residentNoopExactMatch =
 				!motionSettleRequested &&
+				!residentMaterialUvUploadRequired &&
 				replacement.residentAuthoritative &&
 				residentNoopResidentAvailable &&
 				replacement.valid &&

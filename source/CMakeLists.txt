@@ -1115,6 +1115,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
 	common/rendering/nri/scene/nri_fluid_material_binding.cpp
+	common/rendering/nri/scene/nri_fluid_surface_normals.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
 	common/rendering/nri/scene/nri_wall_decals.cpp

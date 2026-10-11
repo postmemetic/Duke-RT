@@ -30,9 +30,13 @@ bool SameSurface(const SurfaceRef* a, const SurfaceRef* b, bool full)
 			q.actorIndex, q.drawListType, q.cstat, q.materialFlags, q.actorOverlayRuleCount) ||
 		!std::equal(std::begin(p.actorOverlayRuleIds), std::end(p.actorOverlayRuleIds), std::begin(q.actorOverlayRuleIds)) ||
 		std::tie(t.occurrenceId, t.topologyKey, t.generation, t.historyAge, t.materialVerticalReference,
-			t.reason, t.identityValid, t.correspondenceValid, t.materialVerticalReferenceValid) !=
+			t.reason, t.identityValid, t.correspondenceValid, t.materialVerticalReferenceValid,
+			t.materialUvAnchorValid, t.materialUvReactive) !=
 		std::tie(u.occurrenceId, u.topologyKey, u.generation, u.historyAge, u.materialVerticalReference,
-			u.reason, u.identityValid, u.correspondenceValid, u.materialVerticalReferenceValid) ||
+			u.reason, u.identityValid, u.correspondenceValid, u.materialVerticalReferenceValid,
+			u.materialUvAnchorValid, u.materialUvReactive) ||
+		!std::equal(std::begin(t.materialUvAnchor), std::end(t.materialUvAnchor), std::begin(u.materialUvAnchor)) ||
+		!std::equal(std::begin(t.materialUvTexelScale), std::end(t.materialUvTexelScale), std::begin(u.materialUvTexelScale)) ||
 		a->vertices.size() != b->vertices.size() || a->indices.size() != b->indices.size() ||
 		a->primitiveLocalMaterialSlots.size() != b->primitiveLocalMaterialSlots.size()) return false;
 	if (!full) return true;

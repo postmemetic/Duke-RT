@@ -23,6 +23,7 @@ Texture2D<float4> gComposedInput : register(t2, space0);
 Texture2D<float4> gExposureStateInput : register(t3, space0);
 Texture2D<float4> gVolumeMetaInput : register(t4, space0);
 Texture2D<float4> gTemporalValidityInput : register(t5, space0);
+Texture2D<float4> gTemporalReactiveInput : register(t6, space0);
 
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float4>, gHistoryOutput, u, 0, 1);
 
@@ -111,6 +112,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const float3 currentColor = LoadCurrentColor(int2(pixelPos), size, exposureState.currentExposure);
 	const float volumeReactive = (gTemporalConstants.Flags & NRI_TEMPORAL_FLAG_VOLUME_REACTIVE) != 0u ?
 		saturate(gVolumeMetaInput.Load(int3(pixelPos, 0)).x) : 0.0;
+	// Surface identity may remain valid while a fluid's material signal moves.
+	// Honor that producer signal independently of the carrier's motion vectors.
+	const float surfaceReactive = saturate(gTemporalReactiveInput.Load(int3(pixelPos, 0)).x);
+	const float reactive = max(surfaceReactive, volumeReactive);
 
 	const float4 centerMotion = gMotionInput[pixelPos];
 	// TAA consumes the shared PT motion contract from Shared.hlsli:
@@ -166,20 +171,21 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const float motionPixels = length(selectedMotion);
 	const float motionRejection = saturate(motionPixels / TAA_MOTION_BLEND_SCALE);
 	const float clampRejection = saturate(divergence / max(historyScale, 1.0) * TAA_REJECTION_SCALE);
-	const float rejection = max(clampRejection, motionRejection);
-	const bool rejectHistory = resetHistory || !historyInScreen || motionPixels >= TAA_MOTION_REJECT_PIXELS;
+	const float rejection = max(max(clampRejection, motionRejection), reactive);
+	const bool rejectHistory = resetHistory || !historyInScreen ||
+		motionPixels >= TAA_MOTION_REJECT_PIXELS || reactive >= 0.95;
 
 	float effectiveHistoryFrames = 1.0 + saturate(historySample.w) * (TAA_HISTORY_FRAME_CAP - 1.0);
 	effectiveHistoryFrames = lerp(effectiveHistoryFrames, 1.0, rejection);
 
 	float currentWeight = max(1.0 / (effectiveHistoryFrames + 1.0), TAA_BASE_BLEND);
 	currentWeight = max(currentWeight, rejection);
-	currentWeight = max(currentWeight, volumeReactive);
+	currentWeight = max(currentWeight, reactive);
 	if (motionPixels > 0.0)
 	{
 		currentWeight = max(currentWeight, TAA_MOTION_MIN_WEIGHT);
 	}
-	if (rejectHistory || volumeReactive >= 0.95)
+	if (rejectHistory)
 	{
 		currentWeight = 1.0;
 		effectiveHistoryFrames = 1.0;

@@ -842,7 +842,7 @@ float3 UnpackVoxelNormal(uint packedNormal)
 
 bool TryResolveSmoothVertexNormal(PrimitiveData primitive, float3 weights, float3 geometricNormal, out float3 smoothNormal)
 {
-	if ((primitive.smoothNormals.y & 0x80000000u) == 0u)
+	if ((primitive.smoothNormals.y & 0xc0000000u) != 0x80000000u)
 	{
 		smoothNormal = geometricNormal;
 		return false;

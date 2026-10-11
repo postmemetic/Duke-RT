@@ -1,4 +1,5 @@
 #include "nri_map_builder.h"
+#include "nri_fluid_surface_normals.h"
 
 #include "build.h"
 #include "gamefuncs.h"
@@ -532,6 +533,18 @@ namespace
 		surface.surface.material = MakeMaterialRef(texture, plane == 0 ? sec->floorpal : sec->ceilingpal, plane == 0 ? sec->floorshade : sec->ceilingshade, 1.0f, materialFlags,
 			authoredTextureId.isValid() ? authoredTextureId.GetIndex() : -1);
 		FillPlaneProvenance(surface.surface.provenance, sec, plane, sectionIndex, (int)chunk.chunkIndex, surface.surface.material.flags);
+		// UVCalculator adds these normalized pan offsets after its spatial
+		// mapping. Retain the independent anchor so a moving texture does not
+		// masquerade as motion of the flat's carrier geometry.
+		auto& temporal = surface.surface.temporal;
+		temporal.materialUvAnchor[0] = (plane == 0 ? sec->floorxpan_ : sec->ceilingxpan_) / 256.0f;
+		temporal.materialUvAnchor[1] = (plane == 0 ? sec->floorypan_ : sec->ceilingypan_) / 256.0f;
+		temporal.materialUvTexelScale[0] = (float)texture->GetDisplayWidth();
+		temporal.materialUvTexelScale[1] = (float)texture->GetDisplayHeight();
+		temporal.materialUvAnchorValid =
+			std::isfinite(temporal.materialUvAnchor[0]) && std::isfinite(temporal.materialUvAnchor[1]) &&
+			std::isfinite(temporal.materialUvTexelScale[0]) && std::isfinite(temporal.materialUvTexelScale[1]) &&
+			temporal.materialUvTexelScale[0] > 0.0f && temporal.materialUvTexelScale[1] > 0.0f;
 		surface.surface.vertices.reserve((uint32_t)indices->Size());
 
 		const float base = -(plane == 0 ? sec->floorz : sec->ceilingz);
@@ -554,6 +567,7 @@ namespace
 			surface.surface.vertices.push_back(vertex);
 		}
 
+		BuildFluidFloorCarrierNormals(surface.surface);
 		FinalizeSurfaceStats(surface, outWorld.stats);
 		AppendSurface(outWorld, chunk, std::move(surface));
 	}
@@ -1214,6 +1228,7 @@ namespace
 		const sectortype& sec = sector[(unsigned)chunk.sectorIndex];
 		outBaseline.sectorIndex = chunk.sectorIndex;
 		outBaseline.signature = ComputeMapChunkGeometrySignature(chunk);
+		outBaseline.fluidNormalSignature = ComputeFluidFloorNormalSignature(chunk.sectorIndex);
 		outBaseline.floorz = sec.floorz;
 		outBaseline.ceilingz = sec.ceilingz;
 		outBaseline.floorstat = (uint16_t)sec.floorstat;
@@ -1258,6 +1273,10 @@ namespace
 
 		const sectortype& sec = sector[(unsigned)chunk.sectorIndex];
 		outAnalysis.signature = ComputeMapChunkGeometrySignature(chunk);
+		if (baseline.fluidNormalSignature != ComputeFluidFloorNormalSignature(chunk.sectorIndex))
+		{
+			outAnalysis.reasonMask |= PTMapChunkMutationReason_SectorGeometry;
+		}
 
 		if (baseline.sectorIndex != chunk.sectorIndex ||
 			baseline.floorz != sec.floorz ||
@@ -1486,6 +1505,7 @@ uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 	uint64_t hash = 1469598103934665603ull;
 	hash = HashMix(hash, chunk.chunkIndex);
 	hash = HashMix(hash, (uint64_t)(uint32_t)chunk.sectorIndex);
+	hash = HashMix(hash, ComputeFluidFloorNormalSignature(chunk.sectorIndex));
 	hash = HashDoubleBits(hash, sec.floorz);
 	hash = HashDoubleBits(hash, sec.ceilingz);
 	hash = HashMix(hash, (uint16_t)sec.floorstat);

@@ -86,10 +86,17 @@ struct TemporalSurfaceMetadata
 	// Preserve that material-space anchor so moving clip boundaries do not get
 	// mistaken for motion of the wall texture itself.
 	float materialVerticalReference = 0.0f;
+	// Normalized Build flat panning anchor, independent of carrier deformation.
+	// The submitted-frame history derives a material rejection signal without
+	// changing the geometric previous positions used by motion/depth guides.
+	float materialUvAnchor[2] = {};
+	float materialUvTexelScale[2] = {};
+	float materialUvReactive = 0.0f;
 	MotionValidityReason reason = MotionValidityReason::UnsupportedSource;
 	bool identityValid = false;
 	bool correspondenceValid = false;
 	bool materialVerticalReferenceValid = false;
+	bool materialUvAnchorValid = false;
 };
 
 struct SurfaceProvenance
@@ -131,6 +138,9 @@ struct CapturedVertex
 	// CPU-only semantic corner identity. It is intentionally not copied into
 	// SceneVertex; the map motion owner uses it before geometry bridging.
 	uint64_t temporalCornerKey = UINT64_MAX;
+	// CPU-only octahedral fluid carrier normal. Geometric normals and positions
+	// remain unchanged; the bridge stores this in the existing primitive payload.
+	uint32_t fluidCarrierNormal = UINT32_MAX;
 };
 
 struct SurfaceRef
