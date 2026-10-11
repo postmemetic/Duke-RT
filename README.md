@@ -20,7 +20,7 @@ The renderer supports both Direct3D 12 and Vulkan, although feature support is m
 ## How To Install and Run (Windows)
 
 1. Purchase and install Duke Nukem 3D: 20th Anniversary World Tour (or otherwise have it installed on your computer - you need a commercial version of Duke 3D to use with the Duke-RT engine fork)
-2. Download the .zip file in the assets section from this release
+2. Download the .zip file in the assets section from the latest release
 3. Unzip Duke-RT to your computer
 4. Run **launch-duke-rt.cmd** in that folder
 5. Give it the path to your Duke 3D install (if it doesn't find it automatically)
@@ -35,7 +35,7 @@ The renderer supports both Direct3D 12 and Vulkan, although feature support is m
 ## How to Install and Run (Linux)
 
 1. Purchase and install Duke Nukem 3D: 20th Anniversary World Tour (or otherwise have it installed on your computer - you need a commercial version of Duke 3D to use with the Duke-RT engine fork)
-2. Download the Linux tarball in the assets section from this release
+2. Download the Linux tarball in the assets section from the latest release
 3. Untar Duke-RT to your computer
 4. Run **launch-duke-rt.sh** via CLI from that folder
 5. Give it the path to your Duke 3D install (if it doesn't find it automatically)
