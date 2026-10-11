@@ -2,7 +2,7 @@
 
 ![Duke-RT gameplay](images/20.png)
 
-Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native Linux gameplay has been reported working, with broader GPU validation still pending. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
+Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native Linux gameplay works, but it has not been thoroughly tested yet. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
 
 ![Duke-RT gameplay](images/EmergeFromSmoke.gif)
 
