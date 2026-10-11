@@ -33,6 +33,10 @@ struct Interpolation
 	int index;
 	int type;
 	DCoreActor* actor;
+	// Render-time slope interpolation changes both the coefficient and its
+	// enable bit. Keep the exact simulation state, including dormant slopes.
+	short bakSlope;
+	bool bakSlopeEnabled;
 };
 
 static TArray<Interpolation> interpolations;
@@ -43,8 +47,8 @@ double Get(int index, DCoreActor* actor, int type)
 	{
 	case Interp_Sect_Floorz:			return sector[index].floorz;
 	case Interp_Sect_Ceilingz:			return sector[index].ceilingz;
-	case Interp_Sect_Floorheinum:		return sector[index].floorheinum;
-	case Interp_Sect_Ceilingheinum:		return sector[index].ceilingheinum;
+	case Interp_Sect_Floorheinum:		return sector[index].getfloorslope();
+	case Interp_Sect_Ceilingheinum:		return sector[index].getceilingslope();
 	case Interp_Sect_FloorPanX:			return sector[index].floorxpan_;
 	case Interp_Sect_FloorPanY:			return sector[index].floorypan_;
 	case Interp_Sect_CeilingPanX:		return sector[index].ceilingxpan_;
@@ -67,8 +71,8 @@ void Set(int index, DCoreActor* actor, int type, double val)
 	{
 	case Interp_Sect_Floorz:			sector[index].setfloorz(val); break;
 	case Interp_Sect_Ceilingz:          sector[index].setceilingz(val); break;
-	case Interp_Sect_Floorheinum:       sector[index].floorheinum = (short)xs_CRoundToInt(val); break;
-	case Interp_Sect_Ceilingheinum:     sector[index].ceilingheinum = (short)xs_CRoundToInt(val); break;
+	case Interp_Sect_Floorheinum:       sector[index].setfloorslope((short)xs_CRoundToInt(val)); break;
+	case Interp_Sect_Ceilingheinum:     sector[index].setceilingslope((short)xs_CRoundToInt(val)); break;
 	case Interp_Sect_FloorPanX:         sector[index].floorxpan_ = float(val); break;
 	case Interp_Sect_FloorPanY:	        sector[index].floorypan_ = float(val); break;
 	case Interp_Sect_CeilingPanX:       sector[index].ceilingxpan_ = float(val); break;
@@ -154,6 +158,19 @@ void DoInterpolations(double interpfrac)
 	if (!cl_interpolate) return;
     for (unsigned i = 0; i < interpolations.Size(); i++)
     {
+		auto& interpolation = interpolations[i];
+		if (interpolation.type == Interp_Sect_Floorheinum)
+		{
+			const auto& sec = sector[interpolation.index];
+			interpolation.bakSlope = sec.floorheinum;
+			interpolation.bakSlopeEnabled = (sec.floorstat & CSTAT_SECTOR_SLOPE) != 0;
+		}
+		else if (interpolation.type == Interp_Sect_Ceilingheinum)
+		{
+			const auto& sec = sector[interpolation.index];
+			interpolation.bakSlope = sec.ceilingheinum;
+			interpolation.bakSlopeEnabled = (sec.ceilingstat & CSTAT_SECTOR_SLOPE) != 0;
+		}
 		double bak;
 		interpolations[i].bak = bak = Get(interpolations[i].index, interpolations[i].actor, interpolations[i].type);
 		double old = interpolations[i].old;
@@ -179,6 +196,21 @@ void RestoreInterpolations()
 	for (unsigned i = 0; i < interpolations.Size(); i++)
     {
 		Set(interpolations[i].index, interpolations[i].actor, interpolations[i].type, interpolations[i].bak);
+		const auto& interpolation = interpolations[i];
+		if (interpolation.type == Interp_Sect_Floorheinum)
+		{
+			auto& sec = sector[interpolation.index];
+			sec.floorheinum = interpolation.bakSlope;
+			if (interpolation.bakSlopeEnabled) sec.floorstat |= CSTAT_SECTOR_SLOPE;
+			else sec.floorstat &= ~CSTAT_SECTOR_SLOPE;
+		}
+		else if (interpolation.type == Interp_Sect_Ceilingheinum)
+		{
+			auto& sec = sector[interpolation.index];
+			sec.ceilingheinum = interpolation.bakSlope;
+			if (interpolation.bakSlopeEnabled) sec.ceilingstat |= CSTAT_SECTOR_SLOPE;
+			else sec.ceilingstat &= ~CSTAT_SECTOR_SLOPE;
+		}
 	}		
 }
 
