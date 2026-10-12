@@ -229,10 +229,10 @@ CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
 CVAR(Bool, nri_ptwaitpresent, true, 0)
 
-// Session-only while the visually displaced fluid surface is being evaluated.
-// The renderer snapshots these into FluidFrameData so shaders never consume
-// console state or expand the validated trace root constants.
-CVAR(Bool, nri_ptfluidvirtualheight, false, 0)
+// Authored fluid parallax is enabled by default; retain the runtime A/B switch
+// and remember the user's choice. The renderer snapshots it into FluidFrameData
+// without expanding the validated trace root constants.
+CVAR(Bool, nri_ptfluidvirtualheight, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 // Session-only comparison for dedicated procedural foam:
 // 0 = exact disabled path, 1 = instantaneous crest birth, 2 = analytic trail.

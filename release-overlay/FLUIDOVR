@@ -62,25 +62,26 @@ FLUIDOVR
 		crestcolor 0.14 0.30 0.08
 		emissioncolor 0 0 0
 		emission 0
-		roughness 0.13
-		undersideroughness 0.25
+		roughness 0.075
+		undersideroughness 0.16
+		specularfresnel 1
 		opacity 0.98
 		texturemix 0.05
 		scale 28
-		amplitude 6
+		amplitude 8
 		frequency 1.4
-		lacunarity 1.35
-		gain 0.36
+		lacunarity 1.22
+		gain 0.60
 		timescale 1
 		speed 0.78
 		flow 1 0
 		anisotropy 1.05
-		warp 1.7
+		warp 1.85
 		choppiness 1.65
-		octaverotation 57
+		octaverotation 127
 		choppyrelaxation 0.5
-		noisescale 0.28
-		maxslope 0.75
+		noisescale 0.32
+		maxslope 0.85
 		crestgain 0.75
 		foamcolor 0.48 0.56 0.22
 		foamamount 0.32
@@ -97,10 +98,10 @@ FLUIDOVR
 		foamcutoutscale 1.8
 		foamcutoutstrength 0.38
 		foambrightness 1
-		normalstrength 1.1
-		virtualheight 3.5
+		normalstrength 1.0
+		virtualheight 7
 		seed 23
-		octaves 3
+		octaves 4
 	}
 
 	profile "lava"
@@ -110,28 +111,29 @@ FLUIDOVR
 		undersidecolor 0.055 0.006 0.001
 		crestcolor 0.9 0.16 0.014
 		emissioncolor 1 0.3 0.012
-		emission 0.55
-		roughness 0.15
-		undersideroughness 0.26
+		emission 0.85
+		roughness 0.10
+		undersideroughness 0.18
+		specularfresnel 1
 		opacity 1
 		texturemix 0.03
 		crustsoftness 0.8
 		crustdarkening 0.28
 		scale 32
-		amplitude 7
+		amplitude 9
 		frequency 1.35
-		lacunarity 1.32
-		gain 0.35
+		lacunarity 1.19
+		gain 0.58
 		timescale 1
 		speed 0.7
 		flow 1 0
 		anisotropy 1.05
-		warp 1.8
+		warp 1.95
 		choppiness 1.9
-		octaverotation 53
+		octaverotation 137
 		choppyrelaxation 0.48
-		noisescale 0.26
-		maxslope 0.8
+		noisescale 0.30
+		maxslope 0.9
 		crestgain 0.55
 		foamcolor 0.32 0.052 0.006
 		foamamount 0.14
@@ -148,10 +150,10 @@ FLUIDOVR
 		foamcutoutscale 1.7
 		foamcutoutstrength 0.35
 		foambrightness 1
-		normalstrength 1.2
-		virtualheight 4
+		normalstrength 1.05
+		virtualheight 8
 		seed 29
-		octaves 3
+		octaves 4
 	}
 
 	profile "water.fall"

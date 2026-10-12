@@ -10,6 +10,7 @@ struct FluidSurfaceEvaluation
 	uint activeLayerCount;
 	uint underside;
 	uint ownsPrimaryEmission;
+	uint specularFresnel;
 	float3 samplePosition;
 	float virtualOffset;
 	float3 carrierNormal;
@@ -267,8 +268,9 @@ bool TryEvaluateFluidSurface(
 
 	const uint layerCap = clamp(frame.primaryLayerCap, 1u, NRI_FLUID_MAX_LAYERS);
 	float virtualOffset = 0.0;
+	const float3 virtualCarrierNormal = FluidResolveSmoothCarrierNormal(carrierNormal, carrierShadingNormal);
 	const float signedViewCosine = dot(
-		FluidSafeNormalize(viewRayDirection, -viewDir), carrierNormal);
+		FluidSafeNormalize(viewRayDirection, -viewDir), virtualCarrierNormal);
 	const float minimumCosine = max(abs(binding.virtualParams.w), 0.08);
 	const bool useVirtualHeight = allowVirtualHeight &&
 		(frame.flags & NRI_FLUID_FRAME_FLAG_VIRTUAL_HEIGHT) != 0u &&
@@ -358,6 +360,8 @@ bool TryEvaluateFluidSurface(
 	// Match primary visible ownership without importing the D3D foam evaluator.
 	evaluation.ownsPrimaryEmission =
 		(binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u ? 1u : 0u;
+	evaluation.specularFresnel =
+		(binding.flags & NRI_FLUID_BINDING_FLAG_SPECULAR_FRESNEL) != 0u ? 1u : 0u;
 	evaluation.samplePosition = samplePosition;
 	evaluation.virtualOffset = virtualOffset;
 	evaluation.carrierNormal = carrierNormal;

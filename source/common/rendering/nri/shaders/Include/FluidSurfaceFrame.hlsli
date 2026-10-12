@@ -31,12 +31,21 @@ void FluidBuildDomainAxes(MaterialData material, FluidBindingData binding,
 		axisV = -axisV;
 }
 
-float3 FluidComposeShadingNormal(float3 carrierNormal, float3 carrierShadingNormal,
-	float3 axisU, float3 axisV, float2 gradient, float strength)
+// The interpolated carrier is continuous across compatible fluid joins even
+// when their triangle normals differ. Use it for shading-space projection too;
+// geometric normals remain authoritative for sidedness, ray bias and occlusion.
+float3 FluidResolveSmoothCarrierNormal(float3 carrierNormal, float3 carrierShadingNormal)
 {
 	float3 smoothCarrier = FluidSafeNormalize(carrierShadingNormal, carrierNormal);
 	if (dot(smoothCarrier, carrierNormal) < 0.0)
 		smoothCarrier = -smoothCarrier;
+	return smoothCarrier;
+}
+
+float3 FluidComposeShadingNormal(float3 carrierNormal, float3 carrierShadingNormal,
+	float3 axisU, float3 axisV, float2 gradient, float strength)
+{
+	const float3 smoothCarrier = FluidResolveSmoothCarrierNormal(carrierNormal, carrierShadingNormal);
 	float3 tangentGradient = gradient.x * axisU + gradient.y * axisV;
 	tangentGradient -= smoothCarrier * dot(tangentGradient, smoothCarrier);
 	return FluidSafeNormalize(smoothCarrier - strength * tangentGradient, smoothCarrier);
