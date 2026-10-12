@@ -70,6 +70,9 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_FoamCutoutScale = 1ull << 41,
 	FluidOverlayParameter_FoamCutoutStrength = 1ull << 42,
 	FluidOverlayParameter_FoamBrightness = 1ull << 43,
+	FluidOverlayParameter_CrustSoftness = 1ull << 44,
+	FluidOverlayParameter_CrustDarkening = 1ull << 45,
+	FluidOverlayParameter_TextureMix = 1ull << 46,
 };
 
 struct FluidOverlaySourceLocation
@@ -102,6 +105,9 @@ struct FluidOverlayParameters
 	float roughness = 0.08f;
 	float undersideRoughness = 0.16f;
 	float opacity = 0.94f;
+	// Negative preserves the legacy opacity-derived texture mix; zero selects
+	// a fully procedural body color before the profile's opacity is applied.
+	float textureMix = -1.0f;
 	float scale = 96.0f;
 	float amplitude = 0.10f;
 	float frequency = 1.0f;
@@ -118,6 +124,10 @@ struct FluidOverlayParameters
 	float noiseScale = 0.65f;
 	float maxSlope = 1.25f;
 	float crestGain = 0.35f;
+	// Lava's crest-to-crust transition and body-color darkening. Defaults match
+	// the original fixed GPU response; other styles do not use the crust mask.
+	float crustSoftness = 0.16f;
+	float crustDarkening = 0.72f;
 	float foamColor[3] = { 0.82f, 0.90f, 0.95f };
 	// Zero is the exact default-off policy. The remaining values define the
 	// response used only when an authored profile opts in.

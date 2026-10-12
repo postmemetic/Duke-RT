@@ -11,6 +11,7 @@ struct FluidSurfaceEvaluation
 	uint bindingIndex;
 	uint activeLayerCount;
 	uint underside;
+	uint ownsPrimaryEmission;
 	float3 samplePosition;
 	float virtualOffset;
 	float3 carrierNormal;
@@ -804,6 +805,10 @@ bool TryEvaluateFluidSurface(
 	evaluation.activeLayerCount = min(
 		min(max(binding.layerCount, 1u), layerCap), NRI_FLUID_FIELD_LAYER_CAP);
 	evaluation.underside = underside ? 1u : 0u;
+	// This is visible primary-hit ownership only. The retained material remains
+	// authoritative for sampled lights and secondary hits until emission parity.
+	evaluation.ownsPrimaryEmission =
+		(binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u ? 1u : 0u;
 	evaluation.samplePosition = samplePosition;
 	evaluation.virtualOffset = virtualOffset;
 	evaluation.carrierNormal = carrierNormal;
@@ -813,8 +818,10 @@ bool TryEvaluateFluidSurface(
 	evaluation.baseColor = max(baseColor, 0.0);
 	const float carrierReactive = FluidAnimationReactive(frame, binding, timeScale);
 	evaluation.reactive = max(carrierReactive, abs(foam - previousFoam));
+	// The normally lit scum layer covers hot lava instead of glowing through it.
+	// Zero coverage preserves the original procedural emission exactly.
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *
-		max(binding.emissionColorIntensity.w, 0.0) * hotCrack;
+		max(binding.emissionColorIntensity.w, 0.0) * hotCrack * (1.0 - saturate(foam));
 	evaluation.height = height;
 	evaluation.crest = crest;
 	evaluation.breaking = foamBreakingPotential;

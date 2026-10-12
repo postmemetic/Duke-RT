@@ -9,6 +9,7 @@ struct FluidSurfaceEvaluation
 	uint bindingIndex;
 	uint activeLayerCount;
 	uint underside;
+	uint ownsPrimaryEmission;
 	float3 samplePosition;
 	float virtualOffset;
 	float3 carrierNormal;
@@ -354,6 +355,9 @@ bool TryEvaluateFluidSurface(
 	evaluation.activeLayerCount = min(
 		min(max(binding.layerCount, 1u), layerCap), NRI_FLUID_MAX_LAYERS);
 	evaluation.underside = underside ? 1u : 0u;
+	// Match primary visible ownership without importing the D3D foam evaluator.
+	evaluation.ownsPrimaryEmission =
+		(binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u ? 1u : 0u;
 	evaluation.samplePosition = samplePosition;
 	evaluation.virtualOffset = virtualOffset;
 	evaluation.carrierNormal = carrierNormal;

@@ -2317,7 +2317,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				directEmission *= plainMirrorThroughput;
 				deferredDirectionalLighting *= plainMirrorThroughput;
 			}
-			directEmission += fluidSurface.emission;
+			// Procedural lava replaces the primary visible legacy glowmap instead
+			// of illuminating a static texture pattern through its moving crust.
+			// Keep bootstrap diagnostics additive and leave sampled-light/secondary
+			// emission authority untouched. A replaced mirror hit still attenuates
+			// the newly owned emission by the mirror throughput exactly once.
+			if (fluidSurface.ownsPrimaryEmission != 0u && !bootstrapBaseColor)
+			{
+				directEmission = fluidSurface.emission *
+					(plainMirrorPrimaryReplacement ? plainMirrorThroughput : 1.0.xxx);
+			}
+			else
+			{
+				directEmission += fluidSurface.emission;
+			}
 #endif
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);

@@ -58,7 +58,9 @@ namespace
 		}
 		result.domainAxisVFlowV[3] = source.flow[1] * source.speed;
 
-		const float baseTextureMix = std::clamp(1.25f - source.opacity, 0.18f, 0.65f);
+		const bool automaticTextureMix = source.textureMix < 0.0f;
+		const float baseTextureMix = automaticTextureMix ?
+			std::clamp(1.25f - source.opacity, 0.18f, 0.65f) : Saturate(source.textureMix);
 		for (uint32_t channel = 0; channel < 3u; ++channel)
 		{
 			result.topColorBaseMix[channel] = source.bodyColor[channel];
@@ -67,7 +69,8 @@ namespace
 			result.emissionColorIntensity[channel] = source.emissionColor[channel];
 		}
 		result.topColorBaseMix[3] = baseTextureMix;
-		result.undersideColorBaseMix[3] = std::max(0.12f, baseTextureMix * 0.70f);
+		result.undersideColorBaseMix[3] = automaticTextureMix ?
+			std::max(0.12f, baseTextureMix * 0.70f) : baseTextureMix * 0.70f;
 		result.crestColorOpacity[3] = Saturate(source.opacity);
 		result.emissionColorIntensity[3] = std::max(source.emission, 0.0f);
 
@@ -88,9 +91,10 @@ namespace
 		result.shaping[2] = std::clamp(source.noiseScale, 0.05f, 4.0f);
 		result.shaping[3] = source.octaveRotation * 0.01745329251994329577f;
 		result.crust[0] = 0.54f;
-		result.crust[1] = 0.16f;
+		result.crust[1] = std::clamp(source.crustSoftness, 0.001f, 4.0f);
 		result.crust[2] = 1.35f;
-		result.crust[3] = source.style == FluidOverlayStyle::Lava ? 0.72f : 0.0f;
+		result.crust[3] = source.style == FluidOverlayStyle::Lava ?
+			std::clamp(source.crustDarkening, 0.0f, 1.0f) : 0.0f;
 
 		constexpr float minimumVirtualViewCosine = 0.10f;
 		const float virtualHalfHeight = std::max(source.virtualHeight, 0.0f);
