@@ -8,7 +8,6 @@
 // Selects the SeaScape-style D3D evaluator or the validated SPIR-V compatibility path.
 #include "Include/FluidSurface.hlsli"
 #include "Include/FluidSurfaceGeometry.hlsli"
-#include "Include/FluidSpecular.hlsli"
 #include "Include/WallDecals.hlsli"
 #include "Include/PrimaryTemporalGeometry.hlsli"
 #if NRI_SHADER_DIAGNOSTICS
@@ -1413,7 +1412,6 @@ float3 TraceIndirectSpecular(
 	float3 reflectionNormal,
 	float3 rayOriginNormal,
 	bool constrainToCarrierHemisphere,
-	bool applyPrimarySpecularFresnel,
 	uint2 pixelPos,
 	uint frameIndex,
 	float roughness,
@@ -1441,8 +1439,6 @@ float3 TraceIndirectSpecular(
 			reflectionNormal = rayOriginNormal;
 		}
 	}
-	throughput = FluidApplyPrimarySpecularFresnel(
-		throughput, dot(reflectionNormal, viewDir), applyPrimarySpecularFresnel);
 	float3 origin = surfaceHit.position + rayOriginNormal * 0.05;
 	float3 direction = SampleSpecularLobe(reflect(-viewDir, reflectionNormal), roughness, rngState);
 	if (constrainToCarrierHemisphere)
@@ -2267,7 +2263,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 							shadingNormal,
 							rayOriginNormal,
 							fluidSurface.active != 0u,
-							fluidSurface.active != 0u && fluidSurface.specularFresnel != 0u,
 							pixelPos,
 							gTraceConstants.FrameIndex,
 							roughness,

@@ -330,7 +330,6 @@ namespace
 		if (mask & FluidOverlayParameter_Emission) destination.emission = source.emission;
 		if (mask & FluidOverlayParameter_Roughness) destination.roughness = source.roughness;
 		if (mask & FluidOverlayParameter_UndersideRoughness) destination.undersideRoughness = source.undersideRoughness;
-		if (mask & FluidOverlayParameter_SpecularFresnel) destination.specularFresnel = source.specularFresnel;
 		if (mask & FluidOverlayParameter_Opacity) destination.opacity = source.opacity;
 		if (mask & FluidOverlayParameter_TextureMix) destination.textureMix = source.textureMix;
 		if (mask & FluidOverlayParameter_Scale) destination.scale = source.scale;
@@ -458,15 +457,13 @@ namespace
 			value.normalStrength, value.virtualHeight,
 		};
 		for (float scalar : scalarValues) hash = HashValue(hash, CanonicalFloatBits(scalar));
-		hash = HashValue(hash, (uint8_t)(value.specularFresnel ? 1u : 0u));
 		hash = HashValue(hash, value.seed);
 		return HashValue(hash, value.octaves);
 	}
 
 	static bool ParametersEqual(const FluidOverlayParameters& a, const FluidOverlayParameters& b)
 	{
-		if (a.style != b.style || a.seed != b.seed || a.octaves != b.octaves ||
-			a.specularFresnel != b.specularFresnel) return false;
+		if (a.style != b.style || a.seed != b.seed || a.octaves != b.octaves) return false;
 		const float* aVectors[] = { a.bodyColor, a.undersideColor, a.crestColor, a.emissionColor, a.foamColor };
 		const float* bVectors[] = { b.bodyColor, b.undersideColor, b.crestColor, b.emissionColor, b.foamColor };
 		for (size_t vectorIndex = 0; vectorIndex < std::size(aVectors); ++vectorIndex)
@@ -540,7 +537,6 @@ namespace
 		const auto aBits = getFloatBits(a);
 		const auto bBits = getFloatBits(b);
 		if (aBits != bBits) return aBits < bBits;
-		if (a.specularFresnel != b.specularFresnel) return a.specularFresnel < b.specularFresnel;
 		if (a.seed != b.seed) return a.seed < b.seed;
 		return a.octaves < b.octaves;
 	}
@@ -784,13 +780,6 @@ namespace
 					parameters.presentMask |= field.bit;
 					return true;
 				}
-			}
-			if (sc.Compare("specularfresnel"))
-			{
-				sc.MustGetNumber();
-				parameters.specularFresnel = sc.Number != 0;
-				parameters.presentMask |= FluidOverlayParameter_SpecularFresnel;
-				return true;
 			}
 			if (sc.Compare("seed"))
 			{
@@ -1041,7 +1030,6 @@ namespace
 		{
 			if (mask & field.bit) AppendLine(text, indent, FStringf("%s %s", field.name, FormatFloat(field.value).GetChars()));
 		}
-		if (mask & FluidOverlayParameter_SpecularFresnel) AppendLine(text, indent, FStringf("specularfresnel %u", parameters.specularFresnel ? 1u : 0u));
 		if (mask & FluidOverlayParameter_Seed) AppendLine(text, indent, FStringf("seed %d", parameters.seed));
 		if (mask & FluidOverlayParameter_Octaves) AppendLine(text, indent, FStringf("octaves %u", parameters.octaves));
 	}
@@ -1297,8 +1285,6 @@ namespace
 				profile.id.GetChars(), p.crustSoftness, p.crustDarkening);
 			Printf("FLUIDOVR resolved texture mix: id=%s mix=%.4f policy=%s\n",
 				profile.id.GetChars(), p.textureMix, p.textureMix < 0.0f ? "automatic" : "explicit");
-			Printf("FLUIDOVR resolved specular: id=%s fresnel=%u\n",
-				profile.id.GetChars(), p.specularFresnel ? 1u : 0u);
 			Printf("FLUIDOVR resolved foam: id=%s color=(%.4f,%.4f,%.4f) amount=%.4f roughness=%.4f threshold=%.4f softness=%.4f breakupscale=%.4f breakupstrength=%.4f lifetime=%.4f trailgain=%.4f undersidestrength=%.4f\n",
 				profile.id.GetChars(), p.foamColor[0], p.foamColor[1], p.foamColor[2],
 				p.foamAmount, p.foamRoughness, p.foamThreshold, p.foamSoftness,

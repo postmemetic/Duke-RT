@@ -73,7 +73,6 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_CrustSoftness = 1ull << 44,
 	FluidOverlayParameter_CrustDarkening = 1ull << 45,
 	FluidOverlayParameter_TextureMix = 1ull << 46,
-	FluidOverlayParameter_SpecularFresnel = 1ull << 47,
 };
 
 struct FluidOverlaySourceLocation
@@ -105,9 +104,6 @@ struct FluidOverlayParameters
 	float emission = 0.0f;
 	float roughness = 0.08f;
 	float undersideRoughness = 0.16f;
-	// Opt in to angle-dependent dielectric reflection; preserve legacy fluid
-	// specular response for existing profiles unless explicitly authored.
-	bool specularFresnel = false;
 	float opacity = 0.94f;
 	// Negative preserves the legacy opacity-derived texture mix; zero selects
 	// a fully procedural body color before the profile's opacity is applied.

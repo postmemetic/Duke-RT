@@ -41,10 +41,6 @@ namespace
 		const FluidOverlayParameters& source = binding.parameters;
 		NRIFluidBindingGpuData result = {};
 		result.flags = NRI_FLUID_BINDING_FLAG_ENABLED | NRI_FLUID_BINDING_FLAG_TWO_SIDED;
-		if (source.specularFresnel)
-		{
-			result.flags |= NRI_FLUID_BINDING_FLAG_SPECULAR_FRESNEL;
-		}
 		result.styleFlags = ResolveStyleFlags(source.style);
 		result.layerCount = std::clamp(source.octaves, 1u, NRI_FLUID_MAX_LAYERS);
 		result.seed = (uint32_t)source.seed;

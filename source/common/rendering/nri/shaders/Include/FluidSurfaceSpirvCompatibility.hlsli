@@ -10,7 +10,6 @@ struct FluidSurfaceEvaluation
 	uint activeLayerCount;
 	uint underside;
 	uint ownsPrimaryEmission;
-	uint specularFresnel;
 	float3 samplePosition;
 	float virtualOffset;
 	float3 carrierNormal;
@@ -360,8 +359,6 @@ bool TryEvaluateFluidSurface(
 	// Match primary visible ownership without importing the D3D foam evaluator.
 	evaluation.ownsPrimaryEmission =
 		(binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u ? 1u : 0u;
-	evaluation.specularFresnel =
-		(binding.flags & NRI_FLUID_BINDING_FLAG_SPECULAR_FRESNEL) != 0u ? 1u : 0u;
 	evaluation.samplePosition = samplePosition;
 	evaluation.virtualOffset = virtualOffset;
 	evaluation.carrierNormal = carrierNormal;

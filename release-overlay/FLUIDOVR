@@ -62,25 +62,24 @@ FLUIDOVR
 		crestcolor 0.14 0.30 0.08
 		emissioncolor 0 0 0
 		emission 0
-		roughness 0.075
-		undersideroughness 0.16
-		specularfresnel 1
+		roughness 0.19
+		undersideroughness 0.26
 		opacity 0.98
 		texturemix 0.05
 		scale 28
 		amplitude 8
 		frequency 1.4
-		lacunarity 1.22
-		gain 0.60
+		lacunarity 1.48
+		gain 0.64
 		timescale 1
-		speed 0.78
+		speed 0.88
 		flow 1 0
 		anisotropy 1.05
-		warp 1.85
+		warp 2.25
 		choppiness 1.65
 		octaverotation 127
-		choppyrelaxation 0.5
-		noisescale 0.32
+		choppyrelaxation 0.4
+		noisescale 0.48
 		maxslope 0.85
 		crestgain 0.75
 		foamcolor 0.48 0.56 0.22
@@ -98,7 +97,7 @@ FLUIDOVR
 		foamcutoutscale 1.8
 		foamcutoutstrength 0.38
 		foambrightness 1
-		normalstrength 1.0
+		normalstrength 0.95
 		virtualheight 7
 		seed 23
 		octaves 4
@@ -109,12 +108,11 @@ FLUIDOVR
 		style lava
 		bodycolor 0.15 0.024 0.003
 		undersidecolor 0.055 0.006 0.001
-		crestcolor 0.9 0.16 0.014
-		emissioncolor 1 0.3 0.012
-		emission 0.85
+		crestcolor 1 0.23 0.028
+		emissioncolor 1 0.38 0.025
+		emission 1.05
 		roughness 0.10
 		undersideroughness 0.18
-		specularfresnel 1
 		opacity 1
 		texturemix 0.03
 		crustsoftness 0.8
@@ -135,15 +133,15 @@ FLUIDOVR
 		noisescale 0.30
 		maxslope 0.9
 		crestgain 0.55
-		foamcolor 0.32 0.052 0.006
-		foamamount 0.14
-		foamroughness 0.62
-		foamthreshold 0.75
-		foamsoftness 0.06
+		foamcolor 0.038 0.014 0.009
+		foamamount 0.94
+		foamroughness 0.86
+		foamthreshold 0.82
+		foamsoftness 0.05
 		foambreakupscale 1.5
 		foambreakupstrength 0.7
-		foamlifetime 0.5
-		foamtrailgain 0.14
+		foamlifetime 0.65
+		foamtrailgain 0.22
 		foamundersidestrength 0
 		foamcontrast 1.18
 		foamedgewidth 0.09
