@@ -106,7 +106,7 @@ FLUIDOVR
 	profile "lava"
 	{
 		style lava
-		bodycolor 0.15 0.024 0.003
+		bodycolor 0.22 0.012 0.002
 		undersidecolor 0.055 0.006 0.001
 		crestcolor 1 0.23 0.028
 		emissioncolor 1 0.38 0.025
@@ -133,7 +133,7 @@ FLUIDOVR
 		noisescale 0.4
 		maxslope 0.9
 		crestgain 0.55
-		foamcolor 0.038 0.014 0.009
+		foamcolor 0.14 0.006 0.003
 		foamamount 0.94
 		foamroughness 0.86
 		foamthreshold 0.86
