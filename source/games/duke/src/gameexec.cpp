@@ -1049,11 +1049,11 @@ void DoSector(bool bSet, int lVar1, int lLabelID, int lVar2, DDukeActor* sActor,
 		else SetGameVarID(lVar2, sectp->ceilingpal, sActor, sPlayer);
 		break;
 	case SECTOR_CEILINGXPANNING:
-		if (bSet) sectp->ceilingxpan_ = (float)(lValue & 255);
+		if (bSet) sectp->assignceilingxpan((float)(lValue & 255));
 		else SetGameVarID(lVar2, sectp->ceilingxpan(), sActor, sPlayer);
 		break;
 	case SECTOR_CEILINGYPANNING:
-		if (bSet) sectp->ceilingypan_ = (float)(lValue & 255);
+		if (bSet) sectp->assignceilingypan((float)(lValue & 255));
 		else SetGameVarID(lVar2, sectp->ceilingypan(), sActor, sPlayer);
 		break;
 	case SECTOR_FLOORPICNUM:
@@ -1073,11 +1073,11 @@ void DoSector(bool bSet, int lVar1, int lLabelID, int lVar2, DDukeActor* sActor,
 		else SetGameVarID(lVar2, sectp->floorpal, sActor, sPlayer);
 		break;
 	case SECTOR_FLOORXPANNING:
-		if (bSet) sectp->floorxpan_ = (float)(lValue & 255);
+		if (bSet) sectp->assignfloorxpan((float)(lValue & 255));
 		else SetGameVarID(lVar2, sectp->floorxpan(), sActor, sPlayer);
 		break;
 	case SECTOR_FLOORYPANNING:
-		if (bSet) sectp->floorypan_ = (float)(lValue & 255);
+		if (bSet) sectp->assignfloorypan((float)(lValue & 255));
 		else SetGameVarID(lVar2, sectp->floorypan(), sActor, sPlayer);
 		break;
 	case SECTOR_VISIBILITY:

@@ -1767,7 +1767,7 @@ void NRIRenderer::Shutdown()
 	mLastResolvedLightOverlayGeneration = 0;
 	mLastResolvedFluidOverlayGeneration = 0;
 	mBoundFluidBindingCount = 0;
-	mFluidTimeInitialized = false;
+	mFluidPanHistory.Reset();
 	mFluidVirtualHeightStateInitialized = false;
 	mFluidFoamModeStateInitialized = false;
 	mLastFluidFoamMode = 0;
@@ -1954,7 +1954,7 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mLastResolvedLightOverlayGeneration = 0;
 	mLastResolvedFluidOverlayGeneration = 0;
 	mBoundFluidBindingCount = 0;
-	mFluidTimeInitialized = false;
+	mFluidPanHistory.Reset();
 	mFluidVirtualHeightStateInitialized = false;
 	mFluidFoamModeStateInitialized = false;
 	mLastFluidFoamMode = 0;
@@ -2675,6 +2675,7 @@ NRIRenderer::MemoryTelemetry NRIRenderer::GetMemoryTelemetry() const
 		accumulateBuffer(slot.materialBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.fluidBindingBuffer, telemetry.sceneBufferBytes);
 		accumulateBuffer(slot.fluidFrameBuffer, telemetry.sceneBufferBytes);
+		accumulateBuffer(slot.fluidPanBuffer, telemetry.sceneBufferBytes);
 		accumulateAs(slot.dynamicBottomLevelAS, telemetry.accelerationStructureBytes);
 	}
 	accumulateBuffer(mStaticVertexBuffer, telemetry.sceneBufferBytes);

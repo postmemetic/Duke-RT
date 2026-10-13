@@ -917,14 +917,14 @@ void destroyit(DDukeActor *actor)
 				destsect->ceilingheinum = srcsect->ceilingheinum;
 				destsect->ceilingshade = srcsect->ceilingshade;
 				destsect->ceilingpal = srcsect->ceilingpal;
-				destsect->ceilingxpan_ = srcsect->ceilingxpan_;
-				destsect->ceilingypan_ = srcsect->ceilingypan_;
+				destsect->assignceilingxpan(srcsect->ceilingxpan_);
+				destsect->assignceilingypan(srcsect->ceilingypan_);
 				destsect->setfloortexture(srcsect->floortexture);
 				destsect->floorheinum = srcsect->floorheinum;
 				destsect->floorshade = srcsect->floorshade;
 				destsect->floorpal = srcsect->floorpal;
-				destsect->floorxpan_ = srcsect->floorxpan_;
-				destsect->floorypan_ = srcsect->floorypan_;
+				destsect->assignfloorxpan(srcsect->floorxpan_);
+				destsect->assignfloorypan(srcsect->floorypan_);
 				destsect->visibility = srcsect->visibility;
 				destsect->lockinfo = srcsect->lockinfo;
 				destsect->lotag = srcsect->lotag;

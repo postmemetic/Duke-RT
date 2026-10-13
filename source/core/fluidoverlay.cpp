@@ -339,6 +339,7 @@ namespace
 		if (mask & FluidOverlayParameter_Gain) destination.gain = source.gain;
 		if (mask & FluidOverlayParameter_TimeScale) destination.timeScale = source.timeScale;
 		if (mask & FluidOverlayParameter_Speed) destination.speed = source.speed;
+		if (mask & FluidOverlayParameter_FollowPan) destination.followPan = source.followPan;
 		if (mask & FluidOverlayParameter_Flow)
 		{
 			destination.flow[0] = source.flow[0];
@@ -403,6 +404,8 @@ namespace
 		value.speed = finiteOr(value.speed, 0.0f);
 		value.flow[0] = finiteOr(value.flow[0], 1.0f);
 		value.flow[1] = finiteOr(value.flow[1], 0.0f);
+		// followPan is already a canonical bool; keep this independent opt-in
+		// across styles. Carrier support is decided by the renderer, not parsing.
 		value.anisotropy = std::max(0.0f, finiteOr(value.anisotropy, 1.0f));
 		value.warp = std::clamp(finiteOr(value.warp, 0.0f), 0.0f, 4.0f);
 		value.choppiness = std::clamp(finiteOr(value.choppiness, 1.0f), 0.05f, 4.0f);
@@ -437,6 +440,7 @@ namespace
 	{
 		uint64_t hash = HashOffset;
 		hash = HashValue(hash, (uint8_t)value.style);
+		hash = HashValue(hash, (uint8_t)value.followPan);
 		for (float component : value.bodyColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.undersideColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.crestColor) hash = HashValue(hash, CanonicalFloatBits(component));
@@ -463,7 +467,7 @@ namespace
 
 	static bool ParametersEqual(const FluidOverlayParameters& a, const FluidOverlayParameters& b)
 	{
-		if (a.style != b.style || a.seed != b.seed || a.octaves != b.octaves) return false;
+		if (a.style != b.style || a.followPan != b.followPan || a.seed != b.seed || a.octaves != b.octaves) return false;
 		const float* aVectors[] = { a.bodyColor, a.undersideColor, a.crestColor, a.emissionColor, a.foamColor };
 		const float* bVectors[] = { b.bodyColor, b.undersideColor, b.crestColor, b.emissionColor, b.foamColor };
 		for (size_t vectorIndex = 0; vectorIndex < std::size(aVectors); ++vectorIndex)
@@ -507,6 +511,7 @@ namespace
 	static bool ParametersLess(const FluidOverlayParameters& a, const FluidOverlayParameters& b)
 	{
 		if (a.style != b.style) return (uint8_t)a.style < (uint8_t)b.style;
+		if (a.followPan != b.followPan) return a.followPan < b.followPan;
 		const auto getFloatBits = [](const FluidOverlayParameters& value)
 		{
 			std::array<uint32_t, 55> bits = {};
@@ -708,6 +713,21 @@ namespace
 				{
 					parameters.style = style;
 					parameters.presentMask |= FluidOverlayParameter_Style;
+				}
+				return true;
+			}
+			if (sc.Compare("followpan"))
+			{
+				sc.MustGetString();
+				bool followPan = false;
+				if (!ParseOnOff(sc.String, followPan))
+				{
+					sc.ScriptMessage("Invalid followpan value '%s'; expected off/on", sc.String);
+				}
+				else
+				{
+					parameters.followPan = followPan;
+					parameters.presentMask |= FluidOverlayParameter_FollowPan;
 				}
 				return true;
 			}
@@ -973,6 +993,7 @@ namespace
 	{
 		const uint64_t mask = parameters.presentMask;
 		if (mask & FluidOverlayParameter_Style) AppendLine(text, indent, FStringf("style %s", StyleName(parameters.style)));
+		if (mask & FluidOverlayParameter_FollowPan) AppendLine(text, indent, FStringf("followpan %s", parameters.followPan ? "on" : "off"));
 		if (mask & FluidOverlayParameter_BodyColor) AppendVector(text, indent, "bodycolor", parameters.bodyColor, 3);
 		if (mask & FluidOverlayParameter_UndersideColor) AppendVector(text, indent, "undersidecolor", parameters.undersideColor, 3);
 		if (mask & FluidOverlayParameter_CrestColor) AppendVector(text, indent, "crestcolor", parameters.crestColor, 3);
@@ -1276,6 +1297,8 @@ namespace
 				i, profile.id.GetChars(), profile.builtIn ? "yes" : "no", StyleName(profile.parameters.style),
 				(unsigned long long)profile.contentKey, profile.source.sourceName.GetChars(), profile.source.lineStart);
 			const auto& p = profile.parameters;
+			Printf("FLUIDOVR resolved pan: id=%s followpan=%s\n",
+				profile.id.GetChars(), p.followPan ? "yes" : "no");
 			Printf("FLUIDOVR resolved field: id=%s scale=%.4f amplitude=%.4f frequency=%.4f lacunarity=%.4f gain=%.4f speed=%.4f timescale=%.4f anisotropy=%.4f warp=%.4f choppiness=%.4f octaverotation=%.4f choppyrelaxation=%.4f noisescale=%.4f maxslope=%.4f crestgain=%.4f normalstrength=%.4f virtualheight=%.4f seed=%d octaves=%u\n",
 				profile.id.GetChars(), p.scale, p.amplitude, p.frequency, p.lacunarity, p.gain,
 				p.speed, p.timeScale, p.anisotropy, p.warp, p.choppiness, p.octaveRotation,
@@ -1297,12 +1320,13 @@ namespace
 		for (uint32_t i = 0; i < (uint32_t)resolved.materialRules.Size(); ++i)
 		{
 			const auto& rule = resolved.materialRules[i];
-			Printf("FLUIDOVR resolved material: index=%u scope=%s id=%s valid=%s disable=%s profile=%s profile_index=%u binding=%u key=%llu order=%u source=%s:%d\n",
+			Printf("FLUIDOVR resolved material: index=%u scope=%s id=%s valid=%s disable=%s profile=%s profile_index=%u binding=%u key=%llu order=%u source=%s:%d followpan=%s\n",
 				i, rule.mapName.IsEmpty() ? "global" : rule.mapName.GetChars(), rule.id.GetChars(),
 				rule.valid ? "yes" : "no", rule.resolvedDisable ? "yes" : "no",
 				rule.hasProfile ? rule.profileId.GetChars() : "(none)", rule.profileIndex, rule.bindingIndex,
 				(unsigned long long)rule.bindingContentKey, rule.source.orderIndex,
-				rule.source.sourceName.GetChars(), rule.source.lineStart);
+				rule.source.sourceName.GetChars(), rule.source.lineStart,
+				rule.effectiveParameters.followPan ? "yes" : "no");
 		}
 	}
 }

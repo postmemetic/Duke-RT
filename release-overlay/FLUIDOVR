@@ -57,11 +57,13 @@ FLUIDOVR
 	profile "sludge.viscous"
 	{
 		style viscous
+		followpan true
 		bodycolor 0.018 0.070 0.018
 		undersidecolor 0.018 0.07 0.022
 		crestcolor 0.09 0.20 0.055
-		emissioncolor 0 0 0
-		emission 0
+		// Subtle visible green self-glow; reflection/roughness stay independent.
+		emissioncolor 0.04 0.30 0.012
+		emission 0.04
 		roughness 0.24
 		undersideroughness 0.26
 		opacity 0.98
@@ -106,6 +108,7 @@ FLUIDOVR
 	profile "lava"
 	{
 		style lava
+		followpan true
 		bodycolor 0.22 0.012 0.002
 		undersidecolor 0.055 0.006 0.001
 		crestcolor 1 0.23 0.028

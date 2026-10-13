@@ -32,6 +32,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "tflags.h"
 #include "intvec.h"
 #include "dobject.h"
+#include "sectorpanmotion.h"
 
 void MarkVerticesForSector(int sector);
 
@@ -354,6 +355,7 @@ struct sectortype
 	float ceilingypan_;
 	float floorxpan_;
 	float floorypan_;
+	SectorPanMotionState panMotion;
 	FTextureID ceilingtexture;
 	FTextureID floortexture;
 
@@ -432,14 +434,24 @@ struct sectortype
 	int ceilingypan() const { return int(ceilingypan_); }
 	int floorxpan() const { return int(floorxpan_); }
 	int floorypan() const { return int(floorypan_); }
-	void setfloorxpan(float val) { floorxpan_ = fmodf(val + 512, 256); } // +512 is for handling negative offsets
-	void setfloorypan(float val) { floorypan_ = fmodf(val + 512, 256); } // +512 is for handling negative offsets
-	void setceilingxpan(float val) { ceilingxpan_ = fmodf(val + 512, 256); } // +512 is for handling negative offsets
-	void setceilingypan(float val) { ceilingypan_ = fmodf(val + 512, 256); } // +512 is for handling negative offsets
-	void addfloorxpan(float add) { floorxpan_ = fmodf(floorxpan_ + add + 512, 256); } // +512 is for handling negative offsets
-	void addfloorypan(float add) { floorypan_ = fmodf(floorypan_ + add + 512, 256); } // +512 is for handling negative offsets
-	void addceilingxpan(float add) { ceilingxpan_ = fmodf(ceilingxpan_ + add + 512, 256); } // +512 is for handling negative offsets
-	void addceilingypan(float add) { ceilingypan_ = fmodf(ceilingypan_ + add + 512, 256); } // +512 is for handling negative offsets
+	void setfloorxpan(float val) { panMotion.Set(SectorPanMotionState::FloorX, floorxpan_, val); }
+	void setfloorypan(float val) { panMotion.Set(SectorPanMotionState::FloorY, floorypan_, val); }
+	void setceilingxpan(float val) { panMotion.Set(SectorPanMotionState::CeilingX, ceilingxpan_, val); }
+	void setceilingypan(float val) { panMotion.Set(SectorPanMotionState::CeilingY, ceilingypan_, val); }
+	void addfloorxpan(float add) { panMotion.Add(SectorPanMotionState::FloorX, floorxpan_, add); }
+	void addfloorypan(float add) { panMotion.Add(SectorPanMotionState::FloorY, floorypan_, add); }
+	void addceilingxpan(float add) { panMotion.Add(SectorPanMotionState::CeilingX, ceilingxpan_, add); }
+	void addceilingypan(float add) { panMotion.Add(SectorPanMotionState::CeilingY, ceilingypan_, add); }
+	// Native absolute assignments sometimes intentionally do not wrap (clouds,
+	// copied sector state). Preserve their value while rebasing motion history.
+	void assignfloorxpan(float val) { panMotion.Assign(SectorPanMotionState::FloorX, floorxpan_, val); }
+	void assignfloorypan(float val) { panMotion.Assign(SectorPanMotionState::FloorY, floorypan_, val); }
+	void assignceilingxpan(float val) { panMotion.Assign(SectorPanMotionState::CeilingX, ceilingxpan_, val); }
+	void assignceilingypan(float val) { panMotion.Assign(SectorPanMotionState::CeilingY, ceilingypan_, val); }
+	SectorPanMotionSample GetPanMotion(bool ceiling) const
+	{
+		return panMotion.GetPlane(ceiling, ceiling ? ceilingxpan_ : floorxpan_, ceiling ? ceilingypan_ : floorypan_);
+	}
 	void setceilingslope(int heinum) { ceilingheinum = heinum; if (heinum) ceilingstat |= CSTAT_SECTOR_SLOPE; else ceilingstat &= ~CSTAT_SECTOR_SLOPE; }
 	void setfloorslope(int heinum) { floorheinum = heinum; if (heinum) floorstat |= CSTAT_SECTOR_SLOPE; else floorstat &= ~CSTAT_SECTOR_SLOPE; }
 	int getfloorslope() const { return floorstat & CSTAT_SECTOR_SLOPE ? floorheinum : 0; }

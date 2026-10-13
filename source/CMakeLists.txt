@@ -949,6 +949,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_frame_output.cpp
 	common/rendering/nri/renderer/nri_frame_resources.cpp
 	common/rendering/nri/renderer/nri_fluid_surfaces.cpp
+	common/rendering/nri/renderer/nri_fluid_pan_history.cpp
 	common/rendering/nri/renderer/nri_indirect_radiance_cache.cpp
 	common/rendering/nri/renderer/nri_map_chunk_diagnostics.cpp
 	common/rendering/nri/renderer/nri_map_chunk_status.cpp

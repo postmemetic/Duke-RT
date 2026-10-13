@@ -8,6 +8,7 @@
 #define NRI_FLUID_BINDING_FLAG_TWO_SIDED (1u << 1u)
 #define NRI_FLUID_BINDING_FLAG_DISABLE_VIRTUAL_HEIGHT (1u << 2u)
 #define NRI_FLUID_BINDING_FLAG_FLIP_SIDE (1u << 3u)
+#define NRI_FLUID_BINDING_FLAG_FOLLOW_PAN (1u << 4u)
 
 #define NRI_FLUID_STYLE_FLOW (1u << 0u)
 #define NRI_FLUID_STYLE_FALL (1u << 1u)
@@ -77,5 +78,25 @@ struct FluidFrameData
 
 StructuredBuffer<FluidBindingData> gFluidBindings : register(t31, space2);
 StructuredBuffer<FluidFrameData> gFluidFrames : register(t32, space2);
+
+#define NRI_FLUID_PAN_CURRENT_ACTIVE 1u
+#define NRI_FLUID_PAN_PREVIOUS_ACTIVE 2u
+
+// Sector-plane indexed signed pan / 256 and unscaled gameplay phase anchors.
+// Previous fields belong to the last successfully submitted main frame.
+struct FluidPanData
+{
+	float2 currentPan;
+	float2 previousPan;
+	float currentPhaseSeconds;
+	float previousPhaseSeconds;
+	uint flags;
+	uint reserved;
+	// Nominal authored UV periods/gameplay second; independent of render dt.
+	float2 currentPanRate;
+	float2 previousPanRate;
+};
+
+StructuredBuffer<FluidPanData> gFluidPans : register(t33, space2);
 
 #endif

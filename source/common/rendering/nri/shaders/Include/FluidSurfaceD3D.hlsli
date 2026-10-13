@@ -2,6 +2,7 @@
 #define NRI_FLUID_SURFACE_D3D_HLSLI
 
 #include "FluidSurfaceContracts.hlsli"
+#include "FluidSurfacePan.hlsli"
 
 #define NRI_FLUID_FIELD_LAYER_CAP NRI_FLUID_MAX_LAYERS
 
@@ -169,6 +170,7 @@ void FluidEvaluateMacroFoamCarrier(
 	FluidBindingData binding,
 	float2 domain,
 	float gameplaySeconds,
+	float phaseSeconds,
 	float globalAmplitudeScale,
 	out float phase,
 	out float angularVelocity,
@@ -190,7 +192,7 @@ void FluidEvaluateMacroFoamCarrier(
 	const float2 noiseCoordinate = layerDomain * (frequency * noiseScale) +
 		float2(layerTime * 0.13, -layerTime * 0.09);
 	const float noise = FluidValueNoise(noiseCoordinate, binding.seed);
-	phase = layerDomain.x * frequency + warp * noise + layerTime +
+	phase = layerDomain.x * frequency + warp * noise + phaseSeconds * binding.motion.x +
 		6.28318530718 * FluidHash01(binding.seed ^ 0xa511e9b3u);
 	const float2 wave = FluidChoppyWaveDerivative(phase, choppiness);
 	const float secondDerivative = FluidChoppyWaveSecondDerivative(phase, choppiness);
@@ -400,6 +402,7 @@ void FluidEvaluateField(
 	FluidBindingData binding,
 	float2 domain,
 	float gameplaySeconds,
+	float phaseSeconds,
 	float worldFootprint,
 	float globalAmplitudeScale,
 	uint foamMode,
@@ -456,7 +459,8 @@ void FluidEvaluateField(
 		const float2 noiseCoordinate = layerDomain * (frequency * noiseScale) +
 			float2(layerTime * 0.13, -layerTime * 0.09);
 		const float noise = FluidValueNoise(noiseCoordinate, layerSeed);
-		const float phase = layerDomain.x * frequency + warp * noise + layerTime +
+		const float phaseTime = phaseSeconds * binding.motion.x * (1.0 + 0.17 * (float)layer);
+		const float phase = layerDomain.x * frequency + warp * noise + phaseTime +
 			6.28318530718 * FluidHash01(layerSeed ^ 0xa511e9b3u);
 		const float2 wave = FluidChoppyWaveDerivative(phase, layerChoppiness);
 		[branch]
@@ -529,6 +533,7 @@ void FluidEvaluateVirtualField(
 	FluidBindingData binding,
 	float2 domain,
 	float gameplaySeconds,
+	float phaseSeconds,
 	out float heightRatio)
 {
 	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
@@ -545,7 +550,7 @@ void FluidEvaluateVirtualField(
 	const float2 noiseCoordinate = layerDomain * (frequency * noiseScale) +
 		float2(layerTime * 0.13, -layerTime * 0.09);
 	const float noise = FluidValueNoise(noiseCoordinate, binding.seed);
-	const float phase = layerDomain.x * frequency + warp * noise + layerTime +
+	const float phase = layerDomain.x * frequency + warp * noise + phaseSeconds * binding.motion.x +
 		6.28318530718 * FluidHash01(binding.seed ^ 0xa511e9b3u);
 	heightRatio = FluidChoppyWaveDerivative(phase, layerChoppiness).x;
 	if (!isfinite(heightRatio))
@@ -556,6 +561,7 @@ void FluidEvaluateVirtualField(
 
 bool TryEvaluateFluidSurface(
 	MaterialData material,
+	HitData hit,
 	float3 carrierPosition,
 	float3 geometricNormal,
 	float3 carrierShadingNormal,
@@ -598,6 +604,7 @@ bool TryEvaluateFluidSurface(
 	}
 	const uint foamMode = min(frame.foamMode, 2u);
 	const uint foamStyleMode = min(frame.foamStyleMode, 1u);
+	const FluidPanEvaluation pan = FluidResolvePan(hit, material, binding, frame);
 
 	float3 carrierNormal = FluidSafeNormalize(
 		geometricNormal, float3(0.0, 0.0, 1.0));
@@ -625,21 +632,13 @@ bool TryEvaluateFluidSurface(
 	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
 	const float timeScale = frame.globalTimeScale * binding.motion.y;
 	const float gameplaySeconds = frame.currentGameplaySeconds * timeScale;
+	// Freeze intrinsic linear travel when authored pan takes over, but keep
+	// slow noise evolution. The first-moving phase anchor avoids a phase reset.
+	const float phaseSeconds = pan.currentPhaseSeconds * timeScale;
 	const float3 localPosition = carrierPosition - binding.domainOriginScale.xyz;
 	const float2 carrierBaseDomain = float2(
 		dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
-	float2 domain = carrierBaseDomain;
-	if ((binding.styleFlags & NRI_FLUID_STYLE_FLOW) != 0u)
-	{
-		domain -= float2(
-			binding.domainAxisUFlowU.w,
-			binding.domainAxisVFlowV.w) * gameplaySeconds;
-	}
-	if ((binding.styleFlags & NRI_FLUID_STYLE_FALL) != 0u)
-	{
-		domain.y += binding.domainAxisVFlowV.w *
-			(gameplaySeconds + 0.2 * sin(gameplaySeconds * 0.73 + (float)(binding.seed & 31u)));
-	}
+	float2 domain = FluidApplyDomainMotion(binding, carrierBaseDomain, phaseSeconds) + pan.currentOffset;
 
 	const uint layerCap = clamp(frame.primaryLayerCap, 1u, NRI_FLUID_MAX_LAYERS);
 	float virtualOffset = 0.0;
@@ -662,7 +661,7 @@ bool TryEvaluateFluidSurface(
 			virtualHalfHeight / max(abs(signedViewCosine), minimumCosine));
 		float virtualHeightRatio = 0.0;
 		FluidEvaluateVirtualField(
-			binding, domain, gameplaySeconds, virtualHeightRatio);
+			binding, domain, gameplaySeconds, phaseSeconds, virtualHeightRatio);
 		const float targetHeight = virtualHeightRatio * virtualHalfHeight;
 		const float targetOffset = clamp(
 			targetHeight / signedViewCosine, -maximumTravel, maximumTravel);
@@ -683,13 +682,21 @@ bool TryEvaluateFluidSurface(
 	float foamBreakingPotential = 0.0;
 	float foamCrestBreakingPotential = 0.0;
 	FluidEvaluateField(
-		binding, sampleDomain, gameplaySeconds, worldFootprint,
+		binding, sampleDomain, gameplaySeconds, phaseSeconds, worldFootprint,
 		frame.globalAmplitudeScale, foamMode, layerCap,
 		heightRatio, gradientRatio, crest, foamPhase, foamAngularVelocity,
 		foamBreakingPotential, foamCrestBreakingPotential);
 	// The carrier helper differentiates with respect to its scaled time input;
 	// authored foam lifetime is in gameplay seconds.
 	foamAngularVelocity *= timeScale;
+	// Nominal authored rate is held between ticks/while paused. Differencing
+	// interpolated displacement against the integer game clock would blink
+	// analytic trails on sub-tick frames. This is a trail-shape scale, not a
+	// simulated foam lifetime or a replacement for exact domain displacement.
+	const float2 panPhaseGradient = max(abs(binding.spectrum.y), 1.0e-4) *
+		FluidInitialFieldDirection(binding) * clamp(binding.motion.z, 0.2, 5.0);
+	if ((pan.flags & NRI_FLUID_PAN_CURRENT_ACTIVE) != 0u)
+		foamAngularVelocity = dot(pan.currentDomainRate, panPhaseGradient);
 	const float amplitude = max(binding.spectrum.x, 0.0) * frame.globalAmplitudeScale;
 	const float height = heightRatio * amplitude;
 	float2 gradient = gradientRatio * (amplitude * domainScale);
@@ -734,19 +741,23 @@ bool TryEvaluateFluidSurface(
 
 		const float previousGameplaySeconds =
 			frame.previousGameplaySeconds * timeScale;
+		const float previousPhaseSeconds = pan.previousPhaseSeconds * timeScale;
 		const float2 previousSampleDomain = FluidApplyDomainMotion(
-			binding, sampleBaseDomain, previousGameplaySeconds);
+			binding, sampleBaseDomain, previousPhaseSeconds) + pan.previousOffset;
 		const float2 previousCarrierPatternDomain = FluidApplyDomainMotion(
-			binding, carrierBaseDomain, previousGameplaySeconds);
+			binding, carrierBaseDomain, previousPhaseSeconds) + pan.previousOffset;
 		float previousPhase = 0.0;
 		float previousAngularVelocity = 0.0;
 		float previousBreakingPotential = 0.0;
 		float previousCrestBreakingPotential = 0.0;
 		FluidEvaluateMacroFoamCarrier(
 			binding, previousSampleDomain, previousGameplaySeconds,
+			previousPhaseSeconds,
 			frame.globalAmplitudeScale, previousPhase, previousAngularVelocity,
 			previousBreakingPotential, previousCrestBreakingPotential);
 		previousAngularVelocity *= timeScale;
+		if ((pan.flags & NRI_FLUID_PAN_PREVIOUS_ACTIVE) != 0u)
+			previousAngularVelocity = dot(pan.previousDomainRate, panPhaseGradient);
 		float previousBirth = 0.0;
 		float previousTrail = 0.0;
 		FluidShapeFoam(
@@ -772,7 +783,9 @@ bool TryEvaluateFluidSurface(
 		}
 	}
 
-	float hotCrack = 0.0;
+	// Ordinary fluids use uniform authored self-glow; lava alone modulates it
+	// with the existing crust mask. Zero emission remains an exact opt-out.
+	float hotCrack = 1.0;
 	if ((binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u)
 	{
 		const float softness = max(binding.crust.y, 1.0e-3);
@@ -818,7 +831,7 @@ bool TryEvaluateFluidSurface(
 	evaluation.roughness = lerp(fluidRoughness, foamRoughness, foam);
 	evaluation.baseColor = max(baseColor, 0.0);
 	const float carrierReactive = FluidAnimationReactive(frame, binding, timeScale);
-	evaluation.reactive = max(carrierReactive, abs(foam - previousFoam));
+	evaluation.reactive = max(max(carrierReactive, FluidPanReactive(pan, binding)), abs(foam - previousFoam));
 	// The normally lit scum layer covers hot lava instead of glowing through it.
 	// Zero coverage preserves the original procedural emission exactly.
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *

@@ -18,5 +18,5 @@ constexpr uint32_t NRIStaticTangentStructuredPoolCapacity(uint32_t queuedFrames)
     return known + 32u > smokeReserve ? known + 32u : smokeReserve;
 }
 static_assert(NRIStaticTangentStructuredPoolCapacity(2) == 570);
-static_assert(NRIStaticTangentStructuredPoolCapacity(3) == 636);
-static_assert(NRIStaticTangentStructuredPoolCapacity(4) == 830);
+static_assert(NRIStaticTangentStructuredPoolCapacity(3) == 651);
+static_assert(NRIStaticTangentStructuredPoolCapacity(4) == 850);

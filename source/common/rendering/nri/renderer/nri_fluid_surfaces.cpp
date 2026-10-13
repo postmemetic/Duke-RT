@@ -8,6 +8,7 @@
 
 #include "fluidoverlay.h"
 #include "gamecontrol.h"
+#include "maptypes.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -41,6 +42,10 @@ namespace
 		const FluidOverlayParameters& source = binding.parameters;
 		NRIFluidBindingGpuData result = {};
 		result.flags = NRI_FLUID_BINDING_FLAG_ENABLED | NRI_FLUID_BINDING_FLAG_TWO_SIDED;
+		if (source.followPan)
+		{
+			result.flags |= NRI_FLUID_BINDING_FLAG_FOLLOW_PAN;
+		}
 		result.styleFlags = ResolveStyleFlags(source.style);
 		result.layerCount = std::clamp(source.octaves, 1u, NRI_FLUID_MAX_LAYERS);
 		result.seed = (uint32_t)source.seed;
@@ -229,14 +234,24 @@ bool NRIRenderer::UpdateFluidSurfaceResources(SceneUploadBufferRingSlot& uploadS
 	mBoundFluidBindingCount = (uint32_t)overlays.bindings.Size();
 
 	const float currentGameplaySeconds = PlayClock > 0 ? (float)((double)PlayClock / 120.0) : 0.0f;
-	if (!mFluidTimeInitialized)
+	const uint32_t sectorCount = mMapWorld.valid ? sector.Size() : 0u;
+	mFluidPanHistory.BeginPrepare(mMapWorld.valid ? mMapWorld.buildSerial : 0ull,
+		currentGameplaySeconds, sectorCount * 2u);
+	for (uint32_t sectorIndex = 0; sectorIndex < sectorCount; ++sectorIndex)
 	{
-		mPreviousFluidGameplaySeconds = currentGameplaySeconds;
-		mFluidTimeInitialized = true;
+		for (uint32_t plane = 0; plane < 2u; ++plane)
+		{
+			const SectorPanMotionSample pan = sector[sectorIndex].GetPanMotion(plane != 0u);
+			const SectorPanMotionState& authoredPan = sector[sectorIndex].panMotion;
+			const uint32_t axis = plane * 2u;
+			const uint32_t movedAxes = ((authoredPan.initializedMask & authoredPan.movedMask) >> axis) & 3u;
+			mFluidPanHistory.PreparePlane(sectorIndex * 2u + plane, pan.x, pan.y, pan.hasMoved,
+				authoredPan.accumulated[axis], authoredPan.accumulated[axis + 1u], movedAxes);
+		}
 	}
 	NRIFluidFrameGpuData frame = {};
 	frame.currentGameplaySeconds = currentGameplaySeconds;
-	frame.previousGameplaySeconds = mPreviousFluidGameplaySeconds;
+	frame.previousGameplaySeconds = mFluidPanHistory.PreviousGameplaySeconds(currentGameplaySeconds);
 	frame.flags = mBoundFluidBindingCount != 0u ? NRI_FLUID_FRAME_FLAG_ENABLED : NRI_FLUID_FRAME_FLAG_NONE;
 	if ((bool)nri_ptfluidvirtualheight)
 	{
@@ -267,9 +282,15 @@ bool NRIRenderer::UpdateFluidSurfaceResources(SceneUploadBufferRingSlot& uploadS
 		NRIResourceComputeShaderResourceAccess(),
 		true,
 		"fluid_frame_upload");
-	if (frameReady)
-	{
-		mPreviousFluidGameplaySeconds = currentGameplaySeconds;
-	}
-	return frameReady;
+	const auto& panRows = mFluidPanHistory.PreparedRows();
+	return frameReady && EnsureStructuredBuffer(
+		uploadSlot.fluidPanBuffer,
+		uploadSlot.fluidPanStats,
+		panRows.data(),
+		panRows.size() * sizeof(NRIFluidPanGpuData),
+		sizeof(NRIFluidPanGpuData),
+		nri::BufferUsageBits::SHADER_RESOURCE,
+		NRIResourceComputeShaderResourceAccess(),
+		true,
+		"fluid_pan_upload");
 }

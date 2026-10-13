@@ -670,13 +670,15 @@ void NRIRenderer::OnMainCommandBufferSubmitResult(bool success, uint64_t command
 	const bool fenceMatches = mPendingMainTemporalCommandFence == 0 ||
 		commandFenceValue == 0 || mPendingMainTemporalCommandFence == commandFenceValue;
 	if (success && fenceMatches &&
-		mMapMotionHistory.CommitSubmitted(mPendingMainTemporalSerial))
+		mMapMotionHistory.CommitSubmitted(mPendingMainTemporalSerial) &&
+		mFluidPanHistory.CommitSubmitted(mPendingMainTemporalSerial))
 	{
 		mMainTemporalSerial = mPendingMainTemporalSerial;
 	}
 	else
 	{
 		mMapMotionHistory.DiscardStaged();
+		mFluidPanHistory.DiscardStaged();
 		mMapMotionHistory.Reset(success ? "submit-fence-mismatch" : "queue-submit-failed");
 		RequestHistoryReset(success ? "motion-submit-fence-mismatch" : "motion-queue-submit-failed");
 	}
@@ -1223,16 +1225,21 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 		if (mPendingMainTemporalSubmission)
 		{
 			mMapMotionHistory.DiscardStaged();
+			mFluidPanHistory.DiscardStaged();
 			RequestHistoryReset("multiple-main-temporal-recordings");
 		}
 		mPendingMainTemporalSerial = mMainTemporalSerial + 1u;
-		if (StagePublishedMapMotion(mPendingMainTemporalSerial))
+		if (StagePublishedMapMotion(mPendingMainTemporalSerial) &&
+			mFluidPanHistory.StagePrepared(mPendingMainTemporalSerial))
 		{
 			mPendingMainTemporalCommandFence = GetRecordingCommandFenceValue();
 			mPendingMainTemporalSubmission = true;
 		}
 		else
 		{
+			mMapMotionHistory.DiscardStaged();
+			mFluidPanHistory.DiscardStaged();
+			mPendingMainTemporalSubmission = false;
 			mPendingMainTemporalSerial = 0;
 			mPendingMainTemporalCommandFence = 0;
 			RequestHistoryReset("map-motion-stage-failed");
@@ -1241,6 +1248,7 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 	else if (dispatchInputs.mainViewEligible)
 	{
 		mMapMotionHistory.DiscardStaged();
+		mFluidPanHistory.DiscardStaged();
 	}
 	LogRenderSceneFailureReasons(sceneFrame.paletteReady, sceneFrame.texturesReady, sceneFrame.buffersReady, sceneFrame.accelerationReady, dispatched, bootstrapCapturedView);
 

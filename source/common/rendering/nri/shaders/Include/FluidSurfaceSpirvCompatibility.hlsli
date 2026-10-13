@@ -2,6 +2,7 @@
 #define NRI_FLUID_SURFACE_HLSLI
 
 #include "FluidSurfaceContracts.hlsli"
+#include "FluidSurfacePan.hlsli"
 
 struct FluidSurfaceEvaluation
 {
@@ -60,6 +61,7 @@ void FluidEvaluateOctaves(
 	FluidBindingData binding,
 	float2 domain,
 	float gameplaySeconds,
+	float phaseSeconds,
 	float worldFootprint,
 	uint layerCap,
 	out float height,
@@ -103,7 +105,7 @@ void FluidEvaluateOctaves(
 		const float warp = clamp(binding.motion.w, -1.5, 1.5);
 		const float phase = dot(domain, direction) * layerFrequency +
 			warp * sin(crossPhase) +
-			gameplaySeconds * binding.motion.x * (1.0 + 0.17 * (float)layer) +
+			phaseSeconds * binding.motion.x * (1.0 + 0.17 * (float)layer) +
 			6.28318530718 * FluidHash01(layerSeed ^ 0xa511e9b3u);
 		const float rawWave = sin(phase);
 		const float rawDerivative = cos(phase);
@@ -151,7 +153,8 @@ void FluidEvaluateOctaves(
 float FluidEvaluateVirtualHeightRatio(
 	FluidBindingData binding,
 	float2 domain,
-	float gameplaySeconds)
+	float gameplaySeconds,
+	float phaseSeconds)
 {
 	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
 	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
@@ -162,12 +165,12 @@ float FluidEvaluateVirtualHeightRatio(
 	const float crossPhase = dot(domain, crossDirection) * frequency * 0.41 +
 		gameplaySeconds * binding.motion.x * 0.31;
 	const float primaryPhase = dot(domain, direction) * frequency +
-		warp * sin(crossPhase) + gameplaySeconds * binding.motion.x +
+		warp * sin(crossPhase) + phaseSeconds * binding.motion.x +
 		6.28318530718 * FluidHash01(binding.seed ^ 0xa511e9b3u);
 	const float secondaryPhase =
 		dot(domain, normalize(crossDirection + 0.31 * direction)) *
 		frequency * max(abs(binding.spectrum.z), 1.01) +
-		gameplaySeconds * binding.motion.x * 1.17 +
+		phaseSeconds * binding.motion.x * 1.17 +
 		6.28318530718 * FluidHash01(binding.seed ^ 0x63d83595u);
 	const float secondaryWeight = saturate(abs(binding.spectrum.w));
 	float wave = (sin(primaryPhase) + secondaryWeight * sin(secondaryPhase)) /
@@ -181,6 +184,7 @@ float FluidEvaluateVirtualHeightRatio(
 
 bool TryEvaluateFluidSurface(
 	MaterialData material,
+	HitData hit,
 	float3 carrierPosition,
 	float3 geometricNormal,
 	float3 carrierShadingNormal,
@@ -221,6 +225,7 @@ bool TryEvaluateFluidSurface(
 	{
 		return false;
 	}
+	const FluidPanEvaluation pan = FluidResolvePan(hit, material, binding, frame);
 
 	float3 carrierNormal = FluidSafeNormalize(
 		geometricNormal, float3(0.0, 0.0, 1.0));
@@ -251,18 +256,19 @@ bool TryEvaluateFluidSurface(
 	const float timeScale = frame.globalTimeScale * binding.motion.y *
 		lerp(1.0, 0.18, viscosity);
 	const float gameplaySeconds = frame.currentGameplaySeconds * timeScale;
+	const float phaseSeconds = pan.currentPhaseSeconds * timeScale;
 	const float3 localPosition = carrierPosition - binding.domainOriginScale.xyz;
-	float2 domain = float2(dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
+	float2 domain = float2(dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale + pan.currentOffset;
 	if ((binding.styleFlags & NRI_FLUID_STYLE_FLOW) != 0u)
 	{
 		domain -= float2(
 			binding.domainAxisUFlowU.w,
-			binding.domainAxisVFlowV.w) * gameplaySeconds;
+			binding.domainAxisVFlowV.w) * phaseSeconds;
 	}
 	if ((binding.styleFlags & NRI_FLUID_STYLE_FALL) != 0u)
 	{
 		domain.y += binding.domainAxisVFlowV.w *
-			(gameplaySeconds + 0.2 * sin(gameplaySeconds * 0.73 + (float)(binding.seed & 31u)));
+			(phaseSeconds + 0.2 * sin(phaseSeconds * 0.73 + (float)(binding.seed & 31u)));
 	}
 
 	const uint layerCap = clamp(frame.primaryLayerCap, 1u, NRI_FLUID_MAX_LAYERS);
@@ -299,7 +305,7 @@ bool TryEvaluateFluidSurface(
 			virtualDomain += domain - float2(
 				dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
 			const float targetHeight = FluidEvaluateVirtualHeightRatio(
-				binding, virtualDomain, gameplaySeconds) * virtualHalfHeight;
+				binding, virtualDomain, gameplaySeconds, phaseSeconds) * virtualHalfHeight;
 			const float targetOffset = clamp(
 				targetHeight / signedViewCosine,
 				-maximumTravel, maximumTravel);
@@ -317,7 +323,7 @@ bool TryEvaluateFluidSurface(
 	float signal = 0.0;
 	float crest = 0.0;
 	FluidEvaluateOctaves(
-		binding, sampleDomain, gameplaySeconds, worldFootprint, layerCap,
+		binding, sampleDomain, gameplaySeconds, phaseSeconds, worldFootprint, layerCap,
 		height, gradient, signal, crest);
 	height *= frame.globalAmplitudeScale;
 	gradient *= frame.globalAmplitudeScale;
@@ -338,7 +344,9 @@ bool TryEvaluateFluidSurface(
 	baseColor = lerp(baseColor, binding.crestColorOpacity.rgb,
 		saturate(crest * max(binding.virtualParams.z, 0.0)));
 
-	float hotCrack = 0.0;
+	// Ordinary fluids use uniform authored self-glow; lava alone modulates it
+	// with the existing crust mask. Zero emission remains an exact opt-out.
+	float hotCrack = 1.0;
 	if ((binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u)
 	{
 		const float softness = max(binding.crust.y, 1.0e-3);
@@ -368,7 +376,7 @@ bool TryEvaluateFluidSurface(
 		underside ? binding.surfaceResponse.y : binding.surfaceResponse.x,
 		0.02, 1.0);
 	evaluation.baseColor = max(baseColor, 0.0);
-	evaluation.reactive = FluidAnimationReactive(frame, binding, timeScale);
+	evaluation.reactive = max(FluidAnimationReactive(frame, binding, timeScale), FluidPanReactive(pan, binding));
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *
 		max(binding.emissionColorIntensity.w, 0.0) * hotCrack;
 	evaluation.height = height;

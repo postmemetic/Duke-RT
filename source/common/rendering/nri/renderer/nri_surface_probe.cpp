@@ -5,6 +5,7 @@
 #include "nri_runtime_mutation.h"
 
 #include "../scene/nri_map_world.h"
+#include "build.h"
 #include "lightoverlay.h"
 #include "printf.h"
 #include "texinfo.h"
@@ -608,6 +609,26 @@ void NRIRenderer::UpdateSurfaceProbe(
 		result.cpuPrimitiveTemporalFlags,
 		(float)((result.cpuPrimitiveTemporalFlags >> nri_scene::TemporalMaterialUvReactiveShift) &
 			nri_scene::TemporalMaterialUvReactiveMask) / (float)nri_scene::TemporalMaterialUvReactiveMask);
+	const auto sourceType = result.provenance.sourceType;
+	const bool floorSource = sourceType == nri_scene::SurfaceSourceType::MapFloorSection ||
+		sourceType == nri_scene::SurfaceSourceType::FloorFlat;
+	const bool ceilingSource = sourceType == nri_scene::SurfaceSourceType::MapCeilingSection ||
+		sourceType == nri_scene::SurfaceSourceType::CeilingFlat;
+	if (result.fluidBindingIndex != UINT32_MAX && (flags & nri_scene::MaterialFlag_Flat) != 0u &&
+		(floorSource || ceilingSource) && result.provenance.sectorIndex >= 0 &&
+		(uint32_t)result.provenance.sectorIndex < sector.Size())
+	{
+		const auto& sec = sector[(uint32_t)result.provenance.sectorIndex];
+		const SectorPanMotionSample pan = sec.GetPanMotion(ceilingSource);
+		const double wrappedX = ceilingSource ? sec.ceilingxpan_ : sec.floorxpan_;
+		const double wrappedY = ceilingSource ? sec.ceilingypan_ : sec.floorypan_;
+		const bool finite = std::isfinite(pan.x) && std::isfinite(pan.y) &&
+			std::isfinite(wrappedX) && std::isfinite(wrappedY);
+		Printf("NRI PT fluid pan probe: sector=%d plane=%s has_moved=%s finite=%s accumulated_pan=(%.6f,%.6f) accumulated_uv=(%.8f,%.8f) presented_wrapped_uv=(%.8f,%.8f)\n",
+			result.provenance.sectorIndex, ceilingSource ? "ceiling" : "floor",
+			YesNo(pan.hasMoved), YesNo(finite), pan.x, pan.y,
+			pan.x / 256.0, pan.y / 256.0, wrappedX / 256.0, wrappedY / 256.0);
+	}
 	Printf("NRI PT surface probe: hit source=%s drawlist=%s owner=%s data_source=%s chunk=%d gate_visible=%s flat_drawlist_visible=%s static_resident=%s static_tlas_instanced=%s static_probe_included=%s chunk_replaced=%s chunk_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u local_space=%d portal_graph=%d sector=%d wall=%d nextsector=%d actor=%d cstat=0x%x primitive=%u material=%u cpu_tex=%u metadata_tex=%u gpu_tex=%u expected_gpu_tex=%u cpu_palette=%u metadata_palette=%u gpu_palette=%u gpu_material_valid=%s cpu_metadata_match=%s gpu_palette_match=%s gpu_texture_match=%s stable_texture_slots=%s texture_slot_revision=%llu material_generation=%llu material_buffer_hash=%llu shader_valid=%s shader_hit_match=%s shader_frame=%llu shader_source=%u shader_instance=%u shader_primitive=%u shader_material=%u shader_tex=%u shader_palette=%u shader_flags=0x%x shader_lighting=0x%x texid=%u legacy_tile=%d texture_name=%s material_texid=%u material_legacy_tile=%d material_texture_name=%s distance=%.2f pos=(%.2f, %.2f, %.2f) normal=(%.3f, %.3f, %.3f) flags=0x%x indexed=%s fullbright=%s flat=%s sprite=%s mirror=%s sky=%s portal=%s facing_billboard=%s point_sampled=%s tex_fullbright=%s glowing=%s auto_glow=%s glowmap=%s normalmap=%s metallic=%s roughness=%s normal_tex=%u metallic_tex=%u roughness_tex=%u metalness_hint=%.3f roughness_hint=%.3f material_class=%u emissive_mode=%s emissive_tex=%u light_surface=%s light_mat=%u emissive_surface=%s emissive_prims=%u emissive_hit=%s emissive_flags=0x%x emissive_rule=%u emissive_override=%u emissive_sector=%d sector_scale=%.3f sector_reach=%.3f sector_applied=%s emissive_area=%.2f emissive_power=%.3f emissive_sample_weight=%.3f emissive_pdf=%.6f emissive_intensity=%.3f material_response=%s material_scale=%.3f light=%.3f alpha=%.3f avg=(%.2f, %.2f, %.2f) emissive=(%.2f, %.2f, %.2f) glow=(%.2f, %.2f, %.2f)\n",
 		nri_diag::GetSurfaceSourceTypeName(result.provenance.sourceType),
 		nri_diag::GetDrawListTypeName(result.provenance.drawListType),

@@ -73,6 +73,7 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_CrustSoftness = 1ull << 44,
 	FluidOverlayParameter_CrustDarkening = 1ull << 45,
 	FluidOverlayParameter_TextureMix = 1ull << 46,
+	FluidOverlayParameter_FollowPan = 1ull << 47,
 };
 
 struct FluidOverlaySourceLocation
@@ -116,6 +117,9 @@ struct FluidOverlayParameters
 	float timeScale = 1.0f;
 	float speed = 0.25f;
 	float flow[2] = { 1.0f, 0.0f };
+	// Opt in independently of the procedural style. Supported fluid carriers
+	// follow observed authored texture panning; omitted keeps world anchoring.
+	bool followPan = false;
 	float anisotropy = 1.0f;
 	float warp = 0.0f;
 	float choppiness = 1.0f;

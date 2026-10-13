@@ -1966,6 +1966,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				ResolveFluidCarrierShadingNormal(hit, fluidGeometricNormal) : fluidGeometricNormal;
 			TryEvaluateFluidSurface(
 				material,
+				hit,
 				hit.position,
 				fluidGeometricNormal,
 				fluidCarrierShadingNormal,
@@ -2329,7 +2330,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			}
 			else
 			{
-				directEmission += fluidSurface.emission;
+				// Non-lava self-glow is additive, but a mirror-replaced primary
+				// still attenuates it once. Keep legacy lava bootstrap diagnostics.
+				directEmission += fluidSurface.emission *
+					((plainMirrorPrimaryReplacement && fluidSurface.ownsPrimaryEmission == 0u) ?
+						plainMirrorThroughput : 1.0.xxx);
 			}
 #endif
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);

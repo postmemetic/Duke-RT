@@ -17,6 +17,7 @@ enum NRIFluidBindingFlags : uint32_t
 	NRI_FLUID_BINDING_FLAG_TWO_SIDED = 1u << 1u,
 	NRI_FLUID_BINDING_FLAG_DISABLE_VIRTUAL_HEIGHT = 1u << 2u,
 	NRI_FLUID_BINDING_FLAG_FLIP_SIDE = 1u << 3u,
+	NRI_FLUID_BINDING_FLAG_FOLLOW_PAN = 1u << 4u,
 };
 
 enum NRIFluidStyleFlags : uint32_t
@@ -109,6 +110,36 @@ struct NRIFluidFrameGpuData
 	uint32_t foamMode = 0u;
 	uint32_t foamStyleMode = 0u;
 };
+
+constexpr uint32_t NRI_FLUID_PAN_CURRENT_ACTIVE = 1u;
+constexpr uint32_t NRI_FLUID_PAN_PREVIOUS_ACTIVE = 2u;
+
+// Index = sector index * 2 + (ceiling ? 1 : 0). Pan is the signed authored
+// displacement in texture periods (raw Build pan / 256), never time-scaled.
+struct NRIFluidPanGpuData
+{
+	float currentPan[2] = {};
+	float previousPan[2] = {};
+	float currentPhaseSeconds = 0.0f;
+	float previousPhaseSeconds = 0.0f;
+	uint32_t flags = 0u;
+	uint32_t reserved = 0u;
+	// Held nominal authored pan rate, in UV periods per gameplay second.
+	// Used for analytic foam age, not integration or displacement.
+	float currentPanRate[2] = {};
+	float previousPanRate[2] = {};
+};
+
+static_assert(sizeof(NRIFluidPanGpuData) == 48u,
+	"NRIFluidPanGpuData must match FluidPanData in HLSL.");
+static_assert(offsetof(NRIFluidPanGpuData, currentPhaseSeconds) == 16u,
+	"NRIFluidPanGpuData phase layout mismatch.");
+static_assert(offsetof(NRIFluidPanGpuData, flags) == 24u,
+	"NRIFluidPanGpuData flag layout mismatch.");
+static_assert(offsetof(NRIFluidPanGpuData, currentPanRate) == 32u,
+	"NRIFluidPanGpuData current rate layout mismatch.");
+static_assert(offsetof(NRIFluidPanGpuData, previousPanRate) == 40u,
+	"NRIFluidPanGpuData previous rate layout mismatch.");
 
 static_assert(sizeof(NRIFluidBindingGpuData) == 304u,
 	"NRIFluidBindingGpuData must match FluidBindingData in HLSL.");

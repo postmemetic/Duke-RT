@@ -329,6 +329,12 @@ void NRIRenderer::ResetSceneBufferFrameStats()
 	resetStats(mSpatialAbsenceTypedBufferStats);
 	resetStats(mWallDecalHeaderBufferStats);
 	resetStats(mWallDecalBufferStats);
+	for (SceneUploadBufferRingSlot& slot : mSceneUploadBufferRing)
+	{
+		resetStats(slot.fluidBindingStats);
+		resetStats(slot.fluidFrameStats);
+		resetStats(slot.fluidPanStats);
+	}
 	for (SceneDataFrameSlot& slot : mSceneDataFrameRing)
 	{
 		resetStats(slot.reprojectionStats);
@@ -3343,6 +3349,7 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT] = spatialAbsenceTypedDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_FLUID_BINDING_SLOT] = fluidUploadSlot.fluidBindingBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_FLUID_FRAME_SLOT] = fluidUploadSlot.fluidFrameBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_FLUID_PAN_SLOT] = fluidUploadSlot.fluidPanBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_WALL_DECAL_HEADER_SLOT] = wallDecalHeaderDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_WALL_DECAL_SLOT] = wallDecalDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_STATIC_TANGENT_SLOT] = renderer.PublishStaticTangents(

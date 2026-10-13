@@ -1381,6 +1381,12 @@ void NRIRenderer::PrintSceneBufferStatus() const
 	appendBuffer(activeIndexBuffer, mIndexBufferStats);
 	appendBuffer(activePrimitiveBuffer, mPrimitiveBufferStats);
 	appendBuffer(activeMaterialBuffer, mMaterialBufferStats);
+	if (const SceneUploadBufferRingSlot* fluidSlot = GetCurrentSceneUploadBufferRingSlot())
+	{
+		appendBuffer(fluidSlot->fluidBindingBuffer, fluidSlot->fluidBindingStats);
+		appendBuffer(fluidSlot->fluidFrameBuffer, fluidSlot->fluidFrameStats);
+		appendBuffer(fluidSlot->fluidPanBuffer, fluidSlot->fluidPanStats);
+	}
 	appendBuffer(mPortalBuffer, mPortalBufferStats);
 	appendBuffer(mRuntimeLightBuffer, mRuntimeLightBufferStats);
 	appendBuffer(mRuntimeLightTileHeaderBuffer, mRuntimeLightTileHeaderBufferStats);

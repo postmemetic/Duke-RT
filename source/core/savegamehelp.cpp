@@ -465,6 +465,9 @@ FSerializer& Serialize(FSerializer& arc, const char* key, spriteext_t& c, sprite
 
 FSerializer &Serialize(FSerializer &arc, const char *key, sectortype &c, sectortype *def)
 {
+	// Absent optional fields in older saves must not inherit the previous
+	// session's procedural displacement or an authored map pan offset.
+	if (arc.isReading()) c.panMotion = {};
 	if (arc.BeginObject(key))
 	{
 		arc("firstentry", c.firstEntry)
@@ -495,6 +498,9 @@ FSerializer &Serialize(FSerializer &arc, const char *key, sectortype &c, sectort
 			("portalflags", c.portalflags, def->portalflags)
 			("portalnum", c.portalnum, def->portalnum)
 			("exflags", c.exflags, def->exflags);
+		uint32_t defaultPanMovedMask = 0u;
+		arc.Array("panmotiondelta", c.panMotion.accumulated, SectorPanMotionState::AxisCount, true)
+			("panmotionmoved", c.panMotion.movedMask, defaultPanMovedMask);
 
 		// Save the extensions only when playing their respective games.
 		if (isDukeEngine())
@@ -559,6 +565,8 @@ FSerializer &Serialize(FSerializer &arc, const char *key, sectortype &c, sectort
 
 		arc.EndObject();
 	}
+	if (arc.isReading())
+		c.panMotion.SeedRestoredReferences(c.floorxpan_, c.floorypan_, c.ceilingxpan_, c.ceilingypan_);
 	return arc;
 }
 

@@ -1553,8 +1553,8 @@ void moveclouds(double interpfrac)
 		for (int i = 0; i < numclouds; i++)
 		{
 			// no clamping here!
-			clouds[i]->ceilingxpan_ = cloudx;
-			clouds[i]->ceilingypan_ = cloudy;
+			clouds[i]->assignceilingxpan(cloudx);
+			clouds[i]->assignceilingypan(cloudy);
 			clouds[i]->exflags |= SECTOREX_CLOUDSCROLL;
 		}
 	}

@@ -9,6 +9,7 @@
 #include "nri_exposure.h"
 #include "nri_frame_graph.h"
 #include "nri_frame_resources.h"
+#include "nri_fluid_pan_history.h"
 #include "nri_indirect_radiance_cache.h"
 #include "nri_nrd.h"
 #include "nri_occurrence_workload_mask_policy.h"
@@ -2995,8 +2996,7 @@ private:
 	uint32_t mLastResolvedLightOverlayGeneration = 0;
 	uint32_t mLastResolvedFluidOverlayGeneration = 0;
 	uint32_t mBoundFluidBindingCount = 0;
-	float mPreviousFluidGameplaySeconds = 0.0f;
-	bool mFluidTimeInitialized = false;
+	NRIFluidPanHistory mFluidPanHistory;
 	bool mFluidVirtualHeightStateInitialized = false;
 	bool mLastFluidVirtualHeightEnabled = false;
 	bool mFluidFoamModeStateInitialized = false;

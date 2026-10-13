@@ -2405,16 +2405,16 @@ void useObjResizer(DBloodActor* sourceactor, int targType, sectortype* targSect,
 	case OBJ_SECTOR:
 		if (!targSect) return;
 		if (valueIsBetween(sourceactor->xspr.data1, -1, 32767))
-			targSect->floorxpan_ = (float)ClipRange(sourceactor->xspr.data1, 0, 255);
+			targSect->assignfloorxpan((float)ClipRange(sourceactor->xspr.data1, 0, 255));
 
 		if (valueIsBetween(sourceactor->xspr.data2, -1, 32767))
-			targSect->floorypan_ = (float)ClipRange(sourceactor->xspr.data2, 0, 255);
+			targSect->assignfloorypan((float)ClipRange(sourceactor->xspr.data2, 0, 255));
 
 		if (valueIsBetween(sourceactor->xspr.data3, -1, 32767))
-			targSect->ceilingxpan_ = (float)ClipRange(sourceactor->xspr.data3, 0, 255);
+			targSect->assignceilingxpan((float)ClipRange(sourceactor->xspr.data3, 0, 255));
 
 		if (valueIsBetween(sourceactor->xspr.data4, -1, 65535))
-			targSect->ceilingypan_ = (float)ClipRange(sourceactor->xspr.data4, 0, 255);
+			targSect->assignceilingypan((float)ClipRange(sourceactor->xspr.data4, 0, 255));
 		break;
 		// for sprites
 	case OBJ_SPRITE:
