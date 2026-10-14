@@ -95,6 +95,8 @@ FLUIDOVR
 		foamtrailgain 0.05
 		foamundersidestrength 0
 		foamcontrast 1.7
+		foamblend smooth
+		foamblendwidth 0.20
 		foamedgewidth 0.10
 		foamcutoutscale 3
 		foamcutoutstrength 1
@@ -147,6 +149,8 @@ FLUIDOVR
 		foamtrailgain 0.05
 		foamundersidestrength 0
 		foamcontrast 1.7
+		foamblend smooth
+		foamblendwidth 0.20
 		foamedgewidth 0.10
 		foamcutoutscale 2.6
 		foamcutoutstrength 1

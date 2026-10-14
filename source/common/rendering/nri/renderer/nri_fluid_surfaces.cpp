@@ -125,6 +125,9 @@ namespace
 		result.foamStyleParams[2] = std::clamp(source.foamCutoutScale, 0.05f, 64.0f);
 		result.foamStyleParams[3] = Saturate(source.foamCutoutStrength);
 		result.foamPresentationParams[0] = std::clamp(source.foamBrightness, 0.0f, 4.0f);
+		result.foamPresentationParams[1] = source.foamBlend == FluidOverlayFoamBlend::Smooth ?
+			(float)NRI_FLUID_FOAM_BLEND_SMOOTH : (float)NRI_FLUID_FOAM_BLEND_LEGACY;
+		result.foamPresentationParams[2] = std::clamp(source.foamBlendWidth, 0.0f, 0.5f);
 		return result;
 	}
 }

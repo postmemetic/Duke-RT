@@ -3,6 +3,8 @@
 
 #define NRI_FLUID_INVALID_BINDING 0xffffffffu
 #define NRI_FLUID_MAX_LAYERS 4u
+#define NRI_FLUID_FOAM_BLEND_LEGACY 0u
+#define NRI_FLUID_FOAM_BLEND_SMOOTH 1u
 
 #define NRI_FLUID_BINDING_FLAG_ENABLED (1u << 0u)
 #define NRI_FLUID_BINDING_FLAG_TWO_SIDED (1u << 1u)
@@ -51,7 +53,8 @@ struct FluidBindingData
 	float4 foamBirthParams;
 	float4 foamTrailParams;
 	float4 foamStyleParams;
-	// x = foam brightness; yzw reserved.
+	// x = foam brightness, y = blend mode (legacy/smooth), z = blend width,
+	// w reserved. Mirrors the existing 304-byte CPU binding.
 	float4 foamPresentationParams;
 };
 

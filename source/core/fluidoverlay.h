@@ -23,6 +23,12 @@ enum class FluidOverlaySurfaceClass : uint8_t
 	Wall,
 };
 
+enum class FluidOverlayFoamBlend : uint8_t
+{
+	Legacy = 0,
+	Smooth = 1,
+};
+
 enum FluidOverlayParameterBits : uint64_t
 {
 	FluidOverlayParameter_None = 0,
@@ -74,6 +80,8 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_CrustDarkening = 1ull << 45,
 	FluidOverlayParameter_TextureMix = 1ull << 46,
 	FluidOverlayParameter_FollowPan = 1ull << 47,
+	FluidOverlayParameter_FoamBlend = 1ull << 48,
+	FluidOverlayParameter_FoamBlendWidth = 1ull << 49,
 };
 
 struct FluidOverlaySourceLocation
@@ -149,6 +157,9 @@ struct FluidOverlayParameters
 	float foamCutoutScale = 2.0f;
 	float foamCutoutStrength = 0.0f;
 	float foamBrightness = 1.0f;
+	// Per-material presentation policy; legacy preserves the global style path.
+	FluidOverlayFoamBlend foamBlend = FluidOverlayFoamBlend::Legacy;
+	float foamBlendWidth = 0.20f;
 	float normalStrength = 0.75f;
 	// Optional Phase 2C visual-only half-height in renderer world units.
 	// Zero disables virtual-height refinement for this profile.

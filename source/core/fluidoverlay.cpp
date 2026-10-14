@@ -161,6 +161,19 @@ namespace
 		}
 	}
 
+	static const char* FoamBlendName(FluidOverlayFoamBlend blend)
+	{
+		return blend == FluidOverlayFoamBlend::Smooth ? "smooth" : "legacy";
+	}
+
+	static bool ParseFoamBlend(const char* value, FluidOverlayFoamBlend& outBlend)
+	{
+		if (!stricmp(value, "legacy")) outBlend = FluidOverlayFoamBlend::Legacy;
+		else if (!stricmp(value, "smooth")) outBlend = FluidOverlayFoamBlend::Smooth;
+		else return false;
+		return true;
+	}
+
 	static bool ParseSurfaceClass(const char* value, FluidOverlaySurfaceClass& outClass)
 	{
 		if (!stricmp(value, "any")) outClass = FluidOverlaySurfaceClass::Any;
@@ -369,6 +382,8 @@ namespace
 		if (mask & FluidOverlayParameter_FoamCutoutScale) destination.foamCutoutScale = source.foamCutoutScale;
 		if (mask & FluidOverlayParameter_FoamCutoutStrength) destination.foamCutoutStrength = source.foamCutoutStrength;
 		if (mask & FluidOverlayParameter_FoamBrightness) destination.foamBrightness = source.foamBrightness;
+		if (mask & FluidOverlayParameter_FoamBlend) destination.foamBlend = source.foamBlend;
+		if (mask & FluidOverlayParameter_FoamBlendWidth) destination.foamBlendWidth = source.foamBlendWidth;
 		if (mask & FluidOverlayParameter_NormalStrength) destination.normalStrength = source.normalStrength;
 		if (mask & FluidOverlayParameter_VirtualHeight) destination.virtualHeight = source.virtualHeight;
 		if (mask & FluidOverlayParameter_Seed) destination.seed = source.seed;
@@ -430,6 +445,8 @@ namespace
 		value.foamCutoutScale = std::clamp(finiteOr(value.foamCutoutScale, 2.0f), 0.05f, 64.0f);
 		value.foamCutoutStrength = std::clamp(finiteOr(value.foamCutoutStrength, 0.0f), 0.0f, 1.0f);
 		value.foamBrightness = std::clamp(finiteOr(value.foamBrightness, 1.0f), 0.0f, 4.0f);
+		if (value.foamBlend != FluidOverlayFoamBlend::Smooth) value.foamBlend = FluidOverlayFoamBlend::Legacy;
+		value.foamBlendWidth = std::clamp(finiteOr(value.foamBlendWidth, 0.20f), 0.0f, 0.5f);
 		value.normalStrength = std::max(0.0f, finiteOr(value.normalStrength, 0.0f));
 		value.virtualHeight = std::max(0.0f, finiteOr(value.virtualHeight, 0.0f));
 		value.octaves = std::clamp(value.octaves, 1u, 4u);
@@ -441,6 +458,7 @@ namespace
 		uint64_t hash = HashOffset;
 		hash = HashValue(hash, (uint8_t)value.style);
 		hash = HashValue(hash, (uint8_t)value.followPan);
+		hash = HashValue(hash, (uint8_t)value.foamBlend);
 		for (float component : value.bodyColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.undersideColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.crestColor) hash = HashValue(hash, CanonicalFloatBits(component));
@@ -457,7 +475,7 @@ namespace
 			value.foamSoftness, value.foamBreakupScale, value.foamBreakupStrength,
 			value.foamLifetime, value.foamTrailGain, value.foamUndersideStrength,
 			value.foamContrast, value.foamEdgeWidth, value.foamCutoutScale,
-			value.foamCutoutStrength, value.foamBrightness,
+			value.foamCutoutStrength, value.foamBrightness, value.foamBlendWidth,
 			value.normalStrength, value.virtualHeight,
 		};
 		for (float scalar : scalarValues) hash = HashValue(hash, CanonicalFloatBits(scalar));
@@ -468,6 +486,7 @@ namespace
 	static bool ParametersEqual(const FluidOverlayParameters& a, const FluidOverlayParameters& b)
 	{
 		if (a.style != b.style || a.followPan != b.followPan || a.seed != b.seed || a.octaves != b.octaves) return false;
+		if (a.foamBlend != b.foamBlend) return false;
 		const float* aVectors[] = { a.bodyColor, a.undersideColor, a.crestColor, a.emissionColor, a.foamColor };
 		const float* bVectors[] = { b.bodyColor, b.undersideColor, b.crestColor, b.emissionColor, b.foamColor };
 		for (size_t vectorIndex = 0; vectorIndex < std::size(aVectors); ++vectorIndex)
@@ -486,7 +505,7 @@ namespace
 			a.foamThreshold, a.foamSoftness, a.foamBreakupScale, a.foamBreakupStrength,
 			a.foamLifetime, a.foamTrailGain, a.foamUndersideStrength,
 			a.foamContrast, a.foamEdgeWidth, a.foamCutoutScale, a.foamCutoutStrength,
-			a.foamBrightness,
+			a.foamBrightness, a.foamBlendWidth,
 			a.normalStrength, a.virtualHeight,
 		};
 		const float bScalars[] = {
@@ -498,7 +517,7 @@ namespace
 			b.foamThreshold, b.foamSoftness, b.foamBreakupScale, b.foamBreakupStrength,
 			b.foamLifetime, b.foamTrailGain, b.foamUndersideStrength,
 			b.foamContrast, b.foamEdgeWidth, b.foamCutoutScale, b.foamCutoutStrength,
-			b.foamBrightness,
+			b.foamBrightness, b.foamBlendWidth,
 			b.normalStrength, b.virtualHeight,
 		};
 		for (size_t i = 0; i < std::size(aScalars); ++i)
@@ -512,9 +531,10 @@ namespace
 	{
 		if (a.style != b.style) return (uint8_t)a.style < (uint8_t)b.style;
 		if (a.followPan != b.followPan) return a.followPan < b.followPan;
+		if (a.foamBlend != b.foamBlend) return (uint8_t)a.foamBlend < (uint8_t)b.foamBlend;
 		const auto getFloatBits = [](const FluidOverlayParameters& value)
 		{
-			std::array<uint32_t, 55> bits = {};
+			std::array<uint32_t, 56> bits = {};
 			size_t index = 0;
 			const float* vectors[] = { value.bodyColor, value.undersideColor, value.crestColor, value.emissionColor, value.foamColor };
 			for (const float* vector : vectors)
@@ -533,7 +553,7 @@ namespace
 				value.foamBreakupStrength, value.foamLifetime, value.foamTrailGain,
 				value.foamUndersideStrength,
 				value.foamContrast, value.foamEdgeWidth, value.foamCutoutScale,
-				value.foamCutoutStrength, value.foamBrightness,
+				value.foamCutoutStrength, value.foamBrightness, value.foamBlendWidth,
 				value.normalStrength, value.virtualHeight,
 			};
 			for (float scalar : scalars) bits[index++] = CanonicalFloatBits(scalar);
@@ -716,6 +736,21 @@ namespace
 				}
 				return true;
 			}
+			if (sc.Compare("foamblend"))
+			{
+				sc.MustGetString();
+				FluidOverlayFoamBlend blend;
+				if (!ParseFoamBlend(sc.String, blend))
+				{
+					sc.ScriptMessage("Invalid foamblend value '%s'; expected legacy or smooth", sc.String);
+				}
+				else
+				{
+					parameters.foamBlend = blend;
+					parameters.presentMask |= FluidOverlayParameter_FoamBlend;
+				}
+				return true;
+			}
 			if (sc.Compare("followpan"))
 			{
 				sc.MustGetString();
@@ -788,6 +823,7 @@ namespace
 				{ "foamcutoutscale", FluidOverlayParameter_FoamCutoutScale, &parameters.foamCutoutScale },
 				{ "foamcutoutstrength", FluidOverlayParameter_FoamCutoutStrength, &parameters.foamCutoutStrength },
 				{ "foambrightness", FluidOverlayParameter_FoamBrightness, &parameters.foamBrightness },
+				{ "foamblendwidth", FluidOverlayParameter_FoamBlendWidth, &parameters.foamBlendWidth },
 				{ "normalstrength", FluidOverlayParameter_NormalStrength, &parameters.normalStrength },
 				{ "virtualheight", FluidOverlayParameter_VirtualHeight, &parameters.virtualHeight },
 			};
@@ -994,6 +1030,7 @@ namespace
 		const uint64_t mask = parameters.presentMask;
 		if (mask & FluidOverlayParameter_Style) AppendLine(text, indent, FStringf("style %s", StyleName(parameters.style)));
 		if (mask & FluidOverlayParameter_FollowPan) AppendLine(text, indent, FStringf("followpan %s", parameters.followPan ? "on" : "off"));
+		if (mask & FluidOverlayParameter_FoamBlend) AppendLine(text, indent, FStringf("foamblend %s", FoamBlendName(parameters.foamBlend)));
 		if (mask & FluidOverlayParameter_BodyColor) AppendVector(text, indent, "bodycolor", parameters.bodyColor, 3);
 		if (mask & FluidOverlayParameter_UndersideColor) AppendVector(text, indent, "undersidecolor", parameters.undersideColor, 3);
 		if (mask & FluidOverlayParameter_CrestColor) AppendVector(text, indent, "crestcolor", parameters.crestColor, 3);
@@ -1044,6 +1081,7 @@ namespace
 			{ FluidOverlayParameter_FoamCutoutScale, "foamcutoutscale", parameters.foamCutoutScale },
 			{ FluidOverlayParameter_FoamCutoutStrength, "foamcutoutstrength", parameters.foamCutoutStrength },
 			{ FluidOverlayParameter_FoamBrightness, "foambrightness", parameters.foamBrightness },
+			{ FluidOverlayParameter_FoamBlendWidth, "foamblendwidth", parameters.foamBlendWidth },
 			{ FluidOverlayParameter_NormalStrength, "normalstrength", parameters.normalStrength },
 			{ FluidOverlayParameter_VirtualHeight, "virtualheight", parameters.virtualHeight },
 		};
@@ -1313,20 +1351,22 @@ namespace
 				p.foamAmount, p.foamRoughness, p.foamThreshold, p.foamSoftness,
 				p.foamBreakupScale, p.foamBreakupStrength, p.foamLifetime,
 				p.foamTrailGain, p.foamUndersideStrength);
-			Printf("FLUIDOVR resolved foam style: id=%s contrast=%.4f edgewidth=%.4f cutoutscale=%.4f cutoutstrength=%.4f brightness=%.4f\n",
+			Printf("FLUIDOVR resolved foam style: id=%s contrast=%.4f edgewidth=%.4f cutoutscale=%.4f cutoutstrength=%.4f brightness=%.4f blend=%s blendwidth=%.4f\n",
 				profile.id.GetChars(), p.foamContrast, p.foamEdgeWidth,
-				p.foamCutoutScale, p.foamCutoutStrength, p.foamBrightness);
+				p.foamCutoutScale, p.foamCutoutStrength, p.foamBrightness,
+				FoamBlendName(p.foamBlend), p.foamBlendWidth);
 		}
 		for (uint32_t i = 0; i < (uint32_t)resolved.materialRules.Size(); ++i)
 		{
 			const auto& rule = resolved.materialRules[i];
-			Printf("FLUIDOVR resolved material: index=%u scope=%s id=%s valid=%s disable=%s profile=%s profile_index=%u binding=%u key=%llu order=%u source=%s:%d followpan=%s\n",
+			Printf("FLUIDOVR resolved material: index=%u scope=%s id=%s valid=%s disable=%s profile=%s profile_index=%u binding=%u key=%llu order=%u source=%s:%d followpan=%s foamblend=%s foamblendwidth=%.4f\n",
 				i, rule.mapName.IsEmpty() ? "global" : rule.mapName.GetChars(), rule.id.GetChars(),
 				rule.valid ? "yes" : "no", rule.resolvedDisable ? "yes" : "no",
 				rule.hasProfile ? rule.profileId.GetChars() : "(none)", rule.profileIndex, rule.bindingIndex,
 				(unsigned long long)rule.bindingContentKey, rule.source.orderIndex,
 				rule.source.sourceName.GetChars(), rule.source.lineStart,
-				rule.effectiveParameters.followPan ? "yes" : "no");
+				rule.effectiveParameters.followPan ? "yes" : "no",
+				FoamBlendName(rule.effectiveParameters.foamBlend), rule.effectiveParameters.foamBlendWidth);
 		}
 	}
 }

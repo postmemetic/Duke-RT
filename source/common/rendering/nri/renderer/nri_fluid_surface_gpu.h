@@ -9,6 +9,8 @@
 
 constexpr uint32_t NRI_FLUID_INVALID_BINDING = UINT32_MAX;
 constexpr uint32_t NRI_FLUID_MAX_LAYERS = 4u;
+constexpr uint32_t NRI_FLUID_FOAM_BLEND_LEGACY = 0u;
+constexpr uint32_t NRI_FLUID_FOAM_BLEND_SMOOTH = 1u;
 
 enum NRIFluidBindingFlags : uint32_t
 {
@@ -88,7 +90,8 @@ struct NRIFluidBindingGpuData
 	float foamTrailParams[4] = {};
 	// x = contrast, y = edge width, z = cutout scale, w = cutout strength.
 	float foamStyleParams[4] = {};
-	// x = foam brightness; yzw reserved.
+	// x = foam brightness, y = blend mode (legacy/smooth), z = blend width,
+	// w reserved. Uses the existing row; binding stride is unchanged.
 	float foamPresentationParams[4] = {};
 };
 

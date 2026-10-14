@@ -225,6 +225,11 @@ void FluidEvaluateMacroFoamCarrier(
 	}
 }
 
+bool FluidUsesSmoothFoamBlend(FluidBindingData binding)
+{
+	return binding.foamPresentationParams.y == (float)NRI_FLUID_FOAM_BLEND_SMOOTH;
+}
+
 float FluidThresholdFoamBirth(
 	FluidBindingData binding,
 	float potential,
@@ -235,9 +240,19 @@ float FluidThresholdFoamBirth(
 	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
 	const float filterWidth = max(worldFootprint, 0.0) * domainScale * frequency *
 		max(anisotropy, 1.0);
-	const float softness = max(max(binding.foamBirthParams.z, 0.0),
+	float softness = max(max(binding.foamBirthParams.z, 0.0),
 		0.5 * saturate(filterWidth));
 	const float threshold = saturate(binding.foamBirthParams.y);
+	if (FluidUsesSmoothFoamBlend(binding))
+	{
+		// Smooth scum/crust fades at birth instead of only blurring an already
+		// thresholded stripe. Preserve full coverage at the peak potential.
+		softness = max(softness, clamp(binding.foamPresentationParams.z, 0.0, 0.5));
+		const float upper = min(1.0, threshold + softness + 1.0e-4);
+		const float lower = min(threshold - softness, upper - 1.0e-4);
+		return smoothstep(lower, upper, saturate(potential));
+	}
+	// Keep the legacy path exact for water and profiles which do not opt in.
 	return smoothstep(threshold - softness, threshold + softness + 1.0e-4,
 		saturate(potential));
 }
@@ -259,7 +274,9 @@ float FluidEvaluateFoamBreakup(
 	const float noise = 0.5 + 0.5 * FluidValueNoise(
 		domain * breakupScale + float2(17.19, -31.73),
 		binding.seed ^ 0x6c8e9cf5u);
-	const float transitionWidth = 0.12 + 0.35 * saturate(footprint);
+	float transitionWidth = 0.12 + 0.35 * saturate(footprint);
+	if (FluidUsesSmoothFoamBlend(binding))
+		transitionWidth = max(transitionWidth, clamp(binding.foamPresentationParams.z, 0.0, 0.5));
 	const float clump = smoothstep(
 		0.5 - transitionWidth, 0.5 + transitionWidth, noise);
 	return lerp(1.0, 0.25 + 0.75 * clump,
@@ -328,7 +345,10 @@ float FluidPresentFoam(
 	{
 		return rawFoam;
 	}
-	const float authoredContrast = max(binding.foamStyleParams.x, 0.0);
+	// A broad birth fade must not be sharpened back into a stripe by graphic
+	// presentation. Smooth mode retains the authored amount and cutouts.
+	const float authoredContrast = FluidUsesSmoothFoamBlend(binding) ?
+		1.0 : max(binding.foamStyleParams.x, 0.0);
 	const bool neutralCutouts = binding.foamStyleParams.w <= 0.0;
 	if (authoredContrast <= 1.0 && neutralCutouts)
 	{
@@ -364,8 +384,10 @@ float FluidPresentFoam(
 		const float cutoutNoise = 0.5 + 0.5 * FluidValueNoise(
 			domain * cutoutScale + float2(-43.17, 11.29),
 			binding.seed ^ 0x51ed270bu);
-		const float cutoutTransition = 0.10 +
+		float cutoutTransition = 0.10 +
 			0.35 * saturate(cutoutFootprint);
+		if (FluidUsesSmoothFoamBlend(binding))
+			cutoutTransition = max(cutoutTransition, clamp(binding.foamPresentationParams.z, 0.0, 0.5));
 		const float cutoutMask = smoothstep(
 			0.5 - cutoutTransition, 0.5 + cutoutTransition, cutoutNoise);
 		const float cutoutInfluence = saturate(binding.foamStyleParams.w) *
