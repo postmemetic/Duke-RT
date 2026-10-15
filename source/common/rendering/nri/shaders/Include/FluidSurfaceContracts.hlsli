@@ -11,6 +11,7 @@
 #define NRI_FLUID_BINDING_FLAG_DISABLE_VIRTUAL_HEIGHT (1u << 2u)
 #define NRI_FLUID_BINDING_FLAG_FLIP_SIDE (1u << 3u)
 #define NRI_FLUID_BINDING_FLAG_FOLLOW_PAN (1u << 4u)
+#define NRI_FLUID_BINDING_FLAG_CONVECTION (1u << 5u)
 
 #define NRI_FLUID_STYLE_FLOW (1u << 0u)
 #define NRI_FLUID_STYLE_FALL (1u << 1u)
@@ -54,8 +55,11 @@ struct FluidBindingData
 	float4 foamTrailParams;
 	float4 foamStyleParams;
 	// x = foam brightness, y = blend mode (legacy/smooth), z = blend width,
-	// w reserved. Mirrors the existing 304-byte CPU binding.
+	// w reserved.
 	float4 foamPresentationParams;
+	// World-unit cell size, cycles/gameplay second, turnover/tilt strength,
+	// reserved. Mirrors the appended row in the 320-byte CPU binding.
+	float4 convectionParams;
 };
 
 // Uploaded once per frame. Gameplay time, quality caps, and the runtime

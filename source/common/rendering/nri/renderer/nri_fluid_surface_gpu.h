@@ -20,6 +20,7 @@ enum NRIFluidBindingFlags : uint32_t
 	NRI_FLUID_BINDING_FLAG_DISABLE_VIRTUAL_HEIGHT = 1u << 2u,
 	NRI_FLUID_BINDING_FLAG_FLIP_SIDE = 1u << 3u,
 	NRI_FLUID_BINDING_FLAG_FOLLOW_PAN = 1u << 4u,
+	NRI_FLUID_BINDING_FLAG_CONVECTION = 1u << 5u,
 };
 
 enum NRIFluidStyleFlags : uint32_t
@@ -91,8 +92,11 @@ struct NRIFluidBindingGpuData
 	// x = contrast, y = edge width, z = cutout scale, w = cutout strength.
 	float foamStyleParams[4] = {};
 	// x = foam brightness, y = blend mode (legacy/smooth), z = blend width,
-	// w reserved. Uses the existing row; binding stride is unchanged.
+	// w reserved.
 	float foamPresentationParams[4] = {};
+	// x = cell size in world units, y = cycles per gameplay second,
+	// z = local turnover/tilt strength, w reserved.
+	float convectionParams[4] = {};
 };
 
 struct NRIFluidFrameGpuData
@@ -144,7 +148,7 @@ static_assert(offsetof(NRIFluidPanGpuData, currentPanRate) == 32u,
 static_assert(offsetof(NRIFluidPanGpuData, previousPanRate) == 40u,
 	"NRIFluidPanGpuData previous rate layout mismatch.");
 
-static_assert(sizeof(NRIFluidBindingGpuData) == 304u,
+static_assert(sizeof(NRIFluidBindingGpuData) == 320u,
 	"NRIFluidBindingGpuData must match FluidBindingData in HLSL.");
 static_assert(offsetof(NRIFluidBindingGpuData, domainOriginScale) == 16u,
 	"NRIFluidBindingGpuData header layout mismatch.");
@@ -162,5 +166,7 @@ static_assert(offsetof(NRIFluidBindingGpuData, foamStyleParams) == 272u,
 	"NRIFluidBindingGpuData foam-style layout mismatch.");
 static_assert(offsetof(NRIFluidBindingGpuData, foamPresentationParams) == 288u,
 	"NRIFluidBindingGpuData foam-presentation layout mismatch.");
+static_assert(offsetof(NRIFluidBindingGpuData, convectionParams) == 304u,
+	"NRIFluidBindingGpuData convection layout mismatch.");
 static_assert(sizeof(NRIFluidFrameGpuData) == 48u,
 	"NRIFluidFrameGpuData must match FluidFrameData in HLSL.");

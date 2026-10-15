@@ -46,6 +46,10 @@ namespace
 		{
 			result.flags |= NRI_FLUID_BINDING_FLAG_FOLLOW_PAN;
 		}
+		if (source.motionMode == FluidOverlayMotionMode::Convection)
+		{
+			result.flags |= NRI_FLUID_BINDING_FLAG_CONVECTION;
+		}
 		result.styleFlags = ResolveStyleFlags(source.style);
 		result.layerCount = std::clamp(source.octaves, 1u, NRI_FLUID_MAX_LAYERS);
 		result.seed = (uint32_t)source.seed;
@@ -128,6 +132,9 @@ namespace
 		result.foamPresentationParams[1] = source.foamBlend == FluidOverlayFoamBlend::Smooth ?
 			(float)NRI_FLUID_FOAM_BLEND_SMOOTH : (float)NRI_FLUID_FOAM_BLEND_LEGACY;
 		result.foamPresentationParams[2] = std::clamp(source.foamBlendWidth, 0.0f, 0.5f);
+		result.convectionParams[0] = std::clamp(source.cellScale, 8.0f, 4096.0f);
+		result.convectionParams[1] = std::clamp(source.rollSpeed, 0.0f, 2.0f);
+		result.convectionParams[2] = Saturate(source.rollStrength);
 		return result;
 	}
 }

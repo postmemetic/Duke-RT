@@ -174,6 +174,19 @@ namespace
 		return true;
 	}
 
+	static const char* MotionModeName(FluidOverlayMotionMode mode)
+	{
+		return mode == FluidOverlayMotionMode::Convection ? "convection" : "waves";
+	}
+
+	static bool ParseMotionMode(const char* value, FluidOverlayMotionMode& outMode)
+	{
+		if (!stricmp(value, "waves")) outMode = FluidOverlayMotionMode::Waves;
+		else if (!stricmp(value, "convection")) outMode = FluidOverlayMotionMode::Convection;
+		else return false;
+		return true;
+	}
+
 	static bool ParseSurfaceClass(const char* value, FluidOverlaySurfaceClass& outClass)
 	{
 		if (!stricmp(value, "any")) outClass = FluidOverlaySurfaceClass::Any;
@@ -353,6 +366,10 @@ namespace
 		if (mask & FluidOverlayParameter_TimeScale) destination.timeScale = source.timeScale;
 		if (mask & FluidOverlayParameter_Speed) destination.speed = source.speed;
 		if (mask & FluidOverlayParameter_FollowPan) destination.followPan = source.followPan;
+		if (mask & FluidOverlayParameter_MotionMode) destination.motionMode = source.motionMode;
+		if (mask & FluidOverlayParameter_CellScale) destination.cellScale = source.cellScale;
+		if (mask & FluidOverlayParameter_RollSpeed) destination.rollSpeed = source.rollSpeed;
+		if (mask & FluidOverlayParameter_RollStrength) destination.rollStrength = source.rollStrength;
 		if (mask & FluidOverlayParameter_Flow)
 		{
 			destination.flow[0] = source.flow[0];
@@ -421,6 +438,10 @@ namespace
 		value.flow[1] = finiteOr(value.flow[1], 0.0f);
 		// followPan is already a canonical bool; keep this independent opt-in
 		// across styles. Carrier support is decided by the renderer, not parsing.
+		if (value.motionMode != FluidOverlayMotionMode::Convection) value.motionMode = FluidOverlayMotionMode::Waves;
+		value.cellScale = std::clamp(finiteOr(value.cellScale, 128.0f), 8.0f, 4096.0f);
+		value.rollSpeed = std::clamp(finiteOr(value.rollSpeed, 0.08f), 0.0f, 2.0f);
+		value.rollStrength = std::clamp(finiteOr(value.rollStrength, 0.65f), 0.0f, 1.0f);
 		value.anisotropy = std::max(0.0f, finiteOr(value.anisotropy, 1.0f));
 		value.warp = std::clamp(finiteOr(value.warp, 0.0f), 0.0f, 4.0f);
 		value.choppiness = std::clamp(finiteOr(value.choppiness, 1.0f), 0.05f, 4.0f);
@@ -459,6 +480,7 @@ namespace
 		hash = HashValue(hash, (uint8_t)value.style);
 		hash = HashValue(hash, (uint8_t)value.followPan);
 		hash = HashValue(hash, (uint8_t)value.foamBlend);
+		hash = HashValue(hash, (uint8_t)value.motionMode);
 		for (float component : value.bodyColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.undersideColor) hash = HashValue(hash, CanonicalFloatBits(component));
 		for (float component : value.crestColor) hash = HashValue(hash, CanonicalFloatBits(component));
@@ -468,6 +490,7 @@ namespace
 			value.emission, value.roughness, value.undersideRoughness, value.opacity, value.textureMix,
 			value.scale, value.amplitude, value.frequency, value.lacunarity, value.gain,
 			value.timeScale, value.speed,
+			value.cellScale, value.rollSpeed, value.rollStrength,
 			value.flow[0], value.flow[1], value.anisotropy, value.warp, value.choppiness,
 			value.octaveRotation, value.choppyRelaxation, value.noiseScale, value.maxSlope,
 			value.crestGain, value.crustSoftness, value.crustDarkening,
@@ -487,6 +510,7 @@ namespace
 	{
 		if (a.style != b.style || a.followPan != b.followPan || a.seed != b.seed || a.octaves != b.octaves) return false;
 		if (a.foamBlend != b.foamBlend) return false;
+		if (a.motionMode != b.motionMode) return false;
 		const float* aVectors[] = { a.bodyColor, a.undersideColor, a.crestColor, a.emissionColor, a.foamColor };
 		const float* bVectors[] = { b.bodyColor, b.undersideColor, b.crestColor, b.emissionColor, b.foamColor };
 		for (size_t vectorIndex = 0; vectorIndex < std::size(aVectors); ++vectorIndex)
@@ -498,7 +522,8 @@ namespace
 		}
 		const float aScalars[] = {
 			a.emission, a.roughness, a.undersideRoughness, a.opacity, a.textureMix, a.scale, a.amplitude,
-			a.frequency, a.lacunarity, a.gain, a.timeScale, a.speed, a.flow[0], a.flow[1],
+			a.frequency, a.lacunarity, a.gain, a.timeScale, a.speed,
+			a.cellScale, a.rollSpeed, a.rollStrength, a.flow[0], a.flow[1],
 			a.anisotropy, a.warp, a.choppiness, a.octaveRotation, a.choppyRelaxation,
 			a.noiseScale, a.maxSlope, a.crestGain, a.crustSoftness, a.crustDarkening,
 			a.foamAmount, a.foamRoughness,
@@ -510,7 +535,8 @@ namespace
 		};
 		const float bScalars[] = {
 			b.emission, b.roughness, b.undersideRoughness, b.opacity, b.textureMix, b.scale, b.amplitude,
-			b.frequency, b.lacunarity, b.gain, b.timeScale, b.speed, b.flow[0], b.flow[1],
+			b.frequency, b.lacunarity, b.gain, b.timeScale, b.speed,
+			b.cellScale, b.rollSpeed, b.rollStrength, b.flow[0], b.flow[1],
 			b.anisotropy, b.warp, b.choppiness, b.octaveRotation, b.choppyRelaxation,
 			b.noiseScale, b.maxSlope, b.crestGain, b.crustSoftness, b.crustDarkening,
 			b.foamAmount, b.foamRoughness,
@@ -532,9 +558,10 @@ namespace
 		if (a.style != b.style) return (uint8_t)a.style < (uint8_t)b.style;
 		if (a.followPan != b.followPan) return a.followPan < b.followPan;
 		if (a.foamBlend != b.foamBlend) return (uint8_t)a.foamBlend < (uint8_t)b.foamBlend;
+		if (a.motionMode != b.motionMode) return (uint8_t)a.motionMode < (uint8_t)b.motionMode;
 		const auto getFloatBits = [](const FluidOverlayParameters& value)
 		{
-			std::array<uint32_t, 56> bits = {};
+			std::array<uint32_t, 59> bits = {};
 			size_t index = 0;
 			const float* vectors[] = { value.bodyColor, value.undersideColor, value.crestColor, value.emissionColor, value.foamColor };
 			for (const float* vector : vectors)
@@ -545,6 +572,7 @@ namespace
 				value.emission, value.roughness, value.undersideRoughness, value.opacity, value.textureMix,
 				value.scale, value.amplitude, value.frequency, value.lacunarity, value.gain,
 				value.timeScale, value.speed,
+				value.cellScale, value.rollSpeed, value.rollStrength,
 				value.flow[0], value.flow[1], value.anisotropy, value.warp, value.choppiness,
 				value.octaveRotation, value.choppyRelaxation, value.noiseScale, value.maxSlope,
 				value.crestGain, value.crustSoftness, value.crustDarkening,
@@ -736,6 +764,21 @@ namespace
 				}
 				return true;
 			}
+			if (sc.Compare("motionmode"))
+			{
+				sc.MustGetString();
+				FluidOverlayMotionMode mode;
+				if (!ParseMotionMode(sc.String, mode))
+				{
+					sc.ScriptMessage("Invalid motionmode value '%s'; expected waves or convection", sc.String);
+				}
+				else
+				{
+					parameters.motionMode = mode;
+					parameters.presentMask |= FluidOverlayParameter_MotionMode;
+				}
+				return true;
+			}
 			if (sc.Compare("foamblend"))
 			{
 				sc.MustGetString();
@@ -799,6 +842,9 @@ namespace
 				{ "gain", FluidOverlayParameter_Gain, &parameters.gain },
 				{ "timescale", FluidOverlayParameter_TimeScale, &parameters.timeScale },
 				{ "speed", FluidOverlayParameter_Speed, &parameters.speed },
+				{ "cellscale", FluidOverlayParameter_CellScale, &parameters.cellScale },
+				{ "rollspeed", FluidOverlayParameter_RollSpeed, &parameters.rollSpeed },
+				{ "rollstrength", FluidOverlayParameter_RollStrength, &parameters.rollStrength },
 				{ "anisotropy", FluidOverlayParameter_Anisotropy, &parameters.anisotropy },
 				{ "warp", FluidOverlayParameter_Warp, &parameters.warp },
 				{ "choppiness", FluidOverlayParameter_Choppiness, &parameters.choppiness },
@@ -1031,6 +1077,7 @@ namespace
 		if (mask & FluidOverlayParameter_Style) AppendLine(text, indent, FStringf("style %s", StyleName(parameters.style)));
 		if (mask & FluidOverlayParameter_FollowPan) AppendLine(text, indent, FStringf("followpan %s", parameters.followPan ? "on" : "off"));
 		if (mask & FluidOverlayParameter_FoamBlend) AppendLine(text, indent, FStringf("foamblend %s", FoamBlendName(parameters.foamBlend)));
+		if (mask & FluidOverlayParameter_MotionMode) AppendLine(text, indent, FStringf("motionmode %s", MotionModeName(parameters.motionMode)));
 		if (mask & FluidOverlayParameter_BodyColor) AppendVector(text, indent, "bodycolor", parameters.bodyColor, 3);
 		if (mask & FluidOverlayParameter_UndersideColor) AppendVector(text, indent, "undersidecolor", parameters.undersideColor, 3);
 		if (mask & FluidOverlayParameter_CrestColor) AppendVector(text, indent, "crestcolor", parameters.crestColor, 3);
@@ -1050,6 +1097,9 @@ namespace
 			{ FluidOverlayParameter_Gain, "gain", parameters.gain },
 			{ FluidOverlayParameter_TimeScale, "timescale", parameters.timeScale },
 			{ FluidOverlayParameter_Speed, "speed", parameters.speed },
+			{ FluidOverlayParameter_CellScale, "cellscale", parameters.cellScale },
+			{ FluidOverlayParameter_RollSpeed, "rollspeed", parameters.rollSpeed },
+			{ FluidOverlayParameter_RollStrength, "rollstrength", parameters.rollStrength },
 		};
 		for (const auto& field : fields)
 		{
@@ -1337,6 +1387,8 @@ namespace
 			const auto& p = profile.parameters;
 			Printf("FLUIDOVR resolved pan: id=%s followpan=%s\n",
 				profile.id.GetChars(), p.followPan ? "yes" : "no");
+			Printf("FLUIDOVR resolved motion: id=%s motionmode=%s cellscale=%.4f rollspeed=%.4f rollstrength=%.4f\n",
+				profile.id.GetChars(), MotionModeName(p.motionMode), p.cellScale, p.rollSpeed, p.rollStrength);
 			Printf("FLUIDOVR resolved field: id=%s scale=%.4f amplitude=%.4f frequency=%.4f lacunarity=%.4f gain=%.4f speed=%.4f timescale=%.4f anisotropy=%.4f warp=%.4f choppiness=%.4f octaverotation=%.4f choppyrelaxation=%.4f noisescale=%.4f maxslope=%.4f crestgain=%.4f normalstrength=%.4f virtualheight=%.4f seed=%d octaves=%u\n",
 				profile.id.GetChars(), p.scale, p.amplitude, p.frequency, p.lacunarity, p.gain,
 				p.speed, p.timeScale, p.anisotropy, p.warp, p.choppiness, p.octaveRotation,
@@ -1359,14 +1411,16 @@ namespace
 		for (uint32_t i = 0; i < (uint32_t)resolved.materialRules.Size(); ++i)
 		{
 			const auto& rule = resolved.materialRules[i];
-			Printf("FLUIDOVR resolved material: index=%u scope=%s id=%s valid=%s disable=%s profile=%s profile_index=%u binding=%u key=%llu order=%u source=%s:%d followpan=%s foamblend=%s foamblendwidth=%.4f\n",
+			Printf("FLUIDOVR resolved material: index=%u scope=%s id=%s valid=%s disable=%s profile=%s profile_index=%u binding=%u key=%llu order=%u source=%s:%d followpan=%s foamblend=%s foamblendwidth=%.4f motionmode=%s cellscale=%.4f rollspeed=%.4f rollstrength=%.4f\n",
 				i, rule.mapName.IsEmpty() ? "global" : rule.mapName.GetChars(), rule.id.GetChars(),
 				rule.valid ? "yes" : "no", rule.resolvedDisable ? "yes" : "no",
 				rule.hasProfile ? rule.profileId.GetChars() : "(none)", rule.profileIndex, rule.bindingIndex,
 				(unsigned long long)rule.bindingContentKey, rule.source.orderIndex,
 				rule.source.sourceName.GetChars(), rule.source.lineStart,
 				rule.effectiveParameters.followPan ? "yes" : "no",
-				FoamBlendName(rule.effectiveParameters.foamBlend), rule.effectiveParameters.foamBlendWidth);
+				FoamBlendName(rule.effectiveParameters.foamBlend), rule.effectiveParameters.foamBlendWidth,
+				MotionModeName(rule.effectiveParameters.motionMode), rule.effectiveParameters.cellScale,
+				rule.effectiveParameters.rollSpeed, rule.effectiveParameters.rollStrength);
 		}
 	}
 }

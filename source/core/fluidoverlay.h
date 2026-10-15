@@ -29,6 +29,12 @@ enum class FluidOverlayFoamBlend : uint8_t
 	Smooth = 1,
 };
 
+enum class FluidOverlayMotionMode : uint8_t
+{
+	Waves = 0,
+	Convection = 1,
+};
+
 enum FluidOverlayParameterBits : uint64_t
 {
 	FluidOverlayParameter_None = 0,
@@ -82,6 +88,10 @@ enum FluidOverlayParameterBits : uint64_t
 	FluidOverlayParameter_FollowPan = 1ull << 47,
 	FluidOverlayParameter_FoamBlend = 1ull << 48,
 	FluidOverlayParameter_FoamBlendWidth = 1ull << 49,
+	FluidOverlayParameter_MotionMode = 1ull << 50,
+	FluidOverlayParameter_CellScale = 1ull << 51,
+	FluidOverlayParameter_RollSpeed = 1ull << 52,
+	FluidOverlayParameter_RollStrength = 1ull << 53,
 };
 
 struct FluidOverlaySourceLocation
@@ -128,6 +138,12 @@ struct FluidOverlayParameters
 	// Opt in independently of the procedural style. Supported fluid carriers
 	// follow observed authored texture panning; omitted keeps world anchoring.
 	bool followPan = false;
+	// Motion is independent of optical style. Existing amplitude/virtualHeight
+	// still control relief; convection cell size is measured in world units.
+	FluidOverlayMotionMode motionMode = FluidOverlayMotionMode::Waves;
+	float cellScale = 128.0f;
+	float rollSpeed = 0.08f; // Cycles per gameplay second.
+	float rollStrength = 0.65f;
 	float anisotropy = 1.0f;
 	float warp = 0.0f;
 	float choppiness = 1.0f;

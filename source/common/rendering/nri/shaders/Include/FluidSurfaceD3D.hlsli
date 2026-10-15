@@ -69,6 +69,8 @@ uint FluidHashUint(uint value)
 	return value;
 }
 
+#include "FluidConvection.hlsli"
+
 float FluidHashCellSigned(int2 cell, uint seed)
 {
 	uint value = seed ^ ((uint)cell.x * 0x8da6b343u) ^
@@ -238,8 +240,9 @@ float FluidThresholdFoamBirth(
 	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
 	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
 	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
-	const float filterWidth = max(worldFootprint, 0.0) * domainScale * frequency *
-		max(anisotropy, 1.0);
+	const float filterWidth = FluidUsesConvection(binding) ?
+		FluidConvectionFootprint(binding, worldFootprint) :
+		max(worldFootprint, 0.0) * domainScale * frequency * max(anisotropy, 1.0);
 	float softness = max(max(binding.foamBirthParams.z, 0.0),
 		0.5 * saturate(filterWidth));
 	const float threshold = saturate(binding.foamBirthParams.y);
@@ -358,8 +361,9 @@ float FluidPresentFoam(
 	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
 	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
 	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
-	const float carrierFootprint = max(worldFootprint, 0.0) * domainScale *
-		frequency * max(anisotropy, 1.0);
+	const float carrierFootprint = FluidUsesConvection(binding) ?
+		FluidConvectionFootprint(binding, worldFootprint) :
+		max(worldFootprint, 0.0) * domainScale * frequency * max(anisotropy, 1.0);
 	const float authoredEdgeWidth = clamp(binding.foamStyleParams.y, 0.001, 0.5);
 	const float edgeWidth = min(0.5, max(
 		authoredEdgeWidth / max(authoredContrast, 1.0),
@@ -444,6 +448,23 @@ void FluidEvaluateField(
 	foamAngularVelocity = 0.0;
 	foamBreakingPotential = 0.0;
 	foamCrestBreakingPotential = 0.0;
+	[branch]
+	if (FluidUsesConvection(binding))
+	{
+		const FluidConvectionEvaluation cell = FluidEvaluateConvection(
+			binding, domain, gameplaySeconds, worldFootprint);
+		heightRatio = cell.heightRatio;
+		gradientRatio = cell.gradientRatio;
+		crest = saturate(0.5 + 0.5 * heightRatio);
+		if (foamMode != 0u)
+		{
+			foamCrestBreakingPotential = FluidConvectionFoldStrength(binding, globalAmplitudeScale);
+			foamBreakingPotential = cell.foldPotential * foamCrestBreakingPotential;
+		}
+		// Cell turnover has no single phase/velocity from which an analytic
+		// traveling-wave trail age can be inferred. Keep phase trails disabled.
+		return;
+	}
 	const uint layerCount = min(
 		min(max(binding.layerCount, 1u), max(layerCap, 1u)),
 		NRI_FLUID_FIELD_LAYER_CAP);
@@ -556,8 +577,16 @@ void FluidEvaluateVirtualField(
 	float2 domain,
 	float gameplaySeconds,
 	float phaseSeconds,
+	float worldFootprint,
 	out float heightRatio)
 {
+	[branch]
+	if (FluidUsesConvection(binding))
+	{
+		heightRatio = FluidEvaluateConvection(
+			binding, domain, gameplaySeconds, worldFootprint).heightRatio;
+		return;
+	}
 	const float frequency = max(abs(binding.spectrum.y), 1.0e-4);
 	const float anisotropy = clamp(binding.motion.z, 0.2, 5.0);
 	const float warp = clamp(binding.motion.w, 0.0, 4.0);
@@ -626,6 +655,7 @@ bool TryEvaluateFluidSurface(
 	}
 	const uint foamMode = min(frame.foamMode, 2u);
 	const uint foamStyleMode = min(frame.foamStyleMode, 1u);
+	const bool convection = FluidUsesConvection(binding);
 	const FluidPanEvaluation pan = FluidResolvePan(hit, material, binding, frame);
 
 	float3 carrierNormal = FluidSafeNormalize(
@@ -660,7 +690,10 @@ bool TryEvaluateFluidSurface(
 	const float3 localPosition = carrierPosition - binding.domainOriginScale.xyz;
 	const float2 carrierBaseDomain = float2(
 		dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
-	float2 domain = FluidApplyDomainMotion(binding, carrierBaseDomain, phaseSeconds) + pan.currentOffset;
+	// Convection rolls in place. Only authoritative material pan translates it;
+	// its internal turnover always uses gameplay time, never the frozen phase.
+	float2 domain = (convection ? carrierBaseDomain :
+		FluidApplyDomainMotion(binding, carrierBaseDomain, phaseSeconds)) + pan.currentOffset;
 
 	const uint layerCap = clamp(frame.primaryLayerCap, 1u, NRI_FLUID_MAX_LAYERS);
 	float virtualOffset = 0.0;
@@ -683,7 +716,7 @@ bool TryEvaluateFluidSurface(
 			virtualHalfHeight / max(abs(signedViewCosine), minimumCosine));
 		float virtualHeightRatio = 0.0;
 		FluidEvaluateVirtualField(
-			binding, domain, gameplaySeconds, phaseSeconds, virtualHeightRatio);
+			binding, domain, gameplaySeconds, phaseSeconds, worldFootprint, virtualHeightRatio);
 		const float targetHeight = virtualHeightRatio * virtualHalfHeight;
 		const float targetOffset = clamp(
 			targetHeight / signedViewCosine, -maximumTravel, maximumTravel);
@@ -717,7 +750,7 @@ bool TryEvaluateFluidSurface(
 	// simulated foam lifetime or a replacement for exact domain displacement.
 	const float2 panPhaseGradient = max(abs(binding.spectrum.y), 1.0e-4) *
 		FluidInitialFieldDirection(binding) * clamp(binding.motion.z, 0.2, 5.0);
-	if ((pan.flags & NRI_FLUID_PAN_CURRENT_ACTIVE) != 0u)
+	if (!convection && (pan.flags & NRI_FLUID_PAN_CURRENT_ACTIVE) != 0u)
 		foamAngularVelocity = dot(pan.currentDomainRate, panPhaseGradient);
 	const float amplitude = max(binding.spectrum.x, 0.0) * frame.globalAmplitudeScale;
 	const float height = heightRatio * amplitude;
@@ -764,21 +797,32 @@ bool TryEvaluateFluidSurface(
 		const float previousGameplaySeconds =
 			frame.previousGameplaySeconds * timeScale;
 		const float previousPhaseSeconds = pan.previousPhaseSeconds * timeScale;
-		const float2 previousSampleDomain = FluidApplyDomainMotion(
-			binding, sampleBaseDomain, previousPhaseSeconds) + pan.previousOffset;
-		const float2 previousCarrierPatternDomain = FluidApplyDomainMotion(
-			binding, carrierBaseDomain, previousPhaseSeconds) + pan.previousOffset;
+		const float2 previousSampleDomain = (convection ? sampleBaseDomain :
+			FluidApplyDomainMotion(binding, sampleBaseDomain, previousPhaseSeconds)) + pan.previousOffset;
+		const float2 previousCarrierPatternDomain = (convection ? carrierBaseDomain :
+			FluidApplyDomainMotion(binding, carrierBaseDomain, previousPhaseSeconds)) + pan.previousOffset;
 		float previousPhase = 0.0;
 		float previousAngularVelocity = 0.0;
 		float previousBreakingPotential = 0.0;
 		float previousCrestBreakingPotential = 0.0;
-		FluidEvaluateMacroFoamCarrier(
-			binding, previousSampleDomain, previousGameplaySeconds,
-			previousPhaseSeconds,
-			frame.globalAmplitudeScale, previousPhase, previousAngularVelocity,
-			previousBreakingPotential, previousCrestBreakingPotential);
+		[branch]
+		if (convection)
+		{
+			const FluidConvectionEvaluation previousCell = FluidEvaluateConvection(
+				binding, previousSampleDomain, previousGameplaySeconds, worldFootprint);
+			previousCrestBreakingPotential = FluidConvectionFoldStrength(binding, frame.globalAmplitudeScale);
+			previousBreakingPotential = previousCell.foldPotential * previousCrestBreakingPotential;
+		}
+		else
+		{
+			FluidEvaluateMacroFoamCarrier(
+				binding, previousSampleDomain, previousGameplaySeconds,
+				previousPhaseSeconds,
+				frame.globalAmplitudeScale, previousPhase, previousAngularVelocity,
+				previousBreakingPotential, previousCrestBreakingPotential);
+		}
 		previousAngularVelocity *= timeScale;
-		if ((pan.flags & NRI_FLUID_PAN_PREVIOUS_ACTIVE) != 0u)
+		if (!convection && (pan.flags & NRI_FLUID_PAN_PREVIOUS_ACTIVE) != 0u)
 			previousAngularVelocity = dot(pan.previousDomainRate, panPhaseGradient);
 		float previousBirth = 0.0;
 		float previousTrail = 0.0;
@@ -838,7 +882,7 @@ bool TryEvaluateFluidSurface(
 
 	evaluation.active = 1u;
 	evaluation.bindingIndex = material.fluidBindingIndex;
-	evaluation.activeLayerCount = min(
+	evaluation.activeLayerCount = convection ? 1u : min(
 		min(max(binding.layerCount, 1u), layerCap), NRI_FLUID_FIELD_LAYER_CAP);
 	evaluation.underside = underside ? 1u : 0u;
 	// This is visible primary-hit ownership only. The retained material remains
@@ -852,8 +896,23 @@ bool TryEvaluateFluidSurface(
 	evaluation.shadingNormal = shadingNormal;
 	evaluation.roughness = lerp(fluidRoughness, foamRoughness, foam);
 	evaluation.baseColor = max(baseColor, 0.0);
-	const float carrierReactive = FluidAnimationReactive(frame, binding, timeScale);
-	evaluation.reactive = max(max(carrierReactive, FluidPanReactive(pan, binding)), abs(foam - previousFoam));
+	float carrierReactive = 0.0;
+	float panReactive = 0.0;
+	[branch]
+	if (convection)
+	{
+		const float deltaTime = abs((frame.currentGameplaySeconds - frame.previousGameplaySeconds) * timeScale);
+		carrierReactive = saturate(deltaTime * 6.28318530718 * 1.28 *
+			clamp(binding.convectionParams.y, 0.0, 2.0) * saturate(binding.convectionParams.z));
+		panReactive = saturate(length(pan.currentOffset - pan.previousOffset) *
+			FluidConvectionDomainToCell(binding) * 4.0);
+	}
+	else
+	{
+		carrierReactive = FluidAnimationReactive(frame, binding, timeScale);
+		panReactive = FluidPanReactive(pan, binding);
+	}
+	evaluation.reactive = max(max(carrierReactive, panReactive), abs(foam - previousFoam));
 	// The normally lit scum layer covers hot lava instead of glowing through it.
 	// Zero coverage preserves the original procedural emission exactly.
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *
