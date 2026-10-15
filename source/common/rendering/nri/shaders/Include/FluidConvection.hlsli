@@ -64,7 +64,6 @@ FluidConvectionEvaluation FluidEvaluateConvection(
 	const float inverseRadius = 0.8; // Support radius is exactly 1.25 cells.
 	float weightSum = 0.0;
 	float weightedHeight = 0.0;
-	float weightedFold = 0.0;
 	float2 weightGradientSum = 0.0;
 	float2 weightedGradient = 0.0;
 
@@ -84,8 +83,9 @@ FluidConvectionEvaluation FluidEvaluateConvection(
 			const int2 cell = baseCell + int2(cellX, cellY);
 			const uint cellHash = FluidHashUint(binding.seed ^
 				((uint)cell.x * 0x8da6b343u) ^ ((uint)cell.y * 0xd8163841u));
-			const float2 jitter = (float2(cellHash & 0xffffu, cellHash >> 16u) *
-				(2.0 / 65535.0) - 1.0) * 0.22;
+			const float2 cellRandom = float2(cellHash & 0xffffu, cellHash >> 16u) *
+				(2.0 / 65535.0) - 1.0;
+			const float2 jitter = cellRandom * 0.22;
 			const float2 r = (p - ((float2)cell + 0.5 + jitter)) * inverseRadius;
 			const float radiusSq = dot(r, r);
 			[branch]
@@ -97,22 +97,28 @@ FluidConvectionEvaluation FluidEvaluateConvection(
 			const float rate = 0.72 + 0.56 *
 				(float)((motionHash >> 16u) & 0xffu) * (1.0 / 255.0);
 			const float bias = (float)(motionHash >> 24u) * (2.0 / 255.0) - 1.0;
-			const float spinSign = (cellHash & 1u) != 0u ? 1.0 : -1.0;
 			const float phase = 6.28318530718 *
 				(phaseOffset + gameplaySeconds * rollSpeed * rate);
 			float sine, cosine;
 			sincos(phase, sine, cosine);
-			const float2 rollDirection = float2(cosine, spinSign * sine);
 
-			// Broad rounded lobes with independent heights, slow buoyancy and a
-			// rotating local tilt. There is no shared traveling phase or drifting
-			// noise coordinate. At zero strength the irregular base relief remains;
-			// zero speed instead freezes each cell at its independent initial phase.
-			// Each local height is bounded by one, as is their normalized mixture.
-			const float localHeight = 0.25 * (1.0 - 2.0 * radiusSq) + 0.25 * bias +
-				rollStrength * (0.30 * sine + 0.20 * dot(r, rollDirection));
-			const float2 localGradient = inverseRadius *
-				(-r + 0.20 * rollStrength * rollDirection);
+			// Pulse the entire dome, not a vertical offset or a rotating tilt on a
+			// fixed-curvature bowl. A cell genuinely changes from convex to concave
+			// as it rises and sinks; its seeded elliptical width also slowly breathes.
+			// Centers never orbit. Zero strength retains static irregular relief,
+			// while zero speed freezes each cell at its independent initial phase.
+			const float pulse = lerp(bias, sine, rollStrength);
+			const float breathingWidth = 1.0 + 0.25 * rollStrength * cosine;
+			const float2 ellipse = 0.18 * cellRandom;
+			const float2 shapedRadius = float2(
+				(1.0 + ellipse.x) * r.x + ellipse.y * r.y,
+				ellipse.y * r.x + (1.0 - ellipse.x) * r.y);
+			const float radialShape = breathingWidth * dot(r, shapedRadius);
+			// The ellipse eigenvalues lie in [0.7454,1.2546], so radialShape
+			// is in [0,1.5683] on this support. |pulse*(1-radialShape)| <= 1.
+			const float localHeight = pulse * (1.0 - radialShape);
+			const float2 localGradient =
+				-2.0 * inverseRadius * pulse * breathingWidth * shapedRadius;
 			const float support = 1.0 - radiusSq;
 			const float supportSq = support * support;
 			const float weight = supportSq * supportSq;
@@ -122,13 +128,6 @@ FluidConvectionEvaluation FluidEvaluateConvection(
 			weightedHeight += weight * localHeight;
 			weightGradientSum += weightGradient;
 			weightedGradient += weight * localGradient + weightGradient * localHeight;
-
-			// Broad cell shoulders/folds, centered on the same tilted quadratic
-			// lobe. Blend potentials, never nearest-cell distances or thin outlines.
-			const float2 foldedRadius = r - 0.20 * rollStrength * rollDirection;
-			const float fold = smoothstep(0.025, 0.32, dot(foldedRadius, foldedRadius)) *
-				(0.9 + 0.1 * rollStrength * sine);
-			weightedFold += weight * fold;
 		}
 	}
 
@@ -138,12 +137,19 @@ FluidConvectionEvaluation FluidEvaluateConvection(
 	// Exact quotient derivative, including the support and local lobe terms.
 	const float2 latticeGradient =
 		(weightedGradient - height * weightGradientSum) / weightSum;
+	// A bounded monotone remap restores useful dome/trough relief after blending
+	// neighbors. Carry its exact derivative through to the shading normals.
+	const float shapedHeight = height * (1.5 - 0.5 * height * height);
+	const float shapeDerivative = 1.5 * (1.0 - height * height);
 	const float footprint = FluidConvectionFootprint(binding, worldFootprint);
 	const float detailWeight = rcp(1.0 + footprint * footprint);
-	result.heightRatio = height * detailWeight;
+	result.heightRatio = shapedHeight * detailWeight;
 	result.gradientRatio = (latticeU * latticeGradient.x + latticeV * latticeGradient.y) *
-		(domainToCell * detailWeight);
-	result.foldPotential = saturate(weightedFold / weightSum) * detailWeight;
+		(domainToCell * shapeDerivative * detailWeight);
+	// Filled cooling troughs follow the actual height, not an independent radial
+	// ring or moving shoulder center. Fade the mask with the same footprint so
+	// unresolved flat relief does not leave a gray, uniformly rough crust behind.
+	result.foldPotential = saturate(0.5 - 0.5 * shapedHeight) * detailWeight;
 	if (!isfinite(result.heightRatio) || !all(isfinite(result.gradientRatio)) ||
 		!isfinite(result.foldPotential))
 		result = (FluidConvectionEvaluation)0;
