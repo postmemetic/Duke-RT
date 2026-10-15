@@ -112,8 +112,8 @@ FLUIDOVR
 		style lava
 		followpan true
 		motionmode convection
-		cellscale 128
-		rollspeed 0.07
+		cellscale 80
+		rollspeed 0.10
 		rollstrength 0.75
 		bodycolor 0.22 0.012 0.002
 		undersidecolor 0.055 0.006 0.001
@@ -127,7 +127,7 @@ FLUIDOVR
 		crustsoftness 0.8
 		crustdarkening 0.28
 		scale 32
-		amplitude 9
+		amplitude 18
 		frequency 1.35
 		lacunarity 1.19
 		gain 0.58
@@ -160,7 +160,7 @@ FLUIDOVR
 		foamcutoutstrength 1
 		foambrightness 1
 		normalstrength 1.05
-		virtualheight 8
+		virtualheight 12
 		seed 29
 		octaves 4
 	}
