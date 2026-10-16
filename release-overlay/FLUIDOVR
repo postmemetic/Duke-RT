@@ -235,11 +235,4 @@ FLUIDOVR
 		surfaceclass flat
 		profile "lava"
 	}
-
-	material "duke.falling-sheet.wall"
-	{
-		tilefamily 889
-		surfaceclass wall
-		profile "water.fall"
-	}
 }
