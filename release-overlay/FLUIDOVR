@@ -115,15 +115,16 @@ FLUIDOVR
 		cellscale 80
 		rollspeed 0.10
 		rollstrength 0.75
-		bodycolor 0.22 0.012 0.002
+		// Signed-height palette: cooled valley, molten shoulder, yellow-white crest.
+		bodycolor 0.045 0.0015 0.0002
 		undersidecolor 0.055 0.006 0.001
-		crestcolor 1 0.23 0.028
+		crestcolor 1 0.95 0.80
 		emissioncolor 1 0.38 0.025
 		emission 1.05
 		roughness 0.10
 		undersideroughness 0.18
 		opacity 1
-		texturemix 0.03
+		texturemix 0
 		crustsoftness 0.8
 		crustdarkening 0.28
 		scale 32
@@ -142,7 +143,7 @@ FLUIDOVR
 		noisescale 0.4
 		maxslope 0.9
 		crestgain 0.55
-		foamcolor 0.14 0.006 0.003
+		foamcolor 0.012 0.0004 0.0001
 		foamamount 0.94
 		foamroughness 0.86
 		foamthreshold 0.86

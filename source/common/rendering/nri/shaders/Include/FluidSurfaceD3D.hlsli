@@ -70,6 +70,7 @@ uint FluidHashUint(uint value)
 }
 
 #include "FluidConvection.hlsli"
+#include "FluidLavaAppearance.hlsli"
 
 float FluidHashCellSigned(int2 cell, uint seed)
 {
@@ -656,6 +657,8 @@ bool TryEvaluateFluidSurface(
 	const uint foamMode = min(frame.foamMode, 2u);
 	const uint foamStyleMode = min(frame.foamStyleMode, 1u);
 	const bool convection = FluidUsesConvection(binding);
+	const bool convectionLava = convection &&
+		(binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u;
 	const FluidPanEvaluation pan = FluidResolvePan(hit, material, binding, frame);
 
 	float3 carrierNormal = FluidSafeNormalize(
@@ -778,6 +781,15 @@ bool TryEvaluateFluidSurface(
 		sampledBaseColor, terminalBody, saturate(binding.crestColorOpacity.a));
 	baseColor = lerp(baseColor, binding.crestColorOpacity.rgb,
 		saturate(crest * max(binding.virtualParams.z, 0.0)));
+	FluidLavaAppearance lavaAppearance = (FluidLavaAppearance)0;
+	[branch]
+	if (convectionLava)
+	{
+		lavaAppearance = FluidEvaluateLavaAppearance(binding, signal, sideColor.rgb);
+		const float3 thermalBody = lerp(
+			lavaAppearance.bodyColor, sampledBaseColor, saturate(sideColor.a));
+		baseColor = lerp(sampledBaseColor, thermalBody, saturate(binding.crestColorOpacity.a));
+	}
 
 	float foamBirth = 0.0;
 	float foamTrail = 0.0;
@@ -852,7 +864,7 @@ bool TryEvaluateFluidSurface(
 	// Ordinary fluids use uniform authored self-glow; lava alone modulates it
 	// with the existing crust mask. Zero emission remains an exact opt-out.
 	float hotCrack = 1.0;
-	if ((binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u)
+	if ((binding.styleFlags & NRI_FLUID_STYLE_CRUST_EMISSION) != 0u && !convectionLava)
 	{
 		const float softness = max(binding.crust.y, 1.0e-3);
 		hotCrack = 1.0 - smoothstep(
@@ -917,6 +929,11 @@ bool TryEvaluateFluidSurface(
 	// Zero coverage preserves the original procedural emission exactly.
 	evaluation.emission = max(binding.emissionColorIntensity.rgb, 0.0) *
 		max(binding.emissionColorIntensity.w, 0.0) * hotCrack * (1.0 - saturate(foam));
+	[branch]
+	if (convectionLava)
+	{
+		evaluation.emission = lavaAppearance.emission * (1.0 - saturate(foam));
+	}
 	evaluation.height = height;
 	evaluation.crest = crest;
 	evaluation.breaking = foamBreakingPotential;
