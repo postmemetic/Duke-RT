@@ -46,6 +46,13 @@ namespace
 		{
 			result.flags |= NRI_FLUID_BINDING_FLAG_FOLLOW_PAN;
 		}
+		// A shader-local branch, not a new style or layout: only ordinary wave
+		// water may evolve in its panning frame. Still/sludge/lava stay exact.
+		if (source.followPan && source.style == FluidOverlayStyle::Waves &&
+			source.motionMode == FluidOverlayMotionMode::Waves)
+		{
+			result.flags |= NRI_FLUID_BINDING_FLAG_WATER_EVOLUTION;
+		}
 		if (source.motionMode == FluidOverlayMotionMode::Convection)
 		{
 			result.flags |= NRI_FLUID_BINDING_FLAG_CONVECTION;

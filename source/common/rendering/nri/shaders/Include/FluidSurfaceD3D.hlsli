@@ -95,6 +95,8 @@ float FluidValueNoise(float2 p, uint seed)
 		interpolation.y);
 }
 
+#include "FluidWaterEvolution.hlsli"
+
 float2 FluidRotate2(float2 value, float cosine, float sine)
 {
 	return float2(
@@ -174,6 +176,7 @@ void FluidEvaluateMacroFoamCarrier(
 	float2 domain,
 	float gameplaySeconds,
 	float phaseSeconds,
+	float waterEvolutionClock,
 	float globalAmplitudeScale,
 	out float phase,
 	out float angularVelocity,
@@ -197,6 +200,7 @@ void FluidEvaluateMacroFoamCarrier(
 	const float noise = FluidValueNoise(noiseCoordinate, binding.seed);
 	phase = layerDomain.x * frequency + warp * noise + phaseSeconds * binding.motion.x +
 		6.28318530718 * FluidHash01(binding.seed ^ 0xa511e9b3u);
+	phase = FluidEvolveWaterPhase(phase, waterEvolutionClock, binding.seed, 0u);
 	const float2 wave = FluidChoppyWaveDerivative(phase, choppiness);
 	const float secondDerivative = FluidChoppyWaveSecondDerivative(phase, choppiness);
 	const float2 phaseGradient = frequency * direction * anisotropy;
@@ -264,6 +268,7 @@ float FluidThresholdFoamBirth(
 float FluidEvaluateFoamBreakup(
 	FluidBindingData binding,
 	float2 domain,
+	float waterEvolutionClock,
 	float worldFootprint)
 {
 	const float breakupScale = max(binding.foamTrailParams.x, 1.0e-4);
@@ -275,9 +280,9 @@ float FluidEvaluateFoamBreakup(
 	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
 	const float footprint = max(worldFootprint, 0.0) * domainScale * breakupScale;
 	const float detailWeight = rcp(1.0 + footprint * footprint);
-	const float noise = 0.5 + 0.5 * FluidValueNoise(
+	const float noise = 0.5 + 0.5 * FluidWaterEvolvingNoise(
 		domain * breakupScale + float2(17.19, -31.73),
-		binding.seed ^ 0x6c8e9cf5u);
+		binding.seed ^ 0x6c8e9cf5u, waterEvolutionClock);
 	float transitionWidth = 0.12 + 0.35 * saturate(footprint);
 	if (FluidUsesSmoothFoamBlend(binding))
 		transitionWidth = max(transitionWidth, clamp(binding.foamPresentationParams.z, 0.0, 0.5));
@@ -301,6 +306,7 @@ void FluidShapeFoam(
 	float breakingPotential,
 	float crestBreakingPotential,
 	float2 domain,
+	float waterEvolutionClock,
 	float worldFootprint,
 	out float birth,
 	out float trail,
@@ -317,7 +323,7 @@ void FluidShapeFoam(
 		return;
 	}
 	const float breakup = FluidEvaluateFoamBreakup(
-		binding, domain, worldFootprint);
+		binding, domain, waterEvolutionClock, worldFootprint);
 	birth = saturate(amount * FluidThresholdFoamBirth(
 		binding, breakingPotential, worldFootprint) * breakup);
 	const float lifetime = max(binding.foamTrailParams.z, 0.0);
@@ -340,6 +346,7 @@ float FluidPresentFoam(
 	FluidBindingData binding,
 	uint styleMode,
 	float2 domain,
+	float waterEvolutionClock,
 	float worldFootprint,
 	float maximumFoam,
 	float rawFoam)
@@ -386,9 +393,9 @@ float FluidPresentFoam(
 			cutoutScale;
 		const float cutoutDetail = rcp(
 			1.0 + cutoutFootprint * cutoutFootprint);
-		const float cutoutNoise = 0.5 + 0.5 * FluidValueNoise(
+		const float cutoutNoise = 0.5 + 0.5 * FluidWaterEvolvingNoise(
 			domain * cutoutScale + float2(-43.17, 11.29),
-			binding.seed ^ 0x51ed270bu);
+			binding.seed ^ 0x51ed270bu, waterEvolutionClock);
 		float cutoutTransition = 0.10 +
 			0.35 * saturate(cutoutFootprint);
 		if (FluidUsesSmoothFoamBlend(binding))
@@ -430,6 +437,7 @@ void FluidEvaluateField(
 	float2 domain,
 	float gameplaySeconds,
 	float phaseSeconds,
+	float waterEvolutionClock,
 	float worldFootprint,
 	float globalAmplitudeScale,
 	uint foamMode,
@@ -504,8 +512,9 @@ void FluidEvaluateField(
 			float2(layerTime * 0.13, -layerTime * 0.09);
 		const float noise = FluidValueNoise(noiseCoordinate, layerSeed);
 		const float phaseTime = phaseSeconds * binding.motion.x * (1.0 + 0.17 * (float)layer);
-		const float phase = layerDomain.x * frequency + warp * noise + phaseTime +
+		float phase = layerDomain.x * frequency + warp * noise + phaseTime +
 			6.28318530718 * FluidHash01(layerSeed ^ 0xa511e9b3u);
+		phase = FluidEvolveWaterPhase(phase, waterEvolutionClock, layerSeed, layer);
 		const float2 wave = FluidChoppyWaveDerivative(phase, layerChoppiness);
 		[branch]
 		if (layer == 0u && foamMode != 0u)
@@ -578,6 +587,7 @@ void FluidEvaluateVirtualField(
 	float2 domain,
 	float gameplaySeconds,
 	float phaseSeconds,
+	float waterEvolutionClock,
 	float worldFootprint,
 	out float heightRatio)
 {
@@ -602,8 +612,9 @@ void FluidEvaluateVirtualField(
 	const float2 noiseCoordinate = layerDomain * (frequency * noiseScale) +
 		float2(layerTime * 0.13, -layerTime * 0.09);
 	const float noise = FluidValueNoise(noiseCoordinate, binding.seed);
-	const float phase = layerDomain.x * frequency + warp * noise + phaseSeconds * binding.motion.x +
+	float phase = layerDomain.x * frequency + warp * noise + phaseSeconds * binding.motion.x +
 		6.28318530718 * FluidHash01(binding.seed ^ 0xa511e9b3u);
+	phase = FluidEvolveWaterPhase(phase, waterEvolutionClock, binding.seed, 0u);
 	heightRatio = FluidChoppyWaveDerivative(phase, layerChoppiness).x;
 	if (!isfinite(heightRatio))
 	{
@@ -687,9 +698,12 @@ bool TryEvaluateFluidSurface(
 	const float domainScale = max(abs(binding.domainOriginScale.w), 1.0e-5);
 	const float timeScale = frame.globalTimeScale * binding.motion.y;
 	const float gameplaySeconds = frame.currentGameplaySeconds * timeScale;
-	// Freeze intrinsic linear travel when authored pan takes over, but keep
-	// slow noise evolution. The first-moving phase anchor avoids a phase reset.
+	// Freeze intrinsic linear travel when authored pan takes over. Wave water
+	// adds bounded local evolution; other styles retain their slow noise warp.
+	// The first-moving phase anchor avoids a phase reset.
 	const float phaseSeconds = pan.currentPhaseSeconds * timeScale;
+	const float waterEvolutionClock = FluidWaterEvolutionClock(binding,
+		pan.flags, NRI_FLUID_PAN_CURRENT_ACTIVE, gameplaySeconds, phaseSeconds);
 	const float3 localPosition = carrierPosition - binding.domainOriginScale.xyz;
 	const float2 carrierBaseDomain = float2(
 		dot(localPosition, axisU), dot(localPosition, axisV)) * domainScale;
@@ -719,7 +733,8 @@ bool TryEvaluateFluidSurface(
 			virtualHalfHeight / max(abs(signedViewCosine), minimumCosine));
 		float virtualHeightRatio = 0.0;
 		FluidEvaluateVirtualField(
-			binding, domain, gameplaySeconds, phaseSeconds, worldFootprint, virtualHeightRatio);
+			binding, domain, gameplaySeconds, phaseSeconds, waterEvolutionClock,
+			worldFootprint, virtualHeightRatio);
 		const float targetHeight = virtualHeightRatio * virtualHalfHeight;
 		const float targetOffset = clamp(
 			targetHeight / signedViewCosine, -maximumTravel, maximumTravel);
@@ -740,8 +755,8 @@ bool TryEvaluateFluidSurface(
 	float foamBreakingPotential = 0.0;
 	float foamCrestBreakingPotential = 0.0;
 	FluidEvaluateField(
-		binding, sampleDomain, gameplaySeconds, phaseSeconds, worldFootprint,
-		frame.globalAmplitudeScale, foamMode, layerCap,
+		binding, sampleDomain, gameplaySeconds, phaseSeconds, waterEvolutionClock,
+		worldFootprint, frame.globalAmplitudeScale, foamMode, layerCap,
 		heightRatio, gradientRatio, crest, foamPhase, foamAngularVelocity,
 		foamBreakingPotential, foamCrestBreakingPotential);
 	// The carrier helper differentiates with respect to its scaled time input;
@@ -804,11 +819,13 @@ bool TryEvaluateFluidSurface(
 		FluidShapeFoam(
 			binding, foamMode, underside, foamPhase, foamAngularVelocity,
 			foamBreakingPotential, foamCrestBreakingPotential, sampleDomain,
-			worldFootprint, foamBirth, foamTrail, foam);
+			waterEvolutionClock, worldFootprint, foamBirth, foamTrail, foam);
 
 		const float previousGameplaySeconds =
 			frame.previousGameplaySeconds * timeScale;
 		const float previousPhaseSeconds = pan.previousPhaseSeconds * timeScale;
+		const float previousWaterEvolutionClock = FluidWaterEvolutionClock(binding,
+			pan.flags, NRI_FLUID_PAN_PREVIOUS_ACTIVE, previousGameplaySeconds, previousPhaseSeconds);
 		const float2 previousSampleDomain = (convection ? sampleBaseDomain :
 			FluidApplyDomainMotion(binding, sampleBaseDomain, previousPhaseSeconds)) + pan.previousOffset;
 		const float2 previousCarrierPatternDomain = (convection ? carrierBaseDomain :
@@ -829,7 +846,7 @@ bool TryEvaluateFluidSurface(
 		{
 			FluidEvaluateMacroFoamCarrier(
 				binding, previousSampleDomain, previousGameplaySeconds,
-				previousPhaseSeconds,
+				previousPhaseSeconds, previousWaterEvolutionClock,
 				frame.globalAmplitudeScale, previousPhase, previousAngularVelocity,
 				previousBreakingPotential, previousCrestBreakingPotential);
 		}
@@ -841,8 +858,8 @@ bool TryEvaluateFluidSurface(
 		FluidShapeFoam(
 			binding, foamMode, underside, previousPhase,
 			previousAngularVelocity, previousBreakingPotential,
-			previousCrestBreakingPotential, previousSampleDomain, worldFootprint,
-			previousBirth, previousTrail, previousFoam);
+			previousCrestBreakingPotential, previousSampleDomain, previousWaterEvolutionClock,
+			worldFootprint, previousBirth, previousTrail, previousFoam);
 
 		// Presentation is deliberately downstream of birth/trail construction:
 		// diagnostics retain the raw physical signals while material response and
@@ -853,10 +870,10 @@ bool TryEvaluateFluidSurface(
 			const float maximumFoam = saturate(
 				binding.foamColorAmount.w) * foamSideStrength;
 			foam = FluidPresentFoam(
-				binding, foamStyleMode, domain, worldFootprint,
+				binding, foamStyleMode, domain, waterEvolutionClock, worldFootprint,
 				maximumFoam, foam);
 			previousFoam = FluidPresentFoam(
-				binding, foamStyleMode, previousCarrierPatternDomain,
+				binding, foamStyleMode, previousCarrierPatternDomain, previousWaterEvolutionClock,
 				worldFootprint, maximumFoam, previousFoam);
 		}
 	}
