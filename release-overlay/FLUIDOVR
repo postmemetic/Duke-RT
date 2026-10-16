@@ -112,15 +112,15 @@ FLUIDOVR
 		style lava
 		followpan true
 		motionmode convection
-		cellscale 80
-		rollspeed 0.10
+		cellscale 64
+		rollspeed 0.13
 		rollstrength 0.75
 		// Signed-height palette: cooled valley, molten shoulder, yellow-white crest.
 		bodycolor 0.045 0.0015 0.0002
 		undersidecolor 0.055 0.006 0.001
 		crestcolor 1 0.95 0.80
 		emissioncolor 1 0.38 0.025
-		emission 1.05
+		emission 0.65
 		roughness 0.10
 		undersideroughness 0.18
 		opacity 1

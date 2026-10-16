@@ -19,22 +19,22 @@ FluidLavaAppearance FluidEvaluateLavaAppearance(
 	const float3 molten = max(binding.emissionColorIntensity.rgb, 0.0);
 	const float3 hottest = max(binding.crestColorOpacity.rgb, 0.0);
 	const float crestGain = max(binding.virtualParams.z, 0.0);
-	// Compress thermal extremes without changing geometric relief. Cooling now
-	// concentrates near the deepest troughs instead of dimming most of a cell.
-	// q(h)=.15h+.85h^5 preserves -1/0/1 and q'(h)>=.15, so the orange middle
-	// retains a smooth gradient rather than becoming a constant-color shelf.
+	// Compress thermal extremes without changing geometric relief. Let some
+	// cooling enter the lower shoulders while retaining compact dark troughs.
+	// q(h)=.35h+.65h^5 preserves -1/0/1 and q'(h)>=.35, keeping visible color
+	// variation through the middle rather than a near-uniform orange plateau.
 	const float heightSq = height * height;
-	const float coolingHeight = height * (0.15 + 0.85 * heightSq * heightSq);
+	const float coolingHeight = height * (0.35 + 0.65 * heightSq * heightSq);
 	// Softness still controls the cool-to-orange shoulder.
 	const float moltenWeight = pow(smoothstep(-1.0, 0.2, coolingHeight),
 		rcp(clamp(binding.crust.y, 0.05, 4.0)));
 	float3 heatColor = lerp(cooled, molten, moltenWeight);
-	// Keep broad orange/yellow shoulders, but admit blue only near the highest
-	// tips: warm-white is a small hot cap, not the color of most raised terrain.
+	// Yellow begins lower on the shoulders, narrowing the orange band. Admit
+	// blue only near the highest tips to preserve the accepted small white caps.
 	// Each channel and its boundary derivatives remain continuous.
 	const float3 crestWeight = float3(
 		smoothstep(0.0, 0.9, height),
-		smoothstep(0.0, 0.65, height),
+		smoothstep(-0.20, 0.55, height),
 		smoothstep(0.78, 0.98, height));
 	heatColor = lerp(heatColor, hottest, crestWeight);
 	const float crustShade = lerp(
