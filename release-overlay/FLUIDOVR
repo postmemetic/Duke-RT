@@ -146,7 +146,8 @@ FLUIDOVR
 		foamcolor 0.012 0.0004 0.0001
 		foamamount 0.94
 		foamroughness 0.86
-		foamthreshold 0.86
+		// Reserve cooled crust for the deepest trough tips.
+		foamthreshold 0.98
 		foamsoftness 0.035
 		foambreakupscale 2.3
 		foambreakupstrength 1
@@ -155,7 +156,7 @@ FLUIDOVR
 		foamundersidestrength 0
 		foamcontrast 1.7
 		foamblend smooth
-		foamblendwidth 0.5
+		foamblendwidth 0.10
 		foamedgewidth 0.10
 		foamcutoutscale 2.6
 		foamcutoutstrength 1

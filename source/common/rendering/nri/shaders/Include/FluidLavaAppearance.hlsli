@@ -19,20 +19,23 @@ FluidLavaAppearance FluidEvaluateLavaAppearance(
 	const float3 molten = max(binding.emissionColorIntensity.rgb, 0.0);
 	const float3 hottest = max(binding.crestColorOpacity.rgb, 0.0);
 	const float crestGain = max(binding.virtualParams.z, 0.0);
-	// Keep the zero-height transition molten, including when distant unresolved
-	// relief filters toward zero. Overlap the cold and hot transitions across
-	// zero so a neutral-height corridor does not become a constant-color floor.
-	// Softness controls the cool-to-orange shoulder.
-	const float moltenWeight = pow(smoothstep(-1.0, 0.2, height),
+	// Compress thermal extremes without changing geometric relief. Cooling now
+	// concentrates near the deepest troughs instead of dimming most of a cell.
+	// q(h)=.15h+.85h^5 preserves -1/0/1 and q'(h)>=.15, so the orange middle
+	// retains a smooth gradient rather than becoming a constant-color shelf.
+	const float heightSq = height * height;
+	const float coolingHeight = height * (0.15 + 0.85 * heightSq * heightSq);
+	// Softness still controls the cool-to-orange shoulder.
+	const float moltenWeight = pow(smoothstep(-1.0, 0.2, coolingHeight),
 		rcp(clamp(binding.crust.y, 0.05, 4.0)));
 	float3 heatColor = lerp(cooled, molten, moltenWeight);
-	// Green warms before blue: the authored orange reaches yellow before the
-	// warm-white crest. The hottest endpoint is reached at .9, not only at the
-	// rare exact maximum. Both segments and their boundary derivatives are smooth.
+	// Keep broad orange/yellow shoulders, but admit blue only near the highest
+	// tips: warm-white is a small hot cap, not the color of most raised terrain.
+	// Each channel and its boundary derivatives remain continuous.
 	const float3 crestWeight = float3(
 		smoothstep(0.0, 0.9, height),
 		smoothstep(0.0, 0.65, height),
-		smoothstep(0.35, 0.9, height));
+		smoothstep(0.78, 0.98, height));
 	heatColor = lerp(heatColor, hottest, crestWeight);
 	const float crustShade = lerp(
 		saturate(1.0 - binding.crust.w), 1.0, moltenWeight);
