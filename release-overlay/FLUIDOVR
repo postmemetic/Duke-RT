@@ -9,6 +9,7 @@ FLUIDOVR
 	profile "water.waves"
 	{
 		style waves
+		followpan true
 		bodycolor 0.025 0.11 0.16
 		undersidecolor 0.018 0.065 0.09
 		crestcolor 0.18 0.28 0.32
