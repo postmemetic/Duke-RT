@@ -12,43 +12,43 @@ FLUIDOVR
 		followpan true
 		bodycolor 0.025 0.11 0.16
 		undersidecolor 0.018 0.065 0.09
-		crestcolor 0.18 0.28 0.32
+		crestcolor 0.8 0.9 0.95
 		emissioncolor 0 0 0
 		emission 0
-		roughness 0.1
+		roughness 0.05
 		undersideroughness 0.16
 		opacity 0.94
 		scale 64
 		amplitude 8
 		frequency 2
 		lacunarity 1.9
-		gain 0.28
-		timescale 4
+		gain 0.58
+		timescale 5
 		speed 0.5
 		flow 1 0
 		anisotropy 1
 		warp 1.05
-		choppiness 3.6
-		octaverotation 37
-		choppyrelaxation 0.2
-		noisescale 0.65
+		choppiness 2.6
+		octaverotation 200
+		choppyrelaxation 5.2
+		noisescale 18
 		maxslope 1.25
-		crestgain 0.32
-		foamcolor 0.82 0.9 0.95
-		foamamount 0.72
-		foamroughness 0.88
-		foamthreshold 0.62
-		foamsoftness 0.12
+		crestgain 0.1
+		foamcolor 0.9 1 0.9
+		foamamount 0.7
+		foamroughness 5.88
+		foamthreshold 0.92
+		foamsoftness 1.5
 		foambreakupscale 2.4
-		foambreakupstrength 0.55
+		foambreakupstrength 1.55
 		foamlifetime 1.2
-		foamtrailgain 0.65
+		foamtrailgain 0.5
 		foamundersidestrength 0
-		foamcontrast 3
-		foamedgewidth 0.055
-		foamcutoutscale 2.5
-		foamcutoutstrength 0.55
-		foambrightness 1.35
+		foamcontrast 1.1
+	    foamedgewidth 0.04
+	    foamcutoutscale 5
+	    foamcutoutstrength 0.7
+	    foambrightness 0.8
 		normalstrength 1.1
 		virtualheight 4
 		seed 13
@@ -64,7 +64,7 @@ FLUIDOVR
 		crestcolor 0.09 0.20 0.055
 		// Subtle visible green self-glow; reflection/roughness stay independent.
 		emissioncolor 0.04 0.30 0.012
-		emission 0.04
+		emission 0.025
 		roughness 0.24
 		undersideroughness 0.26
 		opacity 0.98
@@ -173,28 +173,28 @@ FLUIDOVR
 		style fall
 		bodycolor 0.025 0.11 0.16
 		undersidecolor 0.018 0.065 0.09
-		crestcolor 0.18 0.28 0.32
+		crestcolor 0.8 0.9 0.95
 		emissioncolor 0 0 0
 		emission 0
-		roughness 0.08
-		undersideroughness 0.16
-		opacity 0.94
+		roughness 0.9
+		undersideroughness 0.9
+		opacity 0.65
 		scale 48
-		amplitude 3
+		amplitude 6
 		frequency 2
 		lacunarity 2
-		gain 0.26
+		gain 1.26
 		timescale 1
-		speed 1.25
-		flow 0 -1
-		anisotropy 2.4
-		warp 0.65
+		speed 10.25
+		flow 0 1
+		anisotropy 1
+		warp 10.65
 		choppiness 3.2
-		octaverotation 12
+		octaverotation 1
 		choppyrelaxation 0.15
-		noisescale 0.7
-		maxslope 1.4
-		crestgain 0.28
+		noisescale 5.7
+		maxslope 2.4
+		crestgain 0.01
 		foamcolor 0.82 0.9 0.95
 		foamamount 0.38
 		foamroughness 0.92
@@ -211,9 +211,9 @@ FLUIDOVR
 		foamcutoutstrength 0.45
 		foambrightness 1.35
 		normalstrength 1
-		virtualheight 2
+		virtualheight 8
 		seed 19
-		octaves 4
+		octaves 2
 	}
 
 	material "duke.water.flat"
