@@ -1050,17 +1050,20 @@ float4 SampleMaterialColorLevel(MaterialData material, uint textureIndex, float2
 
 	const float sampleLod = (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0u ?
 		0.0 : max(lod, 0.0);
+	// Neighboring rays can hit different materials. Bounds clamping does not
+	// make their descriptor indices uniform across the wave.
+	const uint safeTextureIndex = min(textureIndex, MAX_SCENE_TEXTURES - 1u);
 	float4 color = 0.0;
 	if (indexed || (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0)
 	{
 		// Indexed texels are palette indices, so both texel and mip selection
 		// remain discrete before the palette lookup.
 		const float pointLod = indexed ? round(sampleLod) : sampleLod;
-		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gPointWrap, uv, pointLod);
+		color = gSceneTextures[NonUniformResourceIndex(safeTextureIndex)].SampleLevel(gPointWrap, uv, pointLod);
 	}
 	else
 	{
-		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gLinearWrap, uv, sampleLod);
+		color = gSceneTextures[NonUniformResourceIndex(safeTextureIndex)].SampleLevel(gLinearWrap, uv, sampleLod);
 	}
 
 	if (indexed && applyPaletteLookup)

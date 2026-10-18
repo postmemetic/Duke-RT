@@ -268,9 +268,10 @@ bool SmokeMaterialIsTransparent(MaterialData material, float2 uv)
 	}
 	const uint textureIndex = min(material.textureIndex, NRI_SMOKE_SCENE_TEXTURE_COUNT - 1u);
 	const bool pointSampled = (material.flags & (MATERIAL_FLAG_INDEXED | MATERIAL_FLAG_POINT_SAMPLED)) != 0u;
+	// Visibility-ray candidates can select a different material in each lane.
 	const float4 rawSample = pointSampled
-		? gSmokeSceneTextures[textureIndex].SampleLevel(gSmokePointWrap, uv, 0.0)
-		: gSmokeSceneTextures[textureIndex].SampleLevel(gSmokeLinearWrap, uv, 0.0);
+		? gSmokeSceneTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(gSmokePointWrap, uv, 0.0)
+		: gSmokeSceneTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(gSmokeLinearWrap, uv, 0.0);
 	if ((material.flags & MATERIAL_FLAG_INDEXED) != 0u)
 	{
 		if ((material.flags & MATERIAL_FLAG_ALPHA_CLIP) == 0u)
@@ -663,9 +664,10 @@ float4 SmokeSampleMaterialColor(MaterialData material, uint textureIndex, float2
 	if (textureIndex == 0xffffffffu)
 		return 0.0;
 	const uint safeTextureIndex = min(textureIndex, NRI_SMOKE_SCENE_TEXTURE_COUNT - 1u);
+	// Emissive/material samples are selected independently by each ray.
 	float4 color = (indexed || (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0u)
-		? gSmokeSceneTextures[safeTextureIndex].SampleLevel(gSmokePointWrap, uv, 0.0)
-		: gSmokeSceneTextures[safeTextureIndex].SampleLevel(gSmokeLinearWrap, uv, 0.0);
+		? gSmokeSceneTextures[NonUniformResourceIndex(safeTextureIndex)].SampleLevel(gSmokePointWrap, uv, 0.0)
+		: gSmokeSceneTextures[NonUniformResourceIndex(safeTextureIndex)].SampleLevel(gSmokeLinearWrap, uv, 0.0);
 	if (indexed && applyPalette)
 	{
 		const float paletteValue = saturate(color.r) * 255.0;
