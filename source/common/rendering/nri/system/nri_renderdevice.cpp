@@ -1393,25 +1393,25 @@ namespace
 		Printf(TEXTCOLOR_RED "NRI D3D12 DRED setup failed: DRED settings interfaces are unavailable.\n");
 	}
 
-	static void ConfigureD3D12DebugLayer()
+	static bool ConfigureD3D12DebugLayer()
 	{
 		if (!nri_apivalidation)
 		{
-			return;
+			return false;
 		}
 
 		const auto getDebugInterface = GetD3D12GetDebugInterfaceFn();
 		if (getDebugInterface == nullptr)
 		{
 			Printf(TEXTCOLOR_RED "NRI D3D12 API validation requested, but D3D12GetDebugInterface is unavailable.\n");
-			return;
+			return false;
 		}
 
 		ID3D12Debug* debug = nullptr;
 		if (FAILED(getDebugInterface(IID_PPV_ARGS(&debug))) || debug == nullptr)
 		{
 			Printf(TEXTCOLOR_RED "NRI D3D12 API validation requested, but ID3D12Debug is unavailable.\n");
-			return;
+			return false;
 		}
 
 		debug->EnableDebugLayer();
@@ -1426,6 +1426,7 @@ namespace
 
 		debug->Release();
 		Printf("NRI D3D12 debug layer enabled for API validation.\n");
+		return true;
 	}
 
 	static void ConfigureD3D12InfoQueue(const nri::CoreInterface& core, nri::Device* device)
@@ -9386,7 +9387,7 @@ bool NRIRenderDevice::CreateDevice()
 	mLoggedD3D12FailureDred = false;
 	const nri::GraphicsAPI selectedApi = GetSelectedAPI();
 	const char* startupApi = V_GetStartupNriAPI();
-	const bool enableGraphicsApiValidation = nri_apivalidation && selectedApi == nri::GraphicsAPI::D3D12;
+	bool enableGraphicsApiValidation = false;
 	if (nri_apivalidation && selectedApi == nri::GraphicsAPI::VK)
 	{
 		Printf("NRI Vulkan graphics API validation is temporarily disabled; continuing with NRI validation only.\n");
@@ -9395,7 +9396,9 @@ bool NRIRenderDevice::CreateDevice()
 #ifdef _WIN32
 	if (selectedApi == nri::GraphicsAPI::D3D12)
 	{
-		ConfigureD3D12DebugLayer();
+		enableGraphicsApiValidation = ConfigureD3D12DebugLayer();
+		if (nri_apivalidation && !enableGraphicsApiValidation)
+			Printf("NRI D3D12 API validation: requested=1 enabled=0 reason=debug-layer-unavailable; continuing without API validation.\n");
 		ConfigureD3D12Dred();
 	}
 #endif
@@ -9481,7 +9484,8 @@ bool NRIRenderDevice::CreateDevice()
 #ifdef _WIN32
 	if (selectedApi == nri::GraphicsAPI::D3D12)
 	{
-		ConfigureD3D12InfoQueue(mCore, mDevice);
+		if (enableGraphicsApiValidation)
+			ConfigureD3D12InfoQueue(mCore, mDevice);
 		const nri::Result wrapperResult = mGetInterfaceFn(*mDevice, NRI_INTERFACE(nri::WrapperD3D12Interface), &mWrapperD3D12);
 		if (wrapperResult != nri::Result::SUCCESS)
 		{
