@@ -4,58 +4,17 @@
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_scene_surface_types.h"
 
-#include <limits>
-
-NRIFilterCandidateCertificate ClassifyReflectionOnlyFilterCandidateSpan(
-	const nri_scene::GeometryData& geometry,
-	uint32_t primitiveOffset,
-	uint32_t primitiveCount)
-{
-	NRIFilterCandidateCertificate result = {};
-	result.primitiveCount = primitiveCount;
-	if (primitiveCount == 0)
-	{
-		result.outcome = NRIFilterCandidateCertificateOutcome::Empty;
-		return result;
-	}
-
-	const uint64_t primitiveEnd = (uint64_t)primitiveOffset + primitiveCount;
-	if (primitiveEnd > geometry.primitives.size())
-	{
-		result.outcome = NRIFilterCandidateCertificateOutcome::OutOfBounds;
-		return result;
-	}
-
-	for (uint64_t primitiveIndex = primitiveOffset; primitiveIndex < primitiveEnd; ++primitiveIndex)
-	{
-		if ((geometry.primitives[primitiveIndex].flags & nri_scene::PrimitiveFlag_ReflectionOnly) == 0u)
-		{
-			result.outcome = NRIFilterCandidateCertificateOutcome::MixedPolicy;
-			return result;
-		}
-	}
-
-	result.outcome = NRIFilterCandidateCertificateOutcome::Certified;
-	return result;
-}
-
 namespace
 {
 	uint32_t ClassifyPrimitivePolicy(
 		const nri_scene::PrimitiveData& primitive,
-		const std::vector<nri_scene::MaterialData>& materials)
+		const nri_scene::MaterialData& material)
 	{
 		uint32_t policy = NRIFilterCandidatePolicy_None;
 		if ((primitive.flags & nri_scene::PrimitiveFlag_ReflectionOnly) != 0u)
 		{
 			policy |= NRIFilterCandidatePolicy_ReflectionOnly;
 		}
-		if (primitive.materialIndex >= materials.size())
-		{
-			return policy;
-		}
-
-		const nri_scene::MaterialData& material = materials[primitive.materialIndex];
 		if ((material.flags & nri_scene::MaterialFlag_OneWay) != 0u)
 		{
 			policy |= NRIFilterCandidatePolicy_OneWay;
@@ -75,6 +34,35 @@ namespace
 	}
 }
 
+bool GetFilterCandidatePolicyForSpan(
+	const nri_scene::GeometryData& geometry,
+	const std::vector<nri_scene::MaterialData>& materials,
+	uint32_t primitiveOffset,
+	uint32_t primitiveCount,
+	uint32_t enabledPolicyMask,
+	uint32_t& outPolicyMask)
+{
+	outPolicyMask = NRIFilterCandidatePolicy_None;
+	const uint64_t primitiveEnd = (uint64_t)primitiveOffset + primitiveCount;
+	if (primitiveEnd > geometry.primitives.size())
+	{
+		return false;
+	}
+
+	uint32_t policyMask = NRIFilterCandidatePolicy_None;
+	for (uint64_t primitiveIndex = primitiveOffset; primitiveIndex < primitiveEnd; ++primitiveIndex)
+	{
+		const nri_scene::PrimitiveData& primitive = geometry.primitives[primitiveIndex];
+		if (primitive.materialIndex >= materials.size())
+		{
+			return false;
+		}
+		policyMask |= ClassifyPrimitivePolicy(primitive, materials[primitive.materialIndex]) & enabledPolicyMask;
+	}
+	outPolicyMask = policyMask;
+	return true;
+}
+
 bool BuildFilterCandidateRuns(
 	const nri_scene::GeometryData& geometry,
 	const std::vector<nri_scene::MaterialData>& materials,
@@ -87,7 +75,7 @@ bool BuildFilterCandidateRuns(
 	std::vector<NRIFilterCandidateRun>& outRuns)
 {
 	outRuns.clear();
-	if (primitiveCount == 0u || indexCount != primitiveCount * 3u || maxRuns == 0u)
+	if (primitiveCount == 0u || (uint64_t)indexCount != (uint64_t)primitiveCount * 3u || maxRuns == 0u)
 	{
 		return false;
 	}
@@ -100,8 +88,14 @@ bool BuildFilterCandidateRuns(
 	for (uint32_t localPrimitive = 0u; localPrimitive < primitiveCount; ++localPrimitive)
 	{
 		const uint32_t absolutePrimitive = primitiveOffset + localPrimitive;
+		const nri_scene::PrimitiveData& primitive = geometry.primitives[absolutePrimitive];
+		if (primitive.materialIndex >= materials.size())
+		{
+			outRuns.clear();
+			return false;
+		}
 		const uint32_t policy =
-			ClassifyPrimitivePolicy(geometry.primitives[absolutePrimitive], materials) & enabledPolicyMask;
+			ClassifyPrimitivePolicy(primitive, materials[primitive.materialIndex]) & enabledPolicyMask;
 		const bool startsNewTraversalClass = outRuns.empty() ||
 			((outRuns.back().policyMask == NRIFilterCandidatePolicy_None) !=
 				(policy == NRIFilterCandidatePolicy_None));

@@ -1737,7 +1737,7 @@ CUSTOM_CVAR(Float, nri_ptsectoremissionmaterialmax, 1.0f, CVAR_ARCHIVE | CVAR_GL
 
 CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
-// Allows exact per-domain BLAS certificates to move reflection-only rejection
+// Allows exact BLAS policy classification to move candidate rejection
 // into the existing inline ray query. Session-only and independently
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
@@ -1745,7 +1745,10 @@ CVAR(Bool, nri_ptfilterquery, true, 0)
 // Enabled by default with session-only rollback; optional smoke consumers
 // can withhold bits when they cannot certify a workload.
 CVAR(Bool, nri_ptoccurrenceworkloadmasks, true, 0)
-CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
+// Reflection-only and alpha rejection stay inside the same query so transparent
+// cards cannot repeatedly restart at their hit boundary or skip backing walls.
+// Session-only: 0x1 restores reflection-only filtering for comparison.
+CVAR(Int, nri_ptfilterpolicymask, 0x9, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
 CVAR(Bool, nri_ptfiltercompare, false, 0)
