@@ -8,6 +8,7 @@
 #include "DirectionalLightSampling.hlsli"
 #include "SmokePhase.hlsli"
 #include "SmokeLightParameters.hlsli"
+#include "RayQueryContinuation.hlsli"
 
 #define NRI_SMOKE_RUNTIME_LIGHT_TILE_SIZE 64u
 #define NRI_SMOKE_MAX_SELECTED_LIGHTS 32u
@@ -341,7 +342,7 @@ bool SmokePointLightVisibleFilteredBiasedWithBlocker(
 		[loop]
 		for (uint skip = 0u; skip < NRI_SMOKE_FILTER_SKIP_LIMIT; ++skip)
 		{
-			const float tMin = accumulatedDistance > 0.0 ? accumulatedDistance + 1e-6 : 0.001;
+			const float tMin = accumulatedDistance > 0.0 ? NextFilteredRayTMin(accumulatedDistance) : 0.001;
 			if (tMin >= remainingDistance)
 			{
 				stats.misses++;
