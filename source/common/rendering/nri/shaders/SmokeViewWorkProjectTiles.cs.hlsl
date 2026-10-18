@@ -1,4 +1,5 @@
 #include "Include/SmokeViewWorkResources.hlsli"
+#include "Include/SmokeProjection.hlsli"
 
 #ifndef NRI_SHADER_DIAGNOSTICS
 #define NRI_SHADER_DIAGNOSTICS 0
@@ -37,13 +38,12 @@ void SmokeViewProjectSphere(float3 center, float radius, uint2 tile,
 	float2 maximumUv = 1.0;
 	if (!cameraInside && !crossesNear)
 	{
-		const float nearZ = max(viewZ - radius, 1e-4);
-		const float minNdcX = (viewX - radius) / (nearZ * max(gViewConstants.TanHalfFovX, 1e-4));
-		const float maxNdcX = (viewX + radius) / (nearZ * max(gViewConstants.TanHalfFovX, 1e-4));
-		const float minNdcY = (viewY - radius) / (nearZ * max(gViewConstants.TanHalfFovY, 1e-4));
-		const float maxNdcY = (viewY + radius) / (nearZ * max(gViewConstants.TanHalfFovY, 1e-4));
-		minimumUv = float2(minNdcX * 0.5 + 0.5, 0.5 - maxNdcY * 0.5);
-		maximumUv = float2(maxNdcX * 0.5 + 0.5, 0.5 - minNdcY * 0.5);
+		const SmokeProjectedAxisBounds xBounds = SmokeProjectSphereAxis(
+			viewX, radius, viewZ, gViewConstants.TanHalfFovX);
+		const SmokeProjectedAxisBounds yBounds = SmokeProjectSphereAxis(
+			viewY, radius, viewZ, gViewConstants.TanHalfFovY);
+		minimumUv = float2(xBounds.Minimum * 0.5 + 0.5, 0.5 - yBounds.Maximum * 0.5);
+		maximumUv = float2(xBounds.Maximum * 0.5 + 0.5, 0.5 - yBounds.Minimum * 0.5);
 		if (maximumUv.x < 0.0 || minimumUv.x > 1.0 || maximumUv.y < 0.0 || minimumUv.y > 1.0)
 		{
 #if NRI_SHADER_DIAGNOSTICS

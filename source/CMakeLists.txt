@@ -2127,6 +2127,7 @@ if (HAVE_NRI)
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeGridRebuild.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkClear.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
+			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeProjection.hlsli"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkExpandColumns.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkCountColumns.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkPrefixColumns.cs.hlsl"
@@ -2423,6 +2424,7 @@ if (HAVE_NRI)
 			DEPENDS
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeProjection.hlsli"
 				${NRI_SHARED_SHADER_FILES}
 			VERBATIM)
 		add_custom_target(raze_nri_diagnostic_shaders DEPENDS
