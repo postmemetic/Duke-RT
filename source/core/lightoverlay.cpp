@@ -1238,6 +1238,7 @@ namespace
 		{
 			sc.MustGetString();
 			ParsedLightOverlaySectorColorRule rule;
+			bool validControls = true;
 			rule.mapName = mapName;
 			rule.id = sc.String;
 			rule.source = MakeSourceLocation(sc.GetMessageLine());
@@ -1248,6 +1249,17 @@ namespace
 				if (sc.Compare("palette")) { sc.MustGetNumber(); rule.palette = sc.Number; }
 				else if (sc.Compare("sector")) { sc.MustGetNumber(); rule.sector = sc.Number; }
 				else if (sc.Compare("color")) { rule.hasColor = true; MustParseVector3(rule.color); }
+				else if (sc.Compare("strength") || sc.Compare("gain"))
+				{
+					const bool strengthField = sc.Compare("strength");
+					// This scanner reports errors without throwing. Keep consuming the
+					// block, but never publish a malformed numeric control as zero.
+					const bool parsed = sc.GetFloat() && sc.String[0] != '\0';
+					if (!parsed) sc.ScriptError("sectorcolor expects numeric strength or gain");
+					validControls = parsed && validControls;
+					(strengthField ? rule.hasStrength : rule.hasGain) = true;
+					(strengthField ? rule.strength : rule.gain) = (float)sc.Float;
+				}
 				else if (sc.Compare("enabled") || sc.Compare("neutralize"))
 				{
 					const bool enabledField = sc.Compare("enabled");
@@ -1264,17 +1276,37 @@ namespace
 				}
 				else sc.ScriptError("Unknown sectorcolor field '%s'", sc.String);
 			}
+			if (!validControls) return;
 			if (mapName.IsEmpty())
 			{
 				if (rule.palette <= 0 || rule.palette > 255 || rule.sector >= 0 || (rule.enabled && !rule.hasColor))
+				{
 					sc.ScriptError("Global sectorcolor requires palette 1..255 and color; sector belongs inside a map");
+					return;
+				}
 			}
 			else if (rule.sector < 0 || rule.palette >= 0)
+			{
 				sc.ScriptError("Map sectorcolor requires sector; palette profiles belong at global scope");
+				return;
+			}
 			if (rule.hasColor && (!std::isfinite(rule.color[0]) || !std::isfinite(rule.color[1]) || !std::isfinite(rule.color[2]) ||
 				rule.color[0] < 0 || rule.color[1] < 0 || rule.color[2] < 0 ||
 				rule.color[0] + rule.color[1] + rule.color[2] <= 0))
+			{
 				sc.ScriptError("sectorcolor requires finite nonnegative RGB with positive luminance");
+				return;
+			}
+			if (!std::isfinite(rule.strength) || rule.strength < 0 || rule.strength > 1)
+			{
+				sc.ScriptError("sectorcolor strength requires a finite value in [0,1]");
+				return;
+			}
+			if (!std::isfinite(rule.gain) || rule.gain < 0)
+			{
+				sc.ScriptError("sectorcolor gain requires a finite nonnegative value");
+				return;
+			}
 			FinalizeSourceLocation(rule.source);
 			builder.AddSectorColorRule(rule);
 		}
@@ -2285,6 +2317,8 @@ namespace
 		AppendShadowStateField(text, indent + 1, "neutralize", rule.neutralize);
 		if (rule.paletteSource != 0) AppendLine(text, indent + 1, rule.paletteSource == 1 ? "source floor" : "source ceiling");
 		if (rule.hasColor) AppendVector3Field(text, indent + 1, "color", rule.color);
+		if (rule.hasStrength) AppendLine(text, indent + 1, FStringf("strength %s", FormatLightOverlayFloat(rule.strength).GetChars()));
+		if (rule.hasGain) AppendLine(text, indent + 1, FStringf("gain %s", FormatLightOverlayFloat(rule.gain).GetChars()));
 		AppendLine(text, indent, "}");
 	}
 
@@ -3082,7 +3116,8 @@ namespace
 	static void CopyMapLightRule(const ParsedLightOverlayMapLightRule& source, ResolvedLightOverlayMapLightRule& destination)
 	{
 
-		destination.colorResponse = source.colorResponse;		destination.mapName = source.mapName;
+		destination.colorResponse = source.colorResponse;
+		destination.mapName = source.mapName;
 		destination.id = source.id;
 		destination.source = source.source;
 		destination.lightType = source.lightType;
@@ -3109,7 +3144,8 @@ namespace
 	static void CopyEmissiveOverrideRule(const ParsedLightOverlayEmissiveOverrideRule& source, ResolvedLightOverlayEmissiveOverrideRule& destination)
 	{
 
-		destination.colorResponse = source.colorResponse;		destination.mapName = source.mapName;
+		destination.colorResponse = source.colorResponse;
+		destination.mapName = source.mapName;
 		destination.id = source.id;
 		destination.source = source.source;
 		destination.hasSectorFilter = source.hasSectorFilter;
@@ -3172,7 +3208,8 @@ namespace
 	static void CopySurfaceLightRule(const ParsedLightOverlaySurfaceLightRule& source, ResolvedLightOverlaySurfaceLightRule& destination)
 	{
 
-		destination.colorResponse = source.colorResponse;		destination.mapName = source.mapName;
+		destination.colorResponse = source.colorResponse;
+		destination.mapName = source.mapName;
 		destination.id = source.id;
 		destination.source = source.source;
 		destination.hasPosition = source.hasPosition;

@@ -268,12 +268,12 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 			candidate.gpu.sourceFlags = surface.sourceFlags;
 			candidate.gpu.textureId = surface.textureId;
 			candidate.gpu.primitiveArea = primitiveArea;
-			const float basePowerEstimate = std::max(primitiveArea * representativeLuminance * surface.emissiveIntensity, 0.0f);
+			const float basePowerEstimate = std::max(primitiveArea * representativeLuminance * surface.emissiveIntensity * hue.gain, 0.0f);
 			candidate.gpu.powerEstimate = basePowerEstimate * sectorResponseScale * materialResponseScale;
 			candidate.gpu.selectionWeight = basePowerEstimate * samplingScale * sectorReachScale * materialResponseScale;
 			candidate.gpu.emissionScale = sectorResponseScale * materialResponseScale;
 			candidate.gpu.materialResponseScale = std::max(materialResponseScale, 0.0f);
-			Copy3f(hue.rgb, candidate.gpu.emissionHue);
+			nri_scene::BuildEmissionColorResponse(hue, candidate.gpu.emissionColorResponse);
 			candidate.referenceProposalWeight = basePowerEstimate * samplingScale * sectorReachBound * materialResponseScale;
 			candidate.hasReferenceProposalWeight = sectorResponseEligible;
 
@@ -304,7 +304,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 			candidate.debug.colorPortalHops = hue.portalHops;
 			candidate.debug.sectorResponseApplied = sectorResponseApplied;
 			Copy3f(surface.emissiveColor, candidate.debug.emissiveColor);
-			nri_scene::ReplaceEmissionHue(candidate.debug.emissiveColor, hue.rgb);
+			nri_scene::ApplyEmissionColorResponse(candidate.debug.emissiveColor, hue);
 			Copy3f(primitiveGeometry.center, candidate.gpu.boundsCenter);
 			candidate.gpu.boundsRadius = primitiveGeometry.radius;
 			Copy3f(candidate.gpu.boundsCenter, candidate.debug.center);
@@ -324,7 +324,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 					response.dataSource = dataSource;
 					response.primitiveIndex = primitiveIndex;
 					response.materialScale = std::max(0.0f, materialResponseScale);
-					Copy3f(hue.rgb, response.emissionHue);
+					nri_scene::BuildEmissionColorResponse(hue, response.emissionColorResponse);
 					outMaterialResponses.push_back(response);
 				}
 			}
@@ -365,12 +365,12 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		candidate.gpu.sourceFlags = surface.sourceFlags;
 		candidate.gpu.textureId = surface.textureId;
 		candidate.gpu.primitiveArea = std::max(surface.surfaceArea, 0.0f);
-		candidate.gpu.powerEstimate = std::max(surface.powerEstimate, 0.0f) * sectorResponseScale * materialResponseScale;
-		candidate.gpu.selectionWeight = std::max(surface.powerEstimate, 0.0f) * samplingScale * sectorReachScale * materialResponseScale;
+		candidate.gpu.powerEstimate = std::max(surface.powerEstimate, 0.0f) * hue.gain * sectorResponseScale * materialResponseScale;
+		candidate.gpu.selectionWeight = std::max(surface.powerEstimate, 0.0f) * hue.gain * samplingScale * sectorReachScale * materialResponseScale;
 		candidate.gpu.emissionScale = sectorResponseScale * materialResponseScale;
 		candidate.gpu.materialResponseScale = std::max(materialResponseScale, 0.0f);
-		Copy3f(hue.rgb, candidate.gpu.emissionHue);
-		candidate.referenceProposalWeight = std::max(surface.powerEstimate, 0.0f) * samplingScale * sectorReachBound * materialResponseScale;
+		nri_scene::BuildEmissionColorResponse(hue, candidate.gpu.emissionColorResponse);
+		candidate.referenceProposalWeight = std::max(surface.powerEstimate, 0.0f) * hue.gain * samplingScale * sectorReachBound * materialResponseScale;
 		candidate.hasReferenceProposalWeight = sectorResponseEligible;
 
 		candidate.debug.stableKey = nri_scene::HashCombine64(surface.stableKey, 0x504C41434544564Full);
@@ -406,7 +406,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		candidate.debug.sectorResponseApplied = sectorResponseApplied;
 		Copy3f(surface.center, candidate.debug.center);
 		Copy3f(surface.emissiveColor, candidate.debug.emissiveColor);
-		nri_scene::ReplaceEmissionHue(candidate.debug.emissiveColor, hue.rgb);
+		nri_scene::ApplyEmissionColorResponse(candidate.debug.emissiveColor, hue);
 		candidate.gpu.stableKeyLo = (uint32_t)(candidate.debug.stableKey & 0xffffffffu);
 		candidate.gpu.stableKeyHi = (uint32_t)(candidate.debug.stableKey >> 32u);
 		candidates.push_back(candidate);
@@ -590,6 +590,8 @@ uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSampli
 		hash = nri_scene::HashCombine64(hash, surface.stableKey);
 		const auto hue = ResolveEmissiveHue(surface);
 		for (float channel : hue.rgb) hash = nri_scene::HashCombine64(hash, FloatBits(channel));
+		hash = nri_scene::HashCombine64(hash, FloatBits(hue.strength));
+		hash = nri_scene::HashCombine64(hash, FloatBits(hue.gain));
 		hash = nri_scene::HashCombine64(hash, (uint32_t)hue.sectorIndex);
 
 		const auto propertyIt = mEmissiveSurfaces.activePropertyHashes.find(surface.stableKey);

@@ -90,7 +90,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			const MaterialData material = SmokeGetMaterial(hit.dataSource, hit.materialIndex);
 			const EmissiveResponseLookupResult response = SmokeGetEmissiveMaterialResponse(hit.dataSource, hit.primitiveIndex);
-			rayRadiance = max(ReplaceEmissionHue(SmokeSampleMaterialEmission(material, hit.uv), response.emissionHue), 0.0);
+			rayRadiance = max(ApplyEmissionColorResponse(SmokeSampleMaterialEmission(material, hit.uv), response.emissionColorResponse), 0.0);
 			if (diagnostics)
 			{
 				InterlockedAdd(gSmokeControl[0].IndirectReferenceHits, 1u);

@@ -176,6 +176,10 @@ struct ParsedLightOverlaySectorColorRule
 	int paletteSource = 0; // 0: first eligible floor/ceiling, 1: floor, 2: ceiling.
 	bool hasColor = false;
 	float color[3] = { 1.0f, 1.0f, 1.0f };
+	bool hasStrength = false;
+	float strength = 1.0f;
+	bool hasGain = false;
+	float gain = 1.0f;
 };
 
 struct ParsedLightOverlayMapLightRule

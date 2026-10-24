@@ -33,7 +33,7 @@ struct EmissivePrimitiveData
 	float3 boundsCenter;
 	float boundsRadius;
 	float materialResponseScale;
-	float3 emissionHue;
+	float4 emissionColorResponse;
 };
 
 struct EmissiveMaterialResponseData
@@ -42,13 +42,13 @@ struct EmissiveMaterialResponseData
 	uint primitiveIndex;
 	float materialScale;
 	uint flags;
-	float3 emissionHue;
-	uint reserved;
+	float4 emissionColorResponse;
 };
 
-float3 ReplaceEmissionHue(float3 emission, float3 normalizedHue)
+float3 ApplyEmissionColorResponse(float3 emission, float4 response)
 {
-	return any(normalizedHue > 0.0) ? normalizedHue * dot(max(emission, 0.0), float3(0.2126, 0.7152, 0.0722)) : emission;
+	// RGB replaces hue; W retains authored color. A zero response stays dark.
+	return emission * response.w + response.rgb * dot(max(emission, 0.0), float3(0.2126, 0.7152, 0.0722));
 }
 
 #endif

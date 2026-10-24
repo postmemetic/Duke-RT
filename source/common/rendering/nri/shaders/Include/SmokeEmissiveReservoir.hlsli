@@ -389,7 +389,7 @@ bool SmokeEvaluateEmissiveIncidentWithSolidAngleDenominatorAndPrimitive(
 	}
 	sampleIdentity.PrimitiveIndex = sampledPrimitiveIndex;
 	sampleIdentity.MaterialIndex = sampledMaterialIndex;
-	float3 lightRadiance = ReplaceEmissionHue(SmokeSampleMaterialEmission(material, lightUv), candidate.emissionHue) * max(material.emissiveIntensity, 0.0);
+	float3 lightRadiance = ApplyEmissionColorResponse(SmokeSampleMaterialEmission(material, lightUv), candidate.emissionColorResponse) * max(material.emissiveIntensity, 0.0);
 	lightRadiance *= SmokeResolveEmissiveRadianceScale(candidate, sampledPrimitiveIndex);
 	if (!all(isfinite(lightRadiance)) || !any(lightRadiance > 0.0))
 		return false;

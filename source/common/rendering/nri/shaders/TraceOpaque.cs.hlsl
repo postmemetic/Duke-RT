@@ -798,7 +798,7 @@ float3 OverlayBlend(float3 target, float3 blend)
 #if defined(__spirv__)
 [noinline]
 #endif
-float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex, out bool reuseVisibleResponse, out float3 emissionHue)
+float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex, out bool reuseVisibleResponse, out float4 emissionColorResponse)
 {
 	const EmissiveMaterialResponseData header = gEmissiveMaterialResponses[0];
 	const uint mode = GetEmissiveResponseLookupMode(header.flags);
@@ -823,22 +823,22 @@ float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex, out
 			FindEmissiveResponseLinear(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
 		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_CALLS, 1u);
 		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_ITERATIONS, oracle.examined);
-		if (result.found != oracle.found || asuint(result.scale) != asuint(oracle.scale) || any(asuint(result.emissionHue) != asuint(oracle.emissionHue)))
+		if (result.found != oracle.found || asuint(result.scale) != asuint(oracle.scale) || any(asuint(result.emissionColorResponse) != asuint(oracle.emissionColorResponse)))
 		{
 			TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_MISMATCHES, 1u);
-			emissionHue = oracle.emissionHue;
+			emissionColorResponse = oracle.emissionColorResponse;
 			return oracle.scale;
 		}
 	}
 #endif
-	emissionHue = result.emissionHue;
+	emissionColorResponse = result.emissionColorResponse;
 	return result.scale;
 }
 
 float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex, out bool reuseVisibleResponse)
 {
-	float3 ignoredHue;
-	return GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuseVisibleResponse, ignoredHue);
+	float4 ignoredResponse;
+	return GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuseVisibleResponse, ignoredResponse);
 }
 
 float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
@@ -852,9 +852,9 @@ float3 EvaluateMaterialEmission(uint materialIndex, uint dataSource, uint primit
 	if (material.emissiveMode != 0u)
 	{
 		bool reuse;
-		float3 hue;
-		const float scale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuse, hue);
-		return ReplaceEmissionHue(SampleMaterialEmissionSource(materialIndex, dataSource, uv), hue) * material.emissiveIntensity * scale;
+		float4 colorResponse;
+		const float scale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuse, colorResponse);
+		return ApplyEmissionColorResponse(SampleMaterialEmissionSource(materialIndex, dataSource, uv), colorResponse) * material.emissiveIntensity * scale;
 	}
 	return 0.0;
 }
@@ -862,8 +862,8 @@ float3 EvaluateMaterialEmission(uint materialIndex, uint dataSource, uint primit
 float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint primitiveIndex, MaterialData material, float3 albedo, float2 uv)
 {
 	bool reuseVisibleResponse;
-	float3 hue;
-	const float materialResponseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuseVisibleResponse, hue);
+	float4 colorResponse;
+	const float materialResponseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuseVisibleResponse, colorResponse);
 	if (material.emissiveMode == 3u)
 	{
 		const float3 glow = SampleMaterialEmissionSource(materialIndex, dataSource, uv);
@@ -872,7 +872,7 @@ float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint
 		// Preserve the authored overlay response while keeping masked texels dark.
 		const float glowCoverage = saturate(max(glow.r, max(glow.g, glow.b)));
 		const float visibleBlend = max(material.emissiveReserved, 0.0);
-		return ReplaceEmissionHue(OverlayBlend(albedo, glow), hue) * glowCoverage * material.emissiveIntensity * visibleBlend * materialResponseScale;
+		return ApplyEmissionColorResponse(OverlayBlend(albedo, glow), colorResponse) * glowCoverage * material.emissiveIntensity * visibleBlend * materialResponseScale;
 	}
 
 	if (material.emissiveMode == 0u)
@@ -887,7 +887,7 @@ float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint
 	{
 		responseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex);
 	}
-	return ReplaceEmissionHue(emissionSource, hue) * material.emissiveIntensity * responseScale;
+	return ApplyEmissionColorResponse(emissionSource, colorResponse) * material.emissiveIntensity * responseScale;
 }
 
 uint GetEmissivePrimitiveCount()
@@ -1108,7 +1108,7 @@ void EvaluateSampledEmissiveLighting(
 	}
 
 	const MaterialData lightMaterial = GetMaterialData(materialIndex, candidate.dataSource);
-	const float3 lightColor = ReplaceEmissionHue(SampleMaterialEmissionSource(materialIndex, candidate.dataSource, lightUv), candidate.emissionHue) * lightMaterial.emissiveIntensity * max(candidate.emissionScale, 0.0);
+	const float3 lightColor = ApplyEmissionColorResponse(SampleMaterialEmissionSource(materialIndex, candidate.dataSource, lightUv), candidate.emissionColorResponse) * lightMaterial.emissiveIntensity * max(candidate.emissionScale, 0.0);
 	const float falloffScale = max(lightMaterial.emissiveMaskScale, 0.25);
 	if (all(lightColor <= 0.0))
 	{
@@ -1179,7 +1179,7 @@ void EvaluateSampledEmissiveMirrorRadiance(
 	}
 
 	const MaterialData lightMaterial = GetMaterialData(materialIndex, candidate.dataSource);
-	const float3 lightColor = ReplaceEmissionHue(SampleMaterialEmissionSource(materialIndex, candidate.dataSource, lightUv), candidate.emissionHue) * lightMaterial.emissiveIntensity * max(candidate.emissionScale, 0.0);
+	const float3 lightColor = ApplyEmissionColorResponse(SampleMaterialEmissionSource(materialIndex, candidate.dataSource, lightUv), candidate.emissionColorResponse) * lightMaterial.emissiveIntensity * max(candidate.emissionScale, 0.0);
 	outEmitterRadiance = lightColor;
 	if (all(lightColor <= 0.0))
 	{

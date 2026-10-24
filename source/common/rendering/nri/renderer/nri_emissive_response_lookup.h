@@ -13,8 +13,7 @@ struct NRIEmissiveMaterialResponseGpuData
 	uint32_t primitiveIndex = UINT32_MAX;
 	float materialScale = 1.0f;
 	uint32_t flags = 0;
-	float emissionHue[3] = {};
-	uint32_t reserved = 0;
+	float emissionColorResponse[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 };
 static_assert(sizeof(NRIEmissiveMaterialResponseGpuData) == 32);
 

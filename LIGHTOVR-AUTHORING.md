@@ -4,7 +4,7 @@
 
 ## Sector color controls emitted light
 
-The NRI renderer can transfer environmental palette effects to lights. It replaces emission hue while preserving linear luminance and texture detail. Walls and flats use their original texture colors; illumination supplies the room color, including its reflections on water. Intrinsic actor lights, sunlight, sky palettes, fog and fluid body colors keep their existing meaning.
+The NRI renderer can transfer environmental palette effects to lights. It blends a replacement emission hue with each source's authored color, preserving linear luminance at a fixed gain. A separate gain controls emitted light output. Texture detail and some original color remain at partial strength. Walls and flats use their original texture colors; illumination supplies the room color, including its reflections on water. Intrinsic actor lights, sunlight, sky palettes, fog and fluid body colors keep their existing meaning.
 
 Run `lightoverlay_generatesectorcolors` to seed Duke environmental profiles for palettes 1 (blue), 2 (red), 7 (amber), and 8 (green) in the writable `LIGHTOVR`. Existing profiles and overrides are preserved on repeated runs. These are initial art-direction values, intended for later tuning. Other palettes remain untouched.
 
@@ -15,6 +15,8 @@ LIGHTOVR
     {
         palette 2
         color 1.0 0.10 0.025
+        strength 0.25
+        gain 0.65
         enabled on
         neutralize on
     }
@@ -32,7 +34,11 @@ LIGHTOVR
 
 Global `sectorcolor` blocks require `palette 1..255` and a positive RGB color when enabled. Map-local blocks require `sector`; optional `color` replaces the profile hue. `source auto|floor|ceiling` defaults to `auto`: prefer a configured floor palette, then a configured non-sky ceiling palette. Explicit `source ceiling` can use a sky ceiling as a signal without stripping its sky texture palette. RGB values are linear and normalized to unit luminance, so brightness remains controlled by the emitter. Different rules targeting the same palette or sector use the last applicable rule in load order.
 
-`enabled off` at sector scope disables transfer and restores the sector's original palette rendering. `neutralize off` keeps the original surface palette while still applying the lighting hue. At global scope these fields control that palette profile. Inherited environmental palettes on Duke actors, voxels and weapons are bypassed before they overwrite intrinsic colors. Selective art palettes and explicit intrinsic sprite palettes remain intact.
+`strength` is a finite value from 0 to 1: 0 retains authored source color, 1 fully replaces its hue. `gain` is finite and nonnegative: 0 extinguishes the linked emission, 1 retains its luminance, and values below 1 dim it. Omitting both fields preserves the original full-strength/unit-gain behavior. Map overrides inherit each unspecified field independently from the selected palette profile, including when they override RGB. A local numeric correction also applies when its hue is borrowed through a portal. These fields affect visible fixtures and their emitted/reflected light together; `strength 0` still neutralizes the configured surface palette.
+
+For linear source emission `E`, normalized target `H` and Rec709 luminance `Y(E)`, output is `gain * ((1-strength)*E + strength*Y(E)*H)`. This replaces hue progressively rather than multiplying the source by a color filter.
+
+`enabled off` at sector scope disables transfer and restores the sector's original palette rendering. `neutralize off` keeps the original surface palette while still applying the lighting hue. At global scope these fields control that palette profile. Inherited environmental palettes on world actors and voxels are bypassed before they overwrite intrinsic colors. Duke weapons, shrunken hands and scuba HUD retain their sector palette tint. Selective art palettes and explicit intrinsic sprite palettes remain intact.
 
 Add these optional fields to an existing `light`, `surfacelight`, or `emissiveoverride`:
 
@@ -47,10 +53,12 @@ Both an authored `surfacelight`'s visible fixture and its analytic light use the
 
 In `nri_ptemissivelighteditmode`, aim at a surface and press **C** to create an editable sector rule without replacing an existing correction. **P** still creates an emitter override, now with a color response field; **L** reloads edits. Console tools:
 
-- `nri_ptsectorcoloredit <sector> auto` restores profile-driven hue for that sector.
+- `nri_ptsectorcoloredit <sector> auto` restores profile-driven hue, strength and gain for that sector.
 - `nri_ptsectorcoloredit <sector> off` disables transfer for that sector.
-- `nri_ptsectorcoloredit <sector> <r> <g> <b>` writes a hue override and reloads it.
-- `nri_ptsectorcolordump [sector]` reports live palette, chosen signal, portal distance and palette neutralization.
+- `nri_ptsectorcoloredit <sector> <r> <g> <b>` writes a hue override, preserves numeric controls and reloads it.
+- `nri_ptsectorcoloredit <sector> strength <0..1>` changes color strength while preserving RGB and gain.
+- `nri_ptsectorcoloredit <sector> gain <value>` changes output while preserving RGB and strength.
+- `nri_ptsectorcolordump [sector]` reports live palette, chosen signal, portal distance, palette neutralization, strength and gain.
 - `nri_ptemissivedump [radius] [limit]` includes each bound emitter's effective hue and color source.
 - `nri_ptsectorcolorpreview <sector> <floorpal> <ceilingpal>` changes live palette state while emissive edit mode is enabled. This writes no overlay; reload the save to restore gameplay state.
 - `nri_ptsectorcolor false` disables the feature for comparison; `true` restores it.

@@ -3479,7 +3479,7 @@ void SceneLightSystem::RebuildAnalyticLights(
 				const int colorSector = rule.colorResponse.signalSector >= 0 ? rule.colorResponse.signalSector :
 					(rule.hasSignalSector ? rule.signalSector : rule.physicalSector);
 				const auto hue = nri_scene::ResolveSectorEmissionHue(colorSector, rule.colorResponse.signalSector < 0);
-				nri_scene::ReplaceEmissionHue(light.color, hue.rgb);
+				nri_scene::ApplyEmissionColorResponse(light.color, hue);
 			}
 
 			float sectorScale = 1.0f;
@@ -5287,6 +5287,8 @@ uint64_t SceneLightSystem::BuildEmissiveSectorResponsePayloadHash() const
 		const auto hue = ResolveEmissiveHue(surface);
 		hash = nri_scene::HashCombine64(hash, surface.stableKey);
 		for (float component : hue.rgb) hash = nri_scene::HashCombine64(hash, (uint64_t)FloatBits(component));
+		hash = nri_scene::HashCombine64(hash, FloatBits(hue.strength));
+		hash = nri_scene::HashCombine64(hash, FloatBits(hue.gain));
 
 		const bool sectorResponseEligible = IsEmissiveSurfaceSectorResponseEligible(surface);
 		if (!sectorResponseEligible)

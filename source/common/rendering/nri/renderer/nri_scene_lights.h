@@ -160,10 +160,10 @@ struct NRIEmissivePrimitiveGpuData
 	float boundsCenter[3] = {};
 	float boundsRadius = 0.0f;
 	float materialResponseScale = 1.0f;
-	float emissionHue[3] = {};
+	float emissionColorResponse[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 };
 
-static_assert(sizeof(NRIEmissivePrimitiveGpuData) == 96);
+static_assert(sizeof(NRIEmissivePrimitiveGpuData) == 100);
 
 // Hot shader record. Sampling-distribution and diagnostic-only fields remain in
 // NRIEmissivePrimitiveGpuData on the CPU and are not uploaded per candidate.
@@ -184,15 +184,16 @@ struct NRIEmissivePrimitiveShaderData
 	float boundsCenter[3] = {};
 	float boundsRadius = 0.0f;
 	float materialResponseScale = 1.0f;
-	float emissionHue[3] = {};
+	float emissionColorResponse[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 };
 
-static_assert(sizeof(NRIEmissivePrimitiveShaderData) == 80);
+static_assert(sizeof(NRIEmissivePrimitiveShaderData) == 84);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, primitiveArea) == 8);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, emissionScale) == 16);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, sceneInstanceIndex) == 28);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, boundsCenter) == 48);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, materialResponseScale) == 64);
+static_assert(offsetof(NRIEmissivePrimitiveShaderData, emissionColorResponse) == 68);
 
 inline NRIEmissivePrimitiveShaderData PackNRIEmissivePrimitiveShaderData(
 	const NRIEmissivePrimitiveGpuData& source)
@@ -215,7 +216,7 @@ inline NRIEmissivePrimitiveShaderData PackNRIEmissivePrimitiveShaderData(
 	target.boundsCenter[2] = source.boundsCenter[2];
 	target.boundsRadius = source.boundsRadius;
 	target.materialResponseScale = source.materialResponseScale;
-	for (int channel = 0; channel < 3; ++channel) target.emissionHue[channel] = source.emissionHue[channel];
+	for (int channel = 0; channel < 4; ++channel) target.emissionColorResponse[channel] = source.emissionColorResponse[channel];
 	return target;
 }
 

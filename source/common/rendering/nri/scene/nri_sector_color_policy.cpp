@@ -51,6 +51,10 @@ namespace
 		for (int channel = 0; channel < 3; ++channel) result.rgb[channel] = color[channel] / luminance;
 		result.sectorIndex = index;
 		result.palette = profile != nullptr ? palette : -1;
+		result.strength = overrideRule != nullptr && overrideRule->hasStrength ? overrideRule->strength :
+			profile != nullptr ? profile->strength : 1.0f;
+		result.gain = overrideRule != nullptr && overrideRule->hasGain ? overrideRule->gain :
+			profile != nullptr ? profile->gain : 1.0f;
 		return result;
 	}
 
@@ -84,6 +88,9 @@ uint64_t SectorColorMaterialPolicySignature()
 	// Hue changes affect light payloads, but not texture palettes or their mip chains.
 	for (const auto& rule : GetResolvedLightOverlaySet().sectorColorRules)
 	{
+		// Default map policy only adjusts emission. Creating an RGB/numeric override
+		// must not invalidate material palettes that it leaves unchanged.
+		if (rule.mapName.IsNotEmpty() && rule.enabled && rule.neutralize) continue;
 		append((uint32_t)rule.palette);
 		append((uint32_t)rule.sector);
 		append(rule.enabled);
@@ -130,7 +137,14 @@ SectorEmissionHue ResolveSectorEmissionHue(int sectorIndex, bool neighbors)
 		for (int candidate : next)
 		{
 			result = DirectHue(candidate);
-			if (result.Active()) { result.portalHops = hop; return result; }
+			if (result.Active())
+			{
+				result.portalHops = hop;
+				// A local numeric correction also applies when the target hue is borrowed.
+				if (overrideRule != nullptr && overrideRule->hasStrength) result.strength = overrideRule->strength;
+				if (overrideRule != nullptr && overrideRule->hasGain) result.gain = overrideRule->gain;
+				return result;
+			}
 		}
 		frontier.swap(next);
 	}
@@ -153,11 +167,20 @@ int FindSectorColorAnchor(const float renderPosition[3])
 	return fallback;
 }
 
-void ReplaceEmissionHue(float color[3], const float hue[3])
+void BuildEmissionColorResponse(const SectorEmissionHue& hue, float response[4])
 {
-	if (hue[0] + hue[1] + hue[2] <= 0.0f) return;
+	// RGB weights replace hue; W retains authored color. Identity is (0,0,0,1).
+	const float replacement = hue.Active() ? hue.strength * hue.gain : 0.0f;
+	for (int channel = 0; channel < 3; ++channel) response[channel] = hue.rgb[channel] * replacement;
+	response[3] = hue.Active() ? (1.0f - hue.strength) * hue.gain : 1.0f;
+}
+
+void ApplyEmissionColorResponse(float color[3], const SectorEmissionHue& hue)
+{
+	float response[4];
+	BuildEmissionColorResponse(hue, response);
 	const float luminance = std::max(0.0f, color[0] * 0.2126f + color[1] * 0.7152f + color[2] * 0.0722f);
-	for (int channel = 0; channel < 3; ++channel) color[channel] = hue[channel] * luminance;
+	for (int channel = 0; channel < 3; ++channel) color[channel] = color[channel] * response[3] + response[channel] * luminance;
 }
 
 void PrintSectorColorPolicy(int sectorIndex)
@@ -168,11 +191,11 @@ void PrintSectorColorPolicy(int sectorIndex)
 		const auto hue = ResolveSectorEmissionHue((int)i);
 		if (sectorIndex < 0 && !hue.Active()) continue;
 		const auto& sec = sector[i];
-		Printf("NRI PT sector color: sector=%u floorpal=%u ceilingpal=%u source=%d palette=%d hops=%d hue=(%.6f,%.6f,%.6f) neutral_floor=%u neutral_ceiling=%u enabled=%u\n",
+		Printf("NRI PT sector color: sector=%u floorpal=%u ceilingpal=%u source=%d palette=%d hops=%d hue=(%.6f,%.6f,%.6f) neutral_floor=%u neutral_ceiling=%u enabled=%u strength=%.6f gain=%.6f\n",
 			i, (unsigned)sec.floorpal, (unsigned)sec.ceilingpal, hue.sectorIndex, hue.palette, hue.portalHops,
 			hue.rgb[0], hue.rgb[1], hue.rgb[2], TransfersSectorPalette(i, sec.floorpal) ? 1u : 0u,
 			TransfersSectorPalette(i, sec.ceilingpal) && (sec.ceilingstat & CSTAT_SECTOR_SKY) == 0 ? 1u : 0u,
-			nri_ptsectorcolor ? 1u : 0u);
+			nri_ptsectorcolor ? 1u : 0u, hue.strength, hue.gain);
 	}
 }
 }

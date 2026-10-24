@@ -701,7 +701,7 @@ EmissiveResponseLookupResult SmokeGetEmissiveMaterialResponse(uint dataSource, u
 	gSmokeEmissiveMaterialResponses.GetDimensions(responseCapacity, responseStride);
 	if (responseCapacity == 0u)
 	{
-		EmissiveResponseLookupResult empty = { 1.0, 0u, 0u, 0.0.xxx };
+		EmissiveResponseLookupResult empty = { 1.0, 0u, 0u, float4(0.0, 0.0, 0.0, 1.0) };
 		return empty;
 	}
 	const EmissiveMaterialResponseData header = gSmokeEmissiveMaterialResponses[0];

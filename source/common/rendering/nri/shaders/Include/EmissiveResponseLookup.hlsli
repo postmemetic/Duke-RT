@@ -19,14 +19,14 @@ struct EmissiveResponseLookupResult
 	float scale;
 	uint found;
 	uint examined;
-	float3 emissionHue;
+	float4 emissionColorResponse;
 };
 
 EmissiveResponseLookupResult FindEmissiveResponseLinear(
 	StructuredBuffer<EmissiveMaterialResponseData> responses,
 	uint responseCount, uint dataSource, uint primitiveIndex)
 {
-	EmissiveResponseLookupResult result = { 1.0, 0u, 0u, 0.0.xxx };
+	EmissiveResponseLookupResult result = { 1.0, 0u, 0u, float4(0.0, 0.0, 0.0, 1.0) };
 	[loop]
 	for (uint i = 1u; i <= responseCount; ++i)
 	{
@@ -35,7 +35,7 @@ EmissiveResponseLookupResult FindEmissiveResponseLinear(
 		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
 		{
 			result.scale = max(response.materialScale, 0.0);
-			result.emissionHue = response.emissionHue;
+			result.emissionColorResponse = response.emissionColorResponse;
 			result.found = 1u;
 			return result;
 		}
@@ -47,7 +47,7 @@ EmissiveResponseLookupResult FindEmissiveResponseBinary(
 	StructuredBuffer<EmissiveMaterialResponseData> responses,
 	uint responseCount, uint dataSource, uint primitiveIndex)
 {
-	EmissiveResponseLookupResult result = { 1.0, 0u, 0u, 0.0.xxx };
+	EmissiveResponseLookupResult result = { 1.0, 0u, 0u, float4(0.0, 0.0, 0.0, 1.0) };
 	uint lower = 1u;
 	uint upper = responseCount + 1u;
 	[loop]
@@ -70,7 +70,7 @@ EmissiveResponseLookupResult FindEmissiveResponseBinary(
 			if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
 			{
 				result.scale = max(response.materialScale, 0.0);
-				result.emissionHue = response.emissionHue;
+				result.emissionColorResponse = response.emissionColorResponse;
 				result.found = 1u;
 			}
 		}

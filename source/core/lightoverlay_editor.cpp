@@ -970,7 +970,9 @@ namespace
 		ReloadActorLightEditorOverlays();
 	}
 
-	static void WriteSectorColorOverride(int sectorIndex, bool enabled, const float* color = nullptr)
+	enum class SectorColorEdit { Auto, Off, Color, Strength, Gain };
+
+	static void WriteSectorColorOverride(int sectorIndex, SectorColorEdit edit, const float* color = nullptr, float value = 0.0f)
 	{
 		if (currentLevel == nullptr || sectorIndex < 0 || (unsigned)sectorIndex >= sector.Size())
 		{ Printf("NRI PT sector color: invalid current sector\n"); return; }
@@ -985,16 +987,22 @@ namespace
 		for (const auto& existing : GetResolvedLightOverlaySet().sectorColorRules)
 			if (existing.mapName.CompareNoCase(rule.mapName) == 0 && existing.sector == sectorIndex) rule = existing;
 		rule.sector = sectorIndex;
-		rule.enabled = enabled;
-		rule.hasColor = color != nullptr;
-		if (color != nullptr) for (int i = 0; i < 3; ++i) rule.color[i] = color[i];
+		rule.enabled = edit != SectorColorEdit::Off;
+		if (edit == SectorColorEdit::Auto) rule.hasColor = rule.hasStrength = rule.hasGain = false;
+		if (edit == SectorColorEdit::Color)
+		{
+			rule.hasColor = true;
+			for (int i = 0; i < 3; ++i) rule.color[i] = color[i];
+		}
+		if (edit == SectorColorEdit::Strength) { rule.hasStrength = true; rule.strength = value; }
+		if (edit == SectorColorEdit::Gain) { rule.hasGain = true; rule.gain = value; }
 		rule.source.lumpNum = lump;
 		rule.source.sourceName = FindActorLightEditorSourceNameForLump(database, lump);
 		AddOrReplaceLightOverlayRule(database, rule);
 		if (!WriteActorLightEditorTextFile(writablePath, SerializeLightOverlayDatabase(database))) return;
 		ReloadActorLightEditorOverlays();
 		Printf("NRI PT sector color: wrote %s sector=%d enabled=%s source=%s to %s\n", rule.id.GetChars(), sectorIndex,
-			enabled ? "yes" : "no", color != nullptr ? "RGB override" : "live palette", writablePath.GetChars());
+			rule.enabled ? "yes" : "no", rule.hasColor ? "RGB override" : "live palette", writablePath.GetChars());
 	}
 
 	static void PerformSectorColorEditorAction()
@@ -1005,7 +1013,7 @@ namespace
 		for (const auto& rule : GetResolvedLightOverlaySet().sectorColorRules)
 			if (rule.sector == target.sectorIndex && rule.mapName.IsNotEmpty())
 			{ Printf("NRI PT sector color: existing rule '%s' sector=%d; edit LIGHTOVR and reload with l\n", rule.id.GetChars(), target.sectorIndex); return; }
-		WriteSectorColorOverride(target.sectorIndex, true);
+		WriteSectorColorOverride(target.sectorIndex, SectorColorEdit::Auto);
 	}
 
 	static void PerformEmissiveLightEditorCreateOverrideAction()
@@ -1871,25 +1879,35 @@ CCMD(nri_ptactorlighteditwritable)
 
 CCMD(nri_ptsectorcoloredit)
 {
-	if (argv.argc() != 3 && argv.argc() != 5)
-	{ Printf("usage: nri_ptsectorcoloredit <sector> <auto|off> OR <sector> <r> <g> <b>\n"); return; }
+	if (argv.argc() < 3 || argv.argc() > 5)
+	{ Printf("usage: nri_ptsectorcoloredit <sector> <auto|off> OR <sector> <r> <g> <b> OR <sector> <strength|gain> <value>\n"); return; }
 	char* end = nullptr;
 	const long index = strtol(argv[1], &end, 10);
-	if (*end != 0 || index < 0 || (unsigned long)index >= sector.Size()) { Printf("NRI PT sector color: invalid sector\n"); return; }
+	if (end == argv[1] || *end != 0 || index < 0 || (unsigned long)index >= sector.Size()) { Printf("NRI PT sector color: invalid sector\n"); return; }
 	if (argv.argc() == 3)
 	{
 		if (stricmp(argv[2], "auto") && stricmp(argv[2], "off")) { Printf("Expected auto or off\n"); return; }
-		WriteSectorColorOverride((int)index, stricmp(argv[2], "off") != 0);
+		WriteSectorColorOverride((int)index, stricmp(argv[2], "off") != 0 ? SectorColorEdit::Auto : SectorColorEdit::Off);
+		return;
+	}
+	if (argv.argc() == 4)
+	{
+		const bool strength = stricmp(argv[2], "strength") == 0;
+		if (!strength && stricmp(argv[2], "gain") != 0) { Printf("Expected strength or gain\n"); return; }
+		const float value = strtof(argv[3], &end);
+		if (end == argv[3] || *end != 0 || !std::isfinite(value) || value < 0 || (strength && value > 1))
+		{ Printf("Expected finite strength in [0,1] or nonnegative gain\n"); return; }
+		WriteSectorColorOverride((int)index, strength ? SectorColorEdit::Strength : SectorColorEdit::Gain, nullptr, value);
 		return;
 	}
 	float color[3];
 	for (int i = 0; i < 3; ++i)
 	{
 		color[i] = strtof(argv[i + 2], &end);
-		if (*end != 0 || !std::isfinite(color[i]) || color[i] < 0) { Printf("Expected finite nonnegative RGB\n"); return; }
+		if (end == argv[i + 2] || *end != 0 || !std::isfinite(color[i]) || color[i] < 0) { Printf("Expected finite nonnegative RGB\n"); return; }
 	}
 	if (color[0] + color[1] + color[2] <= 0) { Printf("RGB must have positive luminance\n"); return; }
-	WriteSectorColorOverride((int)index, true, color);
+	WriteSectorColorOverride((int)index, SectorColorEdit::Color, color);
 }
 
 CCMD(lightoverlay_generatesectorcolors)
@@ -1913,6 +1931,9 @@ CCMD(lightoverlay_generatesectorcolors)
 		rule.id.Format("DukeEnvironmentPalette%d", palettes[i]);
 		rule.palette = palettes[i];
 		rule.hasColor = true;
+		rule.hasStrength = rule.hasGain = true;
+		rule.strength = 0.25f;
+		rule.gain = 0.65f;
 		for (int channel = 0; channel < 3; ++channel) rule.color[channel] = colors[i][channel];
 		rule.source.lumpNum = lump;
 		rule.source.sourceName = FindActorLightEditorSourceNameForLump(database, lump);

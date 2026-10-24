@@ -204,7 +204,7 @@ static bool animateaccess(int gs, DDukePlayer* p, double xoffset, double yoffset
 void animateshrunken(DDukePlayer* p, double xoffset, double yoffset, int8_t shade, int o, double interpfrac)
 {
 	const double fistsign = BobVal(interpolatedvalue<double>(p->ofistsign, p->fistsign, interpfrac)) * 16;
-	int pal = SectorPaletteForRendering(getPlayer(screenpeek)->cursector);
+	int pal = getPlayer(screenpeek)->cursector->floorpal;
 	if (p->jetpack_on == 0)	yoffset += 32 - (p->GetActor()->vel.X * 8);
 	hud_drawpal(250 + fistsign + xoffset, 258 - fabs(fistsign * 4) + yoffset, "FIST", shade, o, pal, nullAngle);
 	hud_drawpal(40 - fistsign + xoffset, 200 + fabs(fistsign * 4) + yoffset, "FIST", shade, o | 4, pal, nullAngle);
@@ -257,7 +257,7 @@ void displayweapon_d(DDukePlayer* const p, double interpfrac)
 	auto weapon_xoffset = 160 - 90 - (BobVal(512 + weapon_sway * 0.5) * (16384. / 1536.)) - 58 - p->weapon_ang;
 	auto shade = min(pact->spr.shade, (int8_t)24);
 
-	pal2 = pal = !p->insector() ? 0 : pact->spr.pal == 1 ? 1 : SectorPaletteForRendering(p->cursector);
+	pal2 = pal = !p->insector() ? 0 : pact->spr.pal == 1 ? 1 : p->cursector->floorpal;
 	if (pal2 == 0) pal2 = p->palookup;
 
 	auto animoffs = offsets + DVector2(yawinput, -hard_landing + pitchoffset);
