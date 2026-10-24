@@ -346,6 +346,7 @@ struct NRIMapChunkDumpSnapshot
 	uint32_t portalSurfaceCount = 0;
 	uint32_t skySurfaceCount = 0;
 	uint32_t sourcePortalCount = 0;
+	const char* gateVisible = "no";
 	const char* residentStatic = "no";
 	const char* staticTlasInstanced = "no";
 	const char* staticProbeIncluded = "no";

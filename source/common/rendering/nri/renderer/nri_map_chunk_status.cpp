@@ -6,6 +6,7 @@
 #include "nri_diagnostic_names.h"
 #include "nri_map_chunk_diagnostics.h"
 #include "nri_runtime_mutation.h"
+#include "nri_runtime_mutation_shared.h"
 #include "nri_static_scene.h"
 #include "printf.h"
 
@@ -64,6 +65,7 @@ NRIMapChunkDumpSnapshot NRIRenderer::BuildMapChunkDumpSnapshot(int32_t chunkInde
 	snapshot.sectorIndex = chunk.sectorIndex;
 	snapshot.localSpaceIndex = chunk.localSpaceIndex;
 	snapshot.surfaceCount = chunk.surfaceCount;
+	snapshot.gateVisible = YesNo(nri_runtime_mutation::IsChunkMarkedVisible(mCurrentVisibleChunkWords, (uint32_t)chunkIndex));
 	snapshot.residentStatic = YesNo(staticChunkFacts.residentStatic);
 	snapshot.staticTlasInstanced = YesNo(staticChunkFacts.staticTlasInstanced);
 	snapshot.staticProbeIncluded = YesNo(staticChunkFacts.staticProbeIncluded);
@@ -181,7 +183,7 @@ void PrintNRIMapChunkDumpSnapshot(const NRIMapChunkDumpSnapshot& snapshot)
 		return;
 	}
 
-	Printf("NRI PT chunk dump: chunk=%d sector=%d local_space=%u surfaces=%u tris=%u portal_surfaces=%u sky_surfaces=%u source_portals=%u resident_static=%s static_tlas_instanced=%s static_probe_included=%s runtime_replaced=%s replacement_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u\n",
+	Printf("NRI PT chunk dump: chunk=%d sector=%d local_space=%u surfaces=%u tris=%u portal_surfaces=%u sky_surfaces=%u source_portals=%u gate_visible=%s resident_static=%s static_tlas_instanced=%s static_probe_included=%s runtime_replaced=%s replacement_reasons=%s section_dirty=%u sector_dirty=%s dragged=%s blind_spot=%s replacement_surfaces=%u replacement_tris=%u\n",
 		snapshot.chunkIndex,
 		snapshot.sectorIndex,
 		snapshot.localSpaceIndex,
@@ -190,6 +192,7 @@ void PrintNRIMapChunkDumpSnapshot(const NRIMapChunkDumpSnapshot& snapshot)
 		snapshot.portalSurfaceCount,
 		snapshot.skySurfaceCount,
 		snapshot.sourcePortalCount,
+		snapshot.gateVisible,
 		snapshot.residentStatic,
 		snapshot.staticTlasInstanced,
 		snapshot.staticProbeIncluded,

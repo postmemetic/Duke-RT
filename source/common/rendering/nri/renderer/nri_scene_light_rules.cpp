@@ -397,7 +397,8 @@ namespace
 			SceneLightSystem::AnalyticLightRegistry::MapOverlayRule overlayRule = {};
 			const float offset = resolvedRule.hasOffset ? resolvedRule.offset : 0.0f;
 			overlayRule.colorResponse = resolvedRule.colorResponse;
-			overlayRule.physicalSector = resolvedRule.hasSector ? resolvedRule.sector : -1;
+			overlayRule.physicalSector = resolvedRule.hasSector ? resolvedRule.sector :
+				nri_scene::FindSectorColorAnchor(resolvedRule.position);
 			overlayRule.ruleId = BuildSurfaceLightRuleId(resolvedRule);
 			overlayRule.source = SceneLightRecordSource::DynamicScene;
 			overlayRule.position[0] = resolvedRule.position[0] + resolvedRule.normal[0] * offset;

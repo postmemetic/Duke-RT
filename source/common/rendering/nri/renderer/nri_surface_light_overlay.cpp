@@ -4,6 +4,7 @@
 #include "nri_renderer.h"
 #include "../scene/nri_hash.h"
 #include "../scene/nri_scene_bridge.h"
+#include "../scene/nri_sector_color_policy.h"
 #include "../scene/nri_texture_signature.h"
 #include "lightoverlay.h"
 #include "texinfo.h"
@@ -579,7 +580,10 @@ bool BuildSurfaceLightOverlay(
 			surface.material.flags |= nri_scene::MaterialFlag_TintEmission;
 		}
 		surface.provenance.sourceType = nri_scene::SurfaceSourceType::SurfaceLightOverlay;
-		surface.provenance.sectorIndex = rule.hasSector ? rule.sector : -1;
+		// Use the authored anchor for both fixture and analytic color association;
+		// their different normal offsets must not choose different sectors.
+		surface.provenance.sectorIndex = rule.hasSector ? rule.sector :
+			nri_scene::FindSectorColorAnchor(rule.position);
 		surface.provenance.wallIndex = rule.hasWall ? rule.wall : -1;
 		surface.provenance.mapChunkIndex = -1;
 		surface.provenance.cstat = BuildSurfaceLightRuleId(rule);
