@@ -204,7 +204,8 @@ static bool animateaccess(int gs, DDukePlayer* p, double xoffset, double yoffset
 void animateshrunken(DDukePlayer* p, double xoffset, double yoffset, int8_t shade, int o, double interpfrac)
 {
 	const double fistsign = BobVal(interpolatedvalue<double>(p->ofistsign, p->fistsign, interpfrac)) * 16;
-	int pal = getPlayer(screenpeek)->cursector->floorpal;
+	const auto sect = getPlayer(screenpeek)->cursector;
+	int pal = sect ? sect->floorpal : 0;
 	if (p->jetpack_on == 0)	yoffset += 32 - (p->GetActor()->vel.X * 8);
 	hud_drawpal(250 + fistsign + xoffset, 258 - fabs(fistsign * 4) + yoffset, "FIST", shade, o, pal, nullAngle);
 	hud_drawpal(40 - fistsign + xoffset, 200 + fabs(fistsign * 4) + yoffset, "FIST", shade, o | 4, pal, nullAngle);
