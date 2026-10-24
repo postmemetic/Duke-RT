@@ -182,6 +182,7 @@ struct StaticMapSceneCache
 	uint64_t geometryGeneration = 0;
 	uint64_t contentBuildSerial = 0;
 	uint64_t lightBindingGeneration = 0;
+	uint64_t sectorColorMaterialSignature = 0;
 	bool gpuMaterialsUseStableTextureSlots = false;
 	uint32_t sceneBuildCount = 0;
 	uint32_t gpuUploadCount = 0;

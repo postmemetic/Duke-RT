@@ -6,15 +6,17 @@
 
 // Mirrors EmissiveMaterialResponseData and the header markers in
 // shaders/Include/EmissiveResponseLookup.hlsli. The first row remains a header
-// with dataSource=count; old shaders can still linearly scan sorted payloads.
+// with dataSource=count. CPU and shaders must use the same row stride.
 struct NRIEmissiveMaterialResponseGpuData
 {
 	uint32_t dataSource = 0;
 	uint32_t primitiveIndex = UINT32_MAX;
 	float materialScale = 1.0f;
 	uint32_t flags = 0;
+	float emissionHue[3] = {};
+	uint32_t reserved = 0;
 };
-static_assert(sizeof(NRIEmissiveMaterialResponseGpuData) == 16);
+static_assert(sizeof(NRIEmissiveMaterialResponseGpuData) == 32);
 
 constexpr uint32_t NRI_EMISSIVE_RESPONSE_HEADER_LINEAR_REUSE = 0x45520101u;
 constexpr uint32_t NRI_EMISSIVE_RESPONSE_HEADER_BINARY_REUSE = 0x45520102u;

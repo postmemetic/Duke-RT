@@ -208,6 +208,19 @@ namespace
 		std::unordered_map<std::string, int> smokeEventRuleLookup;
 		std::unordered_map<std::string, int> mapSmokeEmitterRuleLookup;
 
+		void AddSectorColorRule(const ParsedLightOverlaySectorColorRule& rule)
+		{
+			for (auto& existing : database.sectorColorRules)
+			{
+				if (existing.id.CompareNoCase(rule.id) == 0 && existing.mapName.CompareNoCase(rule.mapName) == 0)
+				{
+					existing = rule;
+					return;
+				}
+			}
+			database.sectorColorRules.Push(rule);
+		}
+
 		void SetDefaults(const ParsedLightOverlayDefaults& defaults)
 		{
 			database.defaults = defaults;
@@ -575,6 +588,7 @@ namespace
 				{
 					ParseDefaultsBlock();
 				}
+				else if (sc.Compare("sectorcolor")) { ParseSectorColorRule(FString()); }
 				else if (sc.Compare("actorrule"))
 				{
 					ParseActorRule();
@@ -1198,6 +1212,73 @@ namespace
 			builder.AddMapSmokeEmitterRule(rule);
 		}
 
+		bool ParseColorResponse(LightOverlayColorResponse& response)
+		{
+			if (sc.Compare("colorresponse"))
+			{
+				sc.MustGetString();
+				if (!sc.Compare("auto") && !sc.Compare("on") && !sc.Compare("off"))
+					sc.ScriptError("colorresponse expects auto, on or off");
+				response.hasResponse = true;
+				response.enabled = !sc.Compare("off");
+				return true;
+			}
+			if (sc.Compare("colorsignal"))
+			{
+				sc.MustGetStringName("sector");
+				sc.MustGetNumber();
+				if (sc.Number < 0) sc.ScriptError("colorsignal sector must be nonnegative");
+				response.signalSector = sc.Number;
+				return true;
+			}
+			return false;
+		}
+
+		void ParseSectorColorRule(const FString& mapName)
+		{
+			sc.MustGetString();
+			ParsedLightOverlaySectorColorRule rule;
+			rule.mapName = mapName;
+			rule.id = sc.String;
+			rule.source = MakeSourceLocation(sc.GetMessageLine());
+			sc.MustGetStringName("{");
+			while (!sc.CheckString("}"))
+			{
+				sc.MustGetString();
+				if (sc.Compare("palette")) { sc.MustGetNumber(); rule.palette = sc.Number; }
+				else if (sc.Compare("sector")) { sc.MustGetNumber(); rule.sector = sc.Number; }
+				else if (sc.Compare("color")) { rule.hasColor = true; MustParseVector3(rule.color); }
+				else if (sc.Compare("enabled") || sc.Compare("neutralize"))
+				{
+					const bool enabledField = sc.Compare("enabled");
+					sc.MustGetString();
+					if (!sc.Compare("on") && !sc.Compare("off")) sc.ScriptError("Expected on or off");
+					(enabledField ? rule.enabled : rule.neutralize) = sc.Compare("on");
+				}
+				else if (sc.Compare("source"))
+				{
+					sc.MustGetString();
+					if (!sc.Compare("auto") && !sc.Compare("floor") && !sc.Compare("ceiling"))
+						sc.ScriptError("sectorcolor source expects auto, floor or ceiling");
+					rule.paletteSource = sc.Compare("floor") ? 1 : sc.Compare("ceiling") ? 2 : 0;
+				}
+				else sc.ScriptError("Unknown sectorcolor field '%s'", sc.String);
+			}
+			if (mapName.IsEmpty())
+			{
+				if (rule.palette <= 0 || rule.palette > 255 || rule.sector >= 0 || (rule.enabled && !rule.hasColor))
+					sc.ScriptError("Global sectorcolor requires palette 1..255 and color; sector belongs inside a map");
+			}
+			else if (rule.sector < 0 || rule.palette >= 0)
+				sc.ScriptError("Map sectorcolor requires sector; palette profiles belong at global scope");
+			if (rule.hasColor && (!std::isfinite(rule.color[0]) || !std::isfinite(rule.color[1]) || !std::isfinite(rule.color[2]) ||
+				rule.color[0] < 0 || rule.color[1] < 0 || rule.color[2] < 0 ||
+				rule.color[0] + rule.color[1] + rule.color[2] <= 0))
+				sc.ScriptError("sectorcolor requires finite nonnegative RGB with positive luminance");
+			FinalizeSourceLocation(rule.source);
+			builder.AddSectorColorRule(rule);
+		}
+
 		void ParseMapBlock()
 		{
 			sc.MustGetString();
@@ -1215,6 +1296,7 @@ namespace
 				{
 					ParseMapLightRule(mapName);
 				}
+				else if (sc.Compare("sectorcolor")) { ParseSectorColorRule(mapName); }
 				else if (sc.Compare("emissiveoverride"))
 				{
 					ParseEmissiveOverrideRule(mapName);
@@ -1306,6 +1388,7 @@ namespace
 			while (!sc.CheckString("}"))
 			{
 				sc.MustGetString();
+				if (ParseColorResponse(rule.colorResponse)) continue;
 				if (sc.Compare("type"))
 				{
 					sc.MustGetString();
@@ -1398,6 +1481,7 @@ namespace
 			while (!sc.CheckString("}"))
 			{
 				sc.MustGetString();
+				if (ParseColorResponse(rule.colorResponse)) continue;
 				if (sc.Compare("sector"))
 				{
 					sc.MustGetNumber();
@@ -1564,6 +1648,7 @@ namespace
 			while (!sc.CheckString("}"))
 			{
 				sc.MustGetString();
+				if (ParseColorResponse(rule.colorResponse)) continue;
 				if (sc.Compare("anchor"))
 				{
 					sc.MustGetString();
@@ -1953,6 +2038,7 @@ namespace
 			mapNames.push_back(mapName);
 		};
 
+		for (const auto& rule : database.sectorColorRules) if (rule.mapName.IsNotEmpty()) addMap(rule.mapName);
 		for (const auto& rule : database.directionalRules) addMap(rule.mapName);
 		for (const auto& rule : database.mapLightRules) addMap(rule.mapName);
 		for (const auto& rule : database.emissiveOverrideRules) addMap(rule.mapName);
@@ -2092,7 +2178,7 @@ namespace
 		if (rule.excludeOwnerClassName.IsNotEmpty()) AppendLine(text, 2, FStringf("excludeownerclass %s", QuoteLightOverlayString(rule.excludeOwnerClassName).GetChars()));
 		AppendLine(text, 2, FStringf("trigger %s", SmokeTriggerName(rule.trigger)));
 		AppendLine(text, 2, FStringf("activation %s", ActorActivationPolicyName(rule.activationPolicy)));
-		AppendLine(text, 2, FStringf("representation %s", SmokeRepresentationName(rule.representation)));
+		AppendLine(text, 2, FStringf("representation \"%s\"", SmokeRepresentationName(rule.representation)));
 		AppendLine(text, 2, FStringf("queuepolicy %s", SmokeQueuePolicyName(rule.queuePolicy)));
 		if (rule.hasMaxLatencySeconds) AppendLine(text, 2, FStringf("maxlatencyseconds %s", FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars()));
 		AppendLine(text, 2, FStringf("analyticcarriers %u", rule.analyticCarrierCount));
@@ -2124,7 +2210,7 @@ namespace
 		AppendLine(text, 1, FStringf("smokeeventrule %s", QuoteLightOverlayString(rule.id).GetChars()));
 		AppendLine(text, 1, "{");
 		AppendLine(text, 2, FStringf("style %s", QuoteLightOverlayString(rule.styleId).GetChars()));
-		AppendLine(text, 2, FStringf("representation %s", SmokeRepresentationName(rule.representation)));
+		AppendLine(text, 2, FStringf("representation \"%s\"", SmokeRepresentationName(rule.representation)));
 		AppendLine(text, 2, FStringf("queuepolicy %s", SmokeQueuePolicyName(rule.queuePolicy)));
 		if (rule.hasMaxLatencySeconds) AppendLine(text, 2, FStringf("maxlatencyseconds %s", FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars()));
 		AppendLine(text, 2, FStringf("analyticcarriers %u", rule.analyticCarrierCount));
@@ -2182,6 +2268,26 @@ namespace
 		AppendLine(text, 2, "}");
 	}
 
+	static void AppendColorResponse(FString& text, const LightOverlayColorResponse& response)
+	{
+		if (response.hasResponse) AppendLine(text, 3, response.enabled ? "colorresponse auto" : "colorresponse off");
+		if (response.signalSector >= 0) AppendLine(text, 3, FStringf("colorsignal sector %d", response.signalSector));
+	}
+
+	static void AppendSectorColorRuleBlock(FString& text, const ParsedLightOverlaySectorColorRule& rule)
+	{
+		const int indent = rule.mapName.IsEmpty() ? 1 : 2;
+		AppendLine(text, indent, FStringf("sectorcolor %s", QuoteLightOverlayString(rule.id).GetChars()));
+		AppendLine(text, indent, "{");
+		if (rule.palette >= 0) AppendLine(text, indent + 1, FStringf("palette %d", rule.palette));
+		if (rule.sector >= 0) AppendLine(text, indent + 1, FStringf("sector %d", rule.sector));
+		AppendShadowStateField(text, indent + 1, "enabled", rule.enabled);
+		AppendShadowStateField(text, indent + 1, "neutralize", rule.neutralize);
+		if (rule.paletteSource != 0) AppendLine(text, indent + 1, rule.paletteSource == 1 ? "source floor" : "source ceiling");
+		if (rule.hasColor) AppendVector3Field(text, indent + 1, "color", rule.color);
+		AppendLine(text, indent, "}");
+	}
+
 	static void AppendMapLightRuleBlock(FString& text, const ParsedLightOverlayMapLightRule& rule)
 	{
 		AppendLine(text, 2, FStringf("light %s", QuoteLightOverlayString(rule.id).GetChars()));
@@ -2211,6 +2317,7 @@ namespace
 		if (rule.hasRadius) AppendLine(text, 3, FStringf("radius %s", FormatLightOverlayFloat(rule.radius).GetChars()));
 		if (rule.hasRange) AppendLine(text, 3, FStringf("range %s", FormatLightOverlayFloat(rule.range).GetChars()));
 		if (rule.hasFlicker) AppendLine(text, 3, FStringf("flicker %u", rule.flickerFrames));
+		AppendColorResponse(text, rule.colorResponse);
 		AppendLine(text, 2, "}");
 	}
 
@@ -2237,6 +2344,7 @@ namespace
 		if (rule.hasMaterialResponse) AppendShadowStateField(text, 3, "materialresponse", rule.materialResponse);
 		if (rule.hasMaterialResponseMin) AppendLine(text, 3, FStringf("materialresponsemin %s", FormatLightOverlayFloat(rule.materialResponseMin).GetChars()));
 		if (rule.hasMaterialResponseMax) AppendLine(text, 3, FStringf("materialresponsemax %s", FormatLightOverlayFloat(rule.materialResponseMax).GetChars()));
+		AppendColorResponse(text, rule.colorResponse);
 		AppendLine(text, 2, "}");
 	}
 
@@ -2273,6 +2381,7 @@ namespace
 		if (rule.hasResponseInputMax) AppendLine(text, 3, FStringf("responseinputmax %s", FormatLightOverlayFloat(rule.responseInputMax).GetChars()));
 		if (rule.hasMaterialResponseMin) AppendLine(text, 3, FStringf("materialresponsemin %s", FormatLightOverlayFloat(rule.materialResponseMin).GetChars()));
 		if (rule.hasMaterialResponseMax) AppendLine(text, 3, FStringf("materialresponsemax %s", FormatLightOverlayFloat(rule.materialResponseMax).GetChars()));
+		AppendColorResponse(text, rule.colorResponse);
 		AppendLine(text, 2, "}");
 	}
 
@@ -2452,6 +2561,7 @@ namespace
 		};
 
 		if (database.defaults.present) update(database.defaults.source);
+		for (const auto& rule : database.sectorColorRules) update(rule.source);
 		for (const auto& rule : database.actorRules) update(rule.source);
 		for (const auto& rule : database.directionalRules) update(rule.source);
 		for (const auto& rule : database.muzzleFlashRules) update(rule.source);
@@ -2500,8 +2610,19 @@ namespace
 		}
 	}
 
+	static void DumpSectorColorRules(const TArray<ParsedLightOverlaySectorColorRule>& rules)
+	{
+		for (const auto& rule : rules)
+			Printf("LIGHTOVR sectorcolor %s map=%s palette=%d sector=%d enabled=%s neutralize=%s source_mode=%s color_override=%s color=(%.6f,%.6f,%.6f) source=%s\n",
+				rule.id.GetChars(), rule.mapName.IsEmpty() ? "global" : rule.mapName.GetChars(), rule.palette, rule.sector,
+				rule.enabled ? "on" : "off", rule.neutralize ? "on" : "off",
+				rule.paletteSource == 1 ? "floor" : rule.paletteSource == 2 ? "ceiling" : "auto", rule.hasColor ? "yes" : "no",
+				rule.color[0], rule.color[1], rule.color[2], SourceLocationText(rule.source).GetChars());
+	}
+
 	static void DumpParsedLightOverlayDatabase(const ParsedLightOverlayDatabase& database)
 	{
+		DumpSectorColorRules(database.sectorColorRules);
 		Printf("LIGHTOVR: generation=%u files=%d actor_rules=%d muzzle_flashes=%d map_lights=%d emissive_overrides=%d emissive_material_responses=%d surface_lights=%d directional=%d actor_overrides=%d smoke_styles=%d smoke_actor_rules=%d smoke_event_rules=%d map_smoke_emitters=%d parse_errors=%s\n",
 			database.generation,
 			database.sourceFiles.Size(),
@@ -2716,6 +2837,7 @@ namespace
 
 	static void DumpResolvedLightOverlaySet(const ResolvedLightOverlaySet& resolved)
 	{
+		DumpSectorColorRules(resolved.sectorColorRules);
 		Printf("LIGHTOVR resolved: parsed_generation=%u resolved_generation=%u map=%s current_map=%s actor_rules=%d muzzle_flashes=%d map_lights=%d emissive_overrides=%d emissive_material_responses=%d directional=%d actor_overrides=%d smoke_styles=%d smoke_actor_rules=%d smoke_event_rules=%d map_smoke_emitters=%d\n",
 			resolved.parsedGeneration,
 			resolved.resolvedGeneration,
@@ -2959,7 +3081,8 @@ namespace
 
 	static void CopyMapLightRule(const ParsedLightOverlayMapLightRule& source, ResolvedLightOverlayMapLightRule& destination)
 	{
-		destination.mapName = source.mapName;
+
+		destination.colorResponse = source.colorResponse;		destination.mapName = source.mapName;
 		destination.id = source.id;
 		destination.source = source.source;
 		destination.lightType = source.lightType;
@@ -2985,7 +3108,8 @@ namespace
 
 	static void CopyEmissiveOverrideRule(const ParsedLightOverlayEmissiveOverrideRule& source, ResolvedLightOverlayEmissiveOverrideRule& destination)
 	{
-		destination.mapName = source.mapName;
+
+		destination.colorResponse = source.colorResponse;		destination.mapName = source.mapName;
 		destination.id = source.id;
 		destination.source = source.source;
 		destination.hasSectorFilter = source.hasSectorFilter;
@@ -3047,7 +3171,8 @@ namespace
 
 	static void CopySurfaceLightRule(const ParsedLightOverlaySurfaceLightRule& source, ResolvedLightOverlaySurfaceLightRule& destination)
 	{
-		destination.mapName = source.mapName;
+
+		destination.colorResponse = source.colorResponse;		destination.mapName = source.mapName;
 		destination.id = source.id;
 		destination.source = source.source;
 		destination.hasPosition = source.hasPosition;
@@ -3126,6 +3251,8 @@ namespace
 		resolved.resolvedGeneration = ++GResolvedLightOverlayGeneration;
 		resolved.activeMapName = mapName;
 		resolved.currentMapAvailable = currentMapAvailable;
+		for (const auto* rule : SortRulesByOrder(GLightOverlayDatabase.sectorColorRules))
+			if (rule->mapName.IsEmpty() || rule->mapName.CompareNoCase(mapName) == 0) resolved.sectorColorRules.Push(*rule);
 
 		std::unordered_map<std::string, uint32_t> smokeStyleLookup;
 		for (const auto* source : SortRulesById(GLightOverlayDatabase.smokeStyles))
@@ -3326,6 +3453,9 @@ FString SerializeLightOverlayDatabase(const ParsedLightOverlayDatabase& database
 		}
 	}
 
+	for (const auto* rule : SortRulesByOrder(database.sectorColorRules))
+		if (rule->mapName.IsEmpty()) { AppendSectorColorRuleBlock(text, *rule); text << "\n"; }
+
 	const auto actorRules = SortRulesById(database.actorRules);
 	for (size_t i = 0; i < actorRules.size(); ++i)
 	{
@@ -3393,6 +3523,9 @@ FString SerializeLightOverlayDatabase(const ParsedLightOverlayDatabase& database
 		const FString& mapName = mapNames[mapIndex];
 		AppendLine(text, 1, FStringf("map %s", QuoteLightOverlayString(mapName).GetChars()));
 		AppendLine(text, 1, "{");
+
+		for (const auto* rule : SortRulesByOrder(database.sectorColorRules))
+			if (rule->mapName.CompareNoCase(mapName) == 0) { AppendSectorColorRuleBlock(text, *rule); text << "\n"; }
 
 		std::vector<const ParsedLightOverlayDirectionalRule*> directionalRules;
 		for (const auto& rule : database.directionalRules)
@@ -3716,6 +3849,23 @@ bool AddOrReplaceLightOverlayRule(ParsedLightOverlayDatabase& database, const Pa
 	return true;
 }
 
+bool AddOrReplaceLightOverlayRule(ParsedLightOverlayDatabase& database, const ParsedLightOverlaySectorColorRule& rule, bool* outReplaced)
+{
+	ParsedLightOverlaySectorColorRule next = rule;
+	for (auto& existing : database.sectorColorRules)
+	{
+		if (existing.id.CompareNoCase(next.id) != 0 || existing.mapName.CompareNoCase(next.mapName) != 0) continue;
+		EnsureEditableSource(database, next.source, &existing.source);
+		existing = std::move(next);
+		if (outReplaced) *outReplaced = true;
+		return true;
+	}
+	EnsureEditableSource(database, next.source);
+	database.sectorColorRules.Push(std::move(next));
+	if (outReplaced) *outReplaced = false;
+	return true;
+}
+
 bool RemoveLightOverlayRule(ParsedLightOverlayDatabase& database, LightOverlayRuleKind kind, const char* id, const char* mapName)
 {
 	const FString ruleId = id != nullptr ? FString(id) : FString("");
@@ -3723,6 +3873,11 @@ bool RemoveLightOverlayRule(ParsedLightOverlayDatabase& database, LightOverlayRu
 	int32_t index = -1;
 	switch (kind)
 	{
+	case LightOverlayRuleKind::SectorColor:
+		for (unsigned i = 0; i < database.sectorColorRules.Size(); ++i)
+			if (database.sectorColorRules[i].id.CompareNoCase(ruleId) == 0 && database.sectorColorRules[i].mapName.CompareNoCase(scopedMapName) == 0)
+			{ database.sectorColorRules.Delete(i); return true; }
+		return false;
 	case LightOverlayRuleKind::ActorRule:
 		index = FindActorRuleIndex(database, ruleId);
 		if (index >= 0) database.actorRules.Delete(index);

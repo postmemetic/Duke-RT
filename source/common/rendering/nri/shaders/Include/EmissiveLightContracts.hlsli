@@ -33,6 +33,7 @@ struct EmissivePrimitiveData
 	float3 boundsCenter;
 	float boundsRadius;
 	float materialResponseScale;
+	float3 emissionHue;
 };
 
 struct EmissiveMaterialResponseData
@@ -41,6 +42,13 @@ struct EmissiveMaterialResponseData
 	uint primitiveIndex;
 	float materialScale;
 	uint flags;
+	float3 emissionHue;
+	uint reserved;
 };
+
+float3 ReplaceEmissionHue(float3 emission, float3 normalizedHue)
+{
+	return any(normalizedHue > 0.0) ? normalizedHue * dot(max(emission, 0.0), float3(0.2126, 0.7152, 0.0722)) : emission;
+}
 
 #endif

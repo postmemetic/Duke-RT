@@ -1,4 +1,5 @@
 #include "nri_renderdevice.h"
+#include "../scene/nri_sector_color_policy.h"
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
@@ -2714,6 +2715,12 @@ CCMD(nri_ptsectorlightdump)
 	{
 		Printf("nri_ptsectorlightdump is only available while using the NRI renderer.\n");
 	}
+}
+
+CCMD(nri_ptsectorcolordump)
+{
+	if (GetActiveNRIRenderDevice() != nullptr)
+		nri_scene::PrintSectorColorPolicy(argv.argc() > 1 ? atoi(argv[1]) : -1);
 }
 
 NRIRenderDevice::NRIRenderDevice(void* hMonitor, bool fullscreen)
@@ -11893,4 +11900,9 @@ void NRIRenderDevice::SelectQueuedFrame(uint32_t queuedFrameIndex)
 	QueuedFrame& queuedFrame = mQueuedFrames[mCurrentQueuedFrameIndex];
 	mCommandAllocator = queuedFrame.commandAllocator;
 	mCommandBuffer = queuedFrame.commandBuffer;
+}
+
+bool NRIRenderDevice::ShouldInheritSectorPalette(int sectorIndex, int palette) const
+{
+	return !nri_scene::TransfersSectorPalette(sectorIndex, palette);
 }

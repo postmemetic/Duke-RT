@@ -80,6 +80,7 @@ public:
 	bool CompileNextShader() override;
 	int GetShaderCount() override;
 	int Backend() override { return 4; }
+	bool ShouldInheritSectorPalette(int sectorIndex, int palette) const override;
 	bool SupportsQueued2DTextureRenders() const override { return true; }
 	const char* DeviceName() const override;
 	void BeginFrame() override;

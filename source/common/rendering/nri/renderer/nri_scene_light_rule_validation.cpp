@@ -53,6 +53,10 @@ namespace
 	bool EqualCompiledRule(const SceneLightSystem::AnalyticLightRegistry::MapOverlayRule& left, const SceneLightSystem::AnalyticLightRegistry::MapOverlayRule& right)
 	{
 		return
+			left.colorResponse.hasResponse == right.colorResponse.hasResponse &&
+			left.colorResponse.enabled == right.colorResponse.enabled &&
+			left.colorResponse.signalSector == right.colorResponse.signalSector &&
+			left.physicalSector == right.physicalSector &&
 			EqualRuleField(left.ruleId, right.ruleId) &&
 			EqualRuleField(left.stableKey, right.stableKey) &&
 			EqualRuleField(left.source, right.source) &&
@@ -80,6 +84,9 @@ namespace
 	bool EqualCompiledRule(const SceneLightSystem::EmissiveOverrideRule& left, const SceneLightSystem::EmissiveOverrideRule& right)
 	{
 		return
+			left.colorResponse.hasResponse == right.colorResponse.hasResponse &&
+			left.colorResponse.enabled == right.colorResponse.enabled &&
+			left.colorResponse.signalSector == right.colorResponse.signalSector &&
 			EqualRuleField(left.ruleId, right.ruleId) &&
 			EqualRuleField(left.hasSectorFilter, right.hasSectorFilter) &&
 			EqualRuleField(left.sectorFilter, right.sectorFilter) &&

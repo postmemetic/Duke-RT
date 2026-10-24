@@ -240,6 +240,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		const float sectorReachScale = sectorResponseApplied ? ResolveSectorEmissionReachScale(surface, sectorRawResponseScale) : 1.0f;
 		bool materialResponseApplied = false;
 		const float materialResponseScale = ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
+		const auto hue = ResolveEmissiveHue(surface);
 		const bool materialResponseEligible = IsEmissiveSurfaceMaterialResponseEligible(surface);
 		const float sectorReachBound = sectorResponseEligible ?
 			(surface.hasSectorResponseReachMax ?
@@ -272,6 +273,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 			candidate.gpu.selectionWeight = basePowerEstimate * samplingScale * sectorReachScale * materialResponseScale;
 			candidate.gpu.emissionScale = sectorResponseScale * materialResponseScale;
 			candidate.gpu.materialResponseScale = std::max(materialResponseScale, 0.0f);
+			Copy3f(hue.rgb, candidate.gpu.emissionHue);
 			candidate.referenceProposalWeight = basePowerEstimate * samplingScale * sectorReachBound * materialResponseScale;
 			candidate.hasReferenceProposalWeight = sectorResponseEligible;
 
@@ -297,8 +299,12 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 			candidate.debug.sectorReachScale = sectorReachScale;
 			candidate.debug.materialResponseEnabled = materialResponseEligible;
 			candidate.debug.materialResponseScale = materialResponseScale;
+			candidate.debug.colorSignalSector = hue.sectorIndex;
+			candidate.debug.colorPalette = hue.palette;
+			candidate.debug.colorPortalHops = hue.portalHops;
 			candidate.debug.sectorResponseApplied = sectorResponseApplied;
 			Copy3f(surface.emissiveColor, candidate.debug.emissiveColor);
+			nri_scene::ReplaceEmissionHue(candidate.debug.emissiveColor, hue.rgb);
 			Copy3f(primitiveGeometry.center, candidate.gpu.boundsCenter);
 			candidate.gpu.boundsRadius = primitiveGeometry.radius;
 			Copy3f(candidate.gpu.boundsCenter, candidate.debug.center);
@@ -308,7 +314,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 			candidate.gpu.stableKeyHi = (uint32_t)(candidate.debug.stableKey >> 32u);
 			candidates.push_back(candidate);
 
-			if (materialResponseEligible)
+			if (materialResponseEligible || hue.Active())
 			{
 				const uint64_t responseKey = ((uint64_t)dataSource << 32u) | primitiveIndex;
 				if (materialResponseLookup.find(responseKey) == materialResponseLookup.end())
@@ -318,6 +324,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 					response.dataSource = dataSource;
 					response.primitiveIndex = primitiveIndex;
 					response.materialScale = std::max(0.0f, materialResponseScale);
+					Copy3f(hue.rgb, response.emissionHue);
 					outMaterialResponses.push_back(response);
 				}
 			}
@@ -338,6 +345,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		const float sectorReachScale = sectorResponseApplied ? ResolveSectorEmissionReachScale(surface, sectorRawResponseScale) : 1.0f;
 		bool materialResponseApplied = false;
 		const float materialResponseScale = ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
+		const auto hue = ResolveEmissiveHue(surface);
 		const float sectorReachBound = sectorResponseEligible ?
 			(surface.hasSectorResponseReachMax ?
 				std::max(std::max(0.0f, surface.sectorResponseReachMin), surface.sectorResponseReachMax) :
@@ -361,6 +369,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		candidate.gpu.selectionWeight = std::max(surface.powerEstimate, 0.0f) * samplingScale * sectorReachScale * materialResponseScale;
 		candidate.gpu.emissionScale = sectorResponseScale * materialResponseScale;
 		candidate.gpu.materialResponseScale = std::max(materialResponseScale, 0.0f);
+		Copy3f(hue.rgb, candidate.gpu.emissionHue);
 		candidate.referenceProposalWeight = std::max(surface.powerEstimate, 0.0f) * samplingScale * sectorReachBound * materialResponseScale;
 		candidate.hasReferenceProposalWeight = sectorResponseEligible;
 
@@ -391,9 +400,13 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		candidate.debug.sectorReachScale = sectorReachScale;
 		candidate.debug.materialResponseEnabled = IsEmissiveSurfaceMaterialResponseEligible(surface);
 		candidate.debug.materialResponseScale = materialResponseScale;
+		candidate.debug.colorSignalSector = hue.sectorIndex;
+		candidate.debug.colorPalette = hue.palette;
+		candidate.debug.colorPortalHops = hue.portalHops;
 		candidate.debug.sectorResponseApplied = sectorResponseApplied;
 		Copy3f(surface.center, candidate.debug.center);
 		Copy3f(surface.emissiveColor, candidate.debug.emissiveColor);
+		nri_scene::ReplaceEmissionHue(candidate.debug.emissiveColor, hue.rgb);
 		candidate.gpu.stableKeyLo = (uint32_t)(candidate.debug.stableKey & 0xffffffffu);
 		candidate.gpu.stableKeyHi = (uint32_t)(candidate.debug.stableKey >> 32u);
 		candidates.push_back(candidate);
@@ -440,7 +453,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		NRIEmissiveSamplingDistributionCandidate distributionCandidate = {};
 		distributionCandidate.stableKey = candidate.debug.stableKey;
 		distributionCandidate.bindingKey = nri_scene::HashCombine64(
-			candidate.debug.stableKey,
+		candidate.debug.stableKey,
 			(uint64_t)candidate.debug.emissiveMode);
 		distributionCandidate.tieBreakKey = nri_scene::HashCombine64(
 			nri_scene::HashCombine64((uint64_t)candidate.gpu.dataSource, (uint64_t)candidate.gpu.primitiveIndex),
@@ -575,6 +588,9 @@ uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSampli
 	for (const auto& surface : mEmissiveSurfaces.activeSurfaces)
 	{
 		hash = nri_scene::HashCombine64(hash, surface.stableKey);
+		const auto hue = ResolveEmissiveHue(surface);
+		for (float channel : hue.rgb) hash = nri_scene::HashCombine64(hash, FloatBits(channel));
+		hash = nri_scene::HashCombine64(hash, (uint32_t)hue.sectorIndex);
 
 		const auto propertyIt = mEmissiveSurfaces.activePropertyHashes.find(surface.stableKey);
 		hash = nri_scene::HashCombine64(hash, propertyIt != mEmissiveSurfaces.activePropertyHashes.end() ? propertyIt->second : 0ull);

@@ -3,6 +3,7 @@
 #include "nri_cvars.h"
 
 #include "nri_renderer.h"
+#include "../scene/nri_sector_color_policy.h"
 #include "nri_diagnostic_names.h"
 #include "nri_persistent_voxel_services.h"
 #include "nri_render_geometry_helpers.h"
@@ -568,7 +569,9 @@ bool NRIRenderer::RefreshStaticMapAnimatedMaterials()
 		static_cast<NRIRenderer*>(user)->mUploadedStaticMapSceneLastFrame = true;
 	};
 
+	const bool colorPolicyChanged = mStaticMapScene.sectorColorMaterialSignature != nri_scene::SectorColorMaterialPolicySignature();
 	const bool result = nri_static_scene::RefreshStaticMapAnimatedMaterials(input, services);
+	if (result && colorPolicyChanged) mResetHistory = true;
 	if (mStaticMapScene.buildSerial != staticBuildSerialBefore ||
 		mStaticMapScene.animatedRefreshSuppressedChunkCount != animatedSuppressedCountBefore ||
 		mStaticMapScene.valid != staticValidBefore)

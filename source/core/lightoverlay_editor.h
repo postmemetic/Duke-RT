@@ -59,6 +59,7 @@ struct ActorLightEditorState
 	bool moveMapLightCloserActionPressed = false;
 	bool moveMapLightFartherActionPressed = false;
 	bool createEmissiveOverrideActionPressed = false;
+	bool sectorColorActionPressed = false;
 	bool createSurfaceLightActionPressed = false;
 	bool controlKeyDown = false;
 	double mapLightPreviewDistance = 128.0;

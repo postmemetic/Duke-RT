@@ -242,6 +242,8 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 			livePowerHash = HashEmissiveStabilityValue(livePowerHash, EmissiveStabilityFloatBits(emissivePrimitives[i].powerEstimate));
 			livePowerHash = HashEmissiveStabilityValue(livePowerHash, EmissiveStabilityFloatBits(emissivePrimitives[i].emissionScale));
 			livePowerHash = HashEmissiveStabilityValue(livePowerHash, EmissiveStabilityFloatBits(emissivePrimitives[i].materialResponseScale));
+			for (float component : emissivePrimitives[i].emissionHue)
+				livePowerHash = HashEmissiveStabilityValue(livePowerHash, EmissiveStabilityFloatBits(component));
 			proposalWeightHash = HashEmissiveStabilityValue(proposalWeightHash, stableKey);
 			proposalWeightHash = HashEmissiveStabilityValue(proposalWeightHash, EmissiveStabilityFloatBits(emissivePrimitives[i].selectionWeight));
 		}

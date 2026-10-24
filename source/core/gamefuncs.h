@@ -418,9 +418,11 @@ inline int shadeToLight(int shade)
 	return PalEntry(255, light, light, light);
 }
 
+int SectorPaletteForRendering(const sectortype* sect, int intrinsicPalette = 0);
+
 inline void copyfloorpal(tspritetype* spr, const sectortype* sect)
 {
-	if (sect && !lookups.noFloorPal(sect->floorpal)) spr->pal = sect->floorpal;
+	if (sect && !lookups.noFloorPal(sect->floorpal)) spr->pal = SectorPaletteForRendering(sect, spr->pal);
 }
 
 inline int I_GetBuildTime()

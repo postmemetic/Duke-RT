@@ -365,11 +365,14 @@ namespace
 			SceneLightSystem::AnalyticLightRegistry::MapOverlayRule overlayRule = {};
 			float offset[3] = {};
 			ConvertMapOverlayWorldVectorToPathTracing(resolvedRule.offset, offset);
+			overlayRule.colorResponse = resolvedRule.colorResponse;
 			overlayRule.ruleId = BuildMapOverlayRuleId(resolvedRule);
 			overlayRule.source = SceneLightRecordSource::StaticMapScene;
 			overlayRule.position[0] = anchorPosition[0] + offset[0];
 			overlayRule.position[1] = anchorPosition[1] + offset[1];
 			overlayRule.position[2] = anchorPosition[2] + offset[2];
+			overlayRule.physicalSector = resolvedRule.anchorType == LightOverlayAnchorType::Sector ?
+				resolvedRule.anchorIndex : nri_scene::FindSectorColorAnchor(overlayRule.position);
 			overlayRule.stableKey = BuildMapOverlayStableKey(overlayRule.ruleId, overlayRule.position);
 			overlayRule.color[0] = resolvedRule.color[0];
 			overlayRule.color[1] = resolvedRule.color[1];
@@ -393,6 +396,8 @@ namespace
 
 			SceneLightSystem::AnalyticLightRegistry::MapOverlayRule overlayRule = {};
 			const float offset = resolvedRule.hasOffset ? resolvedRule.offset : 0.0f;
+			overlayRule.colorResponse = resolvedRule.colorResponse;
+			overlayRule.physicalSector = resolvedRule.hasSector ? resolvedRule.sector : -1;
 			overlayRule.ruleId = BuildSurfaceLightRuleId(resolvedRule);
 			overlayRule.source = SceneLightRecordSource::DynamicScene;
 			overlayRule.position[0] = resolvedRule.position[0] + resolvedRule.normal[0] * offset;
@@ -449,6 +454,7 @@ namespace
 			rule.intensityScale = resolvedRule.intensityScale;
 			rule.hasReachScale = resolvedRule.hasReachScale;
 			rule.reachScale = resolvedRule.reachScale;
+			rule.colorResponse = resolvedRule.colorResponse;
 			rule.hasSectorResponse = resolvedRule.hasSectorResponse;
 			rule.sectorResponse = resolvedRule.sectorResponse;
 			rule.hasSignalSector = resolvedRule.hasSignalSector && resolvedRule.signalSector >= 0;
@@ -497,6 +503,7 @@ namespace
 			const bool sectorResponseEnabled = resolvedRule.hasSectorResponse && resolvedRule.sectorResponse;
 			SceneLightSystem::EmissiveOverrideRule rule = {};
 			rule.ruleId = BuildSurfaceLightRuleId(resolvedRule);
+			rule.colorResponse = resolvedRule.colorResponse;
 			rule.hasSectorResponse = true;
 			rule.sectorResponse = sectorResponseEnabled;
 			rule.hasSignalSector = resolvedRule.hasSignalSector && resolvedRule.signalSector >= 0;

@@ -1,6 +1,7 @@
 #include "nri_static_scene.h"
 #include "nri_runtime_mutation_shared.h"
 #include "../scene/nri_scene_math.h"
+#include "../scene/nri_sector_color_policy.h"
 #include "../../hwrenderer/data/hw_clock.h"
 
 #include <algorithm>
@@ -135,6 +136,8 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 	state.changedChunks.clear();
 	auto& stats = state.lastFrame;
 	bool optimized = input.patchMaterials && !state.quarantined;
+	const uint64_t colorPolicySignature = nri_scene::SectorColorMaterialPolicySignature();
+	const bool refreshColorPolicy = staticScene.sectorColorMaterialSignature != colorPolicySignature;
 	const auto recover = [&](const char* reason)
 	{
 		return services.recoverStaticScene != nullptr && services.recoverStaticScene(services.user, reason);
@@ -196,7 +199,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 	};
 	// Choose iteration mode once: quarantining a later chunk must not reinterpret
 	// the current candidate cursor as a full-map cursor or process chunks twice.
-	const bool useCandidateList = optimized;
+	const bool useCandidateList = optimized && !refreshColorPolicy;
 	const size_t visitCount = useCandidateList ? state.candidates.size() : staticScene.chunks.size();
 	for (size_t cursor = 0; cursor < visitCount; ++cursor)
 	{
@@ -205,13 +208,14 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		if (chunkListIndex >= staticScene.chunks.size()) return recover("animated-refresh-candidate-index-mismatch");
 		auto& chunk = staticScene.chunks[chunkListIndex];
 		if (chunk.chunkIndex >= mapWorld.chunks.size()) return recover("animated-refresh-layout-mismatch");
-		if (!chunk.active || !chunk.hasAnimatedTextureCandidates || chunk.animatedRefreshSuppressed ||
-			input.visibleChunkWords == nullptr || !nri_runtime_mutation::IsChunkMarkedVisible(*input.visibleChunkWords, chunk.chunkIndex)) continue;
+		if (!chunk.active) continue;
+		if (!refreshColorPolicy && (!chunk.hasAnimatedTextureCandidates || chunk.animatedRefreshSuppressed ||
+			input.visibleChunkWords == nullptr || !nri_runtime_mutation::IsChunkMarkedVisible(*input.visibleChunkWords, chunk.chunkIndex))) continue;
 		++stats.eligibleChunks;
 		const auto& retainedView = staticScene.lightChunkViews[chunkListIndex];
 		uint64_t cheapSignature = 0;
 		bool cheapValid = false;
-		if (optimized && services.resolveAnimatedBindingsForStaticMapChunk != nullptr)
+		if (!refreshColorPolicy && optimized && services.resolveAnimatedBindingsForStaticMapChunk != nullptr)
 		{
 			cheapValid = services.resolveAnimatedBindingsForStaticMapChunk(services.user, mapWorld,
 				mapWorld.chunks[chunk.chunkIndex], retainedView, state.resolvedBindings) &&
@@ -226,7 +230,13 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		nri_scene::SceneView liveView = retainedView;
 		++stats.chunksCloned;
 		uint64_t liveSignature = 0;
-		if (cheapValid && optimized && !input.validateMaterialPatches)
+		if (refreshColorPolicy)
+		{
+			// Retained views own current runtime geometry. A palette policy edit must
+			// rebuild materials without replaying map geometry or animation bindings.
+			liveSignature = nri_runtime_mutation::ComputeAnimatedMaterialSignature(liveView);
+		}
+		else if (cheapValid && optimized && !input.validateMaterialPatches)
 		{
 			size_t bindingIndex = 0;
 			for (auto& surface : liveView.opaqueWalls) surface.material.texture = state.resolvedBindings[bindingIndex++];
@@ -250,13 +260,13 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 				if (cheapValid && cheapSignature != liveSignature) mismatch("binding-signature");
 			}
 		}
-		if (liveSignature == chunk.animatedMaterialSignature)
+		if (!refreshColorPolicy && liveSignature == chunk.animatedMaterialSignature)
 		{
 			++stats.unchangedChunks;
 			continue;
 		}
 		const uint64_t geometrySignature = nri_runtime_mutation::ComputeAnimatedGeometrySignature(liveView);
-		if (geometrySignature != chunk.animatedGeometrySignature)
+		if (!refreshColorPolicy && geometrySignature != chunk.animatedGeometrySignature)
 		{
 			++staticScene.animatedGeometryFallbackCount;
 			suppress(chunk, "display-metric-mismatch");
@@ -270,6 +280,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		}
 		if (liveMaterials.materials.size() != chunk.materialCount)
 		{
+			if (refreshColorPolicy) return recover("sector-color-material-slice-mismatch");
 			++staticScene.animatedGeometryFallbackCount;
 			suppress(chunk, "material-slice-mismatch");
 			continue;
@@ -290,6 +301,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 	}
 	if (state.changedChunks.empty())
 	{
+		staticScene.sectorColorMaterialSignature = colorPolicySignature;
 		trace();
 		return true;
 	}
@@ -346,6 +358,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		return recover("animated-refresh-upload-failed");
 	}
 	staticScene.texturesResident = true;
+	staticScene.sectorColorMaterialSignature = colorPolicySignature;
 	staticScene.buffersResident = true;
 	++staticScene.gpuUploadCount;
 	staticScene.animatedRefreshCount += (uint32_t)state.changedChunks.size();

@@ -2,6 +2,61 @@
 
 `LIGHTOVR` is Duke-RT's text overlay database for authored ray-traced lighting and smoke behavior. This guide covers the file format, load/reload behavior, smoke sources, and the current in-game light edit workflows.
 
+## Sector color controls emitted light
+
+The NRI renderer can transfer environmental palette effects to lights. It replaces emission hue while preserving linear luminance and texture detail. Walls and flats use their original texture colors; illumination supplies the room color, including its reflections on water. Intrinsic actor lights, sunlight, sky palettes, fog and fluid body colors keep their existing meaning.
+
+Run `lightoverlay_generatesectorcolors` to seed Duke environmental profiles for palettes 1 (blue), 2 (red), 7 (amber), and 8 (green) in the writable `LIGHTOVR`. Existing profiles and overrides are preserved on repeated runs. These are initial art-direction values, intended for later tuning. Other palettes remain untouched.
+
+```text
+LIGHTOVR
+{
+    sectorcolor "DukeEnvironmentPalette2"
+    {
+        palette 2
+        color 1.0 0.10 0.025
+        enabled on
+        neutralize on
+    }
+    map "E2L9"
+    {
+        sectorcolor "Submarine"
+        {
+            sector 36
+            source floor
+            color 1.0 0.08 0.02
+        }
+    }
+}
+```
+
+Global `sectorcolor` blocks require `palette 1..255` and a positive RGB color when enabled. Map-local blocks require `sector`; optional `color` replaces the profile hue. `source auto|floor|ceiling` defaults to `auto`: prefer a configured floor palette, then a configured non-sky ceiling palette. Explicit `source ceiling` can use a sky ceiling as a signal without stripping its sky texture palette. RGB values are linear and normalized to unit luminance, so brightness remains controlled by the emitter. Different rules targeting the same palette or sector use the last applicable rule in load order.
+
+`enabled off` at sector scope disables transfer and restores the sector's original palette rendering. `neutralize off` keeps the original surface palette while still applying the lighting hue. At global scope these fields control that palette profile. Inherited environmental palettes on Duke actors, voxels and weapons are bypassed before they overwrite intrinsic colors. Selective art palettes and explicit intrinsic sprite palettes remain intact.
+
+Add these optional fields to an existing `light`, `surfacelight`, or `emissiveoverride`:
+
+```text
+colorresponse auto
+colorsignal sector 36
+```
+
+`colorresponse off` keeps the emitter's authored hue. `auto` and `on` enable hue transfer. `colorsignal` selects an independent live color source; the existing `signal sector` continues to control brightness. Without an explicit color source, the existing brightness signal is preferred, then the emitter's own sector. Neutral sectors can inherit from an environmental color source through at most two open, unmasked Build portals; closest hop wins, with lower sector number breaking ties. Explicit `colorsignal` never searches neighbors. Map-sector `enabled off` blocks automatic propagation through that sector. Actor emission remains independently colored; these controls govern map emission and placed fixtures.
+
+Both an authored `surfacelight`'s visible fixture and its analytic light use the same policy. Natural map emissive textures use it automatically. This does not create light in a room with no emitter; add or adjust a fixture with the existing tools where needed.
+
+In `nri_ptemissivelighteditmode`, aim at a surface and press **C** to create an editable sector rule without replacing an existing correction. **P** still creates an emitter override, now with a color response field; **L** reloads edits. Console tools:
+
+- `nri_ptsectorcoloredit <sector> auto` restores profile-driven hue for that sector.
+- `nri_ptsectorcoloredit <sector> off` disables transfer for that sector.
+- `nri_ptsectorcoloredit <sector> <r> <g> <b>` writes a hue override and reloads it.
+- `nri_ptsectorcolordump [sector]` reports live palette, chosen signal, portal distance and palette neutralization.
+- `nri_ptemissivedump [radius] [limit]` includes each bound emitter's effective hue and color source.
+- `nri_ptsectorcolorpreview <sector> <floorpal> <ceilingpal>` changes live palette state while emissive edit mode is enabled. This writes no overlay; reload the save to restore gameplay state.
+- `nri_ptsectorcolor false` disables the feature for comparison; `true` restores it.
+
+Policy reload and the master toggle refresh resident materials before palette-aware texture mip generation. Original palette metadata is retained for material matching and fluid classification. Color-only edits update emission without rebuilding geometry. Save/load and gameplay palette switches are read from live sectors, including linked sectors outside the current view.
+
 ## LIGHTOVR Authoring and Usage
 
 `LIGHTOVR` is the text overlay database for RT-authored lighting and smoke behavior. The parser scans all mounted root-level `LIGHTOVR` lumps, merges them in load order, and uses last-wins replacement for duplicate rule ids within the same scope.
@@ -882,6 +937,7 @@ nri_ptemissivelighteditmode 1
 While emissive light edit mode is enabled:
 
 - `p` creates or updates a map-local `emissiveoverride` for the aimed active emitter
+- `c` creates a map-local `sectorcolor` override for the aimed sector, preserving an existing override; use `nri_ptsectorcoloredit` or edit its text to tune the hue
 - `o` creates a map-local `surfacelight` for the aimed wall, ceiling, or floor, even if the aimed surface is not already emissive
 - `Ctrl+o` creates a map-local `surfacelight` at the aimed surface using the most recently placed or edited `surfacelight` as a template
 - the generated rule targets the surface with the current sector, wall, and renderer texture id when available
@@ -899,7 +955,7 @@ Edit the generated `signal sector` when an emitter needs to follow a different s
 
 Placed `surfacelight` rules can also be edited in-place while `nri_ptemissivelighteditmode 1` is active. Aim at a placed `surfacelight` when possible; if the crosshair probe misses the generated fixture surface, the editor falls back to the most recently placed or successfully edited `surfacelight` on the current map.
 
-Use `Ctrl+o` to repeat-place a tuned fixture. The repeated rule gets a fresh id, position, normal, sector, wall, tile, and signal sector from the newly aimed surface. It copies the active `surfacelight` settings for size, rotation, offset, fixture texture, fixture material response, light type, color, intensity, radius, sector-response enabled state, response curve fields, and material-response clamps.
+Use `Ctrl+o` to repeat-place a tuned fixture. The repeated rule gets a fresh id, position, normal, sector, wall, tile, and signal sector from the newly aimed surface. It copies the active `surfacelight` settings for size, rotation, offset, fixture texture, fixture material response, light type, color, intensity, radius, sector-response enabled state, response curve fields, material-response clamps, and color-response enabled state. Its explicit color source resets to automatic association at the new location.
 
 Surface-light edit hotkeys:
 

@@ -1444,6 +1444,9 @@ namespace
 		hash = nri_scene::HashCombine64(hash, (uint64_t)emissive.sourceFlags);
 		hash = nri_scene::HashCombine64(hash, (uint64_t)emissive.sourceRuleId);
 		hash = nri_scene::HashCombine64(hash, (uint64_t)emissive.overrideRuleId);
+		hash = nri_scene::HashCombine64(hash, emissive.colorResponse.hasResponse);
+		hash = nri_scene::HashCombine64(hash, emissive.colorResponse.enabled);
+		hash = nri_scene::HashCombine64(hash, (uint64_t)(int64_t)emissive.colorResponse.signalSector);
 		hash = nri_scene::HashCombine64(hash, (uint64_t)(uint32_t)emissive.source);
 		hash = nri_scene::HashCombine64(hash, (uint64_t)(uint32_t)emissive.actorIndex);
 		hash = nri_scene::HashCombine64(hash, (uint64_t)(uint32_t)emissive.sectorIndex);
@@ -1644,6 +1647,8 @@ namespace
 	{
 		emissive.sourceFlags |= SceneEmissiveSurfaceSourceFlag_LightOverlayOverride;
 		emissive.overrideRuleId = rule.ruleId;
+		if (rule.colorResponse.hasResponse) { emissive.colorResponse.hasResponse = true; emissive.colorResponse.enabled = rule.colorResponse.enabled; }
+		if (rule.colorResponse.signalSector >= 0) emissive.colorResponse.signalSector = rule.colorResponse.signalSector;
 		if (rule.hasIntensityScale)
 		{
 			emissive.emissiveIntensity *= std::max(rule.intensityScale, 0.0f);
@@ -3469,6 +3474,14 @@ void SceneLightSystem::RebuildAnalyticLights(
 			light.textureId = 0;
 			Copy3f(rule.position, light.position);
 			Copy3f(rule.color, light.color);
+			if (rule.colorResponse.enabled)
+			{
+				const int colorSector = rule.colorResponse.signalSector >= 0 ? rule.colorResponse.signalSector :
+					(rule.hasSignalSector ? rule.signalSector : rule.physicalSector);
+				const auto hue = nri_scene::ResolveSectorEmissionHue(colorSector, rule.colorResponse.signalSector < 0);
+				nri_scene::ReplaceEmissionHue(light.color, hue.rgb);
+			}
+
 			float sectorScale = 1.0f;
 			const int32_t signalSector = rule.hasSignalSector ? rule.signalSector : -1;
 			const bool sectorResponseEnabled = rule.hasSectorResponse ? rule.sectorResponse : false;
@@ -3973,11 +3986,7 @@ void SceneLightSystem::RebuildSectorLighting(uint32_t frameIndex, uint32_t secto
 
 	for (uint32_t sectorIndex = 0; sectorIndex < sectorCount; ++sectorIndex)
 	{
-		if (sectorIndex >= seenSectors.size() || seenSectors[sectorIndex] == 0u)
-		{
-			continue;
-		}
-
+		if (seenSectors[sectorIndex] == 0u) continue;
 		mSectorLighting.eligibleSectorCount++;
 
 		const auto& sec = sector[sectorIndex];
@@ -5161,6 +5170,14 @@ bool SceneLightSystem::IsEmissiveSurfaceMaterialResponseEligible(const EmissiveS
 		(surface.materialResponseExplicit || IsEmissiveSurfaceSectorResponseEligible(surface));
 }
 
+nri_scene::SectorEmissionHue SceneLightSystem::ResolveEmissiveHue(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface) const
+{
+	// Actor emission remains intrinsic, including reusable placed voxel geometry.
+	if (!surface.colorResponse.enabled || surface.actorIndex >= 0) return {};
+	const int signal = surface.colorResponse.signalSector >= 0 ? surface.colorResponse.signalSector : surface.sectorIndex;
+	return nri_scene::ResolveSectorEmissionHue(signal, surface.colorResponse.signalSector < 0);
+}
+
 float SceneLightSystem::ResolveSectorEmissionScale(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, bool& outApplied) const
 {
 	outApplied = false;
@@ -5267,6 +5284,10 @@ uint64_t SceneLightSystem::BuildEmissiveSectorResponsePayloadHash() const
 	uint64_t hash = 1469598103934665603ull;
 	for (const auto& surface : mEmissiveSurfaces.activeSurfaces)
 	{
+		const auto hue = ResolveEmissiveHue(surface);
+		hash = nri_scene::HashCombine64(hash, surface.stableKey);
+		for (float component : hue.rgb) hash = nri_scene::HashCombine64(hash, (uint64_t)FloatBits(component));
+
 		const bool sectorResponseEligible = IsEmissiveSurfaceSectorResponseEligible(surface);
 		if (!sectorResponseEligible)
 		{
@@ -5857,6 +5878,8 @@ void SceneLightSystem::PrintEmissiveSurfaceDump(
 			record.emissiveColor[1],
 			record.emissiveColor[2],
 			record.emissiveIntensity);
+		Printf("NRI PT emissive color: gpu_index=%u sector=%d source=%d palette=%d hops=%d actor=%d\n",
+			candidates[i].gpuIndex, record.sectorIndex, record.colorSignalSector, record.colorPalette, record.colorPortalHops, record.actorIndex);
 	}
 }
 

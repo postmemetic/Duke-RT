@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../scene/nri_material_bridge.h"
+#include "../scene/nri_sector_color_policy.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_world.h"
 #include "../scene/nri_scene_bridge.h"
@@ -159,7 +160,7 @@ struct NRIEmissivePrimitiveGpuData
 	float boundsCenter[3] = {};
 	float boundsRadius = 0.0f;
 	float materialResponseScale = 1.0f;
-	uint32_t reserved[3] = {};
+	float emissionHue[3] = {};
 };
 
 static_assert(sizeof(NRIEmissivePrimitiveGpuData) == 96);
@@ -183,9 +184,10 @@ struct NRIEmissivePrimitiveShaderData
 	float boundsCenter[3] = {};
 	float boundsRadius = 0.0f;
 	float materialResponseScale = 1.0f;
+	float emissionHue[3] = {};
 };
 
-static_assert(sizeof(NRIEmissivePrimitiveShaderData) == 68);
+static_assert(sizeof(NRIEmissivePrimitiveShaderData) == 80);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, primitiveArea) == 8);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, emissionScale) == 16);
 static_assert(offsetof(NRIEmissivePrimitiveShaderData, sceneInstanceIndex) == 28);
@@ -213,6 +215,7 @@ inline NRIEmissivePrimitiveShaderData PackNRIEmissivePrimitiveShaderData(
 	target.boundsCenter[2] = source.boundsCenter[2];
 	target.boundsRadius = source.boundsRadius;
 	target.materialResponseScale = source.materialResponseScale;
+	for (int channel = 0; channel < 3; ++channel) target.emissionHue[channel] = source.emissionHue[channel];
 	return target;
 }
 
@@ -248,6 +251,9 @@ struct NRIEmissivePrimitiveDebugRecord
 	float sectorReachScale = 1.0f;
 	float materialResponseScale = 1.0f;
 	bool materialResponseEnabled = false;
+	int colorSignalSector = -1;
+	int colorPalette = -1;
+	int colorPortalHops = 0;
 	bool sectorResponseApplied = false;
 };
 
@@ -417,6 +423,8 @@ public:
 
 		struct MapOverlayRule
 		{
+			LightOverlayColorResponse colorResponse;
+			int physicalSector = -1;
 			uint32_t ruleId = 0;
 			uint64_t stableKey = 0;
 			SceneLightRecordSource source = SceneLightRecordSource::None;
@@ -501,6 +509,7 @@ public:
 
 		struct EmissiveSurfaceRecord
 		{
+			LightOverlayColorResponse colorResponse;
 			uint64_t stableKey = 0;
 			uint32_t sourceFlags = SceneEmissiveSurfaceSourceFlag_None;
 			uint32_t sourceRuleId = 0;
@@ -580,6 +589,7 @@ public:
 
 	struct EmissiveOverrideRule
 	{
+		LightOverlayColorResponse colorResponse;
 		uint32_t ruleId = 0;
 		bool hasSectorFilter = false;
 		int32_t sectorFilter = -1;
@@ -1080,6 +1090,7 @@ public:
 	void RefreshTransientMuzzleFlashLights(double currentTimeSeconds, const TArray<PathTracingWeaponLightEvent>& pendingEvents, bool debug);
 	bool IsEmissiveSurfaceSectorResponseEligible(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface) const;
 	bool IsEmissiveSurfaceMaterialResponseEligible(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface) const;
+	nri_scene::SectorEmissionHue ResolveEmissiveHue(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface) const;
 	float ResolveSectorEmissionScale(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, bool& outApplied) const;
 	float ResolveSectorEmissionIntensityScale(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, float scale) const;
 	float ResolveSectorEmissionReachScale(const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, float scale) const;

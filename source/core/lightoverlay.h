@@ -156,8 +156,31 @@ struct ParsedLightOverlayMuzzleFlashRule
 	float offset[3] = { 0.0f, 0.0f, 0.0f };
 };
 
+// Independent from brightness response. Unspecified means automatic association.
+struct LightOverlayColorResponse
+{
+	bool hasResponse = false;
+	bool enabled = true;
+	int signalSector = -1;
+};
+
+struct ParsedLightOverlaySectorColorRule
+{
+	FString mapName;
+	FString id;
+	LightOverlaySourceLocation source;
+	int palette = -1; // Global palette profile.
+	int sector = -1; // Map-local policy override.
+	bool enabled = true;
+	bool neutralize = true;
+	int paletteSource = 0; // 0: first eligible floor/ceiling, 1: floor, 2: ceiling.
+	bool hasColor = false;
+	float color[3] = { 1.0f, 1.0f, 1.0f };
+};
+
 struct ParsedLightOverlayMapLightRule
 {
+	LightOverlayColorResponse colorResponse;
 	FString mapName;
 	FString id;
 	LightOverlaySourceLocation source;
@@ -184,6 +207,7 @@ struct ParsedLightOverlayMapLightRule
 
 struct ParsedLightOverlayEmissiveOverrideRule
 {
+	LightOverlayColorResponse colorResponse;
 	FString mapName;
 	FString id;
 	LightOverlaySourceLocation source;
@@ -252,6 +276,7 @@ struct ParsedLightOverlayEmissiveMaterialResponseRule
 
 struct ParsedLightOverlaySurfaceLightRule
 {
+	LightOverlayColorResponse colorResponse;
 	FString mapName;
 	FString id;
 	LightOverlaySourceLocation source;
@@ -469,6 +494,7 @@ struct ParsedLightOverlayDatabase
 	TArray<ParsedLightOverlayActorRule> actorRules;
 	TArray<ParsedLightOverlayDirectionalRule> directionalRules;
 	TArray<ParsedLightOverlayMuzzleFlashRule> muzzleFlashRules;
+	TArray<ParsedLightOverlaySectorColorRule> sectorColorRules;
 	TArray<ParsedLightOverlayMapLightRule> mapLightRules;
 	TArray<ParsedLightOverlayEmissiveOverrideRule> emissiveOverrideRules;
 	TArray<ParsedLightOverlayEmissiveMaterialResponseRule> emissiveMaterialResponseRules;
@@ -569,6 +595,7 @@ struct ResolvedLightOverlayMuzzleFlashRule
 
 struct ResolvedLightOverlayMapLightRule
 {
+	LightOverlayColorResponse colorResponse;
 	FString mapName;
 	FString id;
 	LightOverlaySourceLocation source;
@@ -595,6 +622,7 @@ struct ResolvedLightOverlayMapLightRule
 
 struct ResolvedLightOverlayEmissiveOverrideRule
 {
+	LightOverlayColorResponse colorResponse;
 	FString mapName;
 	FString id;
 	LightOverlaySourceLocation source;
@@ -657,6 +685,7 @@ struct ResolvedLightOverlayEmissiveMaterialResponseRule
 
 struct ResolvedLightOverlaySurfaceLightRule
 {
+	LightOverlayColorResponse colorResponse;
 	FString mapName;
 	FString id;
 	LightOverlaySourceLocation source;
@@ -759,6 +788,7 @@ struct ResolvedLightOverlaySet
 	TArray<ResolvedLightOverlayActorRule> actorRules;
 	TArray<ResolvedLightOverlayDirectionalRule> directionalRules;
 	TArray<ResolvedLightOverlayMuzzleFlashRule> muzzleFlashRules;
+	TArray<ParsedLightOverlaySectorColorRule> sectorColorRules;
 	TArray<ResolvedLightOverlayMapLightRule> mapLightRules;
 	TArray<ResolvedLightOverlayEmissiveOverrideRule> emissiveOverrideRules;
 	TArray<ResolvedLightOverlayEmissiveMaterialResponseRule> emissiveMaterialResponseRules;
@@ -772,6 +802,7 @@ struct ResolvedLightOverlaySet
 
 enum class LightOverlayRuleKind : uint8_t
 {
+	SectorColor,
 	ActorRule,
 	Directional,
 	MuzzleFlash,
@@ -805,3 +836,5 @@ bool AddOrReplaceLightOverlayRule(ParsedLightOverlayDatabase& database, const Pa
 bool AddOrReplaceLightOverlayRule(ParsedLightOverlayDatabase& database, const ParsedLightOverlaySmokeEventRule& rule, bool* outReplaced = nullptr);
 bool AddOrReplaceLightOverlayRule(ParsedLightOverlayDatabase& database, const ParsedLightOverlayMapSmokeEmitterRule& rule, bool* outReplaced = nullptr);
 bool RemoveLightOverlayRule(ParsedLightOverlayDatabase& database, LightOverlayRuleKind kind, const char* id, const char* mapName = nullptr);
+
+bool AddOrReplaceLightOverlayRule(ParsedLightOverlayDatabase& database, const ParsedLightOverlaySectorColorRule& rule, bool* outReplaced = nullptr);

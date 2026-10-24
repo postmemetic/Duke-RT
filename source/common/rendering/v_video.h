@@ -449,6 +449,7 @@ public:
 	void SetClearColor(int color);
 	virtual int Backend() { return 0; }
 	virtual const char* DeviceName() const { return "Unknown"; }
+	virtual bool ShouldInheritSectorPalette(int sectorIndex, int palette) const { return true; }
 	virtual bool SupportsQueued2DTextureRenders() const { return false; }
 	virtual void AmbientOccludeScene(float m5) {}
 	virtual void FirstEye() {}

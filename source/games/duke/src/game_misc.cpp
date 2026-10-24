@@ -198,7 +198,7 @@ void V_AddBlend (float r, float g, float b, float a, float v_blend[4])
 	 {
 		 fi.displayweapon(pp, interpfrac);
 		 if (pp->over_shoulder_on == 0)
-			 fi.displaymasks(pp, pp->GetActor()->spr.pal == 1 || !pp->insector() ? 1 : pp->cursector->floorpal, interpfrac);
+			 fi.displaymasks(pp, pp->GetActor()->spr.pal == 1 || !pp->insector() ? 1 : SectorPaletteForRendering(pp->cursector), interpfrac);
 	 }
 
  }
@@ -434,4 +434,3 @@ bool GameInterface::DrawAutomapPlayer(const DVector2& mxy, const DVector2& cpos,
 
 
 END_DUKE_NS
-

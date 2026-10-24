@@ -1,4 +1,5 @@
 #include "nri_runtime_mutation_shared.h"
+#include "../scene/nri_sector_color_policy.h"
 
 #include "../scene/nri_hash.h"
 #include "hw_sections.h"
@@ -490,6 +491,8 @@ namespace nri_runtime_mutation
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)surface.material.flags);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)(surface.material.authoredTextureId + 1));
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.material.palette);
+			hash = RuntimeMutationHashCombine64(hash, nri_scene::ResolveSectorRenderPalette(
+				(uint32_t)surface.material.palette, surface.provenance.sourceType, surface.provenance.sectorIndex, surface.material.flags));
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)(uint32_t)surface.material.shade);
 			hash = RuntimeMutationHashCombine64(hash, (uint64_t)RuntimeMutationFloatBits(surface.material.alpha));
 			hash = RuntimeMutationHashCombine64(hash, HashAnimatedTextureBindingSignature(texture));

@@ -695,19 +695,27 @@ float3 SmokeSampleMaterialEmission(MaterialData material, float2 uv)
 	return 0.0;
 }
 
-float SmokeGetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
+EmissiveResponseLookupResult SmokeGetEmissiveMaterialResponse(uint dataSource, uint primitiveIndex)
 {
 	uint responseCapacity, responseStride;
 	gSmokeEmissiveMaterialResponses.GetDimensions(responseCapacity, responseStride);
 	if (responseCapacity == 0u)
-		return 1.0;
+	{
+		EmissiveResponseLookupResult empty = { 1.0, 0u, 0u, 0.0.xxx };
+		return empty;
+	}
 	const EmissiveMaterialResponseData header = gSmokeEmissiveMaterialResponses[0];
 	const uint responseCount = min(header.dataSource, responseCapacity - 1u);
 	if (GetEmissiveResponseLookupMode(header.flags) == 2u)
 	{
-		return FindEmissiveResponseBinary(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex).scale;
+		return FindEmissiveResponseBinary(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex);
 	}
-	return FindEmissiveResponseLinear(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex).scale;
+	return FindEmissiveResponseLinear(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex);
+}
+
+float SmokeGetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
+{
+	return SmokeGetEmissiveMaterialResponse(dataSource, primitiveIndex).scale;
 }
 
 float SmokeResolveEmissiveRadianceScale(EmissivePrimitiveData candidate, uint primitiveIndex)

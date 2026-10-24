@@ -21,6 +21,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //------------------------------------------------------------------------- 
 
 #include "gamefuncs.h"
+#include "v_video.h"
 #include "gamestruct.h"
 #include "intvec.h"
 #include "coreactor.h"
@@ -1372,4 +1373,11 @@ FSerializer& Serialize(FSerializer& arc, const char* key, vec3_t& c, vec3_t* def
 			.EndObject();
 	}
 	return arc;
+}
+
+int SectorPaletteForRendering(const sectortype* sect, int intrinsicPalette)
+{
+	if (sect == nullptr) return intrinsicPalette;
+	return screen != nullptr && !screen->ShouldInheritSectorPalette(sector.IndexOf(sect), sect->floorpal) ?
+		intrinsicPalette : sect->floorpal;
 }

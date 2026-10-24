@@ -4,7 +4,7 @@
 #include "EmissiveLightContracts.hlsli"
 
 // Header.flags markers are versioned; unrecognized payloads retain linear
-// lookup. Header.dataSource remains the number of following 16-byte rows.
+// lookup. Header.dataSource remains the number of following 32-byte rows.
 static const uint NRI_EMISSIVE_RESPONSE_HEADER_LINEAR_REUSE = 0x45520101u;
 static const uint NRI_EMISSIVE_RESPONSE_HEADER_BINARY_REUSE = 0x45520102u;
 
@@ -19,13 +19,14 @@ struct EmissiveResponseLookupResult
 	float scale;
 	uint found;
 	uint examined;
+	float3 emissionHue;
 };
 
 EmissiveResponseLookupResult FindEmissiveResponseLinear(
 	StructuredBuffer<EmissiveMaterialResponseData> responses,
 	uint responseCount, uint dataSource, uint primitiveIndex)
 {
-	EmissiveResponseLookupResult result = { 1.0, 0u, 0u };
+	EmissiveResponseLookupResult result = { 1.0, 0u, 0u, 0.0.xxx };
 	[loop]
 	for (uint i = 1u; i <= responseCount; ++i)
 	{
@@ -34,6 +35,7 @@ EmissiveResponseLookupResult FindEmissiveResponseLinear(
 		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
 		{
 			result.scale = max(response.materialScale, 0.0);
+			result.emissionHue = response.emissionHue;
 			result.found = 1u;
 			return result;
 		}
@@ -45,7 +47,7 @@ EmissiveResponseLookupResult FindEmissiveResponseBinary(
 	StructuredBuffer<EmissiveMaterialResponseData> responses,
 	uint responseCount, uint dataSource, uint primitiveIndex)
 {
-	EmissiveResponseLookupResult result = { 1.0, 0u, 0u };
+	EmissiveResponseLookupResult result = { 1.0, 0u, 0u, 0.0.xxx };
 	uint lower = 1u;
 	uint upper = responseCount + 1u;
 	[loop]
@@ -68,6 +70,7 @@ EmissiveResponseLookupResult FindEmissiveResponseBinary(
 			if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
 			{
 				result.scale = max(response.materialScale, 0.0);
+				result.emissionHue = response.emissionHue;
 				result.found = 1u;
 			}
 		}

@@ -4918,6 +4918,7 @@ LIGHTOVR
         }
         light "Star"
         {
+            colorsignal sector 36
             type "point"
             anchor position 1341.47 1339.37 -229.816
             color 1.0 1.0 1.0
@@ -9386,4 +9387,41 @@ LIGHTOVR
             shadow on
         }
     }
+}
+
+// Initial environmental sector-color profiles. Existing authored text is preserved.
+LIGHTOVR
+{
+    sectorcolor "DukeEnvironmentPalette1"
+    {
+        palette 1
+        enabled on
+        neutralize on
+        color 0.5 0.65 1.0
+    }
+
+    sectorcolor "DukeEnvironmentPalette2"
+    {
+        palette 2
+        enabled on
+        neutralize on
+        color 1.0 0.1 0.025
+    }
+
+    sectorcolor "DukeEnvironmentPalette7"
+    {
+        palette 7
+        enabled on
+        neutralize on
+        color 1.0 0.55 0.1
+    }
+
+    sectorcolor "DukeEnvironmentPalette8"
+    {
+        palette 8
+        enabled on
+        neutralize on
+        color 0.5 1.0 0.2
+    }
+
 }

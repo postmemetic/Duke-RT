@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "../scene/nri_sector_color_policy.h"
 
 #include "nri_cvars.h"
 #include "nri_diagnostic_names.h"
@@ -342,7 +343,8 @@ void NRIRenderer::UpdateSurfaceProbe(
 		result.metadataPaletteIndex = metadata.paletteIndex;
 		result.semanticMetadataMatch =
 			materialData.textureIndex == metadata.textureIndex &&
-			materialData.paletteIndex == metadata.paletteIndex;
+			materialData.paletteIndex == nri_scene::ResolveSectorRenderPalette(metadata.paletteIndex,
+				metadata.sourceType, metadata.sectorIndex, metadata.materialFlags);
 		result.textureId = metadata.textureId;
 		result.baseTextureId = metadata.baseTextureId != 0 ? metadata.baseTextureId : metadata.textureId;
 		result.authoredTextureId = metadata.authoredTextureId;
@@ -361,7 +363,7 @@ void NRIRenderer::UpdateSurfaceProbe(
 
 		nri_scene::MaterialData effectiveMaterial = {};
 		effectiveMaterial.textureIndex = metadata.textureIndex;
-		effectiveMaterial.paletteIndex = metadata.paletteIndex;
+		effectiveMaterial.paletteIndex = materialData.paletteIndex;
 		effectiveMaterial.flags = metadata.materialFlags;
 		effectiveMaterial.materialClass = metadata.materialClass;
 		effectiveMaterial.lightLevel = metadata.lightLevel;

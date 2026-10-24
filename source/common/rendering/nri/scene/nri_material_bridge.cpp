@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "nri_sector_color_policy.h"
 #include "nri_voxel_palette_policy.h"
 #include "../renderer/nri_cvars.h"
 
@@ -595,7 +596,7 @@ namespace
 		metadata.normalTextureIndex = normalTextureIndex;
 		metadata.metallicTextureIndex = metallicTextureIndex;
 		metadata.roughnessTextureIndex = roughnessTextureIndex;
-		metadata.paletteIndex = material.paletteIndex;
+		metadata.paletteIndex = (uint32_t)clamp(materialRef.palette, 0, MAXPALOOKUPS - 1);
 		metadata.materialFlags = material.flags;
 		metadata.authoredTextureId = materialRef.authoredTextureId >= 0 ? (uint32_t)materialRef.authoredTextureId : UINT32_MAX;
 		metadata.sourceType = surface.provenance.sourceType;
@@ -801,7 +802,8 @@ namespace
 		const MaterialRef& materialRef = surface.material;
 		MaterialData material = {};
 		material.flags = materialRef.flags;
-		material.paletteIndex = (uint32_t)clamp(materialRef.palette, 0, MAXPALOOKUPS - 1);
+		material.paletteIndex = ResolveSectorRenderPalette((uint32_t)clamp(materialRef.palette, 0, MAXPALOOKUPS - 1),
+			surface.provenance.sourceType, surface.provenance.sectorIndex, materialRef.flags);
 		material.lightLevel = ComputeLightLevel(materialRef);
 		material.alpha = materialRef.alpha;
 		material.roughnessHint = ComputeRoughnessHint(materialRef, material.lightLevel);
