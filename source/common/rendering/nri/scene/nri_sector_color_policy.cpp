@@ -88,6 +88,8 @@ uint64_t SectorColorMaterialPolicySignature()
 	// Hue changes affect light payloads, but not texture palettes or their mip chains.
 	for (const auto& rule : GetResolvedLightOverlaySet().sectorColorRules)
 	{
+		// Only the last rule for a sector determines its material policy.
+		if (rule.mapName.IsNotEmpty() && SectorOverride(rule.sector) != &rule) continue;
 		// Default map policy only adjusts emission. Creating an RGB/numeric override
 		// must not invalidate material palettes that it leaves unchanged.
 		if (rule.mapName.IsNotEmpty() && rule.enabled && rule.neutralize) continue;
