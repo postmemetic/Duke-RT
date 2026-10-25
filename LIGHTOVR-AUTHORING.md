@@ -15,8 +15,8 @@ LIGHTOVR
     {
         palette 2
         color 1.0 0.10 0.025
-        strength 0.25
-        gain 0.65
+        strength 0.35
+        gain 0.80
         enabled on
         neutralize on
     }
