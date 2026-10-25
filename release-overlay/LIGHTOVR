@@ -9408,8 +9408,8 @@ LIGHTOVR
         enabled on
         neutralize on
         color 1.0 0.1 0.025
-        strength 0.35
-        gain 0.80
+        strength 0.45
+        gain 0.90
     }
 
     sectorcolor "DukeEnvironmentPalette7"

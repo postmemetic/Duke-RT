@@ -1932,8 +1932,8 @@ CCMD(lightoverlay_generatesectorcolors)
 		rule.palette = palettes[i];
 		rule.hasColor = true;
 		rule.hasStrength = rule.hasGain = true;
-		rule.strength = 0.35f;
-		rule.gain = 0.80f;
+		rule.strength = palettes[i] == 2 ? 0.45f : 0.35f;
+		rule.gain = palettes[i] == 2 ? 0.90f : 0.80f;
 		for (int channel = 0; channel < 3; ++channel) rule.color[channel] = colors[i][channel];
 		rule.source.lumpNum = lump;
 		rule.source.sourceName = FindActorLightEditorSourceNameForLump(database, lump);
