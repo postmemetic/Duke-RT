@@ -1854,6 +1854,13 @@ LIGHTOVR
 
     map "E1L5"
     {
+        // The deep lava chamber retains a gentler color response.
+        sectorcolor "LavaChamber316"
+        {
+            sector 316
+            strength 0.35
+            gain 0.80
+        }
         directional "LAMoonTwo"
         {
             color 0.75 0.75 0.85

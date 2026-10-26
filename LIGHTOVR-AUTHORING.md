@@ -65,6 +65,26 @@ In `nri_ptemissivelighteditmode`, aim at a surface and press **C** to create an 
 
 Policy reload and the master toggle refresh resident materials before palette-aware texture mip generation. Original palette metadata is retained for material matching and fluid classification. Color-only edits update emission without rebuilding geometry. Save/load and gameplay palette switches are read from live sectors, including linked sectors outside the current view.
 
+### Editing a room in game
+
+The automatic blue, red, amber and green profiles use strength `0.45` and gain `0.90`. The deep lava chamber in The Abyss (`E1L5`, sector `316`) has a local `0.35` / `0.80` correction; its neighboring lava stream keeps the global response. Map-local rules let you tune individual areas without changing the entire palette profile.
+
+1. Open the console and run `nri_ptactorlighteditwritable` to see which loose `LIGHTOVR` will receive edits. Then run `nri_ptsectorcolor true` and `nri_ptemissivelighteditmode 1`.
+2. Close the console, aim at a wall, floor or ceiling in the area, and press **C**. Open the console again to read the reported `sector=N`. This selects the aimed surface's sector, which can differ from the player's sector or an emitter's linked color source. An existing correction is preserved.
+3. Inspect `nri_ptsectorcolordump N`. Its `source` is the chosen hue source; `hops` describes portal borrowing. `nri_ptemissivedump 4096 100` shows nearby emitter bindings. Use the selected sector for a local adjustment, or the reported source to affect emitters borrowing from it. An explicit emitter `colorsignal` or brightness `signal` can direct it elsewhere.
+4. Adjust values using the sector number. For example, while in The Abyss:
+
+```text
+nri_ptsectorcoloredit 316 strength .35
+nri_ptsectorcoloredit 316 gain .80
+```
+
+Each command saves and reloads immediately; no separate save action is needed. Strength blends hue into the original emission, and gain scales output. Both affect visible sources and the light they cast. Use `.45` / `.90` for the general response, or intermediate values to taste. RGB can be changed independently, for example `nri_ptsectorcoloredit 316 1 .10 .025`; RGB values are linear and normalized, so use gain to adjust brightness.
+
+`nri_ptsectorcoloredit 316 auto` clears the RGB, strength and gain corrections and enables profile inheritance again. It preserves source selection and `neutralize`. `off` disables transfer for that sector and restores its original surface palette. `nri_ptsectorcolor false` / `true` toggles the whole feature for comparison. Finish with `nri_ptemissivelighteditmode 0`.
+
+Edits persist in the last mounted writable loose `LIGHTOVR`, independently of game saves. Archive sources cannot be edited. The editor serializes the merged database into that file; keep a backup if preserving hand formatting matters. Changes in a testing overlay do not automatically synchronize the shipped `release-overlay/LIGHTOVR`: copy the intended map-sector rules back when keeping them. **L** in edit mode or `lightoverlay_reload` reloads external text edits.
+
 ## LIGHTOVR Authoring and Usage
 
 `LIGHTOVR` is the text overlay database for RT-authored lighting and smoke behavior. The parser scans all mounted root-level `LIGHTOVR` lumps, merges them in load order, and uses last-wins replacement for duplicate rule ids within the same scope.
