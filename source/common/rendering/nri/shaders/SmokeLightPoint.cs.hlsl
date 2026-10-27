@@ -60,6 +60,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float selectedLightScores[NRI_SMOKE_MAX_SELECTED_LIGHTS];
 		uint selectedLightShadowFlags[NRI_SMOKE_MAX_SELECTED_LIGHTS];
 		uint selectedLightCount = 0u;
+		// Keep inactive array entries defined across the selection loops. AMD's
+		// 26.10.1 compiler crashes on this shader when they remain undefined,
+		// even though active entries are always assigned before use.
+		[unroll]
+		for (uint initializeIndex = 0u; initializeIndex < NRI_SMOKE_MAX_SELECTED_LIGHTS; ++initializeIndex)
+		{
+			selectedLightIndices[initializeIndex] = 0u;
+			selectedLightScores[initializeIndex] = 0.0;
+			selectedLightShadowFlags[initializeIndex] = 0u;
+		}
 
 		[loop]
 		for (uint tileCandidate = 0u; tileCandidate < tileHeader.indexCount && selectionCapacity > 0u; ++tileCandidate)
