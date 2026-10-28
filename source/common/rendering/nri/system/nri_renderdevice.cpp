@@ -1,6 +1,7 @@
 #include "nri_renderdevice.h"
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
+#include "../renderer/nri_settings_availability.h"
 #include "../renderer/nri_diagnostic_cadence.h"
 #include "../renderer/nri_smoke_descriptor_budget.h"
 #include "../renderer/nri_primary_temporal_geometry_diagnostics.h"
@@ -2728,6 +2729,7 @@ NRIRenderDevice::NRIRenderDevice(void* hMonitor, bool fullscreen)
 
 NRIRenderDevice::~NRIRenderDevice()
 {
+	NRIResetSettingsAvailability();
 	mShuttingDown = true;
 	WaitForCommands(true);
 	if (mGpuTiming != nullptr && mDevice != nullptr)
@@ -2874,6 +2876,7 @@ void NRIRenderDevice::Update()
 
 void NRIRenderDevice::InitializeState()
 {
+	NRIResetSettingsAvailability();
 	SetViewportRects(nullptr);
 
 	StartupRecovery_UpdateStage("nri_load");
@@ -2893,6 +2896,7 @@ void NRIRenderDevice::InitializeState()
 		return;
 	}
 
+	NRIRefreshSettingsAvailability(*this);
 	StartupRecovery_UpdateStage("nri_create_render_resources");
 	if (!CreateRenderResources())
 	{
@@ -2912,6 +2916,7 @@ void NRIRenderDevice::InitializeState()
 		return;
 	}
 
+	NRIRefreshSettingsAvailability(*this);
 	mVertexData = new FFlatVertexBuffer(GetWidth(), GetHeight(), mPipelineNbr);
 	mSkyData = new FSkyVertexBuffer;
 	mViewpoints = new HWViewpointBuffer(mPipelineNbr);
@@ -10314,6 +10319,7 @@ bool NRIRenderDevice::BeginCommandList(const char* reason, bool waitForSlotReuse
 bool NRIRenderDevice::EnsureSwapChainSize()
 {
 	RefreshSwapChainDisplayDesc(true);
+	NRIRefreshSettingsAvailability(*this);
 
 	const NRIPTOutputMode requestedOutputMode = GetRequestedPathTracingOutputMode();
 	nri::SwapChainFormat requestedOutputFormat = nri::SwapChainFormat::BT709_G22_8BIT;

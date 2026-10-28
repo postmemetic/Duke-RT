@@ -1,5 +1,6 @@
 #include "nri_renderer_settings.h"
 #include "nri_cvars.h"
+#include "nri_settings_availability.h"
 
 #include "c_cvars.h"
 #include "printf.h"
@@ -272,7 +273,7 @@ NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 	settings.visuals.bandCount = (float)std::clamp((int)nri_ptsmokebandcount, 2, 9);
 	settings.visuals.bandSoftness = std::clamp((float)nri_ptsmokebandsoftness, 0.02f, 0.49f);
 	settings.visuals.contourStrength = std::clamp((float)nri_ptsmokecontourstrength, 0.0f, 1.0f);
-	settings.enabled = (bool)nri_ptsmoke;
+	settings.enabled = (bool)nri_ptsmoke && NRIIsSmokeSupported();
 	settings.readback = (bool)nri_ptsmokereadback;
 	settings.workProfile = (uint32_t)std::max((int)nri_ptsmokeworkprofile, 0);
 	settings.quality = (uint32_t)std::clamp((int)nri_ptsmokequality, 0, 2);

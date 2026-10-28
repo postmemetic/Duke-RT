@@ -1,7 +1,7 @@
 #include "nri_cvars.h"
 
 #include "nri_scene_lights.h"
-#include "nri_settings_profiles.h"
+#include "nri_settings_availability.h"
 #include "../scene/nri_map_builder.h"
 #include "../system/nri_renderdevice.h"
 #include "printf.h"
@@ -104,100 +104,6 @@ namespace
 		if (NRIRenderDevice* frameBuffer = GetActiveNriRenderDeviceForCVar())
 		{
 			frameBuffer->NotifyPathTracingDebugSphereTessellationChange();
-		}
-	}
-
-	enum NRISettingsProfile
-	{
-		NRI_SETTINGS_PROFILE_SAFE = 0,
-		NRI_SETTINGS_PROFILE_DLRR_FAST,
-		NRI_SETTINGS_PROFILE_DLRR_MEDIUM,
-		NRI_SETTINGS_PROFILE_DLRR_BEAUTIFUL,
-		NRI_SETTINGS_PROFILE_DLSS_SR_FAST,
-		NRI_SETTINGS_PROFILE_DLSS_SR_MEDIUM,
-		NRI_SETTINGS_PROFILE_DLSS_SR_BEAUTIFUL,
-		NRI_SETTINGS_PROFILE_FSR_FAST,
-		NRI_SETTINGS_PROFILE_FSR_MEDIUM,
-		NRI_SETTINGS_PROFILE_FSR_BEAUTIFUL,
-	};
-
-	struct NRISettingsProfilePreset
-	{
-		const char* name;
-		int upscaler;
-		int upscalerMode;
-		int outputMode;
-		bool denoise;
-		const char* warning;
-	};
-
-	constexpr int kNRIUpscalerOff = 0;
-	constexpr int kNRIUpscalerDlssSr = 2;
-	constexpr int kNRIUpscalerDlrr = 3;
-	constexpr int kNRIUpscalerFsr = 4;
-
-	constexpr int kNRIUpscalerModeNative = 0;
-	constexpr int kNRIUpscalerModeQuality = 2;
-	constexpr int kNRIUpscalerModeBalanced = 3;
-
-	constexpr int kNRIOutputSdr = 0;
-	constexpr int kNRIOutputHdr = 1;
-
-	constexpr int kNRDDenoiserRelax = 1;
-
-	constexpr const char* kMirrorsWithoutRayReconstructionWarning =
-		"Warning: mirrors are currently bugged when ray reconstruction is not used.";
-	constexpr const char* kMirrorsWithoutRayReconstructionMenuWarning =
-		"Warning: Ray reconstruction is recommended due to visual bugs with other upscalers/denoisers";
-
-	constexpr NRISettingsProfilePreset kNRISettingsProfilePresets[] = {
-		{ "Safe Mode", kNRIUpscalerOff, kNRIUpscalerModeNative, kNRIOutputSdr, true, kMirrorsWithoutRayReconstructionWarning },
-		{ "Fast Preset - DLRR", kNRIUpscalerDlrr, kNRIUpscalerModeBalanced, kNRIOutputHdr, false, nullptr },
-		{ "Medium Preset - DLRR", kNRIUpscalerDlrr, kNRIUpscalerModeQuality, kNRIOutputHdr, false, nullptr },
-		{ "Beautiful Preset - DLRR", kNRIUpscalerDlrr, kNRIUpscalerModeNative, kNRIOutputHdr, false, nullptr },
-		{ "Fast Preset - DLSS-SR", kNRIUpscalerDlssSr, kNRIUpscalerModeBalanced, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
-		{ "Medium Preset - DLSS-SR", kNRIUpscalerDlssSr, kNRIUpscalerModeQuality, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
-		{ "Beautiful Preset - DLSS-SR", kNRIUpscalerDlssSr, kNRIUpscalerModeNative, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
-		{ "Fast Preset - AMD FSR 3", kNRIUpscalerFsr, kNRIUpscalerModeBalanced, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
-		{ "Medium Preset - AMD FSR 3", kNRIUpscalerFsr, kNRIUpscalerModeQuality, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
-		{ "Beautiful Preset - AMD FSR 3", kNRIUpscalerFsr, kNRIUpscalerModeNative, kNRIOutputHdr, true, kMirrorsWithoutRayReconstructionWarning },
-	};
-
-	bool gSkipInitialProfileApply = true;
-
-	int ClampNRISettingsProfile(int profile)
-	{
-		return std::clamp(profile, 0, (int)std::size(kNRISettingsProfilePresets) - 1);
-	}
-
-	void SyncNRISettingsProfileWarning(const NRISettingsProfilePreset& preset)
-	{
-		nri_settingsprofilewarning = preset.warning != nullptr ? kMirrorsWithoutRayReconstructionMenuWarning : "";
-	}
-
-	void ApplyNRISettingsProfile(const NRISettingsProfilePreset& preset)
-	{
-		SyncNRISettingsProfileWarning(preset);
-
-		nri_upscaler = preset.upscaler;
-		nri_postsharpen = 0;
-		nri_upscalermode = preset.upscalerMode;
-		nri_ptoutputmode = preset.outputMode;
-		nri_pttaa = false;
-
-		nri_denoise = preset.denoise;
-		nri_nrddenoiser = kNRDDenoiserRelax;
-
-		nri_validation = false;
-		nri_apivalidation = false;
-		nri_dred = false;
-
-		nri_framegen = false;
-
-		Printf(PRINT_NOTIFY, "Applied settings profile: %s\n", preset.name);
-		if (preset.warning != nullptr && preset.warning[0] != '\0')
-		{
-			Printf(PRINT_NOTIFY, "%s\n", preset.warning);
 		}
 	}
 }
@@ -867,7 +773,12 @@ CVAR(Bool, nri_denoise, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(Int, nri_nrddenoiser, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
-CVAR(Int, nri_upscaler, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Int, nri_upscaler, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	static int previous = 2;
+	const int accepted = NRIValidateSettingChange("nri_upscaler", self, previous);
+	if (self != accepted) self = accepted;
+}
 
 CVAR(Int, nri_postsharpen, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
@@ -884,12 +795,24 @@ CVAR(Bool, nri_ptselftest, false, 0)
 CVAR(String, nri_ptsmokemenuwarning, "", 0)
 CUSTOM_CVAR(Bool, nri_ptsmoke, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
+	static int previous = 1;
+	const int accepted = NRIValidateSettingChange("nri_ptsmoke", self, previous);
+	if ((int)self != accepted)
+	{
+		self = accepted != 0;
+		return;
+	}
 	nri_ptsmokemenuwarning = self
 		? "Smoke is very taxing on your GPU, especially at Ultra settings"
 		: "";
 }
 CVAR(Int, nri_ptsmokequality, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
-CVAR(Int, nri_ptsmokeworkprofile, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Int, nri_ptsmokeworkprofile, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	static int previous = 2;
+	const int accepted = NRIValidateSettingChange("nri_ptsmokeworkprofile", std::clamp((int)self, 0, 3), previous);
+	if (self != accepted) self = accepted;
+}
 CVAR(Int, nri_ptsmokeparticles, 8192, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, nri_ptsmokefroxelpixels, 16, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, nri_ptsmokefroxelz, 48, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -1095,14 +1018,9 @@ CUSTOM_CVAR(Int, nri_ptactorspritetrace, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Int, nri_ptoutputmode, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
-	if (self < 0)
-	{
-		self = 0;
-	}
-	else if (self > 1)
-	{
-		self = 1;
-	}
+	static int previous = 1;
+	const int accepted = NRIValidateSettingChange("nri_ptoutputmode", std::clamp((int)self, 0, 1), previous);
+	if (self != accepted) self = accepted;
 }
 
 CUSTOM_CVAR(Int, nri_pttonemap, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -1339,6 +1257,13 @@ CVAR(Bool, nri_validation, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Bool, nri_framegen, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
+	static int previous = 0;
+	const int accepted = NRIValidateSettingChange("nri_framegen", self, previous);
+	if ((int)self != accepted)
+	{
+		self = accepted != 0;
+		return;
+	}
 	RequestActiveFrameGenerationSwapChainRefresh();
 }
 
@@ -1983,39 +1908,8 @@ CUSTOM_CVAR(Float, nri_ptruntimemutationneardistance, 1024.0f, 0)
 }
 
 
-// Moved from source/common/rendering/nri/renderer/nri_settings_profiles.cpp
-
-CVAR(String, nri_settingsprofilewarning, "Warning: Ray reconstruction is recommended due to visual bugs with other upscalers/denoisers", CVAR_GLOBALCONFIG)
 CVAR(String, nri_shadervariant, "production", 0)
-
-CUSTOM_CVAR(Int, nri_settingsprofile, NRI_SETTINGS_PROFILE_SAFE, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
-{
-	const int clampedProfile = ClampNRISettingsProfile(self);
-	if (self != clampedProfile)
-	{
-		self = clampedProfile;
-		return;
-	}
-
-	const auto& preset = kNRISettingsProfilePresets[self];
-	SyncNRISettingsProfileWarning(preset);
-
-	if (gSkipInitialProfileApply)
-	{
-		gSkipInitialProfileApply = false;
-		return;
-	}
-
-	ApplyNRISettingsProfile(preset);
-}
-
 
 // Moved from source/common/rendering/nri/renderer/nri_scene_lights.cpp
 
 CVAR(Int, nri_ptactoroverlaylighttrace, 0, 0)
-
-void NRIApplySafeSettingsProfileForRecovery()
-{
-	nri_settingsprofile = NRI_SETTINGS_PROFILE_SAFE;
-	ApplyNRISettingsProfile(kNRISettingsProfilePresets[NRI_SETTINGS_PROFILE_SAFE]);
-}

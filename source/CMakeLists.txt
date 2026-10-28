@@ -943,6 +943,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_emissive_sampling_distribution.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_upload.cpp
 	common/rendering/nri/renderer/nri_cvars.cpp
+	common/rendering/nri/renderer/nri_settings_availability.cpp
+	common/rendering/nri/renderer/nri_settings_runtime.cpp
+	common/rendering/nri/system/nri_settings_capabilities.cpp
 	common/rendering/nri/renderer/nri_exposure.cpp
 	common/rendering/nri/renderer/nri_frame_graph.cpp
 	common/rendering/nri/renderer/nri_frame_diagnostics_policy.cpp
@@ -1399,6 +1402,7 @@ set (PCH_SOURCES
 	common/menu/menu.cpp
 	common/menu/messagebox.cpp
 	common/menu/optionmenu.cpp
+	common/menu/nri_options.cpp
 	common/menu/resolutionmenu.cpp
 	common/menu/menudef.cpp
 	common/menu/savegamemanager.cpp
