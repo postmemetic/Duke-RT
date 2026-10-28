@@ -367,6 +367,7 @@ private:
 
 	NRISmokeSettings mSettings = {};
 	NRISmokeStatusSnapshot mStatus = {};
+	bool mInitialized = false;
 	nri::PipelineLayout* mPipelineLayout = nullptr;
 	std::array<nri::Pipeline*, (size_t)NRISmokePass::Count> mPipelines = {};
 	std::vector<CommandSlot> mCommandSlots;

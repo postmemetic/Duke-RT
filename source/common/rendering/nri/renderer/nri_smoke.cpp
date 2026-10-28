@@ -270,8 +270,16 @@ namespace
 
 bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 {
-	if (mPipelineLayout != nullptr)
+	// Disabled smoke must not compile its pipelines at renderer startup. This
+	// also keeps unsupported adapters out of their driver shader compiler.
+	if (!BuildNRISmokeSettingsFromCVars().enabled)
 		return true;
+	if (mInitialized)
+		return true;
+	// A layout alone is not proof that every pipeline and descriptor set was
+	// created. Leave a failed attempt unavailable until renderer shutdown.
+	if (mPipelineLayout != nullptr)
+		return false;
 
 	nri::DescriptorRangeDesc input = {};
 	input.baseRegisterIndex = 0;
@@ -412,6 +420,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 		if (renderer.mFrameBuffer->mCore.AllocateDescriptorSets(*renderer.mFrameBuffer->mDescriptorPool, *mPipelineLayout, 5, &slot.filteredSceneSet, 1, 0) != nri::Result::SUCCESS)
 			return false;
 	}
+	mInitialized = true;
 	return true;
 }
 
@@ -820,6 +829,10 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 	}
 	if (!mainViewEligible || mLastPreparedFrame == renderer.mFrameIndex)
 		return true;
+	// Smoke may have been disabled at startup. Create its pipelines on the
+	// first eligible enabled frame, before allocating or recording smoke work.
+	if (!mInitialized && !Initialize(renderer))
+		return false;
 	mLastPreparedFrame = renderer.mFrameIndex;
 	bool gridLayoutInvalidated = false;
 	if (mSettings.representation != 0u)
@@ -3119,7 +3132,7 @@ bool NRISmokeSystem::DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDes
 	mStatus.volumeHistoryEffective = false;
 	mStatus.transientHistoryRequested = mSettings.transientHistory;
 	mStatus.transientHistoryEffective = false;
-	if (!mSettings.enabled || !mStatus.mainViewEligible || !route.supported || !mStatus.authorityOperational)
+	if (!mInitialized || !mSettings.enabled || !mStatus.mainViewEligible || !route.supported || !mStatus.authorityOperational)
 	{
 		mStatus.volumeResolvedSlot = UINT32_MAX;
 		mStatus.volumeMetaSlot = UINT32_MAX;
@@ -3455,6 +3468,7 @@ void NRISmokeSystem::Shutdown(NRIRenderer& renderer)
 	}
 	if (mPipelineLayout != nullptr) renderer.mFrameBuffer->mCore.DestroyPipelineLayout(mPipelineLayout);
 	mPipelineLayout = nullptr;
+	mInitialized = false;
 	Reset("renderer-shutdown");
 }
 
