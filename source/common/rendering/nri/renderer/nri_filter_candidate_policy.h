@@ -30,29 +30,18 @@ struct NRIFilterCandidateRun
 	bool RequiresCandidateTraversal() const { return policyMask != NRIFilterCandidatePolicy_None; }
 };
 
-enum class NRIFilterCandidateCertificateOutcome : uint32_t
-{
-	Certified = 0,
-	Empty,
-	OutOfBounds,
-	MixedPolicy,
-};
-
-struct NRIFilterCandidateCertificate
-{
-	NRIFilterCandidateCertificateOutcome outcome = NRIFilterCandidateCertificateOutcome::Empty;
-	uint32_t primitiveCount = 0;
-
-	bool IsCertified() const { return outcome == NRIFilterCandidateCertificateOutcome::Certified; }
-};
-
-// Certifies the exact primitive span referenced by one BLAS geometry. The
-// certificate is deliberately whole-span: an instance flag affects every
-// triangle in that BLAS, so a partial or mixed-policy result must fail open.
-NRIFilterCandidateCertificate ClassifyReflectionOnlyFilterCandidateSpan(
+// Validates an entire primitive span and returns the union of enabled candidate
+// policies. A mixed opaque/candidate span can use one non-opaque instance: the
+// shader accepts ordinary triangles and applies each candidate's own predicate.
+// Empty/ordinary spans return true with no policy. Invalid primitive/material
+// references return false with no policy, preserving the legacy opaque route.
+bool GetFilterCandidatePolicyForSpan(
 	const nri_scene::GeometryData& geometry,
+	const std::vector<nri_scene::MaterialData>& materials,
 	uint32_t primitiveOffset,
-	uint32_t primitiveCount);
+	uint32_t primitiveCount,
+	uint32_t enabledPolicyMask,
+	uint32_t& outPolicyMask);
 
 // Splits one triangle-list upload span into exact, adjacent policy runs. The
 // primitive order and GPU buffer layout stay unchanged; callers may build one

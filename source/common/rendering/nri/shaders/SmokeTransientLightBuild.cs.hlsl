@@ -29,6 +29,14 @@ void SmokeTransientSelectPointLights(float3 receiverPosition, uint selectionBudg
 	out float selectedScores[NRI_SMOKE_TRANSIENT_MAX_SELECTED_POINTS], out uint selectedCount)
 {
 	selectedCount = 0u;
+	// Define inactive out-array entries as well as selected lights. Leaving them
+	// undefined triggers an AMD 26.10.1 pipeline compiler crash.
+	[unroll]
+	for (uint initializeIndex = 0u; initializeIndex < NRI_SMOKE_TRANSIENT_MAX_SELECTED_POINTS; ++initializeIndex)
+	{
+		selectedIndices[initializeIndex] = 0u;
+		selectedScores[initializeIndex] = 0.0;
+	}
 	uint lightCapacity, lightStride;
 	gSmokeRuntimePointLights.GetDimensions(lightCapacity, lightStride);
 	const uint lightCount = min(gSmokeConstants.RuntimeLightCount, lightCapacity);

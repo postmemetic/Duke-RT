@@ -622,7 +622,7 @@ void DeviceD3D12::FillDesc(bool disableD3D12EnhancedBarrier) {
     if (shaderModel.HighestShaderModel < D3D_SHADER_MODEL_6_0)
         shaderModel.HighestShaderModel = D3D_SHADER_MODEL_5_1;
 
-    m_Desc.shaderModel = (uint8_t)((shaderModel.HighestShaderModel / 0xF) * 10 + (shaderModel.HighestShaderModel & 0xF));
+    m_Desc.shaderModel = (uint8_t)((shaderModel.HighestShaderModel >> 4) * 10 + (shaderModel.HighestShaderModel & 0xF));
 
     m_Desc.viewport.maxNum = D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
     m_Desc.viewport.boundsMin = D3D12_VIEWPORT_BOUNDS_MIN;

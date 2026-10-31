@@ -16,9 +16,10 @@ float4 SampleWallDecalColor(WallDecalData decal, float2 uv)
 	// The receiver's mip footprint belongs to its own UV mapping. Reusing that
 	// LOD here can erase thin crack/handprint details. Use the source-art level
 	// for both coverage and color, with clamp addressing at the decal boundary.
+	// Receiver hits and their decal textures can differ between lanes.
 	float4 color = pointSampled
-		? gSceneTextures[textureIndex].SampleLevel(gPointClamp, uv, 0.0)
-		: gSceneTextures[textureIndex].SampleLevel(gLinearClamp, uv, 0.0);
+		? gSceneTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(gPointClamp, uv, 0.0)
+		: gSceneTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(gLinearClamp, uv, 0.0);
 	float coverage = saturate(color.a);
 	if (indexed)
 	{
