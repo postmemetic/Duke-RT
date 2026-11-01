@@ -6,6 +6,8 @@
 
 The NRI renderer can transfer environmental palette effects to lights. It blends a replacement emission hue with each source's authored color, preserving linear luminance at a fixed gain. A separate gain controls emitted light output. Texture detail and some original color remain at partial strength. Walls and flats use their original texture colors; illumination supplies the room color, including its reflections on water. Intrinsic actor lights, sunlight, sky palettes, fog and fluid body colors keep their existing meaning.
 
+Sector-color transfer is enabled by default (`nri_ptsectorcolor true`). An existing saved setting of `false` remains respected; set it to `true` in the console to enable transfer again.
+
 Run `lightoverlay_generatesectorcolors` to seed Duke environmental profiles for palettes 1 (blue), 2 (red), 7 (amber), and 8 (green) in the writable `LIGHTOVR`. Existing profiles and overrides are preserved on repeated runs. These are initial art-direction values, intended for later tuning. Other palettes remain untouched.
 
 ```text
