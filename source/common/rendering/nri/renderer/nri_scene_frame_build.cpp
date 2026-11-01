@@ -59,8 +59,9 @@
 
 namespace
 {
-	static bool ApplyReflectionFilterCandidateCertificate(
+	static bool ApplyFallbackFilterCandidatePolicy(
 		const nri_scene::GeometryData& geometry,
+		const std::vector<nri_scene::MaterialData>& materials,
 		uint32_t primitiveOffset,
 		uint32_t primitiveCount,
 		nri::TopLevelInstance& instance,
@@ -68,33 +69,37 @@ namespace
 	{
 		stats.filterCandidateEnabled = (bool)nri_ptfilterquery;
 		stats.filterCandidateOccurrences++;
-		const NRIFilterCandidateCertificate certificate =
-			ClassifyReflectionOnlyFilterCandidateSpan(geometry, primitiveOffset, primitiveCount);
-		switch (certificate.outcome)
+		if (primitiveCount == 0u)
 		{
-		case NRIFilterCandidateCertificateOutcome::Certified:
-			stats.filterCandidateCertifiedOccurrences++;
-			stats.filterCandidateCertifiedPrimitives += certificate.primitiveCount;
-			if ((bool)nri_ptfilterquery)
-			{
-				instance.flags = (nri::TopLevelInstanceBits)(
-					(uint32_t)instance.flags |
-					(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
-				return true;
-			}
-			break;
-		case NRIFilterCandidateCertificateOutcome::Empty:
 			stats.filterCandidateRejectEmpty++;
-			break;
-		case NRIFilterCandidateCertificateOutcome::OutOfBounds:
+			return false;
+		}
+		uint32_t policyMask = NRIFilterCandidatePolicy_None;
+		if (!GetFilterCandidatePolicyForSpan(geometry, materials, primitiveOffset, primitiveCount,
+			(uint32_t)std::max(0, (int)nri_ptfilterpolicymask), policyMask))
+		{
 			stats.filterCandidateRejectRange++;
-			break;
-		case NRIFilterCandidateCertificateOutcome::MixedPolicy:
+			return false;
+		}
+		if (policyMask == NRIFilterCandidatePolicy_None)
+		{
 			stats.filterCandidateRejectMixed++;
-			break;
+			return false;
 		}
 
-		return false;
+		// Run partitioning is an optimization. If its budget is exceeded, the
+		// aggregate BLAS must still let transparent candidates be rejected in
+		// the same query, preserving nearby and equal-distance backing geometry.
+		stats.filterCandidateCertifiedOccurrences++;
+		stats.filterCandidateCertifiedPrimitives += primitiveCount;
+		if (!(bool)nri_ptfilterquery)
+		{
+			return false;
+		}
+		instance.flags = (nri::TopLevelInstanceBits)(
+			(uint32_t)instance.flags |
+			(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
+		return true;
 	}
 
 	static bool ApplyFilterCandidatePolicy(
@@ -1838,8 +1843,9 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						dynamicInstance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
 						dynamicInstance.shaderBindingTableLocalOffset = 0;
 						dynamicInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-						ApplyReflectionFilterCandidateCertificate(
+						ApplyFallbackFilterCandidatePolicy(
 							overlayGeometry,
+							dynamicGpuMaterials,
 							0u,
 							liveOverlayPrimitiveCount,
 							dynamicInstance,
@@ -2257,8 +2263,9 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				instance.mask = NRI_TLAS_MASK_ALL_WORKLOADS;
 				instance.shaderBindingTableLocalOffset = 0;
 				instance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-				ApplyReflectionFilterCandidateCertificate(
+				ApplyFallbackFilterCandidatePolicy(
 					capturedGeometry,
+					capturedGpuMaterials,
 					0u,
 					(uint32_t)capturedGeometry.primitives.size(),
 					instance,

@@ -13,6 +13,10 @@ Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [N
 
 The renderer supports both Direct3D 12 and Vulkan, although feature support is more complete for D3D12. It's recommended that you play in D3D12 and HDR if possible!
 
+Initial AMD support includes path tracing with FSR or native rendering. Volumetric smoke is disabled on AMD GPUs while its remaining rendering artifacts are investigated. NVIDIA smoke remains available.
+
+Graphics settings keep unavailable choices visible in gray. Select a choice to see why it cannot be used on the current GPU, backend, or display. Profiles require their named upscaler; a supported profile uses SDR when HDR is unavailable. Frame generation currently requires D3D12 and the bundled FidelityFX runtime.
+
 ![Duke-RT gameplay](images/1.png)
 
 **Check out the linked project docs below to make your own lighting rules and material overrides!**
@@ -66,7 +70,7 @@ I also have a bunch of features I'd like to tackle in the future, including some
 
 Upcoming feature work:
 - water surfaces
-- AMD support
+- volumetric smoke support on AMD
 
 ![cropped spheres](images/23.png)
 

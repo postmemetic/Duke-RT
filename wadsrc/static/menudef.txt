@@ -1084,11 +1084,11 @@ OptionMenu "VideoOptions" protected
 		Option "Graphics API", "nri_api", "NRIVulkanAPI"
 	}
 	StaticText "$VK_RESTART"
-	Option "HDR / SDR",							"nri_ptoutputmode",				"NRIPTOutputMode"
-	Option "Settings Profile",					"nri_settingsprofile",			"NRISettingsProfile"
+	SupportedOption "HDR / SDR",							"nri_ptoutputmode",				"NRIPTOutputMode"
+	SupportedOption "Settings Profile",					"nri_settingsprofile",			"NRISettingsProfile"
 	Option "Bloom",								"nri_ptbloom",					"OnOff"
-	Option "Smoke",								"nri_ptsmoke",					"OnOff"
-	Option "Smoke Quality",					"nri_ptsmokeworkprofile",		"NRISmokeWorkProfile"
+	SupportedOption "Smoke",								"nri_ptsmoke",					"OnOff"
+	SupportedOption "Smoke Quality",					"nri_ptsmokeworkprofile",		"NRISmokeWorkProfile"
 	CVarStaticText "nri_settingsprofilewarning"
 	CVarStaticText "nri_ptsmokemenuwarning"
 	StaticText ""
@@ -1140,10 +1140,10 @@ OptionMenu "NRIOptions" protected
 	StaticText "----------------"
 	StaticText "Upscaling"
 	Option "TAA",								"nri_pttaa",					"OnOff"
-	Option "Main Upscaler",						"nri_upscaler",					"NRIMainUpscaler"
+	SupportedOption "Main Upscaler",						"nri_upscaler",					"NRIMainUpscaler"
 	Option "Post Sharpen",						"nri_postsharpen",				"NRIPostSharpen"
 	Option "Upscaler Mode",						"nri_upscalermode",				"NRIUpscalerMode"
-	Option "AMD FSR 3 Frame Generation",			"nri_framegen",					"OnOff"
+	SupportedOption "AMD FSR 3 Frame Generation",			"nri_framegen",					"OnOff"
 	Slider "Render Scale",						"nri_renderscale",				0.33, 1.0, 0.01, 2
 	Slider "Sharpness",							"nri_sharpness",				0.0, 1.0, 0.05, 2
 	StaticText "AMD FSR 3 upscaling supports D3D12 and Vulkan; Ultra Quality resolves to Quality."
@@ -2245,4 +2245,9 @@ OptionMenu "EngineCredits3"
 	StaticText "Peter Green       Peter Veenstra    Robin Green      ", 0
 	StaticText "Ryan Gordon       Stephen Anthony   tueidj           ", 0
 	StaticText "Pär \"Parkar\" Karlsson", 0
+}
+
+OptionMenu "SupportedSettingChoices" protected
+{
+	Title "Available choices"
 }

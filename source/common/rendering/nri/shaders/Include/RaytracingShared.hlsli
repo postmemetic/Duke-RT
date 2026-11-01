@@ -4,6 +4,7 @@
 #include "Shared.hlsli"
 #include "MotionContracts.hlsli"
 #include "StaticShadingData.hlsli"
+#include "RayQueryContinuation.hlsli"
 
 StructuredBuffer<StaticTangentData> gStaticTangents : register(t28, space2);
 
@@ -80,7 +81,6 @@ static const uint HIT_PATH_FLAG_REFLECTION = 1u;
 static const uint HIT_PATH_FLAG_SPACE_TRANSFER = 2u;
 #endif
 static const float TRACE_MIN_DISTANCE = 1e-4;
-static const float TRACE_FILTER_CONTINUE_BIAS = 1e-6;
 static const uint TRACE_FILTER_SKIP_LIMIT = 64u;
 static const uint TRACE_STATS_KIND_PRIMARY = 0u;
 static const uint TRACE_STATS_KIND_UNGATED = 1u;
@@ -1050,17 +1050,20 @@ float4 SampleMaterialColorLevel(MaterialData material, uint textureIndex, float2
 
 	const float sampleLod = (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0u ?
 		0.0 : max(lod, 0.0);
+	// Neighboring rays can hit different materials. Bounds clamping does not
+	// make their descriptor indices uniform across the wave.
+	const uint safeTextureIndex = min(textureIndex, MAX_SCENE_TEXTURES - 1u);
 	float4 color = 0.0;
 	if (indexed || (material.flags & MATERIAL_FLAG_POINT_SAMPLED) != 0)
 	{
 		// Indexed texels are palette indices, so both texel and mip selection
 		// remain discrete before the palette lookup.
 		const float pointLod = indexed ? round(sampleLod) : sampleLod;
-		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gPointWrap, uv, pointLod);
+		color = gSceneTextures[NonUniformResourceIndex(safeTextureIndex)].SampleLevel(gPointWrap, uv, pointLod);
 	}
 	else
 	{
-		color = gSceneTextures[min(textureIndex, MAX_SCENE_TEXTURES - 1)].SampleLevel(gLinearWrap, uv, sampleLod);
+		color = gSceneTextures[NonUniformResourceIndex(safeTextureIndex)].SampleLevel(gLinearWrap, uv, sampleLod);
 	}
 
 	if (indexed && applyPaletteLookup)
@@ -2469,13 +2472,12 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 	// eventual visible surface. Keep enough budget to walk past hidden chunks,
 	// alpha-clipped carriers, and one-way rejects without dropping the ray.
 	//
-	// Keep the original ray origin across filtered restarts so we only pay one
-	// tiny epsilon in TMin instead of shifting the origin forward and then
-	// applying another minimum distance. That preserves nearly coplanar follow-up
-	// hits after rejecting a frontmost back-side or gate-invisible surface.
+	// Keep the original ray origin across filtered restarts and advance TMin
+	// by one representable step. This stays beyond the rejected hit even when a
+	// fixed epsilon would round away, while preserving nearby backing surfaces.
 	for (uint skipCount = 0u; skipCount < TRACE_FILTER_SKIP_LIMIT; ++skipCount)
 	{
-		const float traceMinDistance = accumulatedDistance > 0.0 ? (accumulatedDistance + TRACE_FILTER_CONTINUE_BIAS) : TRACE_MIN_DISTANCE;
+		const float traceMinDistance = accumulatedDistance > 0.0 ? NextFilteredRayTMin(accumulatedDistance) : TRACE_MIN_DISTANCE;
 		if (traceMinDistance >= maxDistance)
 		{
 #if NRI_SHADER_DIAGNOSTICS

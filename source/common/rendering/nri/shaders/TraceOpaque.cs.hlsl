@@ -476,7 +476,8 @@ bool TryResolvePrimaryBaseColorLod(
 		material.textureIndex, MAX_SCENE_TEXTURES - 1u);
 	uint textureWidth = 0u;
 	uint textureHeight = 0u;
-	gSceneTextures[textureIndex].GetDimensions(
+	// Dimension queries select the same per-hit descriptor as texture samples.
+	gSceneTextures[NonUniformResourceIndex(textureIndex)].GetDimensions(
 		0u, textureWidth, textureHeight, mipCount);
 	if (textureWidth == 0u || textureHeight == 0u || mipCount == 0u)
 	{

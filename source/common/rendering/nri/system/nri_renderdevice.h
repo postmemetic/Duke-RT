@@ -31,6 +31,7 @@ class NRIBlueNoiseResources;
 class NRISceneTextureResidency;
 class NRIUpscalerContext;
 class NRIGpuTiming;
+struct NRISettingsCapabilities;
 enum class NRIGpuTimingScope : uint8_t;
 
 #ifdef _WIN32
@@ -81,6 +82,7 @@ public:
 	int GetShaderCount() override;
 	int Backend() override { return 4; }
 	bool ShouldInheritSectorPalette(int sectorIndex, int palette) const override;
+	NRISettingsCapabilities BuildSettingsCapabilities() const;
 	bool SupportsQueued2DTextureRenders() const override { return true; }
 	const char* DeviceName() const override;
 	void BeginFrame() override;

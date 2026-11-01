@@ -1,4 +1,5 @@
 #include "Include/SmokeDormantGridResources.hlsli"
+#include "Include/SmokeOpticalContent.hlsli"
 
 groupshared uint sArchiveIndex;
 groupshared uint sFineIndex;
@@ -148,7 +149,7 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 		const float4 velocity = gDormantVelocity[archiveCell];
 		const float4 optical = gDormantOptical[archiveCell];
 		const float4 dynamics = gDormantDynamics[archiveCell];
-		if (any(abs(optical) > 0.0))
+		if (SmokeHasOpticalContent(scalar.z, any(abs(optical) > 0.0)))
 			InterlockedOr(sOpticalContent, 1u);
 		DormantStoreFineFields(0u, fineCell, scalar, velocity, optical, dynamics);
 		DormantStoreFineFields(1u, fineCell, scalar, velocity, optical, dynamics);

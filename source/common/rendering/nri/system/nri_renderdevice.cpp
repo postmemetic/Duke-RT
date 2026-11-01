@@ -2,6 +2,7 @@
 #include "../scene/nri_sector_color_policy.h"
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
+#include "../renderer/nri_settings_availability.h"
 #include "../renderer/nri_diagnostic_cadence.h"
 #include "../renderer/nri_smoke_descriptor_budget.h"
 #include "../renderer/nri_primary_temporal_geometry_diagnostics.h"
@@ -1394,25 +1395,25 @@ namespace
 		Printf(TEXTCOLOR_RED "NRI D3D12 DRED setup failed: DRED settings interfaces are unavailable.\n");
 	}
 
-	static void ConfigureD3D12DebugLayer()
+	static bool ConfigureD3D12DebugLayer()
 	{
 		if (!nri_apivalidation)
 		{
-			return;
+			return false;
 		}
 
 		const auto getDebugInterface = GetD3D12GetDebugInterfaceFn();
 		if (getDebugInterface == nullptr)
 		{
 			Printf(TEXTCOLOR_RED "NRI D3D12 API validation requested, but D3D12GetDebugInterface is unavailable.\n");
-			return;
+			return false;
 		}
 
 		ID3D12Debug* debug = nullptr;
 		if (FAILED(getDebugInterface(IID_PPV_ARGS(&debug))) || debug == nullptr)
 		{
 			Printf(TEXTCOLOR_RED "NRI D3D12 API validation requested, but ID3D12Debug is unavailable.\n");
-			return;
+			return false;
 		}
 
 		debug->EnableDebugLayer();
@@ -1427,6 +1428,7 @@ namespace
 
 		debug->Release();
 		Printf("NRI D3D12 debug layer enabled for API validation.\n");
+		return true;
 	}
 
 	static void ConfigureD3D12InfoQueue(const nri::CoreInterface& core, nri::Device* device)
@@ -2734,6 +2736,7 @@ NRIRenderDevice::NRIRenderDevice(void* hMonitor, bool fullscreen)
 
 NRIRenderDevice::~NRIRenderDevice()
 {
+	NRIResetSettingsAvailability();
 	mShuttingDown = true;
 	WaitForCommands(true);
 	if (mGpuTiming != nullptr && mDevice != nullptr)
@@ -2880,6 +2883,7 @@ void NRIRenderDevice::Update()
 
 void NRIRenderDevice::InitializeState()
 {
+	NRIResetSettingsAvailability();
 	SetViewportRects(nullptr);
 
 	StartupRecovery_UpdateStage("nri_load");
@@ -2899,6 +2903,7 @@ void NRIRenderDevice::InitializeState()
 		return;
 	}
 
+	NRIRefreshSettingsAvailability(*this);
 	StartupRecovery_UpdateStage("nri_create_render_resources");
 	if (!CreateRenderResources())
 	{
@@ -2918,6 +2923,7 @@ void NRIRenderDevice::InitializeState()
 		return;
 	}
 
+	NRIRefreshSettingsAvailability(*this);
 	mVertexData = new FFlatVertexBuffer(GetWidth(), GetHeight(), mPipelineNbr);
 	mSkyData = new FSkyVertexBuffer;
 	mViewpoints = new HWViewpointBuffer(mPipelineNbr);
@@ -9393,7 +9399,7 @@ bool NRIRenderDevice::CreateDevice()
 	mLoggedD3D12FailureDred = false;
 	const nri::GraphicsAPI selectedApi = GetSelectedAPI();
 	const char* startupApi = V_GetStartupNriAPI();
-	const bool enableGraphicsApiValidation = nri_apivalidation && selectedApi == nri::GraphicsAPI::D3D12;
+	bool enableGraphicsApiValidation = false;
 	if (nri_apivalidation && selectedApi == nri::GraphicsAPI::VK)
 	{
 		Printf("NRI Vulkan graphics API validation is temporarily disabled; continuing with NRI validation only.\n");
@@ -9402,7 +9408,9 @@ bool NRIRenderDevice::CreateDevice()
 #ifdef _WIN32
 	if (selectedApi == nri::GraphicsAPI::D3D12)
 	{
-		ConfigureD3D12DebugLayer();
+		enableGraphicsApiValidation = ConfigureD3D12DebugLayer();
+		if (nri_apivalidation && !enableGraphicsApiValidation)
+			Printf("NRI D3D12 API validation: requested=1 enabled=0 reason=debug-layer-unavailable; continuing without API validation.\n");
 		ConfigureD3D12Dred();
 	}
 #endif
@@ -9488,7 +9496,8 @@ bool NRIRenderDevice::CreateDevice()
 #ifdef _WIN32
 	if (selectedApi == nri::GraphicsAPI::D3D12)
 	{
-		ConfigureD3D12InfoQueue(mCore, mDevice);
+		if (enableGraphicsApiValidation)
+			ConfigureD3D12InfoQueue(mCore, mDevice);
 		const nri::Result wrapperResult = mGetInterfaceFn(*mDevice, NRI_INTERFACE(nri::WrapperD3D12Interface), &mWrapperD3D12);
 		if (wrapperResult != nri::Result::SUCCESS)
 		{
@@ -10317,6 +10326,7 @@ bool NRIRenderDevice::BeginCommandList(const char* reason, bool waitForSlotReuse
 bool NRIRenderDevice::EnsureSwapChainSize()
 {
 	RefreshSwapChainDisplayDesc(true);
+	NRIRefreshSettingsAvailability(*this);
 
 	const NRIPTOutputMode requestedOutputMode = GetRequestedPathTracingOutputMode();
 	nri::SwapChainFormat requestedOutputFormat = nri::SwapChainFormat::BT709_G22_8BIT;

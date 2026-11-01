@@ -1,4 +1,5 @@
 #include "Include/SmokeViewWorkResources.hlsli"
+#include "Include/SmokeOpticalContent.hlsli"
 
 uint SmokeViewOutputHash(uint value)
 {
@@ -28,7 +29,7 @@ void main(uint dispatchThreadId : SV_DispatchThreadID)
 	const bool selected = (mask[z >> 5u] & (1u << (z & 31u))) != 0u;
 	const float4 medium = gViewDenseMedium[dispatchThreadId];
 	const float3 source = gViewDenseSource[dispatchThreadId].rgb;
-	const bool dense = medium.w > 1e-6 && any(medium.rgb > 0.0);
+	const bool dense = SmokeHasOpticalContent(medium.w, any(medium.rgb > 0.0));
 	if (dense)
 	{
 		InterlockedAdd(gViewWorkControl[0].DenseContributing, 1u);

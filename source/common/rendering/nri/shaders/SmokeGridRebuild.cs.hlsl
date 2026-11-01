@@ -1,4 +1,5 @@
 #include "Include/SmokeGridResources.hlsli"
+#include "Include/SmokeOpticalContent.hlsli"
 
 groupshared uint gSmokeGridOccupied[NRI_SMOKE_GRID_CELLS_PER_BRICK];
 groupshared uint gSmokeGridHashLo[NRI_SMOKE_GRID_CELLS_PER_BRICK];
@@ -55,7 +56,7 @@ void main(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
 	const float4 optical = SmokeGridLoadOptical(outputPing, cellIndex);
 	const float4 dynamics = SmokeGridLoadDynamics(outputPing, cellIndex);
 	const float threshold = max(gSmokeGridConstants.ActiveThreshold, 0.0);
-	const bool opticalOccupied = any(abs(optical) > 0.0);
+	const bool opticalOccupied = SmokeHasOpticalContent(scalar.z, any(abs(optical) > 0.0));
 	gSmokeGridOccupied[localIndex] =
 		(max(scalar.z, max(optical.x, max(optical.y, optical.z))) > threshold ? 1u : 0u) |
 		(opticalOccupied ? 2u : 0u);
