@@ -2361,6 +2361,14 @@ LIGHTOVR
             angularsize 0.05
             shadow on
         }
+        light "FireLight"
+        {
+            type "point"
+            anchor position 633.135 3551.12 836.943
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 200.0
+        }
         surfacelight "AlienEntryHall1"
         {
             anchor surface
@@ -2439,7 +2447,7 @@ LIGHTOVR
             type "point"
             color 0.8 0.5 0.6
             intensity 0.5
-            radius 544.0
+            radius 756.0
             sectorresponse off
             signal sector 454
             responseintensity 4.0
