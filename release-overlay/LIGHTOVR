@@ -1089,6 +1089,70 @@ LIGHTOVR
             materialresponsemin 0.0
             materialresponsemax 1.0
         }
+        surfacelight "SewerLight1"
+        {
+            anchor surface
+            position 745.893 -108.01 -2512.53
+            normal -0.0 -1.0 0.0
+            size 16.0 16.0
+            offset 0.5
+            sector 128
+            tile 1536
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 129.0
+            sectorresponse off
+            signal sector 128
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SewerLight2"
+        {
+            anchor surface
+            position 520.668 -108.01 -2450.0
+            normal 0.0 -1.0 0.0
+            size 16.0 16.0
+            rotation 315.0
+            offset 0.5
+            sector 133
+            tile 1536
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 133
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndStageSecretLight"
+        {
+            anchor surface
+            position -1446.39 311.99 -1918.98
+            normal 0.0 -1.0 0.0
+            size 12.0 8.0
+            offset 0.5
+            sector 184
+            tile 1180
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
     }
 
     map "E1L3"
