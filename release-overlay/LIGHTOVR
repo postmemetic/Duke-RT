@@ -1193,6 +1193,258 @@ LIGHTOVR
             materialresponsemin 0.0
             materialresponsemax 1.0
         }
+        emissiveoverride "SubScreen1-1"
+        {
+            sector 152
+            wall 886
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen1-2"
+        {
+            sector 152
+            wall 886
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen1-3"
+        {
+            sector 152
+            wall 886
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen2-1"
+        {
+            sector 152
+            wall 887
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen2-2"
+        {
+            sector 152
+            wall 887
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen2-3"
+        {
+            sector 152
+            wall 887
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen3-1"
+        {
+            sector 152
+            wall 888
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen3-2"
+        {
+            sector 152
+            wall 888
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen3-3"
+        {
+            sector 152
+            wall 888
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 152
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen4-1"
+        {
+            sector 153
+            wall 892
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen4-2"
+        {
+            sector 153
+            wall 892
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen4-3"
+        {
+            sector 153
+            wall 892
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen5-1"
+        {
+            sector 153
+            wall 893
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen5-2"
+        {
+            sector 153
+            wall 893
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen5-3"
+        {
+            sector 153
+            wall 893
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen6-1"
+        {
+            sector 153
+            wall 894
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen6-2"
+        {
+            sector 153
+            wall 894
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubScreen6-3"
+        {
+            sector 153
+            wall 894
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
         surfacelight "BigRoom1"
         {
             anchor surface
@@ -1846,7 +2098,7 @@ LIGHTOVR
             type "point"
             color 1.0 1.0 1.0
             intensity 0.5
-            radius 256.0
+            radius 328.0
             sectorresponse off
             signal sector 133
             responseintensity 4.0
@@ -1867,7 +2119,7 @@ LIGHTOVR
             type "point"
             color 1.0 1.0 1.0
             intensity 0.5
-            radius 256.0
+            radius 328.0
             sectorresponse off
             signal sector 135
             responseintensity 4.0
@@ -1888,7 +2140,7 @@ LIGHTOVR
             type "point"
             color 1.0 1.0 1.0
             intensity 0.5
-            radius 256.0
+            radius 328.0
             sectorresponse off
             signal sector 138
             responseintensity 4.0
@@ -1909,7 +2161,7 @@ LIGHTOVR
             type "point"
             color 1.0 1.0 1.0
             intensity 0.5
-            radius 256.0
+            radius 512.0
             sectorresponse off
             signal sector 143
             responseintensity 4.0
@@ -2019,6 +2271,71 @@ LIGHTOVR
             radius 256.0
             sectorresponse on
             signal sector 83
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "OpenSewerCylinder1"
+        {
+            anchor surface
+            position 842.382 63.99 1473.06
+            normal 0.0 -1.0 0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 97
+            tile 1160
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 97
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "OpenSewerCylinder2"
+        {
+            anchor surface
+            position 647.192 63.99 1286.54
+            normal 0.0 -1.0 0.0
+            size 32.0 32.0
+            rotation 300.0
+            offset 0.5
+            sector 97
+            tile 1160
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 256.0
+            sectorresponse off
+            signal sector 97
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "OpenSewerCylinder3"
+        {
+            anchor surface
+            position 743.793 287.99 1061.72
+            normal 0.0 -1.0 0.0
+            size 28.0 136.0
+            rotation 315.0
+            offset 0.5
+            sector 29
+            tile 1506
+            fixture texture "#00705"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 800.0
+            sectorresponse off
+            signal sector 29
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
