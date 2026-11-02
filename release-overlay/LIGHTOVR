@@ -2369,6 +2369,14 @@ LIGHTOVR
             intensity 1.0
             radius 200.0
         }
+        light "SecretFireLight"
+        {
+            type "point"
+            anchor position 2531.46 1039.88 777.589
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 200.0
+        }
         surfacelight "AlienEntryHall1"
         {
             anchor surface
