@@ -1,0 +1,578 @@
+# Smoke Authoring Guide
+
+Smoke styles and sources are authored in `LIGHTOVR`. See the [LIGHTOVR authoring guide](LIGHTOVR-AUTHORING.md#lightovr-authoring-and-usage) for file loading and the [writable-overlay setup](LIGHTOVR-AUTHORING.md#actor-light-edit-mode) shared by the in-game editors.
+
+Smoke authoring separates the medium from the source:
+
+- `smokestyle <id>` defines reusable optical properties, dissipation, and simplified motion.
+- `smokeactorrule <id>` emits a style from matching live actors.
+- `smokeeventrule <event_id>` emits a style when gameplay publishes a matching event.
+- `smokeemitter <id>` emits a style continuously from a rectangular source plane while its containing map is active.
+
+The first three are global blocks directly inside `LIGHTOVR`; `smokeemitter` belongs inside a `map` block. IDs and style references are case-insensitive. Duplicate IDs use the last loaded definition within their scope. Multiple differently named actor rules may target the same actor class, in which case all matching rules emit.
+
+Smoke requires the NRI/PT renderer and `nri_ptsmoke true`. The same setting is exposed as **Smoke** under **Options → Display Options**. LIGHTOVR parsing, compact cadence state, and injection-command scheduling are CPU-side; deposition, sparse density/optical/velocity/temperature fields, simulation, lighting, dissipation, and residency stay on the GPU.
+
+## Authoring Workflow
+
+1. Define a global `smokestyle` with a unique ID. Start by tuning its optical controls (`density`, `extinction`, `albedo`, and `anisotropy`), then its lifetime and motion controls.
+2. Choose the source type that matches the effect. Reference the style by ID from that source; smoke styles are not nested inside source rules.
+3. Set source placement and cadence independently of the style. For example, use an actor-rule `offset` and `spacing` for a rocket trail, or a map emitter's `position`, `normal`, and `size` for a stationary fire bed.
+4. Mount the loose overlay and run `lightoverlay_reload`. Use `lightoverlay_dumpresolved` to confirm that class names and style references resolved.
+5. Generate the effect in game, then tune one category at a time: source amount/size, optical thickness, dissipation, and finally motion. Use `nri_ptsmokereset` between comparisons so old smoke does not obscure the result.
+
+| Desired source | Block to use | Typical use |
+| --- | --- | --- |
+| A live actor | `smokeactorrule <id>` | Rockets, fires, explosions, and other effects whose position or lifetime follows an actor. |
+| A gameplay event | `smokeeventrule <event_id>` | Muzzle smoke and impact puffs emitted by a wired weapon or collision event. |
+| A fixed map area | `map <mapname> { smokeemitter <id> { ... } }` | Persistent rectangular sources such as vents, fire beds, and environmental haze emitters. |
+
+The source rule controls **where, when, and how much** smoke is injected. The style controls **what that smoke looks like and how it moves or dissipates after injection**. Reusing one style across several source rules keeps their appearance consistent while allowing each source to have different offsets, cadence, density scaling, and radius scaling.
+
+Actor and event rules also own representation and responsiveness policy:
+
+| Field | Default and accepted values | Effect |
+| --- | --- | --- |
+| `representation <mode>` | `grid`; `grid`, `analytic`, or `"transient-cloud"` | `grid` routes through sparse-grid admission and simulation. `analytic` retains the legacy one/few-carrier comparison path. The hyphenated `"transient-cloud"` value must be quoted because LIGHTOVR's scanner otherwise treats the hyphen as punctuation. It creates one event-owned group containing deterministic billowy lobes. Omitting the field preserves existing grid behavior. |
+| `queuepolicy <mode>` | `retry`; `retry`, `drop`, or `latest` | Controls what happens when the selected representation cannot accept the emission immediately. `retry` retains existing grid work, `drop` discards work that cannot be presented promptly, and `latest` keeps only the newest work for a stable source. Analytic one-shot effects should use `drop`; they must not use delayed replay. |
+| `maxlatencyseconds <seconds>` | omitted; minimum `0` | Optional maximum gameplay/presentation age at first publication. Work older than the bound is discarded instead of appearing belatedly. This clock is independent of smoke simulation debt. Omitting the field leaves the current representation's existing latency behavior unchanged. |
+| `analyticcarriers <count>` | `1`; `1` through `8` | Fixed carrier quantity for each analytic emission. Authored particle mass is divided exactly across the carriers; the quantity does not vary with frame time or available GPU headroom. Use multiple carriers to avoid collapsing a broad impact into one opaque kernel. |
+| `effectclass <class>` | `diagnostic`; `explosion`, `trail`, `fire`, `muzzle`, `impact`, or `diagnostic` | Selects deterministic transient-cloud placement and lifecycle behavior. This is independent of representation. `transientclass` is accepted as a compatibility input alias; normalized output writes `effectclass`. |
+| `lobecount <count>` | `8`; `1` through `16` | Spatial complexity of one transient-cloud group. It is deliberately independent of `count`: changing lobe count redistributes the same authored optical quantity instead of changing smoke mass. |
+| `burstborrow <on\|off>` | `off` | Explosion-only opt-in for bounded burst capacity borrowing and rapid-chain detail reduction. Honored only with `representation "transient-cloud"` and `effectclass explosion`; other routes/classes ignore it. Available on actor and event rules; see the policy below. |
+
+Representation is source policy rather than style policy. A style can therefore be reused by all three routes. Grid smoke receives deposition, neighbor transport, thermal buoyancy, and grid turbulence. Legacy analytic smoke uses closed-form carrier expansion and fading. Transient clouds use event-owned, deterministic lobe groups with independent radius, density, and intrinsic-emission envelopes; they do not deposit into the grid.
+
+`nri_ptsmoketransientmask` is the session rollback gate for explicitly authored transient sources. Its bits are explosion `1`, trail `2`, fire `4`, muzzle `8`, impact `16`, and diagnostic `32`; `63` enables all classes. Clearing a class returns explosion/trail/fire to their original grid route and muzzle/impact/diagnostic to legacy analytic. Map `smokeemitter` sources remain grid-only.
+
+`nri_ptsmoketransientselfshadow` defaults to true and controls coarse cloud self-shadowing for point, directional, and emissive lighting at light-cache anchors. It is independent of the experimental grid self-shadow switch. Changing it rebuilds cloud lighting without resetting cloud geometry. These are local analytic lobe integrals during cache construction, not extra scene rays during smoke rendering. Explosions and trail chunks reuse their complete incident-light field; fire can replace its field at the profile's fixed low rate. Frozen external lighting can retain the color of a light that later disappears; intrinsic emission still cools independently.
+
+For isolated captures, `nri_ptsmokesourceclassmask` uses the same class bits but filters **authored sources before emission**, regardless of their selected representation. It defaults to `63` and is session-only. This is different from the representation rollback mask: a filtered source emits nothing; a rolled-back source still emits through its old route. Map fog is controlled separately by the default-on, session-only `nri_ptsmokemapemitters`. Set the masks first, then use `nri_ptsmokereset` to remove existing density before comparing captures.
+
+Transient point, directional, and emissive lighting is sampled into a bounded per-group incident-light cache. New visible smoke has a complete coarse fallback while a full build is deferred; the initial full self-shadow build waits for the density attack to mature. Explosions and trail chunks then freeze this cache. Fire permits a low-rate replacement while retaining the last complete record. This avoids sparse first-frame lighting and apply-stage scene rays, but moving lights and small shadow boundaries will not relight short-lived clouds exactly.
+
+For an interval actor source with `effectclass fire` and `representation "transient-cloud"`, `lobecount` births are now spread across `intervalseconds`. Each lobe starts at a compact central ring, grows with `expansionvelocity`/`radiusexponent`, and cools with `intrinsicemission`/`emissionhalflife`; `temperature` and `coolinghalflife` remain grid controls, not transient color controls. Use a small `clusterspread` and `loberadiusrandom` for a narrow flame-heart origin. Delayed lobes fit their local release into the unchanged group lifetime; the final birth does not get cut off with a live tail. Low-quality reduction redistributes both birth times and optical weight evenly. This does not increase group or lobe budgets. Event-only fire fixtures retain their simultaneous-birth behavior.
+
+`burstborrow on` keeps the first explosion of a quiet episode at its authored
+`lobecount` (subject to the selected profile and available capacity). Subsequent
+opted-in explosions whose authored births are no more than 0.35 seconds apart
+use at most three lobes. This is a global opted-in explosion episode, not a
+per-actor chain: the aircar creates a different explosion actor at each birth.
+The policy is stamped once in authored-time order, including multiple events
+collected in one render frame, and survives view changes/reentry. A quiet gap
+starts another full-detail episode. Reduction retains the primary connected
+binder, optical quantity, original time, seed, and natural lifetime; it changes
+spatial detail rather than increasing density authoring or shortening smoke life.
+
+On Medium, High, and Reference, opted-in explosions may use the actual spare
+capacity after whole Fire windows and ordinary-effect headroom are reserved.
+With no Hot or resident-Warm Fire sources, the scheduler protects one future
+Fire window (12 groups / 60 lobes), allowing up to 50 explosion groups / 188
+lobes. Once any Fire is Hot or resident, it protects at least two Fire windows
+(24 / 120), plus all established three/four-source windows. It also leaves at
+least two groups / eight lobes for ordinary effects. These are overlapping allocation rights inside the unchanged
+64-group / 256-lobe physical pool, not additional memory or lighting-ray budgets.
+Ordinary effects cannot borrow; heavier ordinary traffic reduces loan headroom.
+
+The evenly spaced reference aircar load is 52 births every four 30 Hz actor ticks,
+with five-second lifetime, up to two Fire sources with at most 12 live cohorts
+each, and two ordinary four-lobe groups. At peak, the 38 explosion groups use
+`12 + 37*3 = 123` lobes; together with the protected Fire and ordinary shares,
+this fits 64 groups / 251 lobes. Actual engine batching/early birth crossings can
+exceed 38 living events; the no-Fire case can use its full 50-group headroom,
+but a batched excess with two Fire windows protected can still defer until
+capacity naturally returns. This is a bounded envelope, not an unconditional
+zero-delay guarantee for arbitrary runtime delivery or extra effects.
+
+Existing visible smoke is never evicted to repay a loan. Consequently, activating more than the protected Fire source set
+while loans are outstanding can defer the extra sources until old smoke expires;
+the ordinary immediate four-Fire guarantee does not apply during those loans.
+After maximum no-Fire borrowing, the first Fire can immediately use its reserved
+window; a second Fire waits until its entire additional window fits, without
+interrupting the first stream. Existing loans are not revoked to make that
+second source appear sooner.
+Four already-established Fire sources are protected before new loans are granted,
+so the full aircar burst is not guaranteed simultaneously with those four fires.
+Low retains its smaller fixed pool and does not offer expanded borrowing.
+
+The production `duke_explosion_cloud` rule opts in. Leave this field off when
+maintaining independent full-detail explosion art matters more than rapid-chain
+coverage, or when a rule is not an explosion.
+
+Fire lighting waits for every member's density attack before its first full build, and crossfades complete cache replacements over 0.2 gameplay seconds. Adjacent packets from the same fire share an emissive sampling pattern. Fire evaluates current directional-light color and direction while reusing cached directional transport; scene visibility still updates only at the profile's cache cadence (or freezes on Low). A fire-only artistic self-transmittance floor of 0.18 prevents deep interior samples from blacking out the whole outer puff. It does not lift scene occlusion, create ambient light, or alter view opacity. Other classes retain their existing frozen lighting/self-shadow policy. These changes add no scene rays during materialization; the previous bank is read only during the short crossfade.
+
+To test custom event rules, put a literal `LIGHTOVR` file in your own overlay directory and pass that directory to `-file`. In a live map, the event test command gives a repeatable camera-relative source without gameplay input. Replace `<event-id>` with the event ID authored in that file:
+
+```text
+nri_ptsmoketransientmask 1
+nri_ptsmokereset
+nri_ptsmoke_test <event-id>
+```
+
+Use mask bits `1` for explosion, `2` for trail, `4` for fire, `8` for muzzle, and `16` for impact. Use mask `0` with the same executable and overlay for a matched rollback capture. Repeating the event command creates a deterministic burst suitable for capacity/overflow captures. Keep isolated event overlays free of actor rules so they do not also add smoke to live actors.
+
+For real-actor lifecycle checks, use a separate overlay whose actor rules reuse the canonical production IDs. Last-wins overlay resolution then replaces each production source instead of adding a duplicate actor source. Do not mount that actor overlay during isolated event captures.
+
+For a spatial `trail` class on the transient route, authored cadence crossings are coalesced into support-sized groups. Ordinary Duke RPG motion produces one current-presentation chunk per observed game tick; a hitch produces multiple contiguous chunks only when lobe support needs them, capped by `maxsegmentsperframe`. Each chunk retains the complete logical-cadence weight and follows the actual observed motion axis even when authored drift velocity is zero. This is a presentation of the currently observed segment, not backfill into arbitrary unchanged world history. Class-mask rollback retains the original Grid cadence and latest-bridge behavior.
+
+With smoke trace mode enabled, `NRI PT smoke routing: event=source` reports the actual source id, authored/effective representation, class, summed authored `count`, grid-command count, legacy carrier count, and transient group/lobe counts. `PERF pt smoke route frame NRI` joins the gather id to the renderer/simulation frame and reports class-mask fallbacks and grid-bridge observations. These are measured gather results; a zero means no matching work was routed in that gather.
+
+## Minimal Actor Smoke Example
+
+This example creates a reusable fire-smoke style and emits it continuously from a visible `DukeFire` actor:
+
+```text
+LIGHTOVR
+{
+    smokestyle "example_fire_smoke"
+    {
+        density 2.0
+        extinction 0.008
+        albedo 0.48 0.46 0.44
+        anisotropy 0.10
+        radius 8.0
+        expansionvelocity 8.0
+        lifetime 12.0
+        densityhalflife 4.0
+        risevelocity 20.0
+        velocityrandom 8.0
+        velocityinherit 0.0
+        buoyancy 4.0
+        drag 0.20
+        turbulence 12.0
+        turbulencescale 32.0
+        temperature 4.0
+        momentumscale 1.0
+        coolinghalflife 4.0
+    }
+
+    smokeactorrule "example_fire_source"
+    {
+        actorclass "DukeFire"
+        trigger interval
+        activation surface
+        emitterforeground on
+        style "example_fire_smoke"
+        count 6
+        offset 0.0 0.0 -24.0
+        spawnradius 4.0
+        densityscale 1.5
+        radiusscale 1.5
+        velocityscale 0.0
+        intervalseconds 0.20
+        spacing 0.0
+        maxsegmentsperframe 4
+    }
+}
+```
+
+`activation surface` prevents a prewarmed but hidden fire from emitting until its actor surface has actually appeared. The negative third `offset` component moves the source visually upward because actor positions use Build/world coordinates, where Z increases downward. Positive `risevelocity` and `buoyancy` still mean upward smoke motion.
+
+## Smoke Style Fields
+
+Time and half-life values are seconds of smoke simulation time. Distances are engine world units, velocities are world units per second, and unitless values are identified below. Unless a maximum is listed, the parser accepts any finite value at or above the minimum.
+
+| Field | Default and accepted values | Effect |
+| --- | --- | --- |
+| `density <value>` | `1.0`, minimum `0` | Initial smoke mass/concentration. In grid mode this combines with rule `densityscale` and `count`. More density deposits more field concentration and makes the source optically thicker; it does not add gravity. |
+| `extinction <value>` | `0.04`, minimum `0` | Opacity per unit density. Raising extinction thickens smoke without directly increasing deposited mass or momentum. |
+| `albedo <r> <g> <b>` | `0.5 0.5 0.5`; each component clamps to `[0,1]` | RGB fraction of extinction that scatters light. Values near `0` absorb and look dark; values near `1` scatter more incident light. This is not an emissive color. |
+| `anisotropy <value>` | `0`; parser range `[-0.99,0.99]`, current runtime range `[-0.95,0.95]` | Henyey-Greenstein phase parameter: `0` is isotropic, positive values favor forward scattering, and negative values favor backward scattering. |
+| `radius <units>` | `8.0`, minimum `0.001` | Base source/carrier radius before rule `radiusscale`. In grid mode it participates in the deposition support radius. |
+| `expansionvelocity <units/s>` | `0`, minimum `0` | Grid mode injects outward radial momentum, widening the plume. Particle compatibility mode grows carrier radius linearly and dilutes density as volume increases. |
+| `lifetime <seconds>` | `2.0`, minimum `0.001` | Hard carrier expiration in particle compatibility mode. It is **not** a hard cutoff for the canonical sparse grid; use `densityhalflife` to control grid dissipation. |
+| `densityhalflife <seconds>` | `1.0`, minimum `0.001` | Time for density and optical properties to fall by half. This is the primary fade/dissipation control in sparse-grid mode. Longer values retain a plume; shorter values clear it faster. |
+| `risevelocity <units/s>` | `0`, minimum `0` | Direct positive-up launch velocity. In grid mode this is initial source momentum; thermal buoyancy supplies continuing rise. |
+| `velocityrandom <units/s>` | `0`, minimum `0` | Stochastic launch speed along a direction selected inside the rule's `velocitycone`. With no usable source axis, the direction is spherical. |
+| `velocityinherit <scale>` | `0`, minimum `0` | Fraction of the rule's source velocity inherited by the smoke. Use this for projectile momentum or a moving emitter. |
+| `buoyancy <scale>` | `0`, minimum `0` | Style thermal-buoyancy strength. In grid mode it combines with `temperature` and the global grid buoyancy setting to accelerate smoke upward. |
+| `drag <rate>` | `0`, minimum `0` | Exponential velocity damping. Low drag lets smoke coast and follow injected momentum; high drag rapidly removes organized motion. |
+| `turbulence <strength>` | `0`, minimum `0` | Strength of simplified turbulent motion. Grid mode uses a stable world-anchored curl field; particle mode uses changing random acceleration. |
+| `turbulencescale <units>` | `0`, minimum `0` | World-space wavelength of grid turbulence. Small values create tight variation; large values create broad bends and rolls. It is grid-oriented and does not change particle-mode random noise scale. |
+| `temperature <value>` | `1.0`, minimum `0` | Initial thermal content used by sparse-grid buoyancy. It has no independent optical effect and is grid-oriented. |
+| `momentumscale <scale>` | `1.0`, minimum `0` | Additional multiplier on inherited source momentum in sparse-grid mode. It does not multiply radial expansion, rise velocity, or stochastic launch speed. |
+| `coolinghalflife <seconds>` | `2.0`, minimum `0.001` | Time for thermal buoyancy to fall by half in sparse-grid mode. Longer values keep a hot plume rising farther. |
+| `opticalamountscale <scale>` | `1.0`, minimum `0` | Transient-cloud-only multiplier on the semantic optical amount derived from source `count`. It does not affect grid or analytic routing, and is independent of transient lobe count: reducing lobe complexity redistributes the same scaled optical amount. This is an initial authoring scale, not radius-based or age-based dilution, so expanding lobes retain their authored density envelope. Zero suppresses the transient cloud. |
+| `transientlifetimeseconds <seconds>` | `0`, minimum `0` | Transient-cloud-only hard group and lobe lifetime. Zero inherits the existing style `lifetime`; a positive value overrides it only for transient clouds, leaving grid and analytic rollback behavior unchanged. |
+| `densityattackseconds <seconds>` | `0`, minimum `0` | Transient-cloud density ramp-in. Zero starts at full authored density. |
+| `densitysustainseconds <seconds>` | `0`, minimum `0` | Transient-cloud time before release begins. Zero derives the release start from lifetime. |
+| `densityreleaseseconds <seconds>` | `0`, minimum `0` | Transient-cloud density release. Zero uses `densityhalflife`; nonzero makes density independent of radius growth. |
+| `radiusexponent <value>` | `1`, minimum `0.01` | Shapes transient-cloud radius as `initialRadius + expansionVelocity * localLifetime * (localAge / localLifetime)^exponent`, with age clamped to lifetime. Values below 1 widen earlier without changing birth or final radius. Growth does not implicitly dilute density by current volume or change the density/heat envelopes. |
+| `intrinsicemission <value>` | `0`, minimum `0` | Immediate local source strength for hot transient smoke. It requires no scene-light sampling and is separate from externally incident light. |
+| `emissionhalflife <seconds>` | `0.25`, minimum `0.001` | Independent decay of intrinsic emission. |
+| `clusterspread <scale>` | `0.75`; `[0,4]` | Class-oriented spacing of correlated lobes in units of base lobe radius. Trail hitch chunks may raise the effective spread to cover their complete spatial interval. |
+| `loberadiusrandom <min> <max>` | `0.75 1.25`; each `[0.1,4]` | Deterministic per-lobe radius range. Reversed inputs are normalized into ascending order. |
+| `curlvelocity <units/s>` | `0`, minimum `0` | Deterministic class-space curl applied to transient lobe motion. |
+| `coreplateau <fraction>` | `0.58`; `[0,0.95]` | Width/strength of each compact lobe's dense plateau before its soft shoulder. |
+| `edgeerosion <fraction>` | `0.12`; `[0,0.9]` | Boundary-only erosion; dense cores remain protected. |
+| `noisescale <1/units>` | `0.035`, minimum `0.0001` | Stable group-space macro-detail frequency. |
+| `noisestrength <fraction>` | `0.18`; `[0,0.8]` | Boundary detail amplitude. It does not globally modulate the dense core. |
+
+Opacity is approximately driven by `density × densityscale × count × extinction`. Transient clouds additionally multiply that optical amount by style `opticalamountscale`; the value is conserved when the renderer changes lobe complexity and follows the authored density envelope without automatic expansion-volume dilution. Scattered brightness and tint additionally depend on `albedo`, lighting, and anisotropy. Increasing `radius`, `radiusscale`, or `spawnradius` spreads grid sources across more space, so local grid density may fall even when total deposited mass is unchanged.
+
+`nri_ptsmokerepresentation 0` selects the particle compatibility path, the default `1` selects the authoritative GPU sparse grid, and diagnostic value `2` runs the compare path with both representations. The grid's important differences from particle compatibility mode are:
+
+- `count` scales deposited mass; it is not a literal number of visible particles.
+- effective source support is the maximum of `spawnradius`, `radius × radiusscale`, and one grid cell, capped at 16 grid cells; those radii are not added together.
+- `lifetime` does not delete grid smoke. Grid smoke decays through `densityhalflife` and is eventually reclaimed after becoming inactive.
+- `expansionvelocity` is radial launch momentum rather than a continuously growing sphere.
+- `temperature`, `momentumscale`, `coolinghalflife`, and `turbulencescale` primarily describe grid behavior.
+
+## Actor Smoke Rules
+
+`smokeactorrule <id>` tracks each matching live actor independently. Actor, owner, and excluded-owner class matching includes descendants.
+
+| Field | Default and accepted values | Effect |
+| --- | --- | --- |
+| `actorclass <class>` | Empty; a resolvable class is required | Actor class that owns the source. An unresolved class makes the rule inert. |
+| `ownerclass <class>` | Empty | Optional direct-owner requirement. The actor emits only when `GetOwnerActor()` matches this class or a descendant. |
+| `excludeownerclass <class>` | Empty | Optional direct-owner exclusion. Matching owners suppress this rule. Useful when a generic carrier class is shared by several effects. |
+| `trigger <mode>` | `spawn`; `spawn` or `interval` | `spawn` emits once when eligible. `interval` emits once when eligible and then continues using spatial or timed cadence. |
+| `activation <mode>` | `immediate`; `immediate` or `surface` | `immediate` starts when the live actor/rule is first observed. `surface` waits until renderer appearance evidence exists, then latches; use it for hidden or scripted fire actors. |
+| `emitterforeground <state>` | `off`; `on` or `off` | With `on`, matching actor sprite/voxel pixels remain in front of smoke. This is a coarse actor mask: it suppresses **all** smoke at those pixels, not only smoke from this source. |
+| `representation <mode>` | `grid`; `grid`, `analytic`, or `"transient-cloud"` | Selects the source representation described above. Quote the hyphenated value. |
+| `queuepolicy <mode>` | `retry`; `retry`, `drop`, or `latest` | Selects overload handling described above. |
+| `maxlatencyseconds <seconds>` | Omitted; minimum `0` | Optional first-publication freshness bound in gameplay/presentation time. |
+| `effectclass <class>` | `diagnostic`; see the representation table | Selects the transient placement/lifecycle preset and rollback-mask bit. |
+| `lobecount <count>` | `8`; `[1,16]` | Lobe complexity for each transient group, independent of `count`. |
+| `style <id>` | Empty; a resolvable style is required | `smokestyle` used by emitted commands. An unresolved reference makes the rule inert. |
+| `count <integer>` | `1`; `[1,256]` | Particle carriers per source in particle mode; deposited-mass multiplier in grid mode. This is a strong source-density control and directly affects compatibility-mode particle work. |
+| `offset <x> <y> <z>` | `0 0 0` | Actor-local right, forward, and Build/world-Z offset. Negative Z moves visually upward; positive Z moves downward. |
+| `spawnradius <units>` | `0`, minimum `0` | Initial source spread. Particle centers are randomized inside this sphere; grid mode uses it as one candidate for deposition support. |
+| `densityscale <scale>` | `1`, minimum `0` | Per-rule multiplier on style density/mass. |
+| `radiusscale <scale>` | `1`, minimum `0` | Per-rule multiplier on style radius. |
+| `velocitycone <degrees>` | `0`; `[0,180]` | Half-angle of uniform solid-angle stochastic launch spread around the source velocity. `0` follows the axis; `180` permits a sphere. With a zero axis, launch directions are spherical. |
+| `velocityscale <scale>` | `1`, minimum `0` | Scales actor source velocity before style shaping. It supplies an impulse magnitude only when style `velocityinherit` is nonzero; it can still establish the cone axis when inheritance is zero. |
+| `intervalseconds <seconds>` | `0.1`, minimum `0.001` | Timed cadence for `trigger interval`, including the stationary fallback. Uses gameplay time, not smoke simulation timescale. |
+| `pulseamount <fraction>` | `0`; `[0,1]` | Mean-preserving modulation of emission mass. `0` is an exact identity; `1` ranges from a zero-mass trough to twice the authored `densityscale`. |
+| `pulseperiodcadences <integer>` | `1`; `[1,256]` | Number of logical emission crossings in one pulse cycle. Values of `1` are an identity. The duration in seconds is this value multiplied by `intervalseconds` for a stationary timed source. |
+| `pulsephase <cycles>` | `0`; wrapped to `[0,1)` | Authored cycle offset. Phase `0` starts the first cadence at the trough; `0.5` starts it at the peak. |
+| `starttime <seconds>` | `0`, minimum `0` | Delay from activation before first emission. The actor must remain alive through the delay. Uses gameplay time and is independent of `nri_ptsmoketimescale`. |
+| `startdistance <units>` | `0`, minimum `0` | Cumulative actor travel required after activation. Useful for beginning projectile trails away from the player. |
+| `spacing <units>` | `0`, minimum `0` | When positive and the actor moves, emits at distance crossings instead of timed cadence. This makes trail density less dependent on projectile speed. Stationary frames fall back to `intervalseconds`. |
+| `maxsegmentsperframe <integer>` | `1`; `[1,256]` | Bounds interval/spacing emissions generated in one frame. If more crossings occurred, the newest crossings are kept and older ones are discarded rather than backfilled later. |
+
+`starttime` and `startdistance` advance concurrently after activation. If both are nonzero, both must pass and the later threshold crossing controls the first emission. Suppressed movement and interval time are not replayed as a catch-up burst. Reloading LIGHTOVR clears activation/cadence state, so each surviving actor begins again under the reloaded rule.
+
+Pulse modulation is sampled from the actor's logical cadence ordinal, not the render frame. For a period `N >= 2`, cadence `k` receives `1 - pulseamount * cos(2*pi*((k-1)/N + pulsephase))` times the authored `densityscale`. A complete cycle therefore retains the same average mass as an unmodulated rule. Hitches, retry delay, dormant-source coalescing, and render-frame partitioning do not change the selected pulse phase or its accumulated mass. Changing `intervalseconds` changes the pulse duration while preserving its cadence shape.
+
+Initial grid velocity is approximately:
+
+```text
+source velocity × velocityscale × velocityinherit × momentumscale
++ stochastic cone direction × velocityrandom
++ radial direction × expansionvelocity
++ upward risevelocity
+```
+
+Thermal buoyancy and turbulence then continue to modify the field while drag damps it and cooling reduces thermal rise.
+
+## Event Smoke Rules
+
+`smokeeventrule <event_id>` emits once for each matching gameplay event. The rule ID is the case-insensitive event ID; merely inventing a name does not create a gameplay producer.
+
+| Field | Default and accepted values | Effect |
+| --- | --- | --- |
+| `style <id>` | Empty; a resolvable style is required | Smoke style emitted by the event. |
+| `representation <mode>` | `grid`; `grid`, `analytic`, or `"transient-cloud"` | Selects the source representation described above. Quote the hyphenated value. |
+| `queuepolicy <mode>` | `retry`; `retry`, `drop`, or `latest` | Selects overload handling described above. Analytic impacts and muzzle puffs normally use `drop`. |
+| `maxlatencyseconds <seconds>` | Omitted; minimum `0` | Optional first-publication freshness bound in gameplay/presentation time. |
+| `effectclass <class>` | `diagnostic`; see the representation table | Selects the transient placement/lifecycle preset and rollback-mask bit. |
+| `lobecount <count>` | `8`; `[1,16]` | Lobe complexity for each transient group, independent of `count`. |
+| `count <integer>` | `1`; `[1,256]` | Particle count or grid deposited-mass multiplier, as described for actor rules. |
+| `offset <x> <y> <z>` | `0 0 0` | Event-local right, forward, and producer-supplied third-basis offset. Current Duke weapon producers use positive Build Z for that third vector at level aim, so a negative third offset moves visually upward. With no basis, this offset is ignored. |
+| `offsetrandom <right> <forward> <up>` | `0 0 0`; each component is finite and nonnegative | Per-event local-axis jitter half-extents added to `offset`. Each event deterministically samples right, forward, and up within the corresponding `[-extent,+extent]` interval. One sampled origin is shared by the complete event rather than changing per frame; zero leaves the fixed offset unchanged. With no producer basis, this jitter is ignored. |
+| `spawnradius <units>` | `0`, minimum `0` | Initial event-source spread/support. |
+| `densityscale <scale>` | `1`, minimum `0` | Per-event multiplier on style density/mass. |
+| `radiusscale <scale>` | `1`, minimum `0` | Per-event multiplier on style radius. |
+| `velocitycone <degrees>` | `0`; `[0,180]` | Half-angle of stochastic launch spread around the selected direction. |
+| `velocityscale <units/s>` | `1`, minimum `0` | Magnitude of the event command direction before style `velocityinherit`; also establishes the cone axis for style `velocityrandom`. |
+| `normaloffset <units>` | `0`, signed | Moves a surface event along its supplied unit normal. Positive values move out of a hit surface; negative values move into it. Has no effect when the event has no normal. |
+| `direction <mode>` | `aim`; `aim`, `normal`, or `incoming` | Selects the command axis. `aim` uses event basis-forward, `normal` uses the outward surface normal, and `incoming` uses travel direction toward the hit. Missing normal/incoming data safely falls back to aim. |
+
+Currently wired Duke event IDs are:
+
+- `duke.pistol.primary`
+- `duke.shotgun.primary`
+- `duke.chaingun.primary`
+- `duke.grower.primary`
+- `duke.shrinker.primary`
+- `duke.devastator.primary`
+- `duke.freezer.primary`
+- `duke.flamethrower.primary`
+- `duke.rpg.primary`
+- `duke.hitscan.impact.wall`
+- `duke.hitscan.impact.plane`
+- `duke.hitscan.impact.actor`
+
+Muzzle events provide the player weapon basis. Hitscan impact events provide incoming direction and an outward-facing surface normal, making `direction normal` the usual choice for impact smoke.
+
+`velocityscale` alone does not necessarily make smoke faster. It scales the selected command direction; style `velocityinherit` controls how much of that command speed is inherited, while `velocityrandom` supplies stochastic launch speed around the command axis.
+
+## Map Smoke Emitters
+
+`smokeemitter <id>` is an always-active, map-local rectangular source plane. It begins emitting when its map becomes active and continues at the authored interval. Scripted or sector-driven activation is not currently supported.
+
+```text
+map "E1L1"
+{
+    smokeemitter "TrashFireSmoke01"
+    {
+        style "example_fire_smoke"
+        position 1024.0 2048.0 -128.0
+        normal 0.0 0.0 -1.0
+        size 48.0 32.0
+        rotation 0.0
+        offset 2.0
+        count 8
+        intervalseconds 0.15
+        spawnradius 2.0
+        densityscale 1.0
+        radiusscale 1.0
+        velocityscale 0.0
+        velocitycone 20.0
+        maxsegmentsperframe 2
+    }
+}
+```
+
+| Field | Default and accepted values | Effect |
+| --- | --- | --- |
+| `style <id>` | Empty; a resolvable global style is required | Smoke style emitted by the source. An unresolved reference leaves the emitter inert. |
+| `position <x> <y> <z>` | Required | Center of the unoffset source plane in Build/world coordinates. Build Z increases downward. |
+| `normal <x> <y> <z>` | Required and must be nonzero | Plane normal and default source-velocity direction. A zero/invalid basis leaves the rule inert. The editor writes a finite normalized, viewer-facing normal after converting the aimed PT surface to Build/world coordinates. |
+| `size <width> <length>` | Required; each component clamps to `[1,256]` | Full dimensions of the rectangular source plane. The total pulse mass does not increase with area, so a larger plane spreads the same emission more broadly. The bounded range prevents pathological sparse-grid traversal. |
+| `rotation <degrees>` | `0` | Rotates the rectangle around its normal. Zero uses a deterministic world-derived tangent basis, not the surface's texture axes or camera-screen horizontal. |
+| `offset <units>` | `0`, signed | Moves the source center along its normal. Positive values move away from the aimed surface; negative values move through it. |
+| `count <integer>` | `1`; `[1,256]` | Particle count in compatibility mode or total deposited-mass multiplier in grid mode. This remains total mass per pulse rather than mass per unit area. |
+| `intervalseconds <seconds>` | `0.1`, minimum `0.001` | Gameplay-time delay between emission pulses. It is independent of `nri_ptsmoketimescale`. |
+| `spawnradius <units>` | `0`, minimum `0` | Adds spherical positional spread and supplies grid-kernel thickness around the plane. |
+| `densityscale <scale>` | `1`, minimum `0` | Per-emitter multiplier on style density/total pulse mass. |
+| `radiusscale <scale>` | `1`, minimum `0` | Per-emitter multiplier on style radius and grid support. |
+| `velocityscale <units/s>` | `0`, minimum `0` | Source-command speed along the plane normal before style `velocityinherit`. The style's rise, random velocity, expansion, buoyancy, and turbulence remain independent. |
+| `velocitycone <degrees>` | `0`; `[0,180]` | Half-angle for stochastic style velocity around the plane normal. |
+| `maxsegmentsperframe <integer>` | `1`; `[1,256]` | Bounds cadence catch-up after a slow frame. The newest crossings are retained and discarded crossings are not replayed later. |
+
+Grid mode deposits one normalized kernel over the oriented rectangle rather than expanding it into CPU-generated point sources. Enlarging the plane therefore increases the number of sparse cells touched and may cost more GPU work, but it does not increase CPU commands or routine GPU-to-CPU traffic. Particle compatibility mode samples carrier positions uniformly across the rectangle before applying `spawnradius`.
+
+### Map Smoke Emitter Edit Mode
+
+The map smoke emitter editor stages map-local rectangular emitters against an aimed PT surface. It uses the same loose, writable `LIGHTOVR` selection as the light editors and starts disabled every launch. Only one LIGHTOVR editor mode may be active at a time. Before editing, use `nri_ptactorlighteditwritable` to verify the destination path and keep the writable file under version control or make a backup: commit/delete normalize and replace the complete writable file, so comments, hand formatting, and original ordering are not preserved.
+
+Placement requires an active NRI/PT renderer, a center-screen PT surface hit, and at least one resolved `smokestyle`. Visible preview smoke additionally requires `nri_ptsmoke true`.
+
+Enable it in a live map with:
+
+```text
+nri_ptmapsmokeeditmode 1
+```
+
+While the mode is enabled:
+
+- `p` places a fresh, uniquely named 32 by 32 default draft on the aimed surface, offset one unit along its viewer-facing normal
+- `Ctrl+p` creates a fresh uniquely named clone at the newly aimed surface and copies every active-draft field, including values authored only in text; it does not move or replace the original rule
+- left/right arrow decreases/increases rectangle width in 4-unit steps
+- down/up arrow decreases/increases rectangle length in 4-unit steps
+- mouse wheel down/up rotates the plane around its normal in 15-degree steps
+- `<` and `>` decrease/increase its signed height above the surface in 2-unit steps; unshifted `,` and `.` work as well
+- `;` and `'` decrease/increase total emission count by one
+- `j` and `k` decrease/increase the interval by 0.025 seconds
+- `[` and `]` cycle resolved smoke styles
+- `o` cycles through persisted emitters on the current map and stages the selected rule for editing
+- `Enter` serializes the merged normalized database over the complete writable loose file, then reloads; editing an archive-backed selection creates an effective loose override rather than changing its archive
+- `Escape` cancels the active draft without writing; when no draft exists, normal Escape handling continues
+- `Delete` discards an uncommitted draft or, without confirmation, removes a selected rule owned by the writable loose overlay; archive/other-source rules cannot be deleted, and removing a loose last-wins rule may reveal an older same-ID definition after reload
+- `l` cancels the current draft and reloads `LIGHTOVR` from disk without writing
+
+Every staged adjustment prints the current editor-adjustable style, size, rotation, signed height, count, and interval. While edit mode is enabled, every geometrically valid effective `smokeemitter` on the current map appears as a subdued yellow rectangle. The active new, cloned, or selected draft pulses; when editing a persisted rule, its staged geometry replaces the static outline so size, rotation, and offset changes do not leave a stale rectangle underneath. Cancelling, committing, deleting, or reloading removes the pulsing draft state, while the resulting persisted current-map rectangles remain visible until the mode is disabled.
+
+The outlines are crisp post-scene editor overlays. They are clipped to the 3D viewport and remain visible through smoke and map geometry rather than participating in scene depth, lighting, ray tracing, denoising, or upscaling. Effective rules with unresolved styles are still outlined when their rectangle geometry is valid, which makes a broken authoring location discoverable even though it cannot emit smoke.
+
+The normal smoke runtime also provides emitted smoke as a live preview using the same rectangle geometry as a committed emitter. Previously deposited smoke remains after an adjustment unless it naturally dissipates or `nri_ptsmokereset` is used. Selecting a persisted rule temporarily suppresses its committed instance so the preview does not double its output. `o` currently cycles persisted emitters by rule order rather than selecting one by crosshair.
+
+The hotkeys do not edit `spawnradius`, `densityscale`, `radiusscale`, `velocityscale`, `velocitycone`, `maxsegmentsperframe`, the rule id, or a persisted rule's position/normal. Tune those in text and press `l` (or run `lightoverlay_reload`). To reposition a rule, clone it with `Ctrl+p`, commit the clone, then explicitly select and delete the original loose rule.
+
+Disable the editor with:
+
+```text
+nri_ptmapsmokeeditmode 0
+```
+
+## Common Smoke Recipes
+
+These source fragments assume that the referenced `example_*_smoke` styles have already been declared.
+
+Use distance spacing for a speed-independent rocket trail and `startdistance` to keep smoke away from the camera:
+
+```text
+smokeactorrule "example_rocket_trail"
+{
+    actorclass "DukeRPG"
+    trigger interval
+    style "example_trail_smoke"
+    count 10
+    offset 0.0 -5.0 0.0
+    spawnradius 2.0
+    densityscale 1.0
+    radiusscale 1.0
+    velocityscale 0.5
+    velocitycone 20.0
+    intervalseconds 0.04
+    startdistance 96.0
+    spacing 4.0
+    maxsegmentsperframe 8
+}
+```
+
+Use a one-shot actor rule for an explosion cloud. `starttime` can hand off visually from a fireball, but the actor must survive long enough to cross the gate:
+
+```text
+smokeactorrule "example_explosion_cloud"
+{
+    actorclass "DukeExplosion2"
+    trigger spawn
+    starttime 1.0
+    style "example_explosion_smoke"
+    count 64
+    spawnradius 16.0
+    densityscale 1.5
+    radiusscale 2.0
+    velocitycone 180.0
+}
+```
+
+Use an event rule with forward offset for muzzle smoke:
+
+```text
+smokeeventrule "duke.shotgun.primary"
+{
+    style "example_muzzle_smoke"
+    count 20
+    offset 0.0 16.0 0.0
+    spawnradius 4.0
+    densityscale 1.25
+    radiusscale 1.25
+    velocityscale 3.0
+    velocitycone 24.0
+    direction aim
+}
+```
+
+Use outward normal placement and direction so impact smoke does not begin inside a wall:
+
+```text
+smokeeventrule "duke.hitscan.impact.wall"
+{
+    style "example_impact_smoke"
+    count 12
+    normaloffset 3.0
+    spawnradius 2.0
+    densityscale 1.0
+    radiusscale 1.0
+    velocityscale 6.0
+    velocitycone 40.0
+    direction normal
+}
+```
+
+Use a long density half-life, low thermal lift, gentle expansion, and broad turbulence for slow ground-level mood smoke that remains responsive to colored lighting:
+
+```text
+smokestyle "example_ground_mood_smoke"
+{
+    density 1.6
+    extinction 0.0035
+    albedo 0.52 0.52 0.50
+    anisotropy 0.05
+    radius 12.0
+    expansionvelocity 2.5
+    lifetime 18.0
+    densityhalflife 9.0
+    risevelocity 0.5
+    velocityrandom 2.5
+    velocityinherit 0.25
+    buoyancy 0.15
+    drag 0.35
+    turbulence 5.0
+    turbulencescale 56.0
+    temperature 0.5
+    momentumscale 1.0
+    coolinghalflife 2.0
+}
+
+map "E1L1"
+{
+    smokeemitter "example_ground_mood_zone"
+    {
+        style "example_ground_mood_smoke"
+        position 1024.0 2048.0 -128.0
+        normal 0.0 0.0 -1.0
+        size 96.0 64.0
+        offset 4.0
+        count 24
+        intervalseconds 0.35
+        spawnradius 4.0
+        velocityscale 2.0
+        velocitycone 75.0
+        maxsegmentsperframe 2
+    }
+}
+```
+
+The nonzero `velocityscale` supplies an upward normal axis, but `velocityinherit 0.25` keeps that organized motion slow. `velocityrandom` and expansion spread the cloud while broad turbulence prevents a uniform sheet. For a rectangle with twice the area, roughly double `count` to preserve local thickness because count is total pulse mass. Global wind is still shared by every style; keep `nri_ptsmokewindy` near zero (roughly `0` to `2`) when testing a ground-hugging result.
+
+For a less uniform sustained fire column, combine positive `risevelocity`, `temperature`, and `buoyancy` with nonzero `velocityrandom`, `expansionvelocity`, and `turbulence`. Use moderate `drag`, a turbulence wavelength appropriate to the plume width, and a long enough `densityhalflife` for smoke to travel before fading. Global wind can bend every plume; style controls should supply the fire-specific rise and variation.
+
+## Reloading and Smoke Diagnostics
+
+- `lightoverlay_reload`
+  Reloads all mounted LIGHTOVR data. Smoke style layout, actor activation/cadence state, and the current smoke simulation epoch reset, so existing smoke disappears and active sources start over.
+- `lightoverlay_dump`
+  Prints parsed-rule summaries and source locations.
+- `lightoverlay_dumpresolved [mapname]`
+  Confirms that actor classes, owner filters, styles, and event rules resolved. Check this first when a source emits nothing.
+- `lightoverlay_dumpnormalized`
+  Prints canonical round-trippable syntax with all smoke defaults made explicit.
+- `nri_ptsmoke_test`
+  Queues one built-in synthetic smoke injection in front of the player.
+- `nri_ptsmoke_test <event_rule_id>`
+  Queues a local-player event for a resolved `smokeeventrule`. With a live local player, the synthetic event supplies a deterministic aim basis, incoming direction, and opposing surface normal so `normaloffset` and all direction modes can be tested without manufacturing a gameplay collision.
+- `nri_ptsmokestatus`
+  Prints current enable/route, representation, command, simulation, lighting, occupancy, and GPU-readback status.
+- `nri_ptsmokereset`
+  Clears current smoke and resets its simulation epoch.
+- `nri_ptsmoketrace 2`
+  Enables verbose actor activation/start-time deferral, actor emission position/velocity, map/map-preview emission, and event-match logging. Return it to `0` after diagnosis.
+- `nri_ptsmokereadback true`
+  Enables additional GPU smoke counters used by status diagnostics. Leave it off for ordinary play.
+
+Common failure checks:
+
+- no smoke at all: confirm the Display Options Smoke toggle or `nri_ptsmoke`, the NRI renderer, and resolved style/class names
+- actor smoke begins behind unopened geometry: use `activation surface`
+- explosion smoke never appears: reduce `starttime` or use a longer-lived actor/event source
+- trail begins too near the player: add `startdistance` or `starttime`; use `spacing` for consistent distance density
+- grid smoke ends too slowly: reduce `densityhalflife`; changing `lifetime` affects only particle compatibility mode
+- smoke is too dark: raise `albedo` or verify that relevant point, directional, and emissive lighting reaches it; do not treat albedo as self-emission
+- plume is a uniform tube: add `velocityrandom`, `expansionvelocity`, and grid turbulence, then balance drag and half-life
+- the fire itself is hidden by its plume: use `emitterforeground on`, understanding that this actor mask wins over all smoke at those pixels
+- smoke abruptly cuts out over animated flames: keep `emitterforeground off` so smoke in front of the flame is integrated normally; the sustained-fire production rule uses this setting to avoid sprite-shaped holes
+- performance or capacity suffers: reduce source `count`, emission frequency, source radius, or the number of simultaneous emitters before increasing global smoke capacities
+
+## Parser Field Reference
+
+- `smokestyle`
+  `density`, `extinction`, `albedo`, `anisotropy`, `radius`, `expansionvelocity`, `lifetime`, `densityhalflife`, `risevelocity`, `velocityrandom`, `velocityinherit`, `buoyancy`, `drag`, `turbulence`, `turbulencescale`, `temperature`, `momentumscale`, `coolinghalflife`, `opticalamountscale`, `transientlifetimeseconds`, `densityattackseconds`, `densitysustainseconds`, `densityreleaseseconds`, `radiusexponent`, `intrinsicemission`, `emissionhalflife`, `clusterspread`, `loberadiusrandom`, `curlvelocity`, `coreplateau`, `edgeerosion`, `noisescale`, `noisestrength`
+- `smokeactorrule`
+  `actorclass`, `ownerclass`, `excludeownerclass`, `trigger`, `activation`, `emitterforeground`, `style`, `count`, `offset`, `spawnradius`, `densityscale`, `radiusscale`, `velocitycone`, `velocityscale`, `intervalseconds`, `pulseamount`, `pulseperiodcadences`, `pulsephase`, `starttime`, `startdistance`, `spacing`, `maxsegmentsperframe`
+- `smokeeventrule`
+  `style`, `count`, `offset`, `offsetrandom`, `spawnradius`, `densityscale`, `radiusscale`, `velocitycone`, `velocityscale`, `normaloffset`, `direction`
+- `smokeemitter`
+  `style`, `position`, `normal`, `size`, `rotation`, `offset`, `count`, `intervalseconds`, `spawnradius`, `densityscale`, `radiusscale`, `velocityscale`, `velocitycone`, `maxsegmentsperframe`
+
+Source representation and responsiveness fields are described in [Authoring Workflow](#authoring-workflow).
+
+- duplicate `smokestyle`, `smokeactorrule`, and `smokeeventrule` ids are global, case-insensitive, and last-wins; smoke blocks belong at the root of `LIGHTOVR`, not inside a `map` block
+- duplicate `smokeemitter` ids are case-insensitive and last-wins within the same map; map emitters reference a global `smokestyle`
+- smoke style references and actor class names must resolve; use `lightoverlay_dumpresolved` to diagnose inert rules
+- `smokeemitter` `position` and `normal` are authored in Build/world coordinates; the editor converts its aimed PT surface result before writing the rule
