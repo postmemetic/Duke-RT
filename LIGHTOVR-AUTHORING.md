@@ -24,6 +24,8 @@ Current top-level `LIGHTOVR` blocks:
   Global actor-bound analytic light rule. This is the main authored point-light path for sprite-driven actors such as fires, rockets, and similar cases.
 - `muzzleflashrule <event_id>`
   Global event-driven muzzle-flash rule. This binds a weapon-fire event id to a transient analytic light definition.
+- `sectorcolor <id>`
+  Global environmental palette profile for emitter hue, blend strength, output gain, and surface palette neutralization.
 - `smokestyle <id>`
   Global reusable smoke appearance and simplified-simulation preset.
 - `smokeactorrule <id>`
@@ -45,6 +47,8 @@ Current map-local blocks:
   Map-local override for emissive surfaces, used to tune intensity/reach scaling and bind an emitter to a sector-light signal.
 - `surfacelight <id>`
   Map-local PT-only visible fixture plus associated analytic point light, usually authored by aiming at a surface in emissive light edit mode and pressing `o`.
+- `sectorcolor <id>`
+  Map-local color-policy override for one sector, inheriting unspecified hue, strength, and gain from its selected palette profile.
 - `smokeemitter <id>`
   Map-local, always-active rectangular smoke source plane. It references a global smoke style and emits while its map is active.
 
@@ -59,15 +63,17 @@ Current light parser fields by block:
 - `directional`
   `color`, `intensity`, `direction`, `angularsize`, `shadow`
 - `light`
-  `type`, `anchor`, `offset`, `direction`, `color`, `intensity`, `radius`, `range`, `flicker`
+  `type`, `anchor`, `offset`, `direction`, `color`, `intensity`, `radius`, `range`, `flicker`, `colorresponse`, `colorsignal sector`
 - `actoroverride`
   `actorclass`, `shadowreceive`, `shadowcast`
 - `emissivematerialresponse`
   `tile`, `tilerange`, `texture`, `materialresponse`, `materialresponsemin`, `materialresponsemax`, `visibleglowblend`, `glowblend`
 - `emissiveoverride`
-  `sector`, `wall`, `tile`, `intensityscale`, `reachscale`, `sectorresponse`, `signal sector`, `responseintensity`, `responsemin`, `responsemax`, `responseinputmin`, `responseinputmax`, `responseintensitymin`, `responseintensitymax`, `responsereachmin`, `responsereachmax`, `materialresponse`, `materialresponsemin`, `materialresponsemax`
+  `sector`, `wall`, `tile`, `intensityscale`, `reachscale`, `sectorresponse`, `signal sector`, `responseintensity`, `responsemin`, `responsemax`, `responseinputmin`, `responseinputmax`, `responseintensitymin`, `responseintensitymax`, `responsereachmin`, `responsereachmax`, `materialresponse`, `materialresponsemin`, `materialresponsemax`, `colorresponse`, `colorsignal sector`
 - `surfacelight`
-  `anchor surface`, `position`, `normal`, `size`, `rotation`, `offset`, `sector`, `wall`, `tile`, `fixture texture`, `fixturetexture`, `fixturematerialresponse`, `type`, `color`, `intensity`, `radius`, `sectorresponse`, `signal sector`, `responseintensity`, `responsemin`, `responsemax`, `responseinputmin`, `responseinputmax`, `materialresponsemin`, `materialresponsemax`
+  `anchor surface`, `position`, `normal`, `size`, `rotation`, `offset`, `sector`, `wall`, `tile`, `fixture texture`, `fixturetexture`, `fixturematerialresponse`, `type`, `color`, `intensity`, `radius`, `sectorresponse`, `signal sector`, `responseintensity`, `responsemin`, `responsemax`, `responseinputmin`, `responseinputmax`, `materialresponsemin`, `materialresponsemax`, `colorresponse`, `colorsignal sector`
+- `sectorcolor`
+  `palette` (global) or `sector` (map-local), `color`, `strength`, `gain`, `enabled`, `neutralize`, `source`
 
 Current practical notes:
 
@@ -196,6 +202,38 @@ LIGHTOVR
     }
 }
 ```
+
+## Sector Color and Emitter Response
+
+`sectorcolor "Name"` defines a palette profile at global scope or a sector override inside `map "E1L1" { ... }`. The name identifies the rule; `palette` or `sector` selects its target.
+
+| Field | Values and effect |
+| --- | --- |
+| `palette` | Global only, required: integer `1..255`. Selects the environmental palette profile. |
+| `sector` | Map-local only, required: nonnegative sector index in that map. |
+| `color` | Three finite, nonnegative linear RGB values, not all zero. Required for an enabled global profile; optional locally. Ratios define hue and are normalized for luminance; values above `1` are allowed. Use `gain` for brightness. |
+| `strength` | Finite `0..1`: `0` retains original emission color, `1` fully replaces its hue. Global default `1`; local omission inherits the profile. |
+| `gain` | Finite number `>= 0`: `0` extinguishes emission, `1` preserves output, values above `1` boost it. Global default `1`; local omission inherits the profile. |
+| `enabled` | `on` or `off`, default `on`. Disables/enables this profile or sector response. Local `off` restores original surface palettes and blocks automatic color propagation through the sector. |
+| `neutralize` | `on` or `off`, default `on`. `on` removes configured environmental coloring from eligible world surfaces so illumination supplies the color; `off` retains the old palette coloring alongside the lighting response. Both the palette profile and local policy must permit neutralization. Weapon HUD tint is preserved. |
+| `source` | Map-local `auto`, `floor`, or `ceiling`; default `auto`. Auto prefers a configured floor palette, then a configured non-sky ceiling palette. Explicit floor/ceiling selects only that surface's palette; ceiling may read a sky palette without removing its sky texture coloring. Accepted but unused globally. |
+
+Local `color`, `strength`, and `gain` inherit independently when omitted. Explicit local RGB works without a matching palette profile; in that case omitted strength/gain default to `1`. Later applicable rules targeting the same palette or sector win; separate sector blocks do not accumulate fields.
+
+Strength and gain affect visible fixtures and their emitted light together. For example, `strength 0.45` blends 45% replacement hue with 55% original emission, then `gain 0.90` scales the result to 90% output. `strength 0` still applies gain and palette neutralization.
+
+`colorresponse` belongs to `light`, `surfacelight`, and `emissiveoverride`:
+
+| Value | Effect |
+| --- | --- |
+| `auto` | Apply the resolved sector hue, strength, and gain. |
+| `on` | Identical to `auto`; does not force full strength or override a disabled sector/feature. Exported as `auto`. |
+| `off` | Bypass the sector-color treatment, including its gain. Other brightness controls still apply. |
+| Omitted | Automatic by default; omission in a later emitter override preserves an earlier explicit setting. |
+
+Optional `colorsignal sector N` selects a nonnegative sector index independently of the brightness `signal sector`. Without it, color uses the brightness signal sector if specified, otherwise the emitter's own sector. Automatic association can borrow color through up to two open, unmasked portals; fewest hops wins, then lowest sector index. Explicit `colorsignal` never searches neighbors. Intrinsic actor emission keeps its own color.
+
+Reload external edits with `lightoverlay_reload`; inspect effective settings with `nri_ptsectorcolordump N`. See the [sector color authoring guide](SECTOR-COLOR-AUTHORING.md) for complete examples and in-world editing.
 
 ## Muzzle Flash Rule Breakdown
 
