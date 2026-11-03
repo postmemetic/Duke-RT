@@ -3224,6 +3224,16 @@ LIGHTOVR
 
     map "E2L2"
     {
+        sectorcolor "BlueRoomSectorColor"
+        {
+            sector 245
+            enabled on
+            neutralize off
+            color 0.1 0.2 0.8
+            strength 0.5
+            gain 0.6
+        }
+
         directional "Earth"
         {
             color 0.5 0.5 0.99
@@ -3231,6 +3241,132 @@ LIGHTOVR
             direction -0.6 0.5 -1.4
             angularsize 0.04
             shadow on
+        }
+        emissiveoverride "BlueRoom1"
+        {
+            sector 245
+            wall 1799
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom2"
+        {
+            sector 245
+            wall 1800
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom3"
+        {
+            sector 245
+            wall 1801
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom4"
+        {
+            sector 245
+            wall 1802
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 161
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom5"
+        {
+            sector 245
+            wall 1803
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom6"
+        {
+            sector 245
+            wall 1821
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom7"
+        {
+            sector 245
+            wall 1822
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom8"
+        {
+            sector 245
+            wall 1823
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BlueRoom9"
+        {
+            sector 245
+            wall 1825
+            tile 1234
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 245
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
         }
         emissiveoverride "FirstRoomGlow"
         {
@@ -3258,8 +3394,8 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.5
-            radius 160.0
+            intensity 0.75
+            radius 256.0
             sectorresponse on
             signal sector 98
             responseintensity 4.0
@@ -3327,6 +3463,27 @@ LIGHTOVR
             radius 416.0
             sectorresponse on
             signal sector 226
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "YellowSwitch"
+        {
+            anchor surface
+            position 1852.78 96.0 -167.295
+            normal -0.0 1.0 -0.0
+            size 12.0 4.0
+            offset 0.5
+            sector 132
+            tile 1543
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 256.0
+            sectorresponse off
+            signal sector 132
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
