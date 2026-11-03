@@ -4054,6 +4054,27 @@ LIGHTOVR
             responsemin 0.0
             responsemax 2.0
         }
+        surfacelight "SwitchLight4"
+        {
+            anchor surface
+            position -1279.48 32.0 -325.701
+            normal -0.0 1.0 0.0
+            size 8.0 12.0
+            offset 0.5
+            sector 146
+            tile 1920
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 176.0
+            sectorresponse off
+            signal sector 146
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
     }
 
     map "E2L5"
