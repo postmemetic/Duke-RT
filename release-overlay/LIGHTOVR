@@ -4821,6 +4821,26 @@ LIGHTOVR
 
     map "E2L7"
     {
+        sectorcolor "BlueHallLeftColor"
+        {
+            sector 112
+            enabled on
+            neutralize on
+            source floor
+            strength 1.0
+            gain 0.6
+        }
+
+        sectorcolor "BlueHallRightColor"
+        {
+            sector 396
+            enabled on
+            neutralize on
+            source floor
+            strength 1.0
+            gain 0.6
+        }
+
         light "MapLight"
         {
             type "point"
@@ -4829,7 +4849,35 @@ LIGHTOVR
             intensity 1.0
             radius 300.0
         }
-        emissiveoverride "Emitter_S109_W-1_T909"
+        emissiveoverride "BlueHallLeft"
+        {
+            sector 112
+            tile 1114
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 112
+            responseintensity 2.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 112
+        }
+        emissiveoverride "BlueHallRight"
+        {
+            sector 396
+            tile 1114
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 396
+            responseintensity 2.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 396
+        }
+        emissiveoverride "PreExisting1"
         {
             sector 109
             tile 909
@@ -4841,7 +4889,7 @@ LIGHTOVR
             responsemin 0.0
             responsemax 2.0
         }
-        emissiveoverride "Emitter_S111_W-1_T909"
+        emissiveoverride "PreExisting2"
         {
             sector 111
             tile 909
