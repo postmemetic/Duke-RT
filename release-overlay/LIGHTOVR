@@ -5261,11 +5261,10 @@ LIGHTOVR
             reachscale 1.0
             sectorresponse on
             signal sector 613
-            colorsignal sector 613
-            responseinputmin 0.6875
-            responseinputmax 1.0
             responsemin 0.1
             responsemax 1.0
+            responseinputmin 0.6875
+            responseinputmax 1.0
             responseintensitymin 1.0
             responseintensitymax 1.0
             responsereachmin 1.0
@@ -5274,6 +5273,7 @@ LIGHTOVR
             materialresponsemin 0.3
             materialresponsemax 1.2
             colorresponse auto
+            colorsignal sector 613
         }
         surfacelight "BetaStoneHall1"
         {
@@ -5931,6 +5931,219 @@ LIGHTOVR
             radius 384.0
             sectorresponse on
             signal sector 244
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "StartTunnelLight"
+        {
+            anchor surface
+            position 2724.9 -64.01 -1013.94
+            normal 0.0 -1.0 0.0
+            size 4.0 12.0
+            rotation 315.0
+            offset 0.5
+            sector 91
+            tile 1939
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 91
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "StartTunnelLight2"
+        {
+            anchor surface
+            position 2752.97 -64.01 -1172.48
+            normal 0.0 -1.0 0.0
+            size 8.0 4.0
+            offset 0.5
+            sector 86
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 86
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel1"
+        {
+            anchor surface
+            position 2316.46 -324.01 -2055.8
+            normal 0.0 -1.0 0.0
+            size 12.0 8.0
+            rotation 330.0
+            offset 0.5
+            sector 142
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 142
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel2"
+        {
+            anchor surface
+            position 2159.54 -56.01 -2081.21
+            normal 0.0 -1.0 0.0
+            size 12.0 8.0
+            offset 0.5
+            sector 140
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 140
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel3"
+        {
+            anchor surface
+            position 2527.86 -64.01 -1407.54
+            normal 0.0 -1.0 0.0
+            size 5.0 16.0
+            offset 0.5
+            sector 102
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 102
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel4"
+        {
+            anchor surface
+            position 2370.81 -64.01 -1407.85
+            normal 0.0 -1.0 0.0
+            size 5.0 16.0
+            offset 0.5
+            sector 102
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 102
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel5"
+        {
+            anchor surface
+            position 2162.97 -64.01 -1577.66
+            normal 0.0 -1.0 -0.0
+            size 9.0 4.0
+            rotation 345.0
+            offset 0.5
+            sector 113
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 113
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel6"
+        {
+            anchor surface
+            position 2160.03 -64.01 -1800.46
+            normal 0.0 -1.0 0.0
+            size 12.0 4.0
+            offset 0.5
+            sector 111
+            tile 1939
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 111
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel7"
+        {
+            anchor surface
+            position 2264.92 -404.0 -1917.25
+            normal -0.0 1.0 -0.0
+            size 16.0 16.0
+            offset 0.5
+            sector 138
+            tile 1888
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 138
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndTunnel8"
+        {
+            anchor surface
+            position 2117.69 -420.0 -2087.58
+            normal -0.0 1.0 -0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 140
+            tile 1939
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 140
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
