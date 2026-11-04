@@ -4796,6 +4796,27 @@ LIGHTOVR
             responsemin 0.0
             responsemax 2.0
         }
+        surfacelight "LastRoomLight"
+        {
+            anchor surface
+            position 962.358 223.99 1667.06
+            normal 0.0 -1.0 0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 323
+            tile 1157
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 376.0
+            sectorresponse on
+            signal sector 318
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
     }
 
     map "E2L7"
