@@ -1014,6 +1014,15 @@ LIGHTOVR
 
     map "E1L2"
     {
+        sectorcolor "SectorColor_181"
+        {
+            sector 181
+            enabled on
+            neutralize on
+            strength 1.0
+            gain 0.5
+        }
+
         directional "LAMoonTwo"
         {
             color 0.75 0.75 0.85
@@ -1067,6 +1076,94 @@ LIGHTOVR
             responsemax 24.0
             responseinputmin 0.0
             responseinputmax 7.5
+        }
+        emissiveoverride "Club1"
+        {
+            sector 82
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 82
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 181
+        }
+        emissiveoverride "Club2"
+        {
+            sector 83
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 83
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 181
+        }
+        emissiveoverride "Club3"
+        {
+            sector 85
+            wall 474
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 85
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 181
+        }
+        emissiveoverride "Club4"
+        {
+            sector 84
+            wall 468
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 84
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 181
+        }
+        emissiveoverride "Club5"
+        {
+            sector 84
+            wall 470
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 84
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 181
+        }
+        emissiveoverride "Club6"
+        {
+            sector 85
+            wall 476
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 85
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 181
         }
         emissiveoverride "TunnelOverhead"
         {
@@ -6152,6 +6249,15 @@ LIGHTOVR
 
     map "E3L1"
     {
+        sectorcolor "ClubColor"
+        {
+            sector 297
+            enabled on
+            neutralize on
+            strength 1.0
+            gain 0.4
+        }
+
         directional "EditorDirectional"
         {
             color 1.0 0.4 0.4
@@ -6159,6 +6265,34 @@ LIGHTOVR
             direction -0.409487 0.51446 0.753426
             angularsize 0.03
             shadow on
+        }
+        emissiveoverride "Emitter_S153_W-1_T1495"
+        {
+            sector 153
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 153
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 297
+        }
+        emissiveoverride "FlashingRoomLights"
+        {
+            sector 297
+            tile 915
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 297
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 297
         }
         surfacelight "Water"
         {
@@ -6556,6 +6690,27 @@ LIGHTOVR
             radius 176.0
             sectorresponse off
             signal sector 238
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "TentacleRoom"
+        {
+            anchor surface
+            position 1844.53 219.99 1597.86
+            normal 0.0 -1.0 0.0
+            size 24.0 28.0
+            offset 0.5
+            sector 259
+            tile 1141
+            fixture texture "#00701"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 259
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
