@@ -6266,7 +6266,7 @@ LIGHTOVR
             angularsize 0.03
             shadow on
         }
-        emissiveoverride "Emitter_S153_W-1_T1495"
+        emissiveoverride "ClubCeiling"
         {
             sector 153
             tile 1495
@@ -6711,6 +6711,27 @@ LIGHTOVR
             radius 256.0
             sectorresponse off
             signal sector 259
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "CabinetLight"
+        {
+            anchor surface
+            position 1632.52 56.0 661.431
+            normal 0.0 1.0 -0.0
+            size 64.0 44.0
+            offset 0.5
+            sector 333
+            tile 1533
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 256.0
+            sectorresponse off
+            signal sector 333
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -7226,6 +7247,69 @@ LIGHTOVR
             radius 256.0
             sectorresponse off
             signal sector 174
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "BankEntryHall"
+        {
+            anchor surface
+            position -706.065 111.99 -1602.11
+            normal 0.0 -1.0 0.0
+            size 80.0 16.0
+            offset 0.5
+            sector 193
+            tile 1602
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 176.0
+            sectorresponse off
+            signal sector 193
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "PortraitSecretLight"
+        {
+            anchor surface
+            position -1241.76 24.0 -1745.6
+            normal -0.0 1.0 -0.0
+            size 60.0 56.0
+            offset 0.5
+            sector 204
+            tile 1533
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 204
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EndLight"
+        {
+            anchor surface
+            position -1192 -56.0 -442.016
+            normal -0.0 1.0 -0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 73
+            tile 1183
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 73
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
