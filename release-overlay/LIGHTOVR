@@ -5229,6 +5229,22 @@ LIGHTOVR
 
     map "E2L8"
     {
+        sectorcolor "SectorColor_634"
+        {
+            sector 634
+            enabled on
+            neutralize on
+        }
+
+        sectorcolor "BlueRoomColor"
+        {
+            sector 613
+            enabled on
+            neutralize on
+            strength 1.0
+            gain 0.5
+        }
+
         directional "Sun"
         {
             color 0.75 0.75 0.99
@@ -5236,6 +5252,28 @@ LIGHTOVR
             direction 1.0 1.8 1.0
             angularsize 0.05
             shadow on
+        }
+        emissiveoverride "BlueRoom"
+        {
+            sector 613
+            tile 909
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 613
+            colorsignal sector 613
+            responseinputmin 0.6875
+            responseinputmax 1.0
+            responsemin 0.1
+            responsemax 1.0
+            responseintensitymin 1.0
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.3
+            materialresponsemax 1.2
+            colorresponse auto
         }
         surfacelight "BetaStoneHall1"
         {
@@ -5662,6 +5700,48 @@ LIGHTOVR
             radius 128.0
             sectorresponse off
             signal sector 545
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "StartAreaGunLight"
+        {
+            anchor surface
+            position -234.286 112.0 528.649
+            normal -0.0 1.0 -0.0
+            size 80.0 20.0
+            offset 0.5
+            sector 641
+            tile 1005
+            fixture texture "#00124"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.5
+            radius 256.0
+            sectorresponse off
+            signal sector 641
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "TramLight1"
+        {
+            anchor surface
+            position 735.079 63.99 -403.797
+            normal 0.0 -1.0 0.0
+            size 16.0 24.0
+            offset 0.5
+            sector 313
+            tile 1028
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.5
+            radius 176.0
+            sectorresponse off
+            signal sector 313
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
