@@ -7700,58 +7700,6 @@ LIGHTOVR
             responsemax 2.0
             colorresponse auto
         }
-        emissiveoverride "PreEndRoomTP4"
-        {
-            sector 115
-            tile 1414
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse on
-            signal sector 115
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse off
-        }
-        emissiveoverride "PreEndRoomTP3"
-        {
-            sector 115
-            tile 1415
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse on
-            signal sector 115
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse off
-        }
-        emissiveoverride "PreEndRoomTP2"
-        {
-            sector 115
-            tile 1416
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse on
-            signal sector 115
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse off
-        }
-        emissiveoverride "PreEndRoomTP1"
-        {
-            sector 115
-            tile 1417
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse on
-            signal sector 115
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse off
-        }
         emissiveoverride "EndRoomScreen1"
         {
             sector 124
@@ -7965,6 +7913,58 @@ LIGHTOVR
             reachscale 1.0
             sectorresponse on
             signal sector 181
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP1"
+        {
+            sector 115
+            tile 1417
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP2"
+        {
+            sector 115
+            tile 1416
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP3"
+        {
+            sector 115
+            tile 1415
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP4"
+        {
+            sector 115
+            tile 1414
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -9215,6 +9215,15 @@ LIGHTOVR
 
     map "E3L6"
     {
+        sectorcolor "SubwayTunnelBlue"
+        {
+            sector 184
+            enabled on
+            neutralize on
+            strength 1.0
+            gain 0.8
+        }
+
         directional "EditorDirectional"
         {
             color 1.0 0.4 0.4
@@ -9222,6 +9231,808 @@ LIGHTOVR
             direction -0.409487 0.51446 0.753426
             angularsize 0.03
             shadow on
+        }
+        emissiveoverride "BlueKeyHighlight"
+        {
+            sector 128
+            tile 1098
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 128
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight1"
+        {
+            sector 184
+            wall 1758
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight10"
+        {
+            sector 184
+            wall 1770
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight11"
+        {
+            sector 184
+            wall 1771
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight12"
+        {
+            sector 184
+            wall 1772
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight13"
+        {
+            sector 184
+            wall 1778
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight14"
+        {
+            sector 184
+            wall 1779
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight15"
+        {
+            sector 184
+            wall 1780
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight16"
+        {
+            sector 184
+            wall 1781
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight17"
+        {
+            sector 184
+            wall 1782
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight18"
+        {
+            sector 184
+            wall 1783
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight19"
+        {
+            sector 184
+            wall 1784
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight2"
+        {
+            sector 184
+            wall 1759
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight20"
+        {
+            sector 184
+            wall 1785
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight21"
+        {
+            sector 184
+            wall 1786
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight22"
+        {
+            sector 184
+            wall 1787
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight23"
+        {
+            sector 184
+            wall 1791
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight24"
+        {
+            sector 184
+            wall 1792
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight25"
+        {
+            sector 184
+            wall 1793
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight26"
+        {
+            sector 184
+            wall 1794
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight27"
+        {
+            sector 184
+            wall 1795
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight28"
+        {
+            sector 184
+            wall 1796
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight29"
+        {
+            sector 184
+            wall 1800
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight3"
+        {
+            sector 184
+            wall 1760
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight30"
+        {
+            sector 184
+            wall 1801
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight31"
+        {
+            sector 184
+            wall 1802
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight32"
+        {
+            sector 184
+            wall 1803
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight33"
+        {
+            sector 184
+            wall 1804
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight34"
+        {
+            sector 184
+            wall 1805
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight35"
+        {
+            sector 35
+            wall 297
+            tile 1496
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 35
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight36"
+        {
+            sector 41
+            wall 393
+            tile 1496
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 41
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight4"
+        {
+            sector 184
+            wall 1761
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight5"
+        {
+            sector 184
+            wall 1762
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight6"
+        {
+            sector 184
+            wall 1763
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight7"
+        {
+            sector 184
+            wall 1767
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight8"
+        {
+            sector 184
+            wall 1768
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "CarLight9"
+        {
+            sector 184
+            wall 1769
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "SubWall1"
+        {
+            sector 184
+            wall 1638
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall10"
+        {
+            sector 184
+            wall 1693
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall11"
+        {
+            sector 184
+            wall 1698
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall12"
+        {
+            sector 184
+            wall 1700
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall13"
+        {
+            sector 184
+            wall 1702
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall14"
+        {
+            sector 184
+            wall 1711
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall15"
+        {
+            sector 184
+            wall 1719
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall16"
+        {
+            sector 184
+            wall 1728
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall17"
+        {
+            sector 184
+            wall 1730
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall18"
+        {
+            sector 184
+            wall 1747
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall19"
+        {
+            sector 184
+            wall 1749
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall2"
+        {
+            sector 184
+            wall 1648
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall3"
+        {
+            sector 184
+            wall 1650
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall4"
+        {
+            sector 184
+            wall 1659
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall5"
+        {
+            sector 184
+            wall 1665
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall6"
+        {
+            sector 184
+            wall 1674
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall7"
+        {
+            sector 184
+            wall 1676
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall8"
+        {
+            sector 184
+            wall 1682
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
+        }
+        emissiveoverride "SubWall9"
+        {
+            sector 184
+            wall 1684
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 184
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+            colorsignal sector 184
         }
         surfacelight "EntryLight1"
         {
@@ -9791,6 +10602,22 @@ LIGHTOVR
             angularsize 0.03
             shadow on
         }
+        emissiveoverride "SetLight"
+        {
+            sector 235
+            tile 916
+            intensityscale 6.0
+            reachscale 6.0
+
+            signal sector 235
+            colorresponse off
+            sectorresponse off
+            colorresponse off
+
+            materialresponse on
+            materialresponsemin 3.0
+            materialresponsemax 3.0
+        }
         surfacelight "LockLight1"
         {
             anchor surface
@@ -10120,7 +10947,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.25
+            intensity 0.45
             radius 368.0
             sectorresponse off
             signal sector 176
