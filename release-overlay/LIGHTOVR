@@ -7296,7 +7296,7 @@ LIGHTOVR
         surfacelight "EndLight"
         {
             anchor surface
-            position -1192 -56.0 -442.016
+            position -1192.0 -56.0 -442.016
             normal -0.0 1.0 -0.0
             size 32.0 32.0
             offset 0.5
@@ -7325,6 +7325,27 @@ LIGHTOVR
             direction -0.409487 0.51446 0.753426
             angularsize 0.03
             shadow on
+        }
+        emissiveoverride "YellowKeycardLight"
+        {
+            sector 265
+            tile 1114
+            intensityscale 2.0
+            reachscale 6.0
+            sectorresponse on
+            signal sector 265
+            responsemin 0.5
+            responsemax 12.0
+            responseinputmin 0.1
+            responseinputmax 0.2
+            responseintensitymin 7.0
+            responseintensitymax 12.0
+            responsereachmin 7.0
+            responsereachmax 12.0
+            materialresponse on
+            materialresponsemin 0.3
+            materialresponsemax 2.2
+            colorresponse auto
         }
         surfacelight "LockLight1"
         {
@@ -7468,7 +7489,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.5
+            intensity 0.8
             radius 288.0
             sectorresponse on
             signal sector 239
@@ -7489,7 +7510,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.25
+            intensity 0.75
             radius 376.0
             sectorresponse off
             signal sector 255
@@ -7512,9 +7533,135 @@ LIGHTOVR
             type "point"
             color 1.0 1.0 1.0
             intensity 0.5
-            radius 160.0
+            radius 256.0
             sectorresponse off
             signal sector 16
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "StairLight1"
+        {
+            anchor surface
+            position -1118.91 -2104.01 1988.45
+            normal 0.0 -1.0 0.0
+            size 16.0 24.0
+            offset 0.5
+            sector 53
+            tile 1543
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 53
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "StairLight2"
+        {
+            anchor surface
+            position -1247.48 -2048.01 2120.09
+            normal -0.0 -1.0 0.0
+            size 16.0 24.0
+            offset 0.5
+            sector 233
+            tile 1543
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 233
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "YellowLock3"
+        {
+            anchor surface
+            position -997.931 -2088.0 2063.48
+            normal 0.0 1.0 -0.0
+            size 12.0 8.0
+            offset 0.5
+            sector 173
+            tile 1537
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 512.0
+            sectorresponse off
+            signal sector 173
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "YellowLock4"
+        {
+            anchor surface
+            position -1102.86 -2088.0 1989.18
+            normal -0.0 1.0 -0.0
+            size 8.0 16.0
+            offset 0.5
+            sector 51
+            tile 1543
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 51
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "YellowLock2"
+        {
+            anchor surface
+            position 1904.24 -352.0 2252.11
+            normal -0.0 1.0 -0.0
+            size 8.0 16.0
+            offset 0.5
+            sector 214
+            tile 1543
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 256.0
+            sectorresponse off
+            signal sector 214
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "RocketFloorLight"
+        {
+            anchor surface
+            position 1213.26 -668.0 2237.47
+            normal 0.0 1.0 -0.0
+            size 40.0 44.0
+            offset 0.5
+            sector 219
+            tile 1578
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.8
+            radius 256.0
+            sectorresponse off
+            signal sector 219
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -7523,6 +7670,15 @@ LIGHTOVR
 
     map "E3L4"
     {
+        sectorcolor "SignColor"
+        {
+            sector 181
+            enabled on
+            neutralize off
+            strength 0.4
+            gain 0.6
+        }
+
         directional "EditorDirectional"
         {
             color 1.0 0.4 0.4
@@ -7530,6 +7686,289 @@ LIGHTOVR
             direction -0.409487 0.51446 0.753426
             angularsize 0.03
             shadow on
+        }
+        emissiveoverride "AnimatedSign"
+        {
+            sector 181
+            tile 1495
+            intensityscale 1.5
+            reachscale 1.0
+            sectorresponse off
+            signal sector 181
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "PreEndRoomTP4"
+        {
+            sector 115
+            tile 1414
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP3"
+        {
+            sector 115
+            tile 1415
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP2"
+        {
+            sector 115
+            tile 1416
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "PreEndRoomTP1"
+        {
+            sector 115
+            tile 1417
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 115
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen1"
+        {
+            sector 124
+            wall 735
+            tile 1052
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen2"
+        {
+            sector 124
+            wall 736
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen3"
+        {
+            sector 124
+            wall 736
+            tile 1058
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen4"
+        {
+            sector 124
+            wall 736
+            tile 1057
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen5"
+        {
+            sector 124
+            wall 736
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen6"
+        {
+            sector 124
+            wall 735
+            tile 1056
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomScreen7"
+        {
+            sector 124
+            wall 735
+            tile 1052
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 124
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomTP1"
+        {
+            sector 116
+            tile 1414
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 116
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomTP2"
+        {
+            sector 116
+            tile 1415
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 116
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomTP3"
+        {
+            sector 116
+            tile 1416
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 116
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "EndRoomTP4"
+        {
+            sector 116
+            tile 1417
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 116
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "OpenAreaWhiteBank1"
+        {
+            sector 74
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 74
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "OpenAreaWhiteBank2"
+        {
+            sector 71
+            tile 1495
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 71
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "OpenAreaWhiteBank3"
+        {
+            sector 181
+            wall 1173
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 181
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "OpenAreaWhiteBank4"
+        {
+            sector 181
+            wall 1169
+            tile 916
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 181
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
+        }
+        emissiveoverride "OpenAreaWhiteBank5"
+        {
+            sector 181
+            wall 1168
+            tile 2099
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 181
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse off
         }
         surfacelight "EntryHall"
         {
@@ -7760,7 +8199,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.05
+            intensity 0.1
             radius 768.0
             sectorresponse off
             signal sector 204
@@ -7782,7 +8221,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.05
+            intensity 0.1
             radius 768.0
             sectorresponse off
             signal sector 202
@@ -7804,7 +8243,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.05
+            intensity 0.1
             radius 768.0
             sectorresponse off
             signal sector 202
@@ -7826,7 +8265,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.0
+            intensity 0.3
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -8043,6 +8482,27 @@ LIGHTOVR
             radius 160.0
             sectorresponse off
             signal sector 83
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SecretItemLight1"
+        {
+            anchor surface
+            position 2465.51 404.0 3578.16
+            normal -0.0 1.0 -0.0
+            size 68.0 80.0
+            offset 0.5
+            sector 189
+            tile 1977
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 224.0
+            sectorresponse off
+            signal sector 189
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
