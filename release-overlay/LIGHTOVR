@@ -10608,15 +10608,12 @@ LIGHTOVR
             tile 916
             intensityscale 6.0
             reachscale 6.0
-
-            signal sector 235
-            colorresponse off
             sectorresponse off
-            colorresponse off
-
+            signal sector 235
             materialresponse on
             materialresponsemin 3.0
             materialresponsemax 3.0
+            colorresponse off
         }
         surfacelight "LockLight1"
         {
@@ -11951,6 +11948,71 @@ LIGHTOVR
             radius 64.0
             sectorresponse off
             signal sector 320
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SecretLight1"
+        {
+            anchor surface
+            position 1961.33 308.862 3376.39
+            normal -0.548656 -0.836048 -0.0
+            size 20.0 20.0
+            offset 0.5
+            sector 129
+            tile 979
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 288.0
+            sectorresponse off
+            signal sector 129
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SecretLight2"
+        {
+            anchor surface
+            position 1774.09 335.99 3217.77
+            normal -0.0 -1.0 0.0
+            size 32.0 32.0
+            rotation 315.0
+            offset 0.5
+            sector 299
+            tile 1643
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.2
+            radius 256.0
+            sectorresponse off
+            signal sector 299
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SecretLight3"
+        {
+            anchor surface
+            position 1858.89 140.0 3168.22
+            normal -0.0 1.0 -0.0
+            size 32.0 32.0
+            rotation 315.0
+            offset 0.5
+            sector 298
+            tile 1682
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 298
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
