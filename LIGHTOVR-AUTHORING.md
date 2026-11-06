@@ -398,3 +398,25 @@ Disable edit mode with:
 ```text
 nri_ptemissivelighteditmode 0
 ```
+
+## Voxel Palette Rule Edit Mode
+
+Enter `nri_ptvoxelpolicyeditmode 1` in the console, close it, and aim at a voxel actor. The aimed color selects a palette index; aiming at another color changes the selection. Disable other lighting or smoke editor modes first.
+
+- `o`: Create/write the voxel's palette rule file.
+- `p`: Print the selected actor, voxel, palette index, RGB, and rules.
+- `[`: Select the previous palette index used by the voxel.
+- `]`: Select the next palette index used by the voxel.
+- `e`: Toggle emission for the selected index.
+- `f`: Toggle fullbright for the selected index.
+- `c`: Toggle shadow casting for the selected index.
+- `r`: Toggle shadow receiving for the selected index.
+- `,`: Decrease the whole voxel policy's emission scale by 0.1 (minimum 0).
+- `.`: Increase the whole voxel policy's emission scale by 0.1.
+- `l`: Reload rules from disk.
+- `d`: Reload rules from disk; this does not undo saved edits.
+- `Escape`: Exit; `nri_ptvoxelpolicyeditmode 0` also exits.
+
+Edits save and apply immediately in separate JSON files, outside `LIGHTOVR`. Loading first checks `materials/voxelpolicies/<voxel path without extension>.policy.json`, then falls back to `materials/voxelpolicies/auto/#<five-digit actor tile>.policy.json`. For example, `voxels/props/lamp.kvx` uses `materials/voxelpolicies/voxels/props/lamp.policy.json`, relative to the overlay root. These rules affect actors using that voxel resource (or actor tile for the fallback), across maps, rather than just the aimed actor.
+
+The editor updates the active loose rule file. If none exists, it creates the resource-based file in the last-loaded loose overlay directory. Rules loaded from an archive must be supplied as a loose overlay file before editing; the editor cannot write into archives. The edit notification shows the saved path.
