@@ -1165,6 +1165,47 @@ LIGHTOVR
             colorresponse auto
             colorsignal sector 181
         }
+        emissiveoverride "BookstoreEntry3"
+        {
+            sector 151
+            wall 862
+            tile 1490
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 151
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BookstoreEntry4"
+        {
+            sector 151
+            wall 870
+            tile 1490
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 151
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BookstoreEntry5"
+        {
+            sector 56
+            tile 1490
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 56
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
         emissiveoverride "TunnelOverhead"
         {
             sector 171
