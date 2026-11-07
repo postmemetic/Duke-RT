@@ -2,7 +2,7 @@
 
 ![Duke-RT gameplay](images/20.png)
 
-Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, RT renderer bring-up, lighting authoring, custom material authoring, denoising/upscaling integration, and backend diagnostics. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Duke content. Windows remains the primary tested platform. An initial [Linux Vulkan milestone](LINUX.md) includes NRD/TAA/NIS and DLSS SR/RR; native Linux gameplay works, but it has not been thoroughly tested yet. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
+Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [NVIDIA NRI](https://github.com/NVIDIA-RTX/NRI). The existing Build-engine game support from Raze remains the foundation, while this fork focuses on path tracing, lighting authoring, custom material authoring, and denoising/upscaling integration. It also includes tooling and overlay workflows so users can create their own material and lighting rules for Build games. Windows remains the primary tested platform. An initial [Linux Vulkan release](LINUX.md) works, but it has not been thoroughly tested yet. It is built for X, not Wayland. [Watch a somewhat recent gameplay video](https://www.youtube.com/watch?v=7z7txcZg2q0).
 
 **For regular updates, follow me on:**
 [Twitter](https://x.com/postmemetic)
@@ -13,9 +13,7 @@ Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [N
 
 The renderer supports both Direct3D 12 and Vulkan, although feature support is more complete for D3D12. It's recommended that you play in D3D12 and HDR if possible!
 
-Initial AMD support includes path tracing with FSR or native rendering. Volumetric smoke is disabled on AMD GPUs while its remaining rendering artifacts are investigated. NVIDIA smoke remains available.
-
-Graphics settings keep unavailable choices visible in gray. Select a choice to see why it cannot be used on the current GPU, backend, or display. Profiles require their named upscaler; a supported profile uses SDR when HDR is unavailable. Frame generation currently requires D3D12 and the bundled FidelityFX runtime.
+Initial AMD support includes path tracing with FSR or native rendering. Volumetric smoke and fog are disabled on AMD GPUs while I work on fixes for them.
 
 ![Duke-RT gameplay](images/1.png)
 
@@ -53,24 +51,21 @@ Graphics settings keep unavailable choices visible in gray. Select a choice to s
 
 ## Current Status
 
-Duke-RT is work in progress. The core renderer is in, with full support for modern graphics APIs and libraries like D3D12, DLSS Super Resolution and Ray Reconstruction, etc. I've also gone through and **remastered Duke episodes 1, 2, and 3 with PBR materials (based on the originals) as well as updated lighting**. The entire original game should be playable, and run with decent performance, as well as some nice bonus features like smoke that I've added. There are some known issues that are on my radar but I have yet to tackle.
+Duke-RT is work in progress. The core renderer is in, with full support for modern graphics APIs and libraries like D3D12, DLSS Super Resolution and Ray Reconstruction, etc. I've also gone through and **remastered Duke episodes 1, 2, and 3 with PBR materials (based on the originals) as well as updated lighting**. The entire original game should be playable, and run with decent performance, as well as some nice bonus features like smoke and fluids that I've added. There are some known issues that are on my radar but I have yet to tackle.
 
 ![Duke-RT gameplay](images/38.png)
 
 Known high-priority issues:
+- AMD doesn't support smoke at all (disabled)
+- AMD demonstrates light boiling
 - slow perf in some smokey areas
-- remaining transport-driven non-euclidean edge cases in `E5L1`
+- perf degradation over the course of long levels
 
 Known lower-priority issues:
 - some end level switches slide during the animation
 - the last scene panning sequence no longer appears on surveillance camera screens
 - framegen only works with D3D12
-
-I also have a bunch of features I'd like to tackle in the future, including some renderer improvements, as well as a complete pass on the other main Duke 3D episodes.
-
-Upcoming feature work:
-- water surfaces
-- volumetric smoke support on AMD
+- remaining transport-driven non-euclidean edge cases in `E5L1`
 
 ![cropped spheres](images/23.png)
 
