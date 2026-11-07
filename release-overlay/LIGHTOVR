@@ -5008,6 +5008,41 @@ LIGHTOVR
             intensity 1.0
             radius 300.0
         }
+        emissiveoverride "Bathroom1"
+        {
+            sector 73
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 73
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 1.5
+            responseinputmin 0.375
+            responseinputmax 1.0
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 0.9
+            colorresponse off
+        }
+        emissiveoverride "Bathroom2"
+        {
+            sector 74
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 74
+            responsemin 0.0
+            responsemax 1.5
+            responseinputmin 0.375
+            responseinputmax 1.0
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 0.9
+            colorresponse off
+        }
         emissiveoverride "BlueHallLeft"
         {
             sector 112
@@ -5036,43 +5071,6 @@ LIGHTOVR
             colorresponse auto
             colorsignal sector 396
         }
-        emissiveoverride "Bathroom1"
-        {
-            sector 73
-            tile 914
-            intensityscale 1.0
-            reachscale 1.0
-            signal sector 73
-            responseintensity 4.0
-            
-            colorresponse off
-            responseinputmin 0.375
-            responseinputmax 1.0
-            sectorresponse on
-            responsemin 0.0
-            responsemax 1.5
-            materialresponse on
-            materialresponsemin 0.001
-            materialresponsemax 0.9
-        }
-        emissiveoverride "Bathroom2"
-        {
-            sector 74
-            tile 914
-            intensityscale 1.0
-            reachscale 1.0
-            signal sector 74            
-            
-            colorresponse off
-            responseinputmin 0.375
-            responseinputmax 1.0
-            sectorresponse on
-            responsemin 0.0
-            responsemax 1.5
-            materialresponse on
-            materialresponsemin 0.001
-            materialresponsemax 0.9
-        }
         emissiveoverride "PreExisting1"
         {
             sector 109
@@ -5093,6 +5091,150 @@ LIGHTOVR
             reachscale 1.0
             sectorresponse on
             signal sector 111
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        emissiveoverride "ReactorCeilingLight"
+        {
+            sector 127
+            tile 908
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 127
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.25
+            responseinputmax 1.0
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 1.0
+            colorresponse auto
+        }
+        emissiveoverride "ReactorSpinningArm1"
+        {
+            sector 109
+            tile 908
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 109
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "ReactorSpinningArm2"
+        {
+            sector 111
+            tile 908
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 111
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "ReactorWallLights1"
+        {
+            sector 372
+            wall 2372
+            tile 908
+            intensityscale 1.0
+            reachscale 1.5
+            sectorresponse on
+            signal sector 372
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.31
+            responseinputmax 0.62
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 1.0
+            colorresponse off
+        }
+        emissiveoverride "ReactorWallLights2"
+        {
+            sector 372
+            wall 2370
+            tile 908
+            intensityscale 1.0
+            reachscale 1.5
+            sectorresponse on
+            signal sector 372
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.31
+            responseinputmax 0.62
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 1.0
+            colorresponse off
+        }
+        surfacelight "ReactorEntryLight"
+        {
+            anchor surface
+            position 1760.24 -17.8023 -1984.0
+            normal 0.0 0.0 -1.0
+            size 64.0 12.0
+            offset 0.5
+            sector 373
+            wall 2415
+            tile 1003
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 512.0
+            sectorresponse on
+            signal sector 373
+            responseintensity 2.0
+            responsemin 0.0
+            responsemax 1.0
+            colorresponse off
+        }
+        surfacelight "ReactorAlcove1"
+        {
+            anchor surface
+            position 2080.18 35.99 -2252.14
+            normal -0.0 -1.0 0.0
+            size 20.0 12.0
+            offset 0.5
+            sector 393
+            tile 971
+            fixture texture "#00124"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.5
+            radius 128.0
+            sectorresponse off
+            signal sector 393
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "ReactorAlcove2"
+        {
+            anchor surface
+            position 1439.48 35.99 -2255.74
+            normal 0.0 -1.0 -0.0
+            size 20.0 16.0
+            offset 0.5
+            sector 394
+            tile 971
+            fixture texture "#00124"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.5
+            radius 128.0
+            sectorresponse off
+            signal sector 394
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -5155,48 +5297,6 @@ LIGHTOVR
             radius 128.0
             sectorresponse off
             signal sector 355
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-        }
-        surfacelight "LastRoomAlcove1"
-        {
-            anchor surface
-            position 2080.18 35.99 -2252.14
-            normal -0.0 -1.0 0.0
-            size 20.0 12.0
-            offset 0.5
-            sector 393
-            tile 971
-            fixture texture "#00124"
-            fixturematerialresponse on
-            type "point"
-            color 1.0 1.0 1.0
-            intensity 0.5
-            radius 128.0
-            sectorresponse off
-            signal sector 393
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-        }
-        surfacelight "LastRoomAlcove2"
-        {
-            anchor surface
-            position 1439.48 35.99 -2255.74
-            normal 0.0 -1.0 -0.0
-            size 20.0 16.0
-            offset 0.5
-            sector 394
-            tile 971
-            fixture texture "#00124"
-            fixturematerialresponse on
-            type "point"
-            color 1.0 1.0 1.0
-            intensity 0.5
-            radius 128.0
-            sectorresponse off
-            signal sector 394
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
