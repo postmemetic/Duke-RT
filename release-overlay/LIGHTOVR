@@ -1077,6 +1077,47 @@ LIGHTOVR
             responseinputmin 0.0
             responseinputmax 7.5
         }
+        emissiveoverride "BookstoreEntry3"
+        {
+            sector 151
+            wall 862
+            tile 1490
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 151
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BookstoreEntry4"
+        {
+            sector 151
+            wall 870
+            tile 1490
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 151
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
+        emissiveoverride "BookstoreEntry5"
+        {
+            sector 56
+            tile 1490
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse off
+            signal sector 56
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+            colorresponse auto
+        }
         emissiveoverride "Club1"
         {
             sector 82
@@ -1164,47 +1205,6 @@ LIGHTOVR
             responsemax 2.0
             colorresponse auto
             colorsignal sector 181
-        }
-        emissiveoverride "BookstoreEntry3"
-        {
-            sector 151
-            wall 862
-            tile 1490
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse off
-            signal sector 151
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse auto
-        }
-        emissiveoverride "BookstoreEntry4"
-        {
-            sector 151
-            wall 870
-            tile 1490
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse off
-            signal sector 151
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse auto
-        }
-        emissiveoverride "BookstoreEntry5"
-        {
-            sector 56
-            tile 1490
-            intensityscale 1.0
-            reachscale 1.0
-            sectorresponse off
-            signal sector 56
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-            colorresponse auto
         }
         emissiveoverride "TunnelOverhead"
         {
@@ -4337,6 +4337,27 @@ LIGHTOVR
 
     map "E2L6"
     {
+        emissiveoverride "BathroomLight"
+        {
+            sector 291
+            tile 908
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 291
+            responsemin 0.0
+            responsemax 0.8
+            responseinputmin 0.41
+            responseinputmax 0.65
+            responseintensitymin 0.0
+            responseintensitymax 0.25
+            responsereachmin 0.0
+            responsereachmax 0.25
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 0.6
+            colorresponse auto
+        }
         surfacelight "BigHall1"
         {
             anchor surface
@@ -4350,7 +4371,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.5
+            intensity 0.75
             radius 576.0
             sectorresponse on
             signal sector 266
@@ -4371,7 +4392,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.5
+            intensity 0.75
             radius 256.0
             sectorresponse on
             signal sector 266
@@ -4392,7 +4413,7 @@ LIGHTOVR
             fixturematerialresponse on
             type "point"
             color 1.0 1.0 1.0
-            intensity 0.5
+            intensity 0.75
             radius 320.0
             sectorresponse on
             signal sector 268
@@ -5014,6 +5035,43 @@ LIGHTOVR
             responsemax 2.0
             colorresponse auto
             colorsignal sector 396
+        }
+        emissiveoverride "Bathroom1"
+        {
+            sector 73
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            signal sector 73
+            responseintensity 4.0
+            
+            colorresponse off
+            responseinputmin 0.375
+            responseinputmax 1.0
+            sectorresponse on
+            responsemin 0.0
+            responsemax 1.5
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 0.9
+        }
+        emissiveoverride "Bathroom2"
+        {
+            sector 74
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            signal sector 74            
+            
+            colorresponse off
+            responseinputmin 0.375
+            responseinputmax 1.0
+            sectorresponse on
+            responsemin 0.0
+            responsemax 1.5
+            materialresponse on
+            materialresponsemin 0.001
+            materialresponsemax 0.9
         }
         emissiveoverride "PreExisting1"
         {
