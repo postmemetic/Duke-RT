@@ -4074,6 +4074,48 @@ LIGHTOVR
             responsemin 0.0
             responsemax 2.0
         }
+        surfacelight "EnterpriseCaptainsRoom"
+        {
+            anchor surface
+            position 549.582 495.99 1380.25
+            normal 0.0 -1.0 0.0
+            size 60.0 16.0
+            offset 0.5
+            sector 29
+            tile 1217
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.8
+            radius 288.0
+            sectorresponse off
+            signal sector 29
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "surfacelight_13_11-7-2026-0512Z"
+        {
+            anchor surface
+            position 1642.31 235.99 -110.74
+            normal 0.0 -1.0 -0.0
+            size 4.0 12.0
+            offset 0.5
+            sector 128
+            tile 1242
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 256.0
+            sectorresponse off
+            signal sector 128
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
     }
 
     map "E2L4"
