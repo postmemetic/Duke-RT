@@ -3638,6 +3638,22 @@ LIGHTOVR
             angularsize 0.04
             shadow on
         }
+        light "EarthLightBridge"
+        {
+            type "point"
+            anchor position 2685.72 513.874 -240.645
+            color 0.5 0.5 0.99
+            intensity 1.5
+            radius 2200.0
+        }
+        light "MoonLightBridge"
+        {
+            type "point"
+            anchor position 2107.06 -812.614 -506.421
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 2200.0
+        }
         emissiveoverride "YellowCardElevator"
         {
             sector 151
