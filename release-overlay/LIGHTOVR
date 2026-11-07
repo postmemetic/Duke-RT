@@ -1291,6 +1291,48 @@ LIGHTOVR
             responsemin 0.0
             responsemax 2.0
         }
+        surfacelight "BlueKeyLight"
+        {
+            anchor surface
+            position 151.97 140.0 -828.265
+            normal -0.0 1.0 -0.0
+            size 36.0 28.0
+            offset 0.5
+            sector 263
+            tile 1134
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 256.0
+            sectorresponse off
+            signal sector 263
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "RedKeyLight"
+        {
+            anchor surface
+            position -336.19 64.0 -1711.4
+            normal 0.0 1.0 -0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 254
+            tile 1668
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 254
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
     }
 
     map "E1L3"
@@ -1940,11 +1982,11 @@ LIGHTOVR
             sector 320
             tile 1506
             fixture texture "#01206"
-            fixturematerialresponse on
+            fixturematerialresponse off
             type "point"
             color 1.0 1.0 1.0
             intensity 1.5
-            radius 544.0
+            radius 768.0
             sectorresponse on
             signal sector 320
             responseintensity 16.0
@@ -2184,6 +2226,27 @@ LIGHTOVR
             radius 352.0
             sectorresponse off
             signal sector 222
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "BlueKeyLight"
+        {
+            anchor surface
+            position 2090.13 56.0 -2872.12
+            normal -0.0 1.0 -0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 340
+            tile 1229
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 340
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -2474,6 +2537,90 @@ LIGHTOVR
             radius 800.0
             sectorresponse off
             signal sector 29
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "WarehouseLight1"
+        {
+            anchor surface
+            position 1758.91 191.99 -2087.37
+            normal -0.0 -1.0 0.0
+            size 16.0 20.0
+            offset 0.5
+            sector 292
+            tile 1506
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.8
+            radius 288.0
+            sectorresponse off
+            signal sector 292
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "WarehouseLight2"
+        {
+            anchor surface
+            position 1571.21 255.99 -2084.6
+            normal 0.0 -1.0 -0.0
+            size 76.0 20.0
+            offset 0.5
+            sector 543
+            tile 1186
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 512.0
+            sectorresponse off
+            signal sector 543
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "WarehouseLight3"
+        {
+            anchor surface
+            position 1570.11 255.99 -1725.54
+            normal -0.0 -1.0 0.0
+            size 76.0 20.0
+            offset 0.5
+            sector 543
+            tile 1186
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 1.0
+            radius 512.0
+            sectorresponse off
+            signal sector 543
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "WarehouseLight4"
+        {
+            anchor surface
+            position 1367.06 159.99 -2033.18
+            normal 0.0 -1.0 0.0
+            size 12.0 12.0
+            offset 0.5
+            sector 221
+            tile 1506
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 160.0
+            sectorresponse off
+            signal sector 221
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -3646,6 +3793,14 @@ LIGHTOVR
             intensity 1.5
             radius 2200.0
         }
+        light "EarthLightCenter"
+        {
+            type "point"
+            anchor position 1905.34 1810.91 -543.81
+            color 0.5 0.5 0.99
+            intensity 1.5
+            radius 2200.0
+        }
         light "MoonLightBridge"
         {
             type "point"
@@ -3915,28 +4070,6 @@ LIGHTOVR
             radius 160.0
             sectorresponse on
             signal sector 216
-            responseintensity 4.0
-            responsemin 0.0
-            responsemax 2.0
-        }
-        surfacelight "SlidingRoom2"
-        {
-            anchor surface
-            position 540.409 473.889 -3136.0
-            normal 0.0 0.0 -1.0
-            size 16.0 8.0
-            offset 0.5
-            sector 352
-            wall 2289
-            tile 1200
-            fixture texture "#00703"
-            fixturematerialresponse on
-            type "point"
-            color 1.0 1.0 1.0
-            intensity 0.5
-            radius 192.0
-            sectorresponse on
-            signal sector 352
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
@@ -4988,6 +5121,48 @@ LIGHTOVR
             radius 376.0
             sectorresponse on
             signal sector 318
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SecretRoomItemLight"
+        {
+            anchor surface
+            position 807.548 -40.0 537.011
+            normal 0.0 1.0 -0.0
+            size 32.0 32.0
+            offset 0.5
+            sector 140
+            tile 1130
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 140
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "SecretRoomLight"
+        {
+            anchor surface
+            position 808.655 -0.0100002 637.946
+            normal 0.0 -1.0 0.0
+            size 4.0 12.0
+            offset 0.5
+            sector 133
+            tile 1010
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 192.0
+            sectorresponse off
+            signal sector 133
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
