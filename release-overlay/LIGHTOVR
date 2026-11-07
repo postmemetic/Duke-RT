@@ -5804,6 +5804,245 @@ LIGHTOVR
             colorresponse auto
             colorsignal sector 613
         }
+        emissiveoverride "CircularSlimePitOverhead"
+        {
+            sector 21
+            tile 909
+            sectorresponse off
+            signal sector 21
+
+            materialresponse on
+            materialresponsemin 4
+            materialresponsemax 4
+            responsemin 1
+            responsemax 1
+
+            colorresponse auto
+        }
+        emissiveoverride "ResearchLeft1"
+        {
+            sector 212
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 522
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.5
+            responseinputmax 0.63
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 0.8
+            colorresponse auto
+        }
+        emissiveoverride "ResearchLeft2"
+        {
+            sector 213
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 522
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.5
+            responseinputmax 0.63
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 0.8
+            colorresponse auto
+        }
+        emissiveoverride "ResearchLeft3"
+        {
+            sector 223
+            wall 1479
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 522
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.5
+            responseinputmax 0.63
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 0.8
+            colorresponse auto
+        }
+        emissiveoverride "ResearchLeft4"
+        {
+            sector 223
+            wall 1485
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 522
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.5
+            responseinputmax 0.63
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 0.8
+            colorresponse auto
+        }
+        emissiveoverride "ResearchLeft5"
+        {
+            sector 415
+            wall 2961
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 522
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.5
+            responseinputmax 0.63
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 0.8
+            colorresponse auto
+        }
+        emissiveoverride "ResearchLeft6"
+        {
+            sector 417
+            wall 2971
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 522
+            responsemin 0.0
+            responsemax 1.0
+            responseinputmin 0.5
+            responseinputmax 0.63
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 0.8
+            colorresponse auto
+        }
+        emissiveoverride "ResearchRight1"
+        {
+            sector 216
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 523
+            responseinputmin 0.62
+            responseinputmax 1.2
+            responseintensitymin 0.01
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 1.2
+            colorresponse auto
+        }
+        emissiveoverride "ResearchRight2"
+        {
+            sector 217
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 523
+            responseinputmin 0.62
+            responseinputmax 1.2
+            responseintensitymin 0.01
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 1.2
+            colorresponse auto
+        }
+        emissiveoverride "ResearchRight3"
+        {
+            sector 221
+            wall 1455
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 523
+            responseinputmin 0.62
+            responseinputmax 1.2
+            responseintensitymin 0.01
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 1.2
+            colorresponse auto
+        }
+        emissiveoverride "ResearchRight4"
+        {
+            sector 221
+            wall 1461
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 523
+            responseinputmin 0.62
+            responseinputmax 1.2
+            responseintensitymin 0.01
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 1.2
+            colorresponse auto
+        }
+        emissiveoverride "ResearchRight5"
+        {
+            sector 222
+            wall 1467
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 523
+            responseinputmin 0.62
+            responseinputmax 1.2
+            responseintensitymin 0.01
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 1.2
+            colorresponse auto
+        }
+        emissiveoverride "ResearchRight6"
+        {
+            sector 222
+            wall 1473
+            tile 914
+            intensityscale 1.0
+            reachscale 1.0
+            sectorresponse on
+            signal sector 523
+            responseinputmin 0.62
+            responseinputmax 1.2
+            responseintensitymin 0.01
+            responseintensitymax 1.0
+            responsereachmin 1.0
+            responsereachmax 1.0
+            materialresponse on
+            materialresponsemin 0.01
+            materialresponsemax 1.2
+            colorresponse auto
+        }
         surfacelight "BetaStoneHall1"
         {
             anchor surface
@@ -6271,6 +6510,90 @@ LIGHTOVR
             radius 176.0
             sectorresponse off
             signal sector 313
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "ScreenOverhead"
+        {
+            anchor surface
+            position 79.4005 39.99 -419.446
+            normal 0.0 -1.0 0.0
+            size 8.0 12.0
+            offset 0.5
+            sector 1
+            tile 971
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse off
+            signal sector 1
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "ItemUnderlight"
+        {
+            anchor surface
+            position 78.3226 120.0 -3873.13
+            normal -0.0 1.0 -0.0
+            size 24.0 36.0
+            offset 0.5
+            sector 183
+            tile 1004
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.6
+            radius 256.0
+            sectorresponse off
+            signal sector 183
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EarlyHallFlashing1"
+        {
+            anchor surface
+            position -96.0506 63.99 -299.585
+            normal 0.0 -1.0 -0.0
+            size 24.0 28.0
+            offset 0.5
+            sector 451
+            tile 1005
+            fixture texture "#00707"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse on
+            signal sector 451
+            responseintensity 4.0
+            responsemin 0.0
+            responsemax 2.0
+        }
+        surfacelight "EarlyHallFlashing2"
+        {
+            anchor surface
+            position 276.256 63.99 -299.301
+            normal 0.0 -1.0 0.0
+            size 24.0 28.0
+            offset 0.5
+            sector 456
+            tile 1005
+            fixture texture "#00703"
+            fixturematerialresponse on
+            type "point"
+            color 1.0 1.0 1.0
+            intensity 0.4
+            radius 256.0
+            sectorresponse on
+            signal sector 456
             responseintensity 4.0
             responsemin 0.0
             responsemax 2.0
