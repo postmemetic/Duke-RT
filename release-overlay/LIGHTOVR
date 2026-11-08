@@ -1294,9 +1294,9 @@ LIGHTOVR
         surfacelight "BlueKeyLight"
         {
             anchor surface
-            position 151.97 140.0 -828.265
+            position 157 140.0 -828.265
             normal -0.0 1.0 -0.0
-            size 36.0 28.0
+            size 36.0 18.0
             offset 0.5
             sector 263
             tile 1134
