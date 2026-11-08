@@ -38,6 +38,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 	}();
 	if (staticLayoutCompatible && mStaticMaterialGeneration != staticMaterialGeneration)
 	{
+		PerfAuditAdd(PerfAuditMetric::MaterialFrameStaticPrefixChanges);
 		mCombinedMaterials.materials.resize(mResidentMaterialCount);
 		mCombinedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
 		mCombinedMaterials.textures.resize(mResidentTextureCount);
@@ -46,7 +47,22 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 		std::copy(staticMaterials.lightMetadata.begin(), staticMaterials.lightMetadata.end(), mCombinedMaterials.lightMetadata.begin());
 		std::copy(staticMaterials.textures.begin(), staticMaterials.textures.end(), mCombinedMaterials.textures.begin());
 		mStaticMaterialGeneration = staticMaterialGeneration;
-		mResolvedResidentValid = false;
+		// Metadata is indexed by material row during slot resolution. Keep the
+		// original full path for any bridge whose segment boundaries do not align.
+		if (mResolvedResidentValid &&
+			mStaticLightMetadataCount == mStaticMaterialCount &&
+			mResidentLightMetadataCount == mResidentMaterialCount &&
+			mResolvedMaterials.materials.size() >= mResidentMaterialCount &&
+			mResolvedMaterials.lightMetadata.size() >= mResidentLightMetadataCount)
+		{
+			mResolvedStaticPrefixDirty = true;
+		}
+		else
+		{
+			mResolvedResidentValid = false;
+			mResolvedStaticPrefixDirty = false;
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameStaticPrefixFallbacks);
+		}
 		outStats.residentHits = 1;
 		outStats.staticRowsCopied = mStaticMaterialCount;
 		outStats.residentRowsReused = mResidentMaterialCount - mStaticMaterialCount;
@@ -88,6 +104,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 		mStaticTextureCount = (uint32_t)staticMaterials.textures.size();
 		mResidentValid = true;
 		mResolvedResidentValid = false;
+		mResolvedStaticPrefixDirty = false;
 		outStats.residentRebuilds = 1;
 	}
 	else if (outStats.residentHits == 0)
@@ -116,6 +133,8 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		mResolvedTextureSlotRevision != slotTable.MappingRevision();
 	if (rebuildResident)
 	{
+		if (mResolvedStaticPrefixDirty)
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameStaticPrefixFallbacks);
 		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRebuilds);
 		if (!mResolvedResidentValid) PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveInvalidResident);
 		if (mResolvedTextureSlotRevision != slotTable.MappingRevision())
@@ -129,6 +148,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		NRIResolveSceneMaterialBridgeTextureSlots(slotTable, mResolvedMaterials, 0u);
 		mResolvedResidentValid = true;
 		mResolvedTextureSlotRevision = slotTable.MappingRevision();
+		mResolvedStaticPrefixDirty = false;
 	}
 	else
 	{
@@ -139,6 +159,22 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		mResolvedMaterials.paletteLookup = mCombinedMaterials.paletteLookup;
 		mResolvedMaterials.paletteWidth = mCombinedMaterials.paletteWidth;
 		mResolvedMaterials.paletteHeight = mCombinedMaterials.paletteHeight;
+		if (mResolvedStaticPrefixDirty)
+		{
+			std::copy_n(mCombinedMaterials.materials.begin(), mStaticMaterialCount, mResolvedMaterials.materials.begin());
+			std::copy_n(mCombinedMaterials.lightMetadata.begin(), mStaticLightMetadataCount, mResolvedMaterials.lightMetadata.begin());
+			NRIResolveSceneMaterialBridgeTextureSlotRange(slotTable, mResolvedMaterials, 0u, mStaticMaterialCount);
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveStaticPatches);
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveStaticRowsCopied, mStaticMaterialCount);
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolvePersistentRowsPreserved, mResidentMaterialCount - mStaticMaterialCount);
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mStaticMaterialCount);
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mStaticMaterialCount);
+			PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeRowsCopied, mStaticMaterialCount);
+			PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeBytesCopied,
+				(uint64_t)mStaticMaterialCount * sizeof(nri_scene::MaterialData) +
+				(uint64_t)mStaticLightMetadataCount * sizeof(nri_scene::MaterialLightingMetadata));
+			mResolvedStaticPrefixDirty = false;
+		}
 	}
 
 	const uint32_t firstOverlayRow = (uint32_t)mResolvedMaterials.materials.size();
@@ -173,5 +209,6 @@ void NRISceneMaterialFrameCache::Reset()
 	mHasPersistentMaterials = false;
 	mResidentValid = false;
 	mResolvedResidentValid = false;
+	mResolvedStaticPrefixDirty = false;
 	mResolvedTextureSlotRevision = 0;
 }

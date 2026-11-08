@@ -24,3 +24,12 @@ void NRIResolveSceneMaterialBridgeTextureSlots(
 	nri_scene::MaterialBridgeData& materials,
 	uint32_t firstMaterialRow,
 	NRISceneMaterialTextureSlotResolveStats* outStats = nullptr);
+
+// Resolves clean bridge indices in [firstMaterialRow, endMaterialRow). Other
+// rows may already contain resolved slot indices and must not be visited again.
+void NRIResolveSceneMaterialBridgeTextureSlotRange(
+	const NRISceneTextureSlotTable& slotTable,
+	nri_scene::MaterialBridgeData& materials,
+	uint32_t firstMaterialRow,
+	uint32_t endMaterialRow,
+	NRISceneMaterialTextureSlotResolveStats* outStats = nullptr);

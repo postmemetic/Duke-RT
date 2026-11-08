@@ -1,5 +1,7 @@
 #include "nri_scene_material_texture_slots.h"
 
+#include <algorithm>
+
 namespace
 {
 uint32_t ResolveRequired(
@@ -74,8 +76,20 @@ void NRIResolveSceneMaterialBridgeTextureSlots(
 	uint32_t firstMaterialRow,
 	NRISceneMaterialTextureSlotResolveStats* outStats)
 {
+	NRIResolveSceneMaterialBridgeTextureSlotRange(
+		slotTable, materials, firstMaterialRow, (uint32_t)materials.materials.size(), outStats);
+}
+
+void NRIResolveSceneMaterialBridgeTextureSlotRange(
+	const NRISceneTextureSlotTable& slotTable,
+	nri_scene::MaterialBridgeData& materials,
+	uint32_t firstMaterialRow,
+	uint32_t endMaterialRow,
+	NRISceneMaterialTextureSlotResolveStats* outStats)
+{
 	NRISceneMaterialTextureSlotResolveStats stats = {};
-	for (uint32_t row = firstMaterialRow; row < materials.materials.size(); ++row)
+	const size_t end = std::min<size_t>(endMaterialRow, materials.materials.size());
+	for (uint32_t row = firstMaterialRow; row < end; ++row)
 	{
 		nri_scene::MaterialData& material = materials.materials[row];
 		material.textureIndex = ResolveRequired(slotTable, materials, material.textureIndex, stats);

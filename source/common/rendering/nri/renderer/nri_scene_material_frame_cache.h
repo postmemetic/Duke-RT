@@ -48,5 +48,8 @@ private:
 	bool mHasPersistentMaterials = false;
 	bool mResidentValid = false;
 	bool mResolvedResidentValid = false;
+	// The combined static prefix changed without changing its texture namespace
+	// or the persistent segment. Resolve must copy clean indices before remapping.
+	bool mResolvedStaticPrefixDirty = false;
 	uint64_t mResolvedTextureSlotRevision = 0;
 };
