@@ -1072,6 +1072,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_lights.cpp
 	common/rendering/nri/renderer/nri_scene_light_registry.cpp
 	common/rendering/nri/renderer/nri_scene_light_rules.cpp
+	common/rendering/nri/renderer/nri_actor_light_maintenance.cpp
+	common/rendering/nri/renderer/nri_persistent_emissive_actors.cpp
 	common/rendering/nri/renderer/nri_scene_light_rule_validation.cpp
 	common/rendering/nri/renderer/nri_scene_upload.cpp
 	common/rendering/nri/renderer/nri_scene_upload_identity.cpp

@@ -327,129 +327,6 @@ namespace
 		return rule.activateImmediately ? "immediate" : "surface";
 	}
 
-	enum class ActorSpriteLiveMatchResult : uint32_t
-	{
-		Match = 0,
-		NullLiveTexture,
-		TextureMismatch,
-		PaletteMismatch
-	};
-
-	struct ActorSpriteLiveMatchDetails
-	{
-		ActorSpriteLiveMatchResult result = ActorSpriteLiveMatchResult::Match;
-		FGameTexture* liveTexture = nullptr;
-		int32_t liveTextureId = -1;
-		int32_t surfaceTextureId = -1;
-		int32_t livePalette = 0;
-		int32_t surfacePalette = 0;
-	};
-
-	const char* GetActorSpriteLiveMatchResultName(ActorSpriteLiveMatchResult result)
-	{
-		switch (result)
-		{
-		case ActorSpriteLiveMatchResult::Match: return "match";
-		case ActorSpriteLiveMatchResult::NullLiveTexture: return "null_live_texture";
-		case ActorSpriteLiveMatchResult::TextureMismatch: return "texture_mismatch";
-		case ActorSpriteLiveMatchResult::PaletteMismatch: return "palette_mismatch";
-		default: return "unknown";
-		}
-	}
-
-	FTextureID GetLiveActorDisplayTextureId(const DCoreActor& actor)
-	{
-		return actor.dispictex.isValid() ? actor.dispictex : actor.spr.spritetexture();
-	}
-
-	FGameTexture* GetLiveActorSurfaceTexture(const DCoreActor& actor, nri_scene::SurfaceSourceType sourceType)
-	{
-		switch (sourceType)
-		{
-		case nri_scene::SurfaceSourceType::DrawListWall:
-		case nri_scene::SurfaceSourceType::FacingSprite:
-			return TexMan.GetGameTexture(GetLiveActorDisplayTextureId(actor));
-
-		case nri_scene::SurfaceSourceType::VoxelProxySprite:
-		{
-			if (!r_voxels)
-			{
-				return nullptr;
-			}
-
-			const int voxelIndex = GetExtInfo(actor.spr.spritetexture()).tiletovox;
-			if (voxelIndex < 0 || voxelIndex >= MAXVOXELS || voxmodels[voxelIndex] == nullptr || voxmodels[voxelIndex]->model == nullptr)
-			{
-				return nullptr;
-			}
-
-			return TexMan.GetGameTexture(voxmodels[voxelIndex]->model->GetPaletteTexture());
-		}
-
-		default:
-			return nullptr;
-		}
-	}
-
-	bool SurfaceUsesLiveActorTextureValidation(const nri_scene::SurfaceRef& surface)
-	{
-		if (surface.provenance.actorIndex < 0)
-		{
-			return false;
-		}
-
-		switch (surface.provenance.sourceType)
-		{
-		case nri_scene::SurfaceSourceType::DrawListWall:
-			return (surface.material.flags & nri_scene::MaterialFlag_Sprite) != 0;
-		case nri_scene::SurfaceSourceType::FacingSprite:
-		case nri_scene::SurfaceSourceType::VoxelProxySprite:
-			return true;
-		default:
-			return false;
-		}
-	}
-
-	ActorSpriteLiveMatchDetails EvaluateCachedSurfaceMatchAgainstLiveActor(const nri_scene::SurfaceRef& surface, const DCoreActor& actor)
-	{
-		ActorSpriteLiveMatchDetails details = {};
-		details.surfaceTextureId = surface.material.texture != nullptr ? surface.material.texture->GetID().GetIndex() : -1;
-		details.surfacePalette = surface.material.palette;
-		details.livePalette = actor.spr.pal;
-
-		switch (surface.provenance.sourceType)
-		{
-		case nri_scene::SurfaceSourceType::DrawListWall:
-		case nri_scene::SurfaceSourceType::FacingSprite:
-		case nri_scene::SurfaceSourceType::VoxelProxySprite:
-		{
-			details.liveTexture = GetLiveActorSurfaceTexture(actor, surface.provenance.sourceType);
-			details.liveTextureId = details.liveTexture != nullptr ? details.liveTexture->GetID().GetIndex() : -1;
-			if (details.liveTexture == nullptr)
-			{
-				details.result = ActorSpriteLiveMatchResult::NullLiveTexture;
-			}
-			else if (surface.material.texture != details.liveTexture)
-			{
-				details.result = ActorSpriteLiveMatchResult::TextureMismatch;
-			}
-			else if (surface.material.palette != actor.spr.pal)
-			{
-				details.result = ActorSpriteLiveMatchResult::PaletteMismatch;
-			}
-			return details;
-		}
-
-		default:
-			return details;
-		}
-	}
-
-	bool CachedSurfaceMatchesLiveActor(const nri_scene::SurfaceRef& surface, const DCoreActor& actor)
-	{
-		return EvaluateCachedSurfaceMatchAgainstLiveActor(surface, actor).result == ActorSpriteLiveMatchResult::Match;
-	}
-
 	uint64_t HashPersistentSurfaceTaggedSignedValue(uint64_t hash, uint64_t tag, int32_t value)
 	{
 		hash = (hash ^ tag) * 1099511628211ull;
@@ -2458,46 +2335,43 @@ SceneLightSystem::PersistentDynamicSurfaceStats SceneLightSystem::GatherPersiste
 	return mPersistentDynamicEmissiveCache.surfaceStats;
 }
 
-namespace
+SceneLightSystem::PersistentDynamicSurfaceStats SceneLightSystem::BuildPersistentDynamicSurfaceStats(const nri_scene::SceneView& sceneView)
 {
-	SceneLightSystem::PersistentDynamicSurfaceStats BuildPersistentDynamicSurfaceStats(const nri_scene::SceneView& sceneView)
+	SceneLightSystem::PersistentDynamicSurfaceStats stats = {};
+	stats.wallSurfaceCount = (uint32_t)sceneView.opaqueWalls.size();
+	stats.flatSurfaceCount = (uint32_t)sceneView.opaqueFlats.size();
+	stats.spriteSurfaceCount = (uint32_t)sceneView.opaqueSprites.size();
+	auto accumulate = [&stats](const auto& surfaces)
 	{
-		SceneLightSystem::PersistentDynamicSurfaceStats stats = {};
-		stats.wallSurfaceCount = (uint32_t)sceneView.opaqueWalls.size();
-		stats.flatSurfaceCount = (uint32_t)sceneView.opaqueFlats.size();
-		stats.spriteSurfaceCount = (uint32_t)sceneView.opaqueSprites.size();
-		auto accumulate = [&stats](const auto& surfaces)
+		for (const auto& surface : surfaces)
 		{
-			for (const auto& surface : surfaces)
+			if (surface.provenance.actorIndex >= 0)
 			{
-				if (surface.provenance.actorIndex >= 0)
-				{
-					stats.actorSurfaceCount++;
-				}
-				else
-				{
-					stats.nonActorSurfaceCount++;
-				}
-
-				switch (surface.provenance.sourceType)
-				{
-				case nri_scene::SurfaceSourceType::FacingSprite:
-					stats.actorFacingSpriteCount++;
-					break;
-				case nri_scene::SurfaceSourceType::VoxelProxySprite:
-					stats.actorVoxelSpriteCount++;
-					break;
-				default:
-					break;
-				}
+				stats.actorSurfaceCount++;
 			}
-		};
+			else
+			{
+				stats.nonActorSurfaceCount++;
+			}
 
-		accumulate(sceneView.opaqueWalls);
-		accumulate(sceneView.opaqueFlats);
-		accumulate(sceneView.opaqueSprites);
-		return stats;
-	}
+			switch (surface.provenance.sourceType)
+			{
+			case nri_scene::SurfaceSourceType::FacingSprite:
+				stats.actorFacingSpriteCount++;
+				break;
+			case nri_scene::SurfaceSourceType::VoxelProxySprite:
+				stats.actorVoxelSpriteCount++;
+				break;
+			default:
+				break;
+			}
+		}
+	};
+
+	accumulate(sceneView.opaqueWalls);
+	accumulate(sceneView.opaqueFlats);
+	accumulate(sceneView.opaqueSprites);
+	return stats;
 }
 
 void SceneLightSystem::UpdatePersistentDynamicEmissiveHighWaterStats(const PersistentDynamicSurfaceStats& currentStats)
@@ -2572,208 +2446,6 @@ SceneLightSystem::PersistentDynamicMergeStats SceneLightSystem::MergePersistentD
 		&stats.appendedSpriteSurfaceCount,
 		&stats.duplicateSpriteSurfaceCount);
 	return stats;
-}
-
-void SceneLightSystem::PrunePersistentDynamicEmissiveCacheToLiveActors(const PersistentDynamicEmissiveCacheBuildServices& services)
-{
-	PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
-	mActorSpriteDebugStats = {};
-	if (!mPersistentDynamicEmissiveCache.valid)
-	{
-		return;
-	}
-
-	std::unordered_map<int32_t, bool> liveActorIndices;
-	std::unordered_map<int32_t, DCoreActor*> liveActorsByIndex;
-	liveActorIndices.reserve(256);
-	liveActorsByIndex.reserve(256);
-
-	TSpriteIterator<DCoreActor> it;
-	uint64_t auditActorScans = 0;
-	while (auto actor = it.Next())
-	{
-		auditActorScans++;
-		if (actor == nullptr ||
-			!actor->exists() ||
-			(actor->ObjectFlags & OF_EuthanizeMe) != 0)
-		{
-			continue;
-		}
-
-		liveActorIndices[(int32_t)actor->GetIndex()] = true;
-		liveActorsByIndex[(int32_t)actor->GetIndex()] = actor;
-	}
-	PerfAuditAdd(PerfAuditMetric::EmissiveActorScanRows, auditActorScans);
-
-	bool needsPrune = false;
-	auto detectStaleActorOwnership = [this, &services, &needsPrune, &liveActorIndices, &liveActorsByIndex](const auto& surfaces)
-	{
-		for (const auto& surface : surfaces)
-		{
-			if (SurfaceUsesLiveActorTextureValidation(surface))
-			{
-				mActorSpriteDebugStats.lastPruneChecks++;
-				if (surface.provenance.actorIndex < 0)
-				{
-					mActorSpriteDebugStats.lastPruneDroppedMissingActorIndex++;
-					if (services.traceActorSpriteMismatch)
-					{
-						Printf("NRI PT actor-sprite cache: action=drop reason=missing_actor_index source=%s actor=%d surface_tex=%d surface_ptr=%p surface_pal=%d\n",
-							nri_diag::GetSurfaceSourceTypeName(surface.provenance.sourceType),
-							surface.provenance.actorIndex,
-							surface.material.texture != nullptr ? surface.material.texture->GetID().GetIndex() : -1,
-							surface.material.texture,
-							surface.material.palette);
-					}
-					needsPrune = true;
-					continue;
-				}
-
-				auto liveActorIt = liveActorsByIndex.find(surface.provenance.actorIndex);
-				if (liveActorIt == liveActorsByIndex.end())
-				{
-					mActorSpriteDebugStats.lastPruneDroppedMissingActor++;
-					if (services.traceActorSpriteMismatch)
-					{
-						Printf("NRI PT actor-sprite cache: action=drop reason=missing_actor source=%s actor=%d surface_tex=%d surface_ptr=%p surface_pal=%d\n",
-							nri_diag::GetSurfaceSourceTypeName(surface.provenance.sourceType),
-							surface.provenance.actorIndex,
-							surface.material.texture != nullptr ? surface.material.texture->GetID().GetIndex() : -1,
-							surface.material.texture,
-							surface.material.palette);
-					}
-					needsPrune = true;
-					continue;
-				}
-
-				const ActorSpriteLiveMatchDetails match = EvaluateCachedSurfaceMatchAgainstLiveActor(surface, *liveActorIt->second);
-				if (match.result == ActorSpriteLiveMatchResult::Match)
-				{
-					mActorSpriteDebugStats.lastPruneMatches++;
-					if (services.traceActorSpriteVerbose)
-					{
-						Printf("NRI PT actor-sprite cache: action=keep reason=%s source=%s actor=%d surface_tex=%d surface_ptr=%p live_tex=%d live_ptr=%p surface_pal=%d live_pal=%d\n",
-							GetActorSpriteLiveMatchResultName(match.result),
-							nri_diag::GetSurfaceSourceTypeName(surface.provenance.sourceType),
-							surface.provenance.actorIndex,
-							match.surfaceTextureId,
-							surface.material.texture,
-							match.liveTextureId,
-							match.liveTexture,
-							match.surfacePalette,
-							match.livePalette);
-					}
-					continue;
-				}
-
-				switch (match.result)
-				{
-				case ActorSpriteLiveMatchResult::NullLiveTexture: mActorSpriteDebugStats.lastPruneDroppedNullLiveTexture++; break;
-				case ActorSpriteLiveMatchResult::TextureMismatch: mActorSpriteDebugStats.lastPruneDroppedTextureMismatch++; break;
-				case ActorSpriteLiveMatchResult::PaletteMismatch: mActorSpriteDebugStats.lastPruneDroppedPaletteMismatch++; break;
-				default: break;
-				}
-				if (services.traceActorSpriteMismatch)
-				{
-					Printf("NRI PT actor-sprite cache: action=drop reason=%s source=%s actor=%d surface_tex=%d surface_ptr=%p live_tex=%d live_ptr=%p surface_pal=%d live_pal=%d\n",
-						GetActorSpriteLiveMatchResultName(match.result),
-						nri_diag::GetSurfaceSourceTypeName(surface.provenance.sourceType),
-						surface.provenance.actorIndex,
-						match.surfaceTextureId,
-						surface.material.texture,
-						match.liveTextureId,
-						match.liveTexture,
-						match.surfacePalette,
-						match.livePalette);
-				}
-				needsPrune = true;
-			}
-			else if (surface.provenance.actorIndex >= 0 &&
-				liveActorIndices.find(surface.provenance.actorIndex) == liveActorIndices.end())
-			{
-				needsPrune = true;
-			}
-		}
-	};
-
-	detectStaleActorOwnership(mPersistentDynamicEmissiveCache.sceneView.opaqueWalls);
-	detectStaleActorOwnership(mPersistentDynamicEmissiveCache.sceneView.opaqueFlats);
-	detectStaleActorOwnership(mPersistentDynamicEmissiveCache.sceneView.opaqueSprites);
-	if (!needsPrune)
-	{
-		return;
-	}
-	PerfAuditAdd(PerfAuditMetric::EmissivePruneRebuilds);
-
-	PersistentDynamicEmissiveCache next = {};
-	next.sceneView.drawInfo = mPersistentDynamicEmissiveCache.sceneView.drawInfo;
-	next.sceneView.sky = mPersistentDynamicEmissiveCache.sceneView.sky;
-	Copy3f(mPersistentDynamicEmissiveCache.sceneView.skyColor, next.sceneView.skyColor);
-	Copy3f(mPersistentDynamicEmissiveCache.sceneView.groundColor, next.sceneView.groundColor);
-
-	auto appendLiveOwnedSurfaces = [&liveActorIndices, &liveActorsByIndex](const auto& source, auto& destination)
-	{
-		for (const auto& surface : source)
-		{
-			if (SurfaceUsesLiveActorTextureValidation(surface))
-			{
-				if (surface.provenance.actorIndex < 0)
-				{
-					continue;
-				}
-
-				auto liveActorIt = liveActorsByIndex.find(surface.provenance.actorIndex);
-				if (liveActorIt == liveActorsByIndex.end() || !CachedSurfaceMatchesLiveActor(surface, *liveActorIt->second))
-				{
-					continue;
-				}
-			}
-			else if (surface.provenance.actorIndex >= 0 &&
-				liveActorIndices.find(surface.provenance.actorIndex) == liveActorIndices.end())
-			{
-				continue;
-			}
-
-			destination.push_back(surface);
-			PerfAuditAdd(PerfAuditMetric::EmissiveSurfaceCopyBytes, sizeof(surface) +
-				surface.vertices.size() * sizeof(nri_scene::CapturedVertex) + surface.indices.size() * sizeof(uint32_t) + surface.primitiveLocalMaterialSlots.size());
-		}
-	};
-
-	appendLiveOwnedSurfaces(mPersistentDynamicEmissiveCache.sceneView.opaqueWalls, next.sceneView.opaqueWalls);
-	appendLiveOwnedSurfaces(mPersistentDynamicEmissiveCache.sceneView.opaqueFlats, next.sceneView.opaqueFlats);
-	appendLiveOwnedSurfaces(mPersistentDynamicEmissiveCache.sceneView.opaqueSprites, next.sceneView.opaqueSprites);
-
-	next.surfaceCount =
-		(uint32_t)next.sceneView.opaqueWalls.size() +
-		(uint32_t)next.sceneView.opaqueFlats.size() +
-		(uint32_t)next.sceneView.opaqueSprites.size();
-	if (next.surfaceCount == 0)
-	{
-		mPersistentDynamicEmissiveCache = {};
-		return;
-	}
-
-	services.BuildGeometry(next.sceneView, next.geometry, "persistent_emissive_cache_prune");
-	services.BuildMaterials(next.sceneView, next.materialBridge, "persistent_emissive_cache_prune");
-
-	next.primitiveCount = (uint32_t)next.geometry.primitives.size();
-	next.materialCount = (uint32_t)next.materialBridge.materials.size();
-	next.surfaceStats = BuildPersistentDynamicSurfaceStats(next.sceneView);
-	next.sceneView.stats.totalDrawItems = next.surfaceCount;
-	next.sceneView.stats.wallDrawItems = (uint32_t)next.sceneView.opaqueWalls.size();
-	next.sceneView.stats.flatDrawItems = (uint32_t)next.sceneView.opaqueFlats.size();
-	next.sceneView.stats.spriteDrawItems = (uint32_t)next.sceneView.opaqueSprites.size();
-	next.sceneView.stats.triangleEstimate = next.primitiveCount;
-	next.sceneView.stats.materialRefs = next.materialCount;
-	next.valid = next.primitiveCount > 0 && next.materialCount > 0;
-	if (!next.valid)
-	{
-		mPersistentDynamicEmissiveCache = {};
-		return;
-	}
-
-	mPersistentDynamicEmissiveCache = std::move(next);
 }
 
 bool SceneLightSystem::RebuildPersistentDynamicEmissiveCache(

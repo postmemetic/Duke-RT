@@ -644,57 +644,8 @@ const SceneLightSystem::CompiledOverlayRules& SceneLightSystem::RefreshCompiledO
 		++mLightRegistryStats.ruleCacheHits;
 	}
 
-	// Cap selection uses a stable distance sort, so equal-distance lights retain
-	// the original fresh unordered_map enumeration order. Preserve its exact
-	// insertion/rehash sequence, reusing only the actor vectors via swap.
-	auto previousActorRules = std::move(compiled.liveActorRules);
-	compiled.liveActorRules = decltype(compiled.liveActorRules){};
-	if (resolved.actorRules.Size() != 0)
-	{
-		TSpriteIterator<DCoreActor> it;
-		while (auto actor = it.Next())
-		{
-			if (!actor->exists() || (actor->ObjectFlags & OF_EuthanizeMe) != 0)
-			{
-				continue;
-			}
-			PClass* actorClass = actor->GetClass();
-			if (actorClass == nullptr)
-			{
-				continue;
-			}
-			const int32_t actorIndex = (int32_t)actor->GetIndex();
-			auto& actorRules = compiled.liveActorRules[actorIndex];
-			const auto previous = previousActorRules.find(actorIndex);
-			if (previous != previousActorRules.end())
-			{
-				actorRules.swap(previous->second);
-				actorRules.clear();
-			}
-			for (const auto& actorTemplate : compiled.actorTemplates)
-			{
-				if (actorClass != actorTemplate.actorClass && !actorClass->IsDescendantOf(actorTemplate.actorClass))
-				{
-					continue;
-				}
-				auto rule = actorTemplate.rule;
-				rule.actorClassName = actorClass->TypeName.GetChars();
-				rule.actorIndex = (int32_t)actor->GetIndex();
-				rule.actorPalette = actor->spr.pal;
-				rule.actorPosition[0] = (float)actor->spr.pos.X;
-				rule.actorPosition[1] = (float)-actor->spr.pos.Z;
-				rule.actorPosition[2] = (float)-actor->spr.pos.Y;
-				const FTextureID liveTextureId = actor->dispictex.isValid() ? actor->dispictex : actor->spr.spritetexture();
-				rule.actorTextureId = liveTextureId.isValid() ? (uint32_t)liveTextureId.GetIndex() : 0u;
-				actorRules.push_back(std::move(rule));
-			}
-			if (actorRules.empty())
-			{
-				compiled.liveActorRules.erase(actorIndex);
-			}
-		}
-	}
-	if (nri_ptlightregistryvalidate)
+	RefreshLiveActorOverlayRules(resolved.actorRules.Size() != 0, rebuild);
+	if (nri_ptlightregistryvalidate || nri_ptactorlightvalidate)
 	{
 		ValidateCompiledOverlayRules(resolved, mapWorld);
 	}

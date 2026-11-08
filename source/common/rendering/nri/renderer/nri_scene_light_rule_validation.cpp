@@ -1,5 +1,6 @@
 #include "nri_scene_lights.h"
 #include "printf.h"
+#include "perf_audit.h"
 
 #include <cstring>
 
@@ -162,6 +163,7 @@ void SceneLightSystem::ValidateCompiledOverlayRules(const ResolvedLightOverlaySe
 	BuildFullOverlayRules(resolved, mapWorld, full);
 	auto& cached = mCompiledOverlayRules;
 	++mLightRegistryStats.ruleValidationChecks;
+	PerfAuditAdd(PerfAuditMetric::ActorLightRuleValidations);
 	bool equal =
 		EqualRuleVector(cached.mapRules, full.mapRules) &&
 		EqualRuleVector(cached.emissiveRules, full.emissiveRules) &&
@@ -198,6 +200,7 @@ void SceneLightSystem::ValidateCompiledOverlayRules(const ResolvedLightOverlaySe
 	}
 	if (equal) return;
 	++mLightRegistryStats.ruleValidationMismatches;
+	PerfAuditAdd(PerfAuditMetric::ActorLightRuleMismatches);
 	Printf("NRI PT light rule cache mismatch: frame=%llu resolved=%u map=%llu action=full-rules-quarantine\n",
 		(unsigned long long)mFrameSerial, resolved.resolvedGeneration, (unsigned long long)mapWorld.buildSerial);
 	cached.liveActorRules = std::move(full.liveActorRules);

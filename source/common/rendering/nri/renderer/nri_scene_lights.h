@@ -9,6 +9,7 @@
 #include "nri_emissive_response_lookup.h"
 #include "nri_emissive_sampling_geometry.h"
 #include "nri_runtime_light_shadow_selection.h"
+#include "nri_actor_light_maintenance.h"
 #include "lightoverlay.h"
 #include "v_video.h"
 
@@ -777,6 +778,7 @@ public:
 		bool mapValid = false;
 		bool quarantined = false;
 		std::vector<ActorTemplate> actorTemplates;
+		NRIActorLightRuleState actorState;
 		std::unordered_map<int32_t, std::vector<AnalyticLightRegistry::ActorOverlayRule>> liveActorRules;
 		std::unordered_map<uint32_t, AnalyticLightRegistry::ActorOverlayRule> actorRulesById;
 		std::vector<AnalyticLightRegistry::MapOverlayRule> mapRules;
@@ -1172,6 +1174,9 @@ public:
 	bool ConsumeSectorLightingTopologyChanged();
 
 private:
+	void RefreshLiveActorOverlayRules(bool hasActorRules, bool forceRebuild);
+	static PersistentDynamicSurfaceStats BuildPersistentDynamicSurfaceStats(const nri_scene::SceneView& sceneView);
+	NRIEmissiveActorLookup mEmissiveActorLookup;
 	struct TransientMuzzleFlashSlot
 	{
 		uint64_t stableKey = 0;

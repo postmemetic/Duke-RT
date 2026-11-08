@@ -130,6 +130,8 @@ CVAR(Bool, nri_ptemissivecache, true, 0)
 CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
 CVAR(Bool, nri_ptlightregistry, true, 0)
 CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
+CVAR(Bool, nri_ptactorlightmaintenance, true, 0)
+CVAR(Bool, nri_ptactorlightvalidate, false, 0)
 CVAR(Bool, nri_ptindirectradiancecache, false, 0)
 CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
