@@ -241,6 +241,9 @@ class DukeFirelaser : DukeProjectile // Liztrooper shot
 
 class DukeFirelaserTrail : DukeActor
 {
+	const MAX_UNSEEN_TICKS = 4;
+	int unseenTicks;
+
 	default
 	{
 		spriteset "FIRELASER", "FIRELASER2", "FIRELASER3", "FIRELASER4", "FIRELASER5", "FIRELASER6";
@@ -249,7 +252,9 @@ class DukeFirelaserTrail : DukeActor
 	
 	override void Tick()
 	{
-		if (self.extra == 999)
+		// Projectiles spawn trails before STAT_MISC ticks in the same update.
+		// Allow time for presentation, but also expire trails outside the draw list.
+		if (self.extra == 999 || ++self.unseenTicks >= MAX_UNSEEN_TICKS)
 		{
 			self.Destroy();
 		}
