@@ -40,3 +40,8 @@ NRIPersistentVoxelPressureEvaluationDecision DecideNRIPersistentVoxelPressureEva
 	const NRIPersistentVoxelPressureEvaluationInput& input);
 
 bool ShouldInvalidateNRIPersistentVoxelPressureForMembershipChange(bool protectionBlocked);
+
+// Counts come from the authoritative resource refresh, not a sampled census.
+// Explicit trace/audit requests retain the complete candidate path.
+bool CanSkipNRIPersistentVoxelPressureCandidates(
+	uint32_t evaluationReasonMask, uint32_t coldMeshCount, uint32_t coldMaterialCount);

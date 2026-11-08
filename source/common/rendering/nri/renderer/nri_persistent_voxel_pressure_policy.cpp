@@ -41,3 +41,12 @@ bool ShouldInvalidateNRIPersistentVoxelPressureForMembershipChange(bool protecti
 {
 	return protectionBlocked;
 }
+
+bool CanSkipNRIPersistentVoxelPressureCandidates(
+	uint32_t evaluationReasonMask, uint32_t coldMeshCount, uint32_t coldMaterialCount)
+{
+	constexpr uint32_t fullScanReasons = NRIPersistentVoxelPressureEvaluationReason_Trace |
+		NRIPersistentVoxelPressureEvaluationReason_SafetyAudit;
+	return coldMeshCount == 0 && coldMaterialCount == 0 &&
+		(evaluationReasonMask & fullScanReasons) == 0;
+}

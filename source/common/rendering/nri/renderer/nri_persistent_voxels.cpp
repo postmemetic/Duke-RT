@@ -4274,39 +4274,26 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	{
 		maintenanceStats.pressureSafetyAudits++;
 	}
-	if (meshVariantResources.empty() && materialVariantResources.empty())
+	auto finishPressureEvaluation = [&](bool protectionBlocked)
 	{
-		pressureProtectionBlocked = false;
-		maintenanceStats.pressureProtectionBlockedLast = false;
+		pressureProtectionBlocked = protectionBlocked;
+		maintenanceStats.pressureProtectionBlockedLast = protectionBlocked;
+		if (protectionBlocked)
+		{
+			maintenanceStats.pressureProtectionBlockedEvaluations++;
+		}
 		pressureEvaluationGeneration = maintenanceMutationGeneration;
 		pressureSettingsSignature = settingsSignature;
 		pressureAdapterBudget = adapterLocalBudget;
 		pressureEvaluationFrame = frameIndex;
 		pressureEvaluationValid = true;
+	};
+	if (meshVariantResources.empty() && materialVariantResources.empty())
+	{
+		finishPressureEvaluation(false);
 		maintenanceStats.pressureNoops++;
 		return;
 	}
-
-	std::unordered_set<uint64_t> admissionMeshes;
-	std::unordered_set<uint64_t> admissionMaterials;
-	uint64_t queuedBytes = 0;
-	maintenanceStats.pressureEntriesScannedLast = (uint32_t)admissionQueue.size();
-	maintenanceStats.pressureEntriesScanned += admissionQueue.size();
-	for (const auto& pair : admissionQueue)
-	{
-		const PersistentVoxelAdmissionEntry& entry = pair.second;
-		if (entry.mapGeneration != residencyMapGeneration ||
-			entry.state == PersistentVoxelAdmissionState::Failed)
-		{
-			continue;
-		}
-		admissionMeshes.insert(BuildPersistentVoxelVariantMeshResourceKey(entry.variant));
-		admissionMaterials.insert(entry.variant.materialKeyHash);
-		queuedBytes += entry.estimatedBytes;
-	}
-	const bool materialReleaseQuiescent =
-		!admissionIndex.HasActiveWork() &&
-		PersistentVoxelAdmissionSchedulerQuiescent(admissionScheduler.GetSnapshot());
 
 	uint64_t voxelResidentBytes = 0;
 	uint64_t coldBytes = 0;
@@ -4315,6 +4302,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	maintenanceStats.pressureResourceRowsScannedLast =
 		(uint32_t)(meshVariantResources.size() + materialVariantResources.size());
 	maintenanceStats.pressureResourceRowsScanned += maintenanceStats.pressureResourceRowsScannedLast;
+	PerfAuditAdd(PerfAuditMetric::VoxelPressureResourceRows, maintenanceStats.pressureResourceRowsScannedLast);
 	for (auto& pair : meshVariantResources)
 	{
 		PersistentVoxelMeshVariantResource& resource = pair.second;
@@ -4373,6 +4361,41 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	{
 		pressureBytes = std::max<uint64_t>(pressureBytes, totalTrackedBytes + minHeadroomBytes - adapterLocalBudget);
 	}
+
+	// The resource refresh above also owns reference, age and byte bookkeeping.
+	// Keep it even when there can be no eviction: cold is map-residency state,
+	// not visibility, and a zero-reference current-map resource stays protected.
+	// Avoid building admission sets and walking candidates in this exact case.
+	if (CanSkipNRIPersistentVoxelPressureCandidates(
+		pressureEvaluationDecision.reasonMask, coldMeshCount, coldMaterialCount))
+	{
+		PerfAuditAdd(PerfAuditMetric::VoxelPressureNoColdExits);
+		maintenanceStats.pressureNoops++;
+		finishPressureEvaluation(pressureBytes != 0);
+		return;
+	}
+
+	std::unordered_set<uint64_t> admissionMeshes;
+	std::unordered_set<uint64_t> admissionMaterials;
+	uint64_t queuedBytes = 0;
+	maintenanceStats.pressureEntriesScannedLast = (uint32_t)admissionQueue.size();
+	maintenanceStats.pressureEntriesScanned += admissionQueue.size();
+	PerfAuditAdd(PerfAuditMetric::VoxelPressureAdmissionRows, admissionQueue.size());
+	for (const auto& pair : admissionQueue)
+	{
+		const PersistentVoxelAdmissionEntry& entry = pair.second;
+		if (entry.mapGeneration != residencyMapGeneration ||
+			entry.state == PersistentVoxelAdmissionState::Failed)
+		{
+			continue;
+		}
+		admissionMeshes.insert(BuildPersistentVoxelVariantMeshResourceKey(entry.variant));
+		admissionMaterials.insert(entry.variant.materialKeyHash);
+		queuedBytes += entry.estimatedBytes;
+	}
+	const bool materialReleaseQuiescent =
+		!admissionIndex.HasActiveWork() &&
+		PersistentVoxelAdmissionSchedulerQuiescent(admissionScheduler.GetSnapshot());
 
 	struct MeshEvictionCandidate
 	{
@@ -4575,17 +4598,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	{
 		maintenanceStats.pressureNoops++;
 	}
-	pressureProtectionBlocked = pressureBytes != 0 && evictedBytes < pressureBytes;
-	maintenanceStats.pressureProtectionBlockedLast = pressureProtectionBlocked;
-	if (pressureProtectionBlocked)
-	{
-		maintenanceStats.pressureProtectionBlockedEvaluations++;
-	}
-	pressureEvaluationGeneration = maintenanceMutationGeneration;
-	pressureSettingsSignature = settingsSignature;
-	pressureAdapterBudget = adapterLocalBudget;
-	pressureEvaluationFrame = frameIndex;
-	pressureEvaluationValid = true;
+	finishPressureEvaluation(pressureBytes != 0 && evictedBytes < pressureBytes);
 }
 
 bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
