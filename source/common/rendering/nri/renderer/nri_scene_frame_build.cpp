@@ -1089,7 +1089,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		hasPersistentVoxelBatch = !deferOverlayThisFrame && [&]()
 		{
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectPersistentVoxelBatchMs);
-			const MemoryTelemetry telemetry = GetMemoryTelemetry();
+			const auto residencyBudget = GetPersistentVoxelBudgetSnapshot();
 			{
 				ScopedPtPerfTimer admissionPumpTimer(mLastPerfShellTraceStats.sceneSelectPersistentVoxelAdmissionPumpMs);
 				mPersistentVoxels.PumpAdmissionQueue(
@@ -1097,8 +1097,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					mMapWorld.buildSerial,
 					mFrameIndex,
 					persistentVoxelSettings,
-					telemetry.totalTrackedBytes,
-					mFrameBuffer != nullptr ? mFrameBuffer->GetAdapterLocalBudgetBytes() : 0ull,
+					residencyBudget.usageBytes,
+					residencyBudget.budgetBytes,
 					(int)nri_ptloadingtrace,
 					(bool)nri_voxelstats,
 					BuildNRIPersistentVoxelResetServices(*this),

@@ -971,6 +971,12 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_actor_workload_mask_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_closure.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_range_allocator.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_geometry_ranges.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_geometry_lifetime.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_admission_lifetime.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_retention.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_budget.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_transition.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_lifecycle.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_payload.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_sharing_policy.cpp

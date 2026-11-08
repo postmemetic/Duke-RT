@@ -2442,6 +2442,8 @@ private:
 		ResidentBufferUploadScratch material;
 		std::vector<NRIBufferResource> retiredBuffers;
 		std::vector<NRIAccelerationStructureResource> retiredAccelerationStructures;
+		std::vector<NRIPersistentVoxelSchedulerRetirement> retiredVoxelSchedulerReservations;
+		std::vector<NRIPersistentVoxelGeometryRangeHandle> retiredVoxelGeometryRanges;
 		std::vector<NRIPersistentVoxelMaterialRangeHandle> retiredVoxelMaterialRanges;
 	};
 
@@ -2745,6 +2747,15 @@ private:
 	void RefreshStateCommitCombinedGeometryStaticPrefixForResidentUpdate(const std::vector<uint32_t>& changedGeometryChunkListIndices);
 	void RetireResidentBufferResource(NRIBufferResource& resource);
 	void RetirePersistentVoxelMaterialRange(NRIPersistentVoxelMaterialRangeHandle range);
+	void RetirePersistentVoxelSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket);
+	void RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
+	NRIPersistentVoxelBudgetSnapshot GetPersistentVoxelBudgetSnapshot();
+	void AuditPersistentVoxelArenaGrowthBudget(uint64_t oldBytes, uint64_t newCapacityBytes, uint32_t stride);
+	void TrimPersistentVoxelCacheAfterLevelWait();
+	NRIPersistentVoxelBudgetSnapshot mVoxelBudgetSnapshot;
+	uint32_t mVoxelBudgetSnapshotFrame = UINT32_MAX;
+	uint64_t mVoxelBudgetSnapshotMap = 0;
+	int mVoxelBudgetSnapshotOverride = 0;
 	void RetireResidentAccelerationStructure(NRIAccelerationStructureResource& resource);
 	void RetireTopLevelAccelerationStructure(NRIAccelerationStructureResource& resource);
 	bool UpdateSceneTextureSet(const std::vector<nri::Descriptor*>& descriptors, const char* reason = nullptr);

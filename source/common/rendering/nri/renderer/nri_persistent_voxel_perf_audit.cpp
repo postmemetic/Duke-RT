@@ -174,6 +174,38 @@ void NRIPersistentVoxelResidency::CapturePerfAuditCensus(uint32_t rendererFrameI
 	PerfAuditSet(PerfAuditMetric::VoxelArenaUsedBytes, used);
 	PerfAuditSet(PerfAuditMetric::VoxelArenaLiveBytes, live);
 	PerfAuditSet(PerfAuditMetric::VoxelArenaDeadBytes, used - std::min(used, live));
+	const uint64_t geometryOwned = geometryRanges.VertexStats().liveRows * sizeof(nri_scene::SceneVertex) +
+		geometryRanges.IndexStats().liveRows * sizeof(uint32_t) + geometryRanges.PrimitiveStats().liveRows * sizeof(nri_scene::PrimitiveData);
+	uint64_t quarantinedCount = 0, quarantinedBytes = 0;
+	for (const auto& range : quarantinedGeometryRanges)
+		if (geometryRanges.Owns(range))
+		{
+			++quarantinedCount;
+			quarantinedBytes += uint64_t(range.vertices.capacity) * sizeof(nri_scene::SceneVertex) +
+				uint64_t(range.indices.capacity) * sizeof(uint32_t) + uint64_t(range.primitives.capacity) * sizeof(nri_scene::PrimitiveData);
+		}
+	PerfAuditSet(PerfAuditMetric::VoxelGeometryRangeQuarantinedCount, quarantinedCount);
+	PerfAuditSet(PerfAuditMetric::VoxelGeometryRangeQuarantinedBytes, quarantinedBytes);
+	const auto scheduler = admissionScheduler.GetSnapshot();
+	PerfAuditSet(PerfAuditMetric::VoxelSchedulerReservationHeldBytes, scheduler.heldReservationBytes);
+	PerfAuditSet(PerfAuditMetric::VoxelSchedulerReservationRetirePendingBytes, scheduler.retirePendingBytes);
+	uint64_t schedulerQuarantinedCount = 0, schedulerQuarantinedBytes = 0;
+	for (const auto ticket : quarantinedSchedulerReservations)
+	{
+		uint64_t bytes = 0;
+		if (IsSchedulerRetirementPending(ticket, &bytes))
+		{
+			++schedulerQuarantinedCount;
+			schedulerQuarantinedBytes += bytes;
+		}
+	}
+	PerfAuditSet(PerfAuditMetric::VoxelSchedulerReservationQuarantinedCount, schedulerQuarantinedCount);
+	PerfAuditSet(PerfAuditMetric::VoxelSchedulerReservationQuarantinedBytes, schedulerQuarantinedBytes);
+	PerfAuditSet(PerfAuditMetric::VoxelGeometryOwnedBytes, geometryOwned);
+	PerfAuditSet(PerfAuditMetric::VoxelGeometryRetiringBytes, geometryOwned - std::min(geometryOwned, live));
+	PerfAuditSet(PerfAuditMetric::VoxelGeometryHoleBytes,
+		geometryRanges.VertexStats().holeRows * sizeof(nri_scene::SceneVertex) +
+		geometryRanges.IndexStats().holeRows * sizeof(uint32_t) + geometryRanges.PrimitiveStats().holeRows * sizeof(nri_scene::PrimitiveData));
 	PerfAuditSet(PerfAuditMetric::VoxelReadyZeroRefCount, readyZeroRef);
 	PerfAuditSet(PerfAuditMetric::VoxelReadyZeroRefBytes, readyZeroRefBytes);
 	PerfAuditSet(PerfAuditMetric::VoxelPinnedCount, pinned);

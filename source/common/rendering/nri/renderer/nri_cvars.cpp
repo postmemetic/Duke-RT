@@ -397,6 +397,15 @@ CVAR(Int, nri_ptvoxelblaspolicy, 3, 0)
 
 // Reserve manifest-known geometry during loading when live memory headroom permits.
 CVAR(Bool, nri_ptvoxelarenapresize, true, 0)
+CVAR(Bool, nri_ptvoxelcachebounded, true, 0)
+CVAR(Bool, nri_ptvoxelcachevalidate, false, 0)
+CVAR(Int, nri_ptvoxelcachemeshbytes, 256 * 1024 * 1024, 0)
+CVAR(Int, nri_ptvoxelcachematerialbytes, 64 * 1024 * 1024, 0)
+CVAR(Int, nri_ptvoxelcachematerialrecords, 4096, 0)
+CVAR(Int, nri_ptvoxelcachegraceframes, 600, 0)
+CVAR(Int, nri_ptvoxelcacheintervalframes, 120, 0)
+// Session-only correctness experiment: lower effective budget, never live usage.
+CVAR(Int, nri_ptvoxelbudgettestbytes, 0, 0)
 
 CVAR(Bool, nri_ptvoxelblascompact, false, 0)
 

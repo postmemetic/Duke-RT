@@ -1112,6 +1112,21 @@ public:
 		{
 			static_cast<NRIRenderer*>(user)->SetCurrentSceneDataDescriptorsInitialized(false);
 		};
+		services.retireSchedulerReservation = [](void* user, NRIPersistentVoxelSchedulerRetirement ticket)
+		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelSchedulerReservation(ticket); };
+		services.retireGeometryRange = [](void* user, NRIPersistentVoxelGeometryRangeHandle range)
+		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelGeometryRange(range); };
+		services.cacheRetirementAllowed = [](void* user)
+		{
+			const auto& owner = *static_cast<NRIRenderer*>(user);
+			// Private buffer/AS retirement needs the same real fence owner as
+			// range retirement. The waited level transition overrides this gate.
+			if (!owner.mFrameBuffer || !owner.mFrameBuffer->mCommandBuffer ||
+				owner.mResidentUploadScratchFrames.empty()) return false;
+			const auto stage = owner.mPersistentVoxelBlasCompaction.stage;
+			return stage != NRIRenderer::PersistentVoxelBlasCompactionState::Stage::QueryPending &&
+				stage != NRIRenderer::PersistentVoxelBlasCompactionState::Stage::CopyPending;
+		};
 		services.retireMaterialRange = [](void* user, NRIPersistentVoxelMaterialRangeHandle range)
 		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelMaterialRange(range); };
 		return services;
@@ -1121,6 +1136,10 @@ public:
 	{
 		NRIPersistentVoxelAdmissionServices services = {};
 		services.user = &renderer;
+		services.retireSchedulerReservation = [](void* user, NRIPersistentVoxelSchedulerRetirement ticket)
+		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelSchedulerReservation(ticket); };
+		services.retireGeometryRange = [](void* user, NRIPersistentVoxelGeometryRangeHandle range)
+		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelGeometryRange(range); };
 		services.materialClosure = BuildMaterialClosureServices(renderer);
 		services.admitVariantResource = [](
 			void* user,
@@ -1482,14 +1501,14 @@ public:
 		{
 			NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
 			const NRIPersistentVoxelSettings settings = BuildNRIPersistentVoxelSettingsFromCVars();
-			const NRIRenderer::MemoryTelemetry telemetry = renderer->GetMemoryTelemetry();
+			const auto residencyBudget = renderer->GetPersistentVoxelBudgetSnapshot();
 			return renderer->mPersistentVoxels.PumpAdmissionQueue(
 				phase,
 				renderer->mMapWorld.buildSerial,
 				renderer->mFrameIndex,
 				settings,
-				telemetry.totalTrackedBytes,
-				renderer->mFrameBuffer != nullptr ? renderer->mFrameBuffer->GetAdapterLocalBudgetBytes() : 0ull,
+				residencyBudget.usageBytes,
+				residencyBudget.budgetBytes,
 				(int)nri_ptloadingtrace,
 				(bool)nri_voxelstats,
 				BuildResetServices(*renderer),

@@ -176,6 +176,15 @@ class NRIPersistentVoxelSharedBlasCache
 {
 public:
 	template <typename RetireAccelerationStructureFn>
+	void RetireKey(uint64_t key, RetireAccelerationStructureFn&& retireAccelerationStructure)
+	{
+		auto found = mEntries.find(key);
+		if (found == mEntries.end()) return;
+		retireAccelerationStructure(found->second.accelerationStructure);
+		mEntries.erase(found);
+	}
+
+	template <typename RetireAccelerationStructureFn>
 	void RetireAll(RetireAccelerationStructureFn&& retireAccelerationStructure)
 	{
 		for (auto& pair : mEntries)

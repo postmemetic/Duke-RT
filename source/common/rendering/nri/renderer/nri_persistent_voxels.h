@@ -7,6 +7,8 @@
 #include "nri_persistent_voxel_material_closure.h"
 #include "nri_persistent_voxel_material_bridge.h"
 #include "nri_persistent_voxel_material_range_allocator.h"
+#include "nri_persistent_voxel_geometry_ranges.h"
+#include "nri_persistent_voxel_retention_policy.h"
 #include "nri_persistent_voxel_material_payload.h"
 #include "nri_persistent_voxel_material_sharing_policy.h"
 #include "nri_persistent_voxel_material_upload.h"
@@ -103,6 +105,7 @@ struct PersistentVoxelBatch
 
 struct PersistentVoxelMeshVariantResource
 {
+	NRIPersistentVoxelGeometryRangeHandle geometryRange;
 	FVoxelModel* sourceModel = nullptr;
 	uint64_t resourceKey = 0;
 	uint64_t meshKeyHash = 0;
@@ -219,9 +222,6 @@ struct PersistentVoxelAdmissionEntry
 	uint32_t shaderVertexOffset = 0;
 	uint32_t shaderIndexOffset = 0;
 	uint32_t shaderPrimitiveOffset = 0;
-	uint32_t savedVertexCursor = 0;
-	uint32_t savedIndexCursor = 0;
-	uint32_t savedPrimitiveCursor = 0;
 	uint64_t vertexBytesUploaded = 0;
 	uint64_t vertexArenaBytesUploaded = 0;
 	uint64_t indexBytesUploaded = 0;
@@ -354,6 +354,14 @@ struct PersistentVoxelInstanceRecord
 	std::array<float, 12> previousTransform = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
 };
 
+struct NRIPersistentVoxelSchedulerRetirement
+{
+	uint64_t epoch = 0;
+	uint64_t tokenId = 0;
+	uint64_t mapGeneration = 0;
+	explicit operator bool() const { return epoch != 0 && tokenId != 0; }
+};
+
 struct NRIPersistentVoxelResetServices
 {
 	using RetireBufferFn = void (*)(void* user, NRIBufferResource& resource);
@@ -364,6 +372,13 @@ struct NRIPersistentVoxelResetServices
 	RetireBufferFn retireBuffer = nullptr;
 	RetireAccelerationStructureFn retireAccelerationStructure = nullptr;
 	InvalidateSceneDataDescriptorsFn invalidateSceneDataDescriptors = nullptr;
+	bool (*cacheRetirementAllowed)(void*) = nullptr;
+	void (*retireSchedulerReservation)(void*, NRIPersistentVoxelSchedulerRetirement) = nullptr;
+	void RetireSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket) const
+	{ if (ticket && retireSchedulerReservation) retireSchedulerReservation(user, ticket); }
+	void (*retireGeometryRange)(void*, NRIPersistentVoxelGeometryRangeHandle) = nullptr;
+	void RetireGeometryRange(NRIPersistentVoxelGeometryRangeHandle range) const
+	{ if (range && retireGeometryRange) retireGeometryRange(user, range); }
 	void (*retireMaterialRange)(void*, NRIPersistentVoxelMaterialRangeHandle) = nullptr;
 	void RetireMaterialRange(NRIPersistentVoxelMaterialRangeHandle range) const
 	{ if (range && retireMaterialRange) retireMaterialRange(user, range); }
@@ -487,6 +502,12 @@ struct NRIPersistentVoxelAdmissionServices
 
 	void* user = nullptr;
 	AdmitVariantResourceFn admitVariantResource = nullptr;
+	void (*retireSchedulerReservation)(void*, NRIPersistentVoxelSchedulerRetirement) = nullptr;
+	void RetireSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket) const
+	{ if (ticket && retireSchedulerReservation) retireSchedulerReservation(user, ticket); }
+	void (*retireGeometryRange)(void*, NRIPersistentVoxelGeometryRangeHandle) = nullptr;
+	void RetireGeometryRange(NRIPersistentVoxelGeometryRangeHandle range) const
+	{ if (range && retireGeometryRange) retireGeometryRange(user, range); }
 	SubmitWaitAndRestartFn submitWaitAndRestart = nullptr;
 	IsSubmitBudgetHitFn isSubmitBudgetHit = nullptr;
 	GetRecordingCommandFenceValueFn getRecordingCommandFenceValue = nullptr;
@@ -1054,6 +1075,17 @@ public:
 		uint64_t adapterLocalBudget,
 		bool traceEnabled,
 		const NRIPersistentVoxelResetServices& services);
+	void MaintainInactiveCache(const char* phase, uint32_t frameIndex,
+		const NRIPersistentVoxelSettings& settings, uint64_t usageBytes, uint64_t budgetBytes,
+		const NRIPersistentVoxelResetServices& services, bool authoritativeEmptyAfterWait = false);
+	bool AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource,
+		uint32_t vertices, uint32_t indices, uint32_t primitives,
+		NRIPersistentVoxelGeometryRangeHandle& previous);
+	void SyncGeometryCursors();
+	void ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
+	NRIPersistentVoxelSchedulerRetirement TerminalizeAdmissionSchedulerToken(PersistentVoxelAdmissionEntry& entry, bool failed);
+	bool IsSchedulerRetirementPending(NRIPersistentVoxelSchedulerRetirement ticket, uint64_t* bytes = nullptr) const;
+	bool ReleaseCompletedSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket);
 	void ArmPostLoadAdmissionGrace(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings, int loadingTraceLevel);
 	bool PumpAdmissionQueue(
 		const char* phase,
@@ -1288,6 +1320,15 @@ public:
 	NRIVoxelAdmissionScheduler admissionScheduler = NRIVoxelAdmissionScheduler(NRIVoxelAdmissionLimits{});
 	NRIPersistentVoxelSharedBlasCache sharedBlasCache;
 	uint32_t arenaVertexCursor = 0;
+	uint64_t schedulerRetirementEpoch = 1;
+	std::vector<NRIPersistentVoxelSchedulerRetirement> quarantinedSchedulerReservations;
+	NRIPersistentVoxelGeometryRanges geometryRanges;
+	std::vector<NRIPersistentVoxelGeometryRangeHandle> quarantinedGeometryRanges;
+	uint32_t retentionLastFrame = UINT32_MAX;
+	uint32_t retentionMapGeneration = UINT32_MAX;
+	bool retentionQuarantined = false;
+	std::unordered_map<uint64_t, uint32_t> inactiveMeshSince;
+	std::unordered_map<uint64_t, uint32_t> inactiveMaterialSince;
 	uint32_t arenaIndexCursor = 0;
 	uint32_t arenaPrimitiveCursor = 0;
 	NRIPersistentVoxelMaterialRangeAllocator materialRangeAllocator;

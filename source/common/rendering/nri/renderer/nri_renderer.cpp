@@ -1898,6 +1898,7 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 		"level-unload",
 		(int)nri_ptloadingtrace >= 1 || (bool)nri_voxelstats,
 		BuildNRIPersistentVoxelResetServices(*this));
+	TrimPersistentVoxelCacheAfterLevelWait();
 	mVoxelRepresentationPolicy.Reset();
 	if (info.oldLevel != info.newLevel)
 	{

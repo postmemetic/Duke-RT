@@ -583,12 +583,21 @@ void NRIRenderer::DestroyResidentUploadScratchRetiredResources(
 	scratch.retiredAccelerationStructures.clear();
 	// Slot recycling follows the real queued-frame fence, including explicit
 	// submit-and-wait reset. Material offsets cannot be reused before this point.
+	for (auto ticket : scratch.retiredVoxelSchedulerReservations)
+		if (!mPersistentVoxels.ReleaseCompletedSchedulerReservation(ticket))
+			mPersistentVoxels.quarantinedSchedulerReservations.push_back(ticket);
+	scratch.retiredVoxelSchedulerReservations.clear();
+	for (auto range : scratch.retiredVoxelGeometryRanges)
+		mPersistentVoxels.ReleaseCompletedGeometryRange(range);
+	scratch.retiredVoxelGeometryRanges.clear();
 	for (auto range : scratch.retiredVoxelMaterialRanges)
 		if (mPersistentVoxels.materialPayloads.ReleaseRetiredRange(range, mPersistentVoxels.materialRangeAllocator))
 		{
 			mPersistentVoxels.materialResourceGeneration++;
 			mPersistentVoxels.MarkMaintenanceMutation();
 		}
+		else if (mPersistentVoxels.materialRangeAllocator.Owns(range))
+			mPersistentVoxels.quarantinedMaterialRanges.push_back(range);
 	scratch.retiredVoxelMaterialRanges.clear();
 	if (measure)
 		NRIAuditResidentRetiredDestroy(mFrameIndex, scratch.frameIndex, slot, explicitReset,
@@ -2193,6 +2202,10 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	}
 
 	NRIBufferResource oldResource = resource;
+	const uint64_t grownSize = GetNRIGrownBufferSize(oldResource.size, alignedRequiredSize, stride);
+	if (&resource == &mPersistentVoxels.vertexBuffer || &resource == &mPersistentVoxels.indexBuffer ||
+		&resource == &mPersistentVoxels.primitiveBuffer || &resource == &mPersistentVoxels.materialBuffer)
+		AuditPersistentVoxelArenaGrowthBudget(oldResource.memorySize, grownSize, stride);
 	resource = {};
 	const auto growthStart = std::chrono::steady_clock::now();
 	const uint64_t oldSize = oldResource.size;
@@ -2200,7 +2213,6 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	const uint64_t oldUsedSize = oldResource.usedSize;
 	const bool retiredOldResource = oldResource.buffer != nullptr;
 
-	const uint64_t grownSize = GetNRIGrownBufferSize(oldResource.size, alignedRequiredSize, stride);
 	if (!CreateBufferWithoutViewAtLocation(resource, grownSize, stride, usage, nri::MemoryLocation::DEVICE))
 	{
 		resource = oldResource;
@@ -2446,6 +2458,25 @@ void NRIRenderer::RetireResidentBufferResource(NRIBufferResource& resource)
 	}
 
 	DestroyBufferResource(resource);
+}
+
+void NRIRenderer::RetirePersistentVoxelSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket)
+{
+	if (!ticket) return;
+	if (mFrameBuffer && mFrameBuffer->mCommandBuffer && !mResidentUploadScratchFrames.empty())
+		GetResidentUploadScratchFrame().retiredVoxelSchedulerReservations.push_back(ticket);
+	else
+		mPersistentVoxels.quarantinedSchedulerReservations.push_back(ticket);
+}
+
+void NRIRenderer::RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range)
+{
+	if (!range) return;
+	if (mFrameBuffer && mFrameBuffer->mCommandBuffer && !mResidentUploadScratchFrames.empty())
+		GetResidentUploadScratchFrame().retiredVoxelGeometryRanges.push_back(range);
+	else
+		mPersistentVoxels.quarantinedGeometryRanges.push_back(range);
+	// No completion owner: keep the lease until a proven wait/reset.
 }
 
 void NRIRenderer::RetirePersistentVoxelMaterialRange(NRIPersistentVoxelMaterialRangeHandle range)
