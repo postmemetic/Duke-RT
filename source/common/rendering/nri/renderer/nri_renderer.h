@@ -2442,6 +2442,7 @@ private:
 		ResidentBufferUploadScratch material;
 		std::vector<NRIBufferResource> retiredBuffers;
 		std::vector<NRIAccelerationStructureResource> retiredAccelerationStructures;
+		std::vector<NRIPersistentVoxelMaterialRangeHandle> retiredVoxelMaterialRanges;
 	};
 
 	struct SceneDataDescriptorSnapshot
@@ -2671,6 +2672,9 @@ private:
 		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
 	void ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials) const;
 	void ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials);
+	void ValidateVoxelMaterialSharingProduct(const nri_scene::MaterialBridgeData& source,
+		const std::vector<nri_scene::MaterialData>& output, size_t staticCount, bool postLight,
+		const std::vector<uint32_t>* deferredIndices = nullptr);
 	void BuildSceneMaterialPolicyProduct(const nri_scene::MaterialBridgeData& source,
 		const std::vector<nri_scene::MaterialRowRange>& uniformRanges,
 		std::vector<nri_scene::MaterialData>& output);
@@ -2740,6 +2744,7 @@ private:
 		uint32_t& copyCommandCount);
 	void RefreshStateCommitCombinedGeometryStaticPrefixForResidentUpdate(const std::vector<uint32_t>& changedGeometryChunkListIndices);
 	void RetireResidentBufferResource(NRIBufferResource& resource);
+	void RetirePersistentVoxelMaterialRange(NRIPersistentVoxelMaterialRangeHandle range);
 	void RetireResidentAccelerationStructure(NRIAccelerationStructureResource& resource);
 	void RetireTopLevelAccelerationStructure(NRIAccelerationStructureResource& resource);
 	bool UpdateSceneTextureSet(const std::vector<nri::Descriptor*>& descriptors, const char* reason = nullptr);

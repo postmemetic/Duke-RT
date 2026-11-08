@@ -10,6 +10,7 @@ enum class ActorLifecycleEventType : uint8_t
 	Removed,
 	StatChanged,
 	Reset,
+	ClassChanged,
 };
 
 struct ActorLifecycleEvent

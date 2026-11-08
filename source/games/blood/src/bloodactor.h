@@ -1,6 +1,7 @@
 #pragma once
 
 #include "coreactor.h"
+#include "actor_lifecycle_journal.h"
 
 BEGIN_BLD_NS
 
@@ -147,7 +148,10 @@ public:
 		{
 			// It sucks having to do this but the game heavily depends on being able to swap out the class type and often uses this to manage actor state.
 			// We'll allow this only for classes that do not add their own data, though.
+			const bool classChanged = GetClass() != newtype;
 			SetClass(newtype);
+			if (classChanged) GetActorLifecycleJournal().Record(ActorLifecycleEventType::ClassChanged,
+				0, GetIndex(), spr.statnum, spr.statnum, sectno());
 			//spr.setspritetexture(GetDefaultByType(newtype)->spr.spritetexture());
 		}
 	}

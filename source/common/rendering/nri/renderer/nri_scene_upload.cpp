@@ -581,6 +581,15 @@ void NRIRenderer::DestroyResidentUploadScratchRetiredResources(
 		DestroyAccelerationStructureResource(retired);
 	}
 	scratch.retiredAccelerationStructures.clear();
+	// Slot recycling follows the real queued-frame fence, including explicit
+	// submit-and-wait reset. Material offsets cannot be reused before this point.
+	for (auto range : scratch.retiredVoxelMaterialRanges)
+		if (mPersistentVoxels.materialPayloads.ReleaseRetiredRange(range, mPersistentVoxels.materialRangeAllocator))
+		{
+			mPersistentVoxels.materialResourceGeneration++;
+			mPersistentVoxels.MarkMaintenanceMutation();
+		}
+	scratch.retiredVoxelMaterialRanges.clear();
 	if (measure)
 		NRIAuditResidentRetiredDestroy(mFrameIndex, scratch.frameIndex, slot, explicitReset,
 			bufferCount, bufferBytes, accelerationCount, accelerationBytes,
@@ -2437,6 +2446,17 @@ void NRIRenderer::RetireResidentBufferResource(NRIBufferResource& resource)
 	}
 
 	DestroyBufferResource(resource);
+}
+
+void NRIRenderer::RetirePersistentVoxelMaterialRange(NRIPersistentVoxelMaterialRangeHandle range)
+{
+	if (!range) return;
+	if (mFrameBuffer && mFrameBuffer->mCommandBuffer && !mResidentUploadScratchFrames.empty())
+		GetResidentUploadScratchFrame().retiredVoxelMaterialRanges.push_back(range);
+	else
+		mPersistentVoxels.quarantinedMaterialRanges.push_back(range);
+	// No proven retirement owner: keep the allocation quarantined until full
+	// reset. Absence of an open command buffer does not establish completion.
 }
 
 void NRIRenderer::RetireResidentAccelerationStructure(NRIAccelerationStructureResource& resource)

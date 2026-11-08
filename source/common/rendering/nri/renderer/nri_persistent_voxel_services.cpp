@@ -1112,6 +1112,8 @@ public:
 		{
 			static_cast<NRIRenderer*>(user)->SetCurrentSceneDataDescriptorsInitialized(false);
 		};
+		services.retireMaterialRange = [](void* user, NRIPersistentVoxelMaterialRangeHandle range)
+		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelMaterialRange(range); };
 		return services;
 	}
 

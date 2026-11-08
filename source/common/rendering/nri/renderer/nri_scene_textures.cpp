@@ -1561,6 +1561,9 @@ bool NRIRenderer::EnsureSceneTextures(
 			nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), *gpuMaterialSource, outGpuMaterials);
 		}
 	}
+	if (&materials == &mSceneMaterialFrameCache.Materials() && (bool)nri_ptmaterialrangesvalidate)
+		ValidateVoxelMaterialSharingProduct(*gpuMaterialSource, outGpuMaterials,
+			mSceneMaterialFrameCache.StaticMaterialCount(), false);
 	if (mSceneTextureStableSlotsActive)
 	{
 		if (gpuMaterialSource == &materials)

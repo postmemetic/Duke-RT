@@ -34,6 +34,7 @@ public:
 	void Reset();
 	nri_scene::MaterialBridgeData& Materials() { return mCombinedMaterials; }
 	uint32_t PersistentMaterialCount() const { return mPersistentMaterialCount; }
+	uint32_t StaticMaterialCount() const { return mStaticMaterialCount; }
 	const nri_scene::MaterialBridgeData& ResolveTextureSlots(const NRISceneTextureSlotTable& slotTable);
 	const std::vector<nri_scene::MaterialRowRange>& UniformDefaultRanges() const { return mUniformDefaultRanges; }
 

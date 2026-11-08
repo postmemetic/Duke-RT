@@ -7,6 +7,8 @@
 #include "nri_persistent_voxel_material_closure.h"
 #include "nri_persistent_voxel_material_bridge.h"
 #include "nri_persistent_voxel_material_range_allocator.h"
+#include "nri_persistent_voxel_material_payload.h"
+#include "nri_persistent_voxel_material_sharing_policy.h"
 #include "nri_persistent_voxel_material_upload.h"
 #include "nri_frame_resources.h"
 #include "nri_persistent_voxel_shared_blas.h"
@@ -362,6 +364,10 @@ struct NRIPersistentVoxelResetServices
 	RetireBufferFn retireBuffer = nullptr;
 	RetireAccelerationStructureFn retireAccelerationStructure = nullptr;
 	InvalidateSceneDataDescriptorsFn invalidateSceneDataDescriptors = nullptr;
+	void (*retireMaterialRange)(void*, NRIPersistentVoxelMaterialRangeHandle) = nullptr;
+	void RetireMaterialRange(NRIPersistentVoxelMaterialRangeHandle range) const
+	{ if (range && retireMaterialRange) retireMaterialRange(user, range); }
+
 
 	void RetireBuffer(NRIBufferResource& resource) const;
 	void RetireAccelerationStructure(NRIAccelerationStructureResource& resource) const;
@@ -1107,6 +1113,7 @@ public:
 		uint32_t maxMaterialRows,
 		int loadingTraceLevel,
 		bool voxelStatsEnabled,
+		const NRIPersistentVoxelResetServices& resetServices,
 		const NRIPersistentVoxelPreloadServices& preloadServices,
 		NRIPersistentVoxelMaterialPreloadStats& outStats);
 	NRIPersistentVoxelDescriptorSnapshot BuildDescriptorSnapshot(
@@ -1151,6 +1158,9 @@ public:
 	nri_scene::SceneDebugStats BuildOverlayDebugStats() const;
 	uint64_t BuildSceneGenerationHash() const;
 	void RebuildBatchMaterialBridge(PersistentVoxelBatch& targetBatch);
+	bool PrepareMaterialSharing(uint64_t buildSerial, uint32_t frameIndex);
+	bool AcquireMaterialBinding(PersistentVoxelMaterialVariantResource& resource, bool contentChanged, bool& moved);
+	void RetirePendingMaterialRanges(const NRIPersistentVoxelResetServices& services);
 	void CapturePerfAuditCensus(uint32_t rendererFrameIndex) const;
 	bool PublishCanonicalMaterialResource(
 		PersistentVoxelMaterialVariantResource& candidate,
@@ -1281,6 +1291,11 @@ public:
 	uint32_t arenaIndexCursor = 0;
 	uint32_t arenaPrimitiveCursor = 0;
 	NRIPersistentVoxelMaterialRangeAllocator materialRangeAllocator;
+	NRIVoxelMaterialPayloadOwner materialPayloads;
+	NRIVoxelMaterialSharingPolicy materialSharingPolicy;
+	bool materialSharingRecertificationPending = false;
+	std::vector<NRIPersistentVoxelMaterialRangeHandle> pendingMaterialRangeRetirements;
+	std::vector<NRIPersistentVoxelMaterialRangeHandle> quarantinedMaterialRanges;
 	NRIPersistentVoxelMaterialUploadMirror materialUploadMirror;
 	uint64_t arenaPresizeBuildSerial = 0;
 	uint64_t blasPolicyTraceBuildSerial = 0;

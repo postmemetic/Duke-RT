@@ -101,6 +101,8 @@ NRIMaterialProductPatchResult NRIRenderer::RefreshCombinedMaterialProduct(
 		combined, persistent, dynamic, &context, TransformRow, TransformReference,
 		(bool)nri_ptmaterialpatch, (bool)nri_ptmaterialpatchvalidate,
 		uniformRanges, (bool)nri_ptmaterialrangesvalidate);
+	if (result.valid && (bool)nri_ptmaterialrangesvalidate)
+		ValidateVoxelMaterialSharingProduct(source, combined, staticCount, true, &deferredIndices);
 	AuditMaterialProduct(result);
 	if (nri_ptscenestats || result.validationChecked || result.validationMismatch)
 	{

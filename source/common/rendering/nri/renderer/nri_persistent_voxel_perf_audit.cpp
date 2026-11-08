@@ -141,6 +141,26 @@ void NRIPersistentVoxelResidency::CapturePerfAuditCensus(uint32_t rendererFrameI
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialCurrentMapUnusedCount, materialUnused);
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialCurrentMapUnusedRows, materialUnusedRows);
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialCurrentMapProtectedCount, materialProtected);
+	uint64_t quarantinedMaterialCount = 0, quarantinedMaterialBytes = 0;
+	for (const auto range : quarantinedMaterialRanges)
+		if (materialRangeAllocator.Owns(range))
+		{
+			++quarantinedMaterialCount;
+			quarantinedMaterialBytes += (uint64_t)range.capacity * sizeof(nri_scene::MaterialData);
+		}
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialRangeQuarantinedCount, quarantinedMaterialCount);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialRangeQuarantinedBytes, quarantinedMaterialBytes);
+	const auto sharing = materialPayloads.Snapshot();
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingBindings, sharing.bindings);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingPayloads, sharing.payloads);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingPhysicalRows, sharing.physicalRows);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingAliasRowsAvoided, sharing.aliasRows);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingExcludedBindings, sharing.excludedBindings);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingExcludedRows, sharing.excludedRows);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingRetiringPayloads, sharing.retiring);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingRetiringRows, sharing.retiringRows);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingDescriptorBytes, sharing.descriptorBytes);
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingRetiringDescriptorBytes, sharing.retiringDescriptorBytes);
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialUniquePayloadCount, payloadHashes.size());
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialPolicyResourceCount, policyMaterials);
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialHighestActiveRow, highestActiveRow);

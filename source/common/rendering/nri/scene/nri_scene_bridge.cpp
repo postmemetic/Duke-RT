@@ -5079,6 +5079,9 @@ namespace
 				gDynamicCapturePerfStats.voxelLifecycleStatEvents++;
 				result.forceReconcile = true;
 				break;
+			case ActorLifecycleEventType::ClassChanged:
+				result.forceReconcile = true;
+				break;
 			case ActorLifecycleEventType::Reset:
 				gDynamicCapturePerfStats.voxelLifecycleResetEvents++;
 			gVoxelActorPublication.InvalidateAll(true);
