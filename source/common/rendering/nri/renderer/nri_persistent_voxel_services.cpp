@@ -1428,20 +1428,9 @@ public:
 					computePreloadSettings.strict ? 1 : 0,
 					(uint32_t)GetPersistentVoxelBlasBuildFlags());
 			}
-			if ((bool)nri_ptvoxelarenapresize && computePreloadSettings.strict &&
-				!renderer.mPersistentVoxels.PreSizeDirectGeometryArenas(
-					renderer.mMapWorld.buildSerial,
-					computePreloadStats.rawSelectedUniqueGeometryBytes,
-					computePreloadStats.rawRuntimeWithheldUniqueGeometryBytes,
-					computePreloadStats.rawSelectedLargestUniqueGeometryBytes,
-					(int)nri_ptloadingtrace,
-					BuildAdmissionServices(renderer)))
+			if ((bool)nri_ptvoxelarenapresize)
 			{
-				Printf(TEXTCOLOR_RED "NRI PT voxel arena presize failed: level=%s build_serial=%llu bytes=%llu.\n",
-					renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : "unknown",
-					(unsigned long long)renderer.mMapWorld.buildSerial,
-					(unsigned long long)computePreloadStats.rawSelectedUniqueGeometryBytes);
-				return false;
+				renderer.PreSizePersistentVoxelGeometryArenas(computePreloadStats, computePreloadSettings);
 			}
 			std::vector<nri_scene::PrecachedVoxelVariantView> directPreloadVariants;
 			BuildNRIVoxelComputePreloadDirectVariants(rawVariants, computePreloadSettings, directPreloadVariants);

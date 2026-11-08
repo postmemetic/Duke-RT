@@ -57,6 +57,22 @@ void NRIAuditResidentArenaGrowth(uint32_t rendererFrame, uint32_t stride,
     PerfAuditWriteEvent("resident_arena_growth", PerfAuditCurrentToken(), json.data);
 }
 
+void NRIAuditResidentRetiredDestroy(uint32_t rendererFrame, uint32_t previousSlotFrame,
+    uint32_t slot, bool explicitReset, uint64_t bufferCount, uint64_t bufferBytes,
+    uint64_t accelerationCount, uint64_t accelerationBytes, double bufferMs, double accelerationMs)
+{
+    if (!PerfAuditActive()) return;
+    Json json;
+    json.Add("\"renderer_frame\":%u,\"previous_slot_frame\":%u,\"slot\":%u,\"reason\":\"%s\","
+        "\"buffer_count\":%llu,\"buffer_bytes\":%llu,\"as_count\":%llu,\"as_bytes\":%llu,"
+        "\"buffer_cpu_ms\":%.6f,\"as_cpu_ms\":%.6f,\"total_cpu_ms\":%.6f,\"domain\":\"resident_scratch_retired\"",
+        rendererFrame, previousSlotFrame, slot, explicitReset ? "explicit-reset" : "slot-reuse",
+        (unsigned long long)bufferCount, (unsigned long long)bufferBytes,
+        (unsigned long long)accelerationCount, (unsigned long long)accelerationBytes,
+        bufferMs, accelerationMs, bufferMs + accelerationMs);
+    PerfAuditWriteEvent("resident_retired_destroy", PerfAuditCurrentToken(), json.data);
+}
+
 NRITraceAuditCapture NRIBeginTraceAudit(bool diagnostic, bool conflictingProbe, uint64_t rendererFrame, uint64_t fence)
 {
     if (!NRITraceAuditRequested()) return {};

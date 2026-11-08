@@ -393,7 +393,8 @@ CVAR(Int, nri_ptvoxelcomputepreloadminreservemb, 1024, 0)
 
 CVAR(Int, nri_ptvoxelblaspolicy, 3, 0)
 
-CVAR(Bool, nri_ptvoxelarenapresize, false, 0)
+// Reserve manifest-known geometry during loading when live memory headroom permits.
+CVAR(Bool, nri_ptvoxelarenapresize, true, 0)
 
 CVAR(Bool, nri_ptvoxelblascompact, false, 0)
 

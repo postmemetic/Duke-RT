@@ -1,6 +1,5 @@
 #include "nri_persistent_voxels.h"
 #include "nri_persistent_voxel_publication_services.h"
-#include "nri_persistent_voxel_geometry_arena_policy.h"
 #include "nri_persistent_voxel_pressure_policy.h"
 #include "nri_scene_instance_visibility.h"
 
@@ -10791,112 +10790,6 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 			entry.variant.primitiveCount,
 			(unsigned long long)entry.estimatedBytes,
 			entry.mapGeneration);
-	}
-	return true;
-}
-
-bool NRIPersistentVoxelResidency::PreSizeDirectGeometryArenas(
-	uint64_t buildSerial,
-	uint64_t uniqueGeometryBytes,
-	uint64_t plannedRuntimeTailBytes,
-	uint64_t largestKnownGeometryBytes,
-	int loadingTraceLevel,
-	const NRIPersistentVoxelAdmissionServices& services)
-{
-	if (buildSerial == 0 || uniqueGeometryBytes == 0 || arenaPresizeBuildSerial == buildSerial)
-	{
-		return true;
-	}
-	if (arenaVertexCursor != 0 || arenaIndexCursor != 0 || arenaPrimitiveCursor != 0)
-	{
-		arenaPresizeBuildSerial = buildSerial;
-		if (loadingTraceLevel >= 1 || (int)nri_ptvoxelcomputetrace > 0)
-		{
-			Printf("PERF pt voxel arena presize NRI: build_serial=%llu result=retained-arena-skip vertex_cursor=%u index_cursor=%u primitive_cursor=%u\n",
-				(unsigned long long)buildSerial,
-				arenaVertexCursor,
-				arenaIndexCursor,
-				arenaPrimitiveCursor);
-		}
-		return true;
-	}
-
-	constexpr uint64_t BytesPerPrimitive =
-		2ull * sizeof(nri_scene::SceneVertex) +
-		3ull * sizeof(uint32_t) +
-		sizeof(nri_scene::PrimitiveData);
-	if (uniqueGeometryBytes % BytesPerPrimitive != 0)
-	{
-		return false;
-	}
-	const NRIPersistentVoxelGeometryArenaPlan arenaPlan =
-		BuildNRIPersistentVoxelGeometryArenaPlan(
-			uniqueGeometryBytes,
-			plannedRuntimeTailBytes,
-			largestKnownGeometryBytes);
-	if (arenaPlan.overflow || arenaPlan.targetGeometryBytes == 0)
-	{
-		return false;
-	}
-	if (arenaPlan.targetGeometryBytes >
-		std::numeric_limits<uint64_t>::max() - (BytesPerPrimitive - 1ull))
-	{
-		return false;
-	}
-	const uint64_t primitiveCount =
-		(arenaPlan.targetGeometryBytes + BytesPerPrimitive - 1ull) / BytesPerPrimitive;
-	if (primitiveCount > std::numeric_limits<uint32_t>::max() / 3ull)
-	{
-		return false;
-	}
-
-	const uint64_t vertexBytes = primitiveCount * 2ull * sizeof(nri_scene::SceneVertex);
-	const uint64_t indexBytes = primitiveCount * 3ull * sizeof(uint32_t);
-	const uint64_t primitiveBytes = primitiveCount * sizeof(nri_scene::PrimitiveData);
-	const nri::BufferUsageBits geometryUsage = NRIResourceFlags(
-		NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE),
-		nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
-	const nri::BufferUsageBits primitiveUsage = NRIResourceFlags(
-		nri::BufferUsageBits::SHADER_RESOURCE,
-		nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-	if (!services.EnsureArenaBuffer(
-			vertexBuffer,
-			vertexBytes,
-			sizeof(nri_scene::SceneVertex),
-			geometryUsage,
-			PersistentVoxelComputeShaderResourceAccess()) ||
-		!services.EnsureArenaBuffer(
-			indexBuffer,
-			indexBytes,
-			sizeof(uint32_t),
-			geometryUsage,
-			PersistentVoxelComputeShaderResourceAccess()) ||
-		!services.EnsureArenaBuffer(
-			primitiveBuffer,
-			primitiveBytes,
-			sizeof(nri_scene::PrimitiveData),
-			primitiveUsage,
-			PersistentVoxelComputeShaderResourceAccess()))
-	{
-		return false;
-	}
-
-	arenaPresizeBuildSerial = buildSerial;
-	if (loadingTraceLevel >= 1 || (int)nri_ptvoxelcomputetrace > 0)
-	{
-		Printf("PERF pt voxel arena presize NRI: build_serial=%llu planned_bytes=%llu planned_runtime_tail_bytes=%llu late_alias_reserve_bytes=%llu reserve_bytes=%llu target_bytes=%llu capacity_bytes=%llu primitives=%llu vertex_bytes=%llu index_bytes=%llu primitive_bytes=%llu total_bytes=%llu\n",
-			(unsigned long long)buildSerial,
-			(unsigned long long)arenaPlan.plannedGeometryBytes,
-			(unsigned long long)arenaPlan.plannedRuntimeTailBytes,
-			(unsigned long long)arenaPlan.lateAliasReserveBytes,
-			(unsigned long long)arenaPlan.totalReserveBytes,
-			(unsigned long long)arenaPlan.targetGeometryBytes,
-			(unsigned long long)(primitiveCount * BytesPerPrimitive),
-			(unsigned long long)primitiveCount,
-			(unsigned long long)vertexBytes,
-			(unsigned long long)indexBytes,
-			(unsigned long long)primitiveBytes,
-			(unsigned long long)(vertexBytes + indexBytes + primitiveBytes));
 	}
 	return true;
 }

@@ -71,6 +71,8 @@ class NRIPassDispatchContext;
 class NRISmokeSystem;
 struct MapRecord;
 struct LevelTransitionInfo;
+struct NRIVoxelComputePreloadStats;
+struct NRIVoxelComputePreloadSettings;
 struct PathTracingActorSpriteTraceEvent;
 struct PathTracingEmissiveLightEditTarget;
 struct PathTracingVoxelPolicyEditRequest;
@@ -2550,6 +2552,7 @@ private:
 	void NoteWorldBlasContentChanged();
 	bool PreloadStaticMapResources();
 	bool PreloadPersistentVoxelResources();
+	void PreSizePersistentVoxelGeometryArenas(const NRIVoxelComputePreloadStats& stats, const NRIVoxelComputePreloadSettings& settings);
 	bool PreloadMaterialResources();
 	bool PreGrowLevelSceneResourcesForLoading();
 	bool EnsurePersistentVoxelBatch();
@@ -2599,6 +2602,7 @@ private:
 	void DestroyDynamicBottomLevelAccelerationStructures();
 	void DestroyWorldTlasFrameSlots();
 	ResidentUploadScratchFrame& GetResidentUploadScratchFrame();
+	void DestroyResidentUploadScratchRetiredResources(ResidentUploadScratchFrame& scratch, uint32_t slot, bool explicitReset);
 	void ResetResidentUploadScratchFrame(const char* reason);
 	nri::DescriptorSet* GetCurrentSceneTextureSet() const;
 	nri::DescriptorSet* GetCurrentSceneDataSet() const;

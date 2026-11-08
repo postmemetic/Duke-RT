@@ -35,3 +35,6 @@ void NRIAuditResidentArenaGrowth(uint32_t rendererFrame, uint32_t stride,
     uint64_t oldSize, uint64_t oldMemory, uint64_t oldUsed, uint64_t required,
     uint64_t newSize, uint64_t newMemory, uint64_t copied, bool retiredToSlot,
     double allocationMs, double totalMs);
+void NRIAuditResidentRetiredDestroy(uint32_t rendererFrame, uint32_t previousSlotFrame,
+    uint32_t slot, bool explicitReset, uint64_t bufferCount, uint64_t bufferBytes,
+    uint64_t accelerationCount, uint64_t accelerationBytes, double bufferMs, double accelerationMs);

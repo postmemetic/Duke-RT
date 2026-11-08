@@ -1025,13 +1025,6 @@ public:
 		bool voxelStatsEnabled,
 		const NRIPersistentVoxelResetServices& resetServices,
 		const NRIPersistentVoxelPreloadServices& preloadServices);
-	bool PreSizeDirectGeometryArenas(
-		uint64_t buildSerial,
-		uint64_t uniqueGeometryBytes,
-		uint64_t plannedRuntimeTailBytes,
-		uint64_t largestKnownGeometryBytes,
-		int loadingTraceLevel,
-		const NRIPersistentVoxelAdmissionServices& services);
 	bool PreloadResources(
 		const std::vector<nri_scene::PrecachedVoxelVariantView>& variants,
 		const std::vector<nri_scene::PersistentVoxelCacheEntryView>& cacheEntries,

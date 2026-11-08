@@ -559,22 +559,41 @@ bool NRIRenderer::HasAnyDynamicBottomLevelAS() const
 	return false;
 }
 
+void NRIRenderer::DestroyResidentUploadScratchRetiredResources(
+	ResidentUploadScratchFrame& scratch, uint32_t slot, bool explicitReset)
+{
+	const bool measure = PerfAuditActive() &&
+		(!scratch.retiredBuffers.empty() || !scratch.retiredAccelerationStructures.empty());
+	const auto begin = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+	const uint64_t bufferCount = scratch.retiredBuffers.size();
+	const uint64_t accelerationCount = scratch.retiredAccelerationStructures.size();
+	uint64_t bufferBytes = 0, accelerationBytes = 0;
+	for (NRIBufferResource& retired : scratch.retiredBuffers)
+	{
+		if (measure) bufferBytes += retired.memorySize;
+		DestroyBufferResource(retired);
+	}
+	scratch.retiredBuffers.clear();
+	const auto buffersDone = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+	for (NRIAccelerationStructureResource& retired : scratch.retiredAccelerationStructures)
+	{
+		if (measure) accelerationBytes += retired.memorySize;
+		DestroyAccelerationStructureResource(retired);
+	}
+	scratch.retiredAccelerationStructures.clear();
+	if (measure)
+		NRIAuditResidentRetiredDestroy(mFrameIndex, scratch.frameIndex, slot, explicitReset,
+			bufferCount, bufferBytes, accelerationCount, accelerationBytes,
+			DurationMs(begin, buffersDone), DurationMs(buffersDone, std::chrono::steady_clock::now()));
+}
+
 NRIRenderer::ResidentUploadScratchFrame& NRIRenderer::GetResidentUploadScratchFrame()
 {
 	const uint32_t frameSlot = GetCurrentQueuedFrameIndex() % (uint32_t)mResidentUploadScratchFrames.size();
 	auto& frameScratch = mResidentUploadScratchFrames[frameSlot];
 	if (frameScratch.frameIndex != mFrameIndex)
 	{
-		for (NRIBufferResource& retired : frameScratch.retiredBuffers)
-		{
-			DestroyBufferResource(retired);
-		}
-		frameScratch.retiredBuffers.clear();
-		for (NRIAccelerationStructureResource& retired : frameScratch.retiredAccelerationStructures)
-		{
-			DestroyAccelerationStructureResource(retired);
-		}
-		frameScratch.retiredAccelerationStructures.clear();
+		DestroyResidentUploadScratchRetiredResources(frameScratch, frameSlot, false);
 		frameScratch.frameIndex = mFrameIndex;
 		frameScratch.vertex.cursor = 0;
 		frameScratch.vertex.copySourceActive = false;
@@ -596,16 +615,7 @@ void NRIRenderer::ResetResidentUploadScratchFrame(const char* reason)
 	const uint32_t retiredBufferCount = (uint32_t)frameScratch.retiredBuffers.size();
 	const uint32_t retiredAccelerationCount = (uint32_t)frameScratch.retiredAccelerationStructures.size();
 
-	for (NRIBufferResource& retired : frameScratch.retiredBuffers)
-	{
-		DestroyBufferResource(retired);
-	}
-	frameScratch.retiredBuffers.clear();
-	for (NRIAccelerationStructureResource& retired : frameScratch.retiredAccelerationStructures)
-	{
-		DestroyAccelerationStructureResource(retired);
-	}
-	frameScratch.retiredAccelerationStructures.clear();
+	DestroyResidentUploadScratchRetiredResources(frameScratch, frameSlot, true);
 
 	const uint64_t vertexBytes = frameScratch.vertex.cursor;
 	const uint64_t indexBytes = frameScratch.index.cursor;
