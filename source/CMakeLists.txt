@@ -975,6 +975,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_geometry_lifetime.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_lifetime.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_retention.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_cache_diagnostics.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_budget.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_transition.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_lifecycle.cpp

@@ -399,7 +399,9 @@ CVAR(Int, nri_ptvoxelblaspolicy, 3, 0)
 CVAR(Bool, nri_ptvoxelarenapresize, true, 0)
 CVAR(Bool, nri_ptvoxelcachebounded, true, 0)
 CVAR(Bool, nri_ptvoxelcachevalidate, false, 0)
-CVAR(Int, nri_ptvoxelcachemeshbytes, 256 * 1024 * 1024, 0)
+// -1 retains inactive runtime meshes while adapter headroom is available;
+// explicit nonnegative values enable the fixed-size inactive mesh cache.
+CVAR(Int, nri_ptvoxelcachemeshbytes, -1, 0)
 CVAR(Int, nri_ptvoxelcachematerialbytes, 64 * 1024 * 1024, 0)
 CVAR(Int, nri_ptvoxelcachematerialrecords, 4096, 0)
 CVAR(Int, nri_ptvoxelcachegraceframes, 600, 0)

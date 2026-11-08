@@ -9,6 +9,7 @@
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_retention_policy.h"
+#include "nri_persistent_voxel_cache_diagnostics.h"
 #include "nri_persistent_voxel_material_payload.h"
 #include "nri_persistent_voxel_material_sharing_policy.h"
 #include "nri_persistent_voxel_material_upload.h"
@@ -1194,6 +1195,10 @@ public:
 	bool AcquireMaterialBinding(PersistentVoxelMaterialVariantResource& resource, bool contentChanged, bool& moved);
 	void RetirePendingMaterialRanges(const NRIPersistentVoxelResetServices& services);
 	void CapturePerfAuditCensus(uint32_t rendererFrameIndex) const;
+	void BeginCacheDiagnostics(uint32_t frameIndex);
+	void EndCacheDiagnostics(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings);
+	void NoteCacheActorDeferred(uint64_t identity, const char* reason);
+	void NoteCacheMeshEviction(uint64_t key, uint32_t frameIndex, const char* cause, bool sourceOrPendingPinned);
 	bool PublishCanonicalMaterialResource(
 		PersistentVoxelMaterialVariantResource& candidate,
 		bool& outReused);
@@ -1265,6 +1270,7 @@ public:
 	NRIBufferResource primitiveBuffer;
 	NRIBufferResource materialBuffer;
 	PersistentVoxelBatch batch = {};
+	std::shared_ptr<NRIPersistentVoxelCacheDiagnosticState> cacheDiagnosticState;
 	nri_scene::VoxelActorPublicationCursor actorPublicationCursor;
 	std::shared_ptr<const nri_scene::VoxelActorPublicationSnapshot> actorPublication;
 	nri_scene::VoxelPublicationGenerations batchPublicationGenerations;

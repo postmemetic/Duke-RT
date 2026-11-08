@@ -75,7 +75,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         return valid;
     };
     if (!validate()) return;
-    const uint64_t meshLimit = uint64_t(std::max(0, (int)nri_ptvoxelcachemeshbytes));
+    const int32_t configuredMeshLimit = (int)nri_ptvoxelcachemeshbytes;
     const uint64_t materialLimit = uint64_t(std::max(0, (int)nri_ptvoxelcachematerialbytes));
     const uint32_t materialCountLimit = uint32_t(std::max(0, (int)nri_ptvoxelcachematerialrecords));
     const uint32_t grace = authoritativeEmptyAfterWait ? 0 : uint32_t(std::max(0, (int)nri_ptvoxelcachegraceframes));
@@ -146,9 +146,11 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     { return a.since != b.since ? a.since < b.since : a.key < b.key; };
     std::sort(meshes.begin(), meshes.end(), oldest);
     std::sort(materials.begin(), materials.end(), oldest);
-    const bool trimMeshes = pressure || inactiveMeshBytes > meshLimit;
+    const auto meshTrim = ResolveNRIVoxelInactiveMeshTrim(
+        configuredMeshLimit, inactiveMeshBytes, pressure, authoritativeEmptyAfterWait);
+    const bool trimMeshes = meshTrim.trim;
     const bool trimMaterials = pressure || inactiveMaterialBytes > materialLimit || inactiveMaterialCount > materialCountLimit;
-    const uint64_t meshTarget = pressure ? 0 : NRIVoxelCacheLowTarget(meshLimit);
+    const uint64_t meshTarget = meshTrim.targetBytes;
     const uint64_t materialTarget = pressure ? 0 : NRIVoxelCacheLowTarget(materialLimit);
     const uint64_t materialCountTarget = pressure ? 0 : NRIVoxelCacheLowTarget(materialCountLimit);
     uint32_t evictedMeshes = 0, evictedMaterials = 0, terminalPruned = 0;
@@ -162,6 +164,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         auto found = meshVariantResources.find(candidate.key);
         if (found == meshVariantResources.end()) continue;
         auto& resource = found->second;
+        NoteCacheMeshEviction(candidate.key, frameIndex, phase, pinnedMeshes.count(candidate.key) != 0);
         // A compute-cache result contains absolute offsets. Remove it before
         // the reservation can retire and those offsets can belong to a new key.
         if (resource.directComputeGeneration)

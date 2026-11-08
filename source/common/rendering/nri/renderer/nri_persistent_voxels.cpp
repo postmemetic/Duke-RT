@@ -4398,6 +4398,21 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 		admissionMaterials.insert(entry.variant.materialKeyHash);
 		queuedBytes += entry.estimatedBytes;
 	}
+	// The source may already desire a cold cached variant before EnsureBatch
+	// queues its admission. Protect that authority as well as the committed
+	// batch; camera capture age is not evidence that its resource is dispensable.
+	std::vector<nri_scene::PersistentVoxelCacheEntryView> currentSourceEntries;
+	if (!nri_scene::BuildPersistentVoxelCacheEntries(currentSourceEntries) && !loadingPhase)
+	{
+		PerfAuditAdd(PerfAuditMetric::VoxelCacheAuthorityUnavailable);
+		finishPressureEvaluation(pressureBytes != 0);
+		return;
+	}
+	for (const auto& entry : currentSourceEntries)
+	{
+		admissionMeshes.insert(BuildPersistentVoxelMeshResourceKey(entry, settings));
+		admissionMaterials.insert(entry.materialKeyHash);
+	}
 	const bool materialReleaseQuiescent =
 		!admissionIndex.HasActiveWork() &&
 		PersistentVoxelAdmissionSchedulerQuiescent(admissionScheduler.GetSnapshot());
@@ -4478,6 +4493,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 		}
 		PersistentVoxelMeshVariantResource& resource = it->second;
 		const char* reason = candidate.coldAge ? "cold-age" : (candidate.loadingTrim ? "loading-cold" : "pressure");
+		NoteCacheMeshEviction(candidate.key, frameIndex, reason, admissionMeshes.count(candidate.key) != 0);
 		if (traceEnabled)
 		{
 			Printf("NRI PT voxel residency evict: reason=%s phase=%s tex=-1 voxel=-1 mesh_variant=0x%llx bytes=%llu prims=%u last_map=%u last_frame=%u source_bits=0x%x priority=%d force=%u prefer=%u active_refs=%u\n",
@@ -6924,6 +6940,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 	NRIPersistentVoxelBatchStats& outStats)
 {
 	NRIVoxelMaterialRetirementScope retireMaterials(*this, resetServices);
+	NRIVoxelCacheDiagnosticScope cacheDiagnostics(*this, frameIndex, settings);
 	if (!PrepareMaterialSharing(buildSerial, frameIndex)) return false;
 	const uint64_t cacheSerial = nri_scene::GetPersistentVoxelCacheSerial();
 	publicationValidateThisFrame = (int)nri_ptvoxelpublicationvalidate > 0;
@@ -7475,6 +7492,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 						if (outDeferredReason != nullptr)
 						{
 							*outDeferredReason = PersistentVoxelActorDeferredReason::TexturePrewarm;
+							NoteCacheActorDeferred(cacheEntry.identityKey, "texture-prewarm");
 						}
 						return true;
 					}
@@ -7534,6 +7552,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 					if (outDeferredReason != nullptr)
 					{
 						*outDeferredReason = PersistentVoxelActorDeferredReason::TexturePrewarm;
+						NoteCacheActorDeferred(cacheEntry.identityKey, "texture-prewarm");
 					}
 					return true;
 				}
@@ -7553,6 +7572,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 					if (outDeferredReason != nullptr)
 					{
 						*outDeferredReason = PersistentVoxelActorDeferredReason::TexturePrewarm;
+						NoteCacheActorDeferred(cacheEntry.identityKey, "texture-prewarm");
 					}
 					return true;
 				}
@@ -7954,6 +7974,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				if (outDeferredReason != nullptr)
 				{
 					*outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
+					NoteCacheActorDeferred(cacheEntry.identityKey, "admission-pending");
 				}
 				return true;
 			}
@@ -8549,6 +8570,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 					const bool bypassBuildBudget = directOnlyAdmissionBypassesBuildBudget(cacheEntry);
 					if (!reusableMesh && !bypassBuildBudget && !canBuildPersistentVoxelVariant(cacheEntry.primitiveCount, estimatedUploadBytes))
 					{
+					NoteCacheActorDeferred(cacheEntry.identityKey, "onboarding-budget");
 						instances[cacheEntry.identityKey].active = false;
 						instances[cacheEntry.identityKey].pending = true;
 						noteVoxelPromotionDeferred(estimatedUploadBytes);
@@ -8806,6 +8828,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				const bool bypassBuildBudget = directOnlyAdmissionBypassesBuildBudget(cacheEntry);
 				if (actorGeometryNeedsUpdate && !reusableMesh && !bypassBuildBudget && !canBuildPersistentVoxelVariant(cacheEntry.primitiveCount, estimatedUploadBytes))
 				{
+					NoteCacheActorDeferred(cacheEntry.identityKey, "onboarding-budget");
 					const bool heldPrevious = holdPreviousRepresentation();
 					if (!heldPrevious)
 					{
@@ -9006,6 +9029,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			const bool bypassBuildBudget = directOnlyAdmissionBypassesBuildBudget(cacheEntry);
 			if (!reusableMesh && !bypassBuildBudget && !canBuildPersistentVoxelVariant(cacheEntry.primitiveCount, estimatedUploadBytes))
 			{
+					NoteCacheActorDeferred(cacheEntry.identityKey, "onboarding-budget");
 				instances[cacheEntry.identityKey].active = false;
 				instances[cacheEntry.identityKey].pending = true;
 				noteVoxelPromotionDeferred(estimatedUploadBytes);
@@ -9733,6 +9757,9 @@ void NRIPersistentVoxelResidency::Reset(
 		sharedBlasCache.BeginFrame();
 		return;
 	}
+	if (cacheDiagnosticState && PerfAuditActive())
+		PerfAuditWriteEvent("voxel_cache_diagnostic_reset", PerfAuditCurrentToken(), "\"reason\":\"full-shared-resource-reset\"");
+	cacheDiagnosticState.reset();
 	// Queued compute bindings reference the arena resource objects. Cancel
 	// them before replacing those objects; submitted writes retain old buffers
 	// through the existing retirement owner. Keep map nodes stable for callers.
