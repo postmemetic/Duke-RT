@@ -12,6 +12,9 @@ namespace
 {
 constexpr double kPlaneTolerance = 1.e-4;
 constexpr double kParallelCosine = 0.999961923; // Half a degree, including map angle rounding.
+constexpr double kSkewCosine = 0.9659258262890683; // Fifteen degrees for near-wall markings.
+constexpr double kAttachmentDistance = 2.0;
+constexpr double kSkewEndpointDistance = 3.0;
 
 double Dot(const DVector2& a, const DVector2& b)
 {
@@ -37,6 +40,66 @@ bool SharesPlane(const walltype& candidate, const walltype& anchor, const DVecto
 		Dot(delta.Rotated90CCW().Unit(), normal) >= kParallelCosine &&
 		std::abs(Dot(candidate.pos - anchor.pos, normal)) <= kPlaneTolerance &&
 		std::abs(Dot(candidate.point2Wall()->pos - anchor.pos, normal)) <= kPlaneTolerance;
+}
+
+void FindInitialReceivers(const tspritetype& sprite, const DVector2& a, const DVector2& span,
+	bool allowSkew, std::vector<walltype*>& receivers)
+{
+	const auto facing = sprite.Angles.Yaw.ToVector();
+	const double minAlignment = allowSkew ? kSkewCosine : kParallelCosine;
+	double bestDistance = kAttachmentDistance;
+	for (auto& candidate : sprite.sectp->walls)
+	{
+		const auto delta = candidate.delta();
+		const double lengthSquared = delta.LengthSquared();
+		if (!std::isfinite(lengthSquared) || lengthSquared <= 1.e-8) continue;
+		const auto normal = delta.Rotated90CCW().Unit();
+		const double alignment = Dot(normal, facing);
+		if (!std::isfinite(alignment) || std::abs(alignment) < minAlignment ||
+			((sprite.cstat & CSTAT_SPRITE_ONE_SIDE) && alignment <= 0.0)) continue;
+		const double distance = std::abs(Dot(sprite.pos.XY() - candidate.pos, normal));
+		if (!std::isfinite(distance) || distance > kAttachmentDistance ||
+			(!allowSkew && distance > bestDistance + kPlaneTolerance) ||
+			!OverlapsSpan(candidate, a, span)) continue;
+		if (allowSkew)
+		{
+			// A nearby center alone can attach a large tilted sprite that extends
+			// far from the wall. Keep the entire authored footprint close to it.
+			const double startDistance = std::abs(Dot(a - candidate.pos, normal));
+			const double endDistance = std::abs(Dot(a + span - candidate.pos, normal));
+			if (!std::isfinite(startDistance) || !std::isfinite(endDistance) ||
+				startDistance > kSkewEndpointDistance || endDistance > kSkewEndpointDistance) continue;
+		}
+		if (allowSkew)
+			bestDistance = std::min(bestDistance, distance);
+		else if (distance < bestDistance - kPlaneTolerance)
+		{
+			receivers.clear();
+			bestDistance = distance;
+		}
+		receivers.push_back(&candidate);
+	}
+	if (allowSkew && !receivers.empty())
+	{
+		// Resolve ties against the true minimum, independent of wall order.
+		receivers.erase(std::remove_if(receivers.begin(), receivers.end(), [&](const walltype* candidate)
+		{
+			const auto normal = candidate->delta().Rotated90CCW().Unit();
+			return std::abs(Dot(sprite.pos.XY() - candidate->pos, normal)) > bestDistance + kPlaneTolerance;
+		}), receivers.end());
+		const auto* anchor = receivers.front();
+		const auto normal = anchor->delta().Rotated90CCW().Unit();
+		for (const auto* receiver : receivers)
+		{
+			// Coplanar subdivisions are valid, but equally near distinct planes
+			// provide no unambiguous support for a tilted marking.
+			if (!SharesPlane(*receiver, *anchor, normal))
+			{
+				receivers.clear();
+				return;
+			}
+		}
+	}
 }
 
 bool CanCrossSeam(const walltype& seam, const walltype* pair, const DVector2& point,
@@ -104,28 +167,12 @@ void FindWallDecalReceivers(const tspritetype& sprite, const HWWall& quad,
 	if (sprite.sectp == nullptr || !std::isfinite(spanSquared) || spanSquared <= 1.e-8 ||
 		!std::isfinite(quad.ztop[0]) || !std::isfinite(quad.zbottom[0]) ||
 		quad.ztop[0] <= quad.zbottom[0]) return;
-	const auto facing = sprite.Angles.Yaw.ToVector();
 	// Preserve the authored attachment envelope, including cracks moved away
 	// from the wall by gameplay initialization. Pick the initial plane locally.
-	double bestDistance = 2.0;
-	for (auto& candidate : sprite.sectp->walls)
-	{
-		const auto delta = candidate.delta();
-		if (delta.LengthSquared() <= 1.e-8) continue;
-		const auto normal = delta.Rotated90CCW().Unit();
-		const double alignment = Dot(normal, facing);
-		if (std::abs(alignment) < kParallelCosine ||
-			((sprite.cstat & CSTAT_SPRITE_ONE_SIDE) && alignment <= 0.0)) continue;
-		const double distance = std::abs(Dot(sprite.pos.XY() - candidate.pos, normal));
-		if (distance > 2.0 || distance > bestDistance + kPlaneTolerance ||
-			!OverlapsSpan(candidate, a, span)) continue;
-		if (distance < bestDistance - kPlaneTolerance)
-		{
-			receivers.clear();
-			bestDistance = distance;
-		}
-		receivers.push_back(&candidate);
-	}
+	FindInitialReceivers(sprite, a, span, false, receivers);
+	// Some authored cracks are slightly tilted relative to their backing wall.
+	// Relax only initial attachment; continuation must still share one plane.
+	if (receivers.empty()) FindInitialReceivers(sprite, a, span, true, receivers);
 
 	const size_t seedCount = receivers.size();
 	for (size_t seed = 0; seed < seedCount; ++seed)
