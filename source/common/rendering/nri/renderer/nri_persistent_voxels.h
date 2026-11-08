@@ -10,6 +10,7 @@
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_retention_policy.h"
 #include "nri_persistent_voxel_cache_diagnostics.h"
+#include "nri_persistent_voxel_admission_diagnostics.h"
 #include "nri_persistent_voxel_material_payload.h"
 #include "nri_persistent_voxel_material_sharing_policy.h"
 #include "nri_persistent_voxel_material_upload.h"
@@ -1271,6 +1272,7 @@ public:
 	NRIBufferResource materialBuffer;
 	PersistentVoxelBatch batch = {};
 	std::shared_ptr<NRIPersistentVoxelCacheDiagnosticState> cacheDiagnosticState;
+	std::shared_ptr<NRIPersistentVoxelAdmissionDiagnosticState> admissionDiagnosticState;
 	nri_scene::VoxelActorPublicationCursor actorPublicationCursor;
 	std::shared_ptr<const nri_scene::VoxelActorPublicationSnapshot> actorPublication;
 	nri_scene::VoxelPublicationGenerations batchPublicationGenerations;

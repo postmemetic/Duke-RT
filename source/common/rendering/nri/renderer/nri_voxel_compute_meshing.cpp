@@ -1,4 +1,5 @@
 #include "nri_voxel_compute_meshing.h"
+#include "nri_persistent_voxel_admission_diagnostics.h"
 
 #include "nri_voxel_compute_batch_plan.h"
 #include "nri_voxel_compute_completion_ring.h"
@@ -1244,7 +1245,7 @@ namespace
 		slot.outputPrimitiveBuffer = nullptr;
 	}
 
-	void FailCompletionSlotJobs(VoxelComputeState& state, VoxelComputeCompletionSlot& slot)
+	void FailCompletionSlotJobs(VoxelComputeState& state, VoxelComputeCompletionSlot& slot, const char* reason, uint64_t observedFrame)
 	{
 		for (const PendingReadbackJob& job : slot.pendingJobs)
 		{
@@ -1255,6 +1256,7 @@ namespace
 			}
 			for (const PendingDirectPublishBinding& binding : job.directBindings)
 			{
+				NoteNRIVoxelAdmissionComputeDiagnostic(binding.meshResourceKey, binding.generation, reason, job.jobId, observedFrame);
 				state.cancelledDirectKeys.erase(binding.directKey);
 				if (state.pendingDirectKeys.erase(binding.directKey) != 0)
 				{
@@ -1277,7 +1279,7 @@ namespace
 			services.context.core->MapBuffer(*slot.readbackBuffer.buffer, 0, resultByteSize) : nullptr;
 		if (mapped == nullptr)
 		{
-			FailCompletionSlotJobs(state, slot);
+			FailCompletionSlotJobs(state, slot, "readback-map-failed", observedFrame);
 			state.completionRing.Release(slotIndex, NRIVoxelComputeCompletionOutcome::Failed);
 			if (IsTraceEnabled())
 			{
@@ -1384,6 +1386,8 @@ namespace
 				{
 					state.failedDirectKeys.insert(binding.directKey);
 				}
+				NoteNRIVoxelAdmissionComputeDiagnostic(binding.meshResourceKey, binding.generation,
+					!stillPending ? "completion-stale" : (ok ? "completion-ready" : "completion-failed"), job.jobId, observedFrame, token.fenceValue);
 				if (IsTraceEnabled())
 				{
 					Printf(
@@ -1872,6 +1876,7 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 					request.materialCount
 				});
 				state.queuedDirectKeys.insert(item.directKey);
+				NoteNRIVoxelAdmissionComputeDiagnostic(request.meshResourceKey, request.generation, "queued-binding", 0, UINT64_MAX);
 			}
 		};
 
@@ -1890,6 +1895,7 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 				if (state.queuedDirectKeys.erase(binding.directKey) != 0)
 				{
 					state.pendingDirectKeys.insert(binding.directKey);
+					NoteNRIVoxelAdmissionComputeDiagnostic(binding.meshResourceKey, binding.generation, "attached-inflight", pending.jobId, state.completionSlots[(uint32_t)owner.slotIndex].dispatchFrame);
 				}
 			}
 			continue;
@@ -1975,6 +1981,7 @@ bool TakeNRIVoxelComputeDirectPublication(uint64_t meshResourceKey, uint64_t gen
 
 void CancelNRIVoxelComputeDirectPublication(uint64_t meshResourceKey, uint64_t generation)
 {
+	NoteNRIVoxelAdmissionComputeDiagnostic(meshResourceKey, generation, "cancel-request", 0, UINT64_MAX);
 	VoxelComputeState& state = gVoxelComputeState;
 	const uint64_t directKey = BuildDirectPublishKey(meshResourceKey, generation);
 	state.queuedDirectKeys.erase(directKey);
@@ -3077,7 +3084,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 	if (!state.completionRing.Submit(slotIndex, recordingFenceValue))
 	{
 		recordingGuard.abortReason = "ring-submit";
-		FailCompletionSlotJobs(state, slot);
+		FailCompletionSlotJobs(state, slot, "ring-submit-failed", frameNumber);
 		return;
 	}
 	recordingGuard.submitted = true;
@@ -3092,6 +3099,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 			for (const PendingDirectPublishBinding& binding : job.directBindings)
 			{
 				state.pendingDirectKeys.insert(binding.directKey);
+				NoteNRIVoxelAdmissionComputeDiagnostic(binding.meshResourceKey, binding.generation, "dispatch-recorded", job.jobId, frameNumber, recordingFenceValue);
 			}
 		}
 	}

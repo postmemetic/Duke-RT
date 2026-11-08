@@ -4711,6 +4711,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		"pump-map-generation",
 		traceLevel1,
 		resetServices);
+	NRIVoxelAdmissionDiagnosticScope diagnostic(*this, frameIndex, phase);
 	if (loadingPhase)
 	{
 		MarkMaintenanceMutation();
@@ -4761,6 +4762,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		settings.admitMaxBlasLoading :
 		settings.admitMaxBlasRuntime;
 	uint32_t blasBudgetRemaining = blasBudgetLimit;
+	diagnostic.Budgets(variantBudget, byteBudget, blasBudgetLimit, msBudget);
 	if (admissionScheduler.GetSnapshot().activeMapGeneration != residencyMapGeneration)
 	{
 		const uint64_t batchBytes = std::max<uint64_t>(
@@ -4790,6 +4792,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	const bool schedulerQuiescent = PersistentVoxelAdmissionSchedulerQuiescent(initialScheduler);
 	if (!admissionIndex.HasActiveWork() && schedulerQuiescent)
 	{
+		diagnostic.Finish("quiescent", 0, 0, 0);
 		maintenanceStats.pumpFastReturnLast = true;
 		maintenanceStats.pumpFastReturns++;
 		emitMaintenanceTrace();
@@ -4798,9 +4801,10 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	maintenanceStats.entriesScannedLastPump = admissionIndex.ActiveCount();
 	maintenanceStats.entriesScanned += maintenanceStats.entriesScannedLastPump;
 	const auto pumpStart = std::chrono::steady_clock::now();
+	diagnostic.BeginBudget();
 	auto elapsedMs = [&]() -> double
 	{
-		return PersistentVoxelDurationMs(pumpStart, std::chrono::steady_clock::now());
+		return diagnostic.ElapsedMs(PersistentVoxelDurationMs(pumpStart, std::chrono::steady_clock::now()));
 	};
 	auto isUploadState = [](PersistentVoxelAdmissionState state) -> bool
 	{
@@ -4906,6 +4910,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			}
 			entry.state = PersistentVoxelAdmissionState::Ready;
 			entry.lastReason = "resident";
+			diagnostic.Transition(entry.pairKey, "ready-before-sort");
 			stats.ready++;
 			drainedReadyKeys.push_back(key);
 			continue;
@@ -5004,6 +5009,10 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		return left->pairKey < right->pairKey;
 	});
 
+	if (diagnostic.Active())
+		for (uint32_t position = 0; position < candidates.size(); ++position)
+			diagnostic.Candidate(candidates[position]->pairKey, position);
+
 	uint32_t admitted = 0;
 	uint32_t blasUsed = 0;
 	uint32_t requiredAdmitted = 0;
@@ -5012,6 +5021,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	const char* stopReason = "queue-drained";
 	for (PersistentVoxelAdmissionEntry* entry : candidates)
 	{
+		NRIVoxelAdmissionEntryDiagnosticScope observeEntry(diagnostic, entry->pairKey);
 		const uint64_t meshResourceKey = BuildPersistentVoxelVariantMeshResourceKey(entry->variant);
 		const PersistentVoxelReadinessStatus currentReadiness = GetSharedVariantReadiness(meshResourceKey, entry->variant.materialKeyHash);
 		if (currentReadiness.ready)
@@ -5027,6 +5037,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			entry->state = PersistentVoxelAdmissionState::Ready;
 			entry->lastReason = "resident";
 			stats.ready++;
+			diagnostic.Disposition("ready-reuse");
 			continue;
 		}
 		if (entry->state == PersistentVoxelAdmissionState::Ready)
@@ -5037,6 +5048,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		}
 		if (requiredOnlyPump && !IsRequiredAdmission(*entry))
 		{
+			diagnostic.Disposition("required-only-skip");
 			continue;
 		}
 		const bool requiredAdmission = IsRequiredAdmission(*entry);
@@ -5045,6 +5057,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		{
 			stats.skippedBudget++;
 			entry->state = PersistentVoxelAdmissionState::Deferred;
+			diagnostic.Disposition("optional-runtime-skip");
 			entry->lastReason = "optional-preload-runtime";
 			stopReason = entry->lastReason;
 			continue;
@@ -5054,12 +5067,14 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			stats.skippedBudget++;
 			optionalSkippedGrace++;
 			entry->state = PersistentVoxelAdmissionState::Deferred;
+			diagnostic.Disposition("grace-skip");
 			entry->lastReason = "post-load-grace";
 			stopReason = "post-load-grace";
 			continue;
 		}
 		if (msBudget > 0.0 && elapsedMs() >= msBudget)
 		{
+			diagnostic.Disposition("ms-budget-stop");
 			stopReason = "ms-budget";
 			break;
 		}
@@ -5067,6 +5082,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		{
 			stats.skippedBudget++;
 			entry->state = PersistentVoxelAdmissionState::Deferred;
+			diagnostic.Disposition("variant-budget-skip");
 			entry->lastReason = "variant-budget";
 			continue;
 		}
@@ -5077,6 +5093,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			{
 				entry->state = PersistentVoxelAdmissionState::Deferred;
 			}
+			diagnostic.Disposition("byte-budget-stop");
 			entry->lastReason = "byte-budget";
 			stopReason = "byte-budget";
 			break;
@@ -5102,14 +5119,17 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		const bool isolateBlasBuild =
 			isolateBlasPrimitiveThreshold > 0 &&
 			entry->variant.primitiveCount >= (uint32_t)isolateBlasPrimitiveThreshold;
+		diagnostic.Attempt();
 		if (!admissionServices.AdmitVariantResource(*entry, remainingByteBudget, blasBudgetRemaining, uploadBytes, reusedMesh, reusedMaterial, inProgress, isolateBlasBuild, failureReason, &stats))
 		{
 			if (admissionServices.IsSubmitBudgetHit())
 			{
+				diagnostic.Disposition("submit-budget-stop");
 				entry->lastReason = "preload-submit-budget";
 				stopReason = entry->lastReason;
 				break;
 			}
+			diagnostic.Disposition("admit-failed-stop");
 			entry->state = PersistentVoxelAdmissionState::Failed;
 			entry->retryCount++;
 			entry->lastReason = failureReason != nullptr ? failureReason : "admit-failed";
@@ -5183,6 +5203,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			}
 			if (directRequestNowPending)
 			{
+				diagnostic.Disposition("direct-pending-continue");
 				if (!directRequestWasPending)
 				{
 					admitted++;
@@ -5197,14 +5218,17 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 				}
 				continue;
 			}
+			diagnostic.Disposition("in-progress-stop");
 			break;
 		}
 		if (entry->state == PersistentVoxelAdmissionState::Deferred)
 		{
+			diagnostic.Disposition("deferred-continue");
 			stats.skippedBudget++;
 			continue;
 		}
 
+		diagnostic.Disposition("ready");
 		entry->state = PersistentVoxelAdmissionState::Ready;
 		entry->lastReason = reusedMesh && reusedMaterial ? "already-resident" : "admitted";
 		stats.uploaded++;
@@ -5249,6 +5273,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 					(unsigned long long)entry->variant.meshKeyHash,
 					entry->variant.primitiveCount);
 			}
+			diagnostic.Disposition("blas-submit-wait-stop");
 			if (!admissionServices.SubmitWaitAndRestart(submitReason))
 			{
 				if (admissionServices.IsSubmitBudgetHit())
@@ -5281,6 +5306,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		}
 	}
 
+	diagnostic.Finish(stopReason, admitted, stats.bytesUploaded, blasUsed);
 	const bool hasQueueActivity = !candidates.empty() || stats.uploaded != 0 || stats.skippedBudget != 0 || stats.failedThisPump != 0;
 	const bool perfLoopTraceActive = (int)perf_looptraceframes > 0;
 	if (((loadingTraceLevel >= 1) && (loadingPhase || hasQueueActivity)) ||
@@ -5668,9 +5694,12 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			outInProgress = true;
 			entry.state = PersistentVoxelAdmissionState::Deferred;
 			entry.lastReason = "scheduler-capacity";
+			NoteNRIVoxelAdmissionDiagnostic(*this, entry.pairKey, "scheduler-result", (int32_t)schedulerResult.code);
+
 			return true;
 		}
 		entry.schedulerTokenId = schedulerResult.tokenId;
+		NoteNRIVoxelAdmissionDiagnostic(*this, entry.pairKey, "scheduler-result", (int32_t)schedulerResult.code);
 	}
 	auto finalizeDirectBlas = [&]() -> bool
 	{
@@ -9760,6 +9789,9 @@ void NRIPersistentVoxelResidency::Reset(
 	if (cacheDiagnosticState && PerfAuditActive())
 		PerfAuditWriteEvent("voxel_cache_diagnostic_reset", PerfAuditCurrentToken(), "\"reason\":\"full-shared-resource-reset\"");
 	cacheDiagnosticState.reset();
+	if (admissionDiagnosticState && PerfAuditActive())
+		PerfAuditWriteEvent("voxel_admission_diagnostic_reset", PerfAuditCurrentToken(), "\"reason\":\"full-shared-resource-reset\"");
+	admissionDiagnosticState.reset();
 	// Queued compute bindings reference the arena resource objects. Cancel
 	// them before replacing those objects; submitted writes retain old buffers
 	// through the existing retirement owner. Keep map nodes stable for callers.
@@ -10486,6 +10518,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		meshResourceKey == 0 ||
 		variant.materialKeyHash == 0)
 	{
+		NoteNRIVoxelAdmissionRejectedDiagnostic(meshResourceKey, variant.materialKeyHash, residencyMapGeneration, "invalid-variant");
 		return false;
 	}
 
@@ -10507,6 +10540,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 				(unsigned long long)variant.materialKeyHash,
 				residencyMapGeneration);
 		}
+		NoteNRIVoxelAdmissionRejectedDiagnostic(meshResourceKey, variant.materialKeyHash, residencyMapGeneration, "runtime-tail-held");
 		return false;
 	}
 
@@ -10583,6 +10617,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		if (!resourcesReady && entry.variant.primitiveCount > maxBlasPrimitives)
 		{
 			traceAdmissionSkip(entry.variant, entry.estimatedBytes, "blas-primitive-budget");
+			NoteNRIVoxelAdmissionRejectedDiagnostic(entryMeshResourceKey, entry.variant.materialKeyHash, residencyMapGeneration, "blas-primitive-budget");
 			admissionIndex.Remove(found->first, oldBucket);
 			DiscardAdmissionEntry(entry, services);
 			admissionQueue.erase(found);
@@ -10710,6 +10745,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 			oldDirectOnlyAdmission != entry.variant.directOnlyAdmission)
 		{
 			MarkMaintenanceMutation();
+			NoteNRIVoxelAdmissionDiagnostic(*this, pairKey, "enqueue-change");
 		}
 		if (loadingTraceLevel >= 2 || voxelStatsEnabled)
 		{
@@ -10739,6 +10775,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	if (!resourcesReady && variant.primitiveCount > maxBlasPrimitives)
 	{
 		traceAdmissionSkip(variant, estimatedBytes, "blas-primitive-budget");
+		NoteNRIVoxelAdmissionRejectedDiagnostic(meshResourceKey, variant.materialKeyHash, residencyMapGeneration, "blas-primitive-budget");
 		return false;
 	}
 
@@ -10759,6 +10796,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	entry.lastReason = entry.state == PersistentVoxelAdmissionState::Ready ? "resident" : "queued";
 	admissionQueue[pairKey] = entry;
 	admissionIndex.Add(pairKey, GetAdmissionBucket(admissionQueue[pairKey]));
+	NoteNRIVoxelAdmissionDiagnostic(*this, pairKey, "enqueue-new");
 	MarkMaintenanceMutation();
 	if (resourcesReady && runtimeRequested)
 	{
