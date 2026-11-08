@@ -58,6 +58,9 @@ void CaptureWallDecals(HWDrawInfo& view, std::vector<WallDecalCapture>& decals)
 			if (voxel >= 0 && voxmodels[voxel] != nullptr) continue;
 		}
 		if (sprite->cstat2 & CSTAT2_SPRITE_FULLBRIGHT) sprite->shade = -127;
+		// Luminous wall effects own their translucent sprite geometry. Painting
+		// them into a receiver would also duplicate the effect on solid walls.
+		if (sprite->shade <= -127 || actor->spr.shade <= -127) continue;
 		if (actor->sprext.renderflags & SPREXT_AWAY1)
 			sprite->pos += sprite->Angles.Yaw.ToVector() * 0.125;
 		else if (actor->sprext.renderflags & SPREXT_AWAY2)

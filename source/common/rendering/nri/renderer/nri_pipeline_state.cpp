@@ -316,7 +316,7 @@ bool NRIPipelineStateManager::CreatePresentPipelineLayout(NRIRenderer& renderer)
 {
 	nri::DescriptorRangeDesc inputRange = {};
 	inputRange.baseRegisterIndex = 0;
-	inputRange.descriptorNum = 3;
+	inputRange.descriptorNum = 4;
 	inputRange.descriptorType = nri::DescriptorType::TEXTURE;
 	inputRange.shaderStages = PipelineComputeStage();
 	inputRange.flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;

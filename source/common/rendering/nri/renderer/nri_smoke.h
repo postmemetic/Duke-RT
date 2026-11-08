@@ -305,7 +305,7 @@ public:
 		"Smoke root constants and descriptor tables exceed the D3D12 root-signature limit");
 
 	bool Initialize(NRIRenderer& renderer);
-	bool PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents);
+	bool PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents, bool hasTranslucentEffects);
 	bool DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDesc& route);
 	void Reset(const char* reason);
 	void Shutdown(NRIRenderer& renderer);
@@ -314,6 +314,7 @@ public:
 	const NRISmokeStatusSnapshot& GetStatusSnapshot() const { return mStatus; }
 
 private:
+	bool mHasTranslucentEffects = false;
 	struct CommandSlot
 	{
 		NRIBufferResource upload;

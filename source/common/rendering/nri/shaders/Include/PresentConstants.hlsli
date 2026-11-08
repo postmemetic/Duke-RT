@@ -22,6 +22,7 @@
 #define NRI_PRESENT_OUTPUT_FLAG_AUTO_EXPOSURE 0x10u
 #define NRI_PRESENT_OUTPUT_FLAG_EXPOSURE_TEXTURE_VALID 0x20u
 #define NRI_PRESENT_OUTPUT_FLAG_INPUT_PRE_EXPOSED 0x40u
+#define NRI_PRESENT_OUTPUT_FLAG_EFFECT_SMOKE 0x80u
 
 struct NRIPresentConstants
 {
@@ -49,6 +50,7 @@ struct NRIPresentConstants
 	float NightVisionStrength;
 	float NightVisionExposure;
 	uint NightVisionPackedControls;
+	float2 EffectJitter;
 };
 
 #endif

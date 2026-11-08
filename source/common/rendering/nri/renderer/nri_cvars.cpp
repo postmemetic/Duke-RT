@@ -1670,10 +1670,10 @@ CVAR(Bool, nri_ptfilterquery, true, 0)
 // Enabled by default with session-only rollback; optional smoke consumers
 // can withhold bits when they cannot certify a workload.
 CVAR(Bool, nri_ptoccurrenceworkloadmasks, true, 0)
-// Reflection-only and alpha rejection stay inside the same query so transparent
-// cards cannot repeatedly restart at their hit boundary or skip backing walls.
-// Session-only: 0x1 restores reflection-only filtering for comparison.
-CVAR(Int, nri_ptfilterpolicymask, 0x9, 0)
+// Reflection-only, alpha, and hidden-chunk rejection stay inside the same query
+// so rejected hits cannot skip backing or coplanar visible walls on restart.
+// Session-only: 0x9 disables candidate visibility filtering for comparison.
+CVAR(Int, nri_ptfilterpolicymask, 0x19, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
 CVAR(Bool, nri_ptfiltercompare, false, 0)

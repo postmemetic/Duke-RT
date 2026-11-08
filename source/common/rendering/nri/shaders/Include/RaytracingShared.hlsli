@@ -1186,6 +1186,9 @@ float4 SampleSurfaceColorRaw(uint materialIndex, uint dataSource, float2 uv)
 bool IsTransparentSurfaceSample(uint materialIndex, uint dataSource, float2 uv)
 {
 	const MaterialData material = GetMaterialData(materialIndex, dataSource);
+	// These layers are resolved by effect composition, never as opaque hits.
+	if ((material.flags & MATERIAL_FLAG_TRANSLUCENT_EFFECT) != 0u)
+		return true;
 	const bool indexed = (material.flags & MATERIAL_FLAG_INDEXED) != 0;
 	// Ordinary indexed floors/walls are always opaque. Reject that common case
 	// before fetching a raw texel that cannot affect the result.

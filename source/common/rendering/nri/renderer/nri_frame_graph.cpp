@@ -7,6 +7,8 @@
 #include "nri_diagnostic_names.h"
 #include "printf.h"
 
+#include <algorithm>
+
 namespace
 {
 	constexpr uint32_t kSupportedDebugModes[] = {
@@ -310,6 +312,11 @@ bool ExecuteNRIFrameGraph(
 	const bool useSplitShadowDebugProbe = rawTraceDirectPresent && ptDebugMode >= 21 && ptDebugMode <= 22;
 	const NRIMainUpscalerKind resolvedMainKind = context.mUpscalerService.ResolveMainUpscalerKind(false);
 	const bool compositionConsumesNrd = useCompositionPath && denoise && !NRIIsRayReconstructionMain(resolvedMainKind);
+	const bool hasTranslucentEffects = std::any_of(materials.begin(), materials.end(),
+		[](const nri_scene::MaterialData& material)
+		{
+			return (material.flags & nri_scene::MaterialFlag_TranslucentEffect) != 0u;
+		});
 	context.mTraceIndirectDenoiserAvailable =
 		useValidationPresent ||
 		useDenoisedDebugPresent ||
@@ -350,7 +357,7 @@ bool ExecuteNRIFrameGraph(
 	{
 		return false;
 	}
-	if (!context.mSmokeService.PrepareFrame(context.mFrame.mainViewEligible))
+	if (!context.mSmokeService.PrepareFrame(context.mFrame.mainViewEligible, hasTranslucentEffects))
 	{
 		return false;
 	}
@@ -437,7 +444,7 @@ bool ExecuteNRIFrameGraph(
 			}
 
 			context.mUseSplitShadowDenoiser = false;
-			if (!NRIPassDispatcher::DispatchComposition(context, FrameTextureSlot::RrInput))
+			if (!NRIPassDispatcher::DispatchComposition(context, FrameTextureSlot::RrInput, hasTranslucentEffects))
 			{
 				return false;
 			}
@@ -496,7 +503,7 @@ bool ExecuteNRIFrameGraph(
 			}
 		}
 
-		if (!NRIPassDispatcher::DispatchComposition(context, FrameTextureSlot::Composed))
+		if (!NRIPassDispatcher::DispatchComposition(context, FrameTextureSlot::Composed, hasTranslucentEffects))
 		{
 			return false;
 		}

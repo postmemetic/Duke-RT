@@ -670,6 +670,7 @@ const char* NRIRenderer::GetFrameTextureSlotName(FrameTextureSlot slot) const
 	case FrameTextureSlot::DenoisedSpecular: return "DenoisedSpecular";
 	case FrameTextureSlot::DenoisedShadow: return "DenoisedShadow";
 	case FrameTextureSlot::Composed: return "Composed";
+	case FrameTextureSlot::TranslucentEffects: return "TranslucentEffects";
 	case FrameTextureSlot::TraceTransparentOutput: return "TraceTransparentOutput";
 	case FrameTextureSlot::DirectLighting: return "DirectLighting";
 	case FrameTextureSlot::DirectEmission: return "DirectEmission";

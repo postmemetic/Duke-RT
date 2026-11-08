@@ -222,7 +222,7 @@ public:
 
 	struct SmokeService
 	{
-		using PrepareFrameFn = bool (*)(void* user, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents);
+		using PrepareFrameFn = bool (*)(void* user, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents, bool hasTranslucentEffects);
 		using DispatchRouteFn = bool (*)(void* user, const NRISmokeRouteDesc& route);
 		using GetVolumeSlotFn = uint32_t (*)(void* user, bool metadata);
 
@@ -232,7 +232,7 @@ public:
 		DispatchRouteFn dispatchRoute = nullptr;
 		GetVolumeSlotFn getVolumeSlot = nullptr;
 
-		bool PrepareFrame(bool mainViewEligible) const;
+		bool PrepareFrame(bool mainViewEligible, bool hasTranslucentEffects) const;
 		bool DispatchRoute(const NRISmokeRouteDesc& route) const;
 		FrameTextureSlot GetVolumeSlot(bool metadata) const;
 	};
@@ -474,7 +474,7 @@ public:
 		const nri_scene::GeometryData& geometry,
 		const std::vector<nri_scene::MaterialData>& materials);
 	static bool DispatchDenoiser(NRIPassDispatchContext& context);
-	static bool DispatchComposition(NRIPassDispatchContext& context, NRIRenderer::FrameTextureSlot outputSlot = NRIRenderer::FrameTextureSlot::Composed);
+	static bool DispatchComposition(NRIPassDispatchContext& context, NRIRenderer::FrameTextureSlot outputSlot, bool hasTranslucentEffects);
 	static bool DispatchTraceTransparent(NRIPassDispatchContext& context);
 	static bool DispatchUpscalerPrepass(NRIPassDispatchContext& context, NRIMainUpscalerKind mainKind);
 	static bool DispatchRawPresent(

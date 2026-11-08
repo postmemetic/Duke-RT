@@ -964,13 +964,20 @@ bool NRIPassDispatcher::DispatchDenoiser(NRIPassDispatchContext& context)
 
 
 
-bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRIRenderer::FrameTextureSlot outputSlot)
+bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRIRenderer::FrameTextureSlot outputSlot, bool hasTranslucentEffects)
 {
 	NRIScopedGpuTiming gpuTiming(context.mResources.frameBuffer, NRIGpuTimingScope::Composition);
 	Clocker clock(NriPTComposition);
 
 	NRITraceSceneConstants constants = {};
 	const NRIDenoiserSettings denoiserSettings = BuildNRIDenoiserSettingsFromCVars();
+	// A frame without luminous translucent sprites does no extra ray queries.
+	if (hasTranslucentEffects)
+	{
+		constants.SceneInstanceCount = context.mSceneStats.sceneInstanceCount;
+		constants.DynamicPrimitiveCount = context.mSceneStats.dynamicPrimitiveCount;
+		constants.DynamicMaterialCount = context.mSceneStats.dynamicMaterialCount;
+	}
 	Copy3(context.mFrame.currentCameraPos.data(), constants.CameraPos);
 	Copy3(context.mFrame.currentCameraForward.data(), constants.CameraForward);
 	Copy3(context.mFrame.currentCameraRight.data(), constants.CameraRight);
@@ -1018,6 +1025,7 @@ bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRI
 	NRITextureResource& filteredSpecular = context.mTextures.Get(filteredSpecularSlot);
 	NRITextureResource& filteredShadow = context.mTextures.Get(filteredShadowSlot);
 	NRITextureResource& composed = context.mTextures.Get(outputSlot);
+	NRITextureResource& effects = context.mTextures.Get(NRIRenderer::FrameTextureSlot::TranslucentEffects);
 
 	context.mResources.TransitionTexture(diffuse, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(specular, NRIComputeShaderResourceState());
@@ -1031,6 +1039,9 @@ bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRI
 	context.mResources.TransitionTexture(filteredSpecular, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(filteredShadow, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(composed, NRIComputeStorageState());
+	// DLRR can dispatch a second composition in the same frame.
+	context.mResources.TransitionTexture(effects, NRIComputeShaderResourceState());
+	context.mResources.TransitionTexture(effects, NRIComputeStorageState());
 
 	const nri::Descriptor* defaultInput = diffuse.shaderView;
 	context.mFrameInputDescriptors.fill(const_cast<nri::Descriptor*>(defaultInput));
@@ -1049,6 +1060,7 @@ bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRI
 
 	const nri::Descriptor* defaultOutput = composed.storageView;
 	context.mOutputDescriptors.fill(const_cast<nri::Descriptor*>(defaultOutput));
+	context.mOutputDescriptors[0] = effects.storageView;
 	context.mOutputDescriptors[1] = composed.storageView;
 	context.mDescriptors.UpdateOutputSet(context.mCompositionOutputSet, context.mOutputDescriptors);
 
@@ -1219,10 +1231,11 @@ bool NRIPassDispatcher::DispatchRawPresent(NRIPassDispatchContext& context, NRIR
 	context.mResources.TransitionTexture(tertiary, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(final, NRIComputeStorageState());
 
-	const nri::Descriptor* inputs[3] = {
+	const nri::Descriptor* inputs[4] = {
 		input.shaderView,
 		secondary.shaderView,
-		tertiary.shaderView
+		tertiary.shaderView,
+		input.shaderView
 	};
 	nri::UpdateDescriptorRangeDesc inputUpdate = {};
 	inputUpdate.descriptorSet = context.mRawPresentFrameTextureSet;
@@ -1290,6 +1303,19 @@ bool NRIPassDispatcher::DispatchFinalPresent(NRIPassDispatchContext& context, NR
 
 	NRITextureResource& input = context.mTextures.Get(inputSlot);
 	NRITextureResource& final = context.mTextures.Get(NRIRenderer::FrameTextureSlot::Final);
+	NRITextureResource& effects = context.mTextures.Get(NRIRenderer::FrameTextureSlot::TranslucentEffects);
+	Copy2(context.mFrame.currentJitter.data(), constants.EffectJitter);
+	NRITextureResource* effectSmoke = nullptr;
+	const NRIRenderer::FrameTextureSlot volumeSlot = context.mSmokeService.GetVolumeSlot(false);
+	if (volumeSlot < NRIRenderer::FrameTextureSlot::Count)
+	{
+		NRITextureResource& volume = context.mTextures.Get(volumeSlot);
+		if (volume.shaderView != nullptr && volume.width == effects.width && volume.height == effects.height)
+		{
+			effectSmoke = &volume;
+			constants.OutputFlags |= NRI_PRESENT_OUTPUT_FLAG_EFFECT_SMOKE;
+		}
+	}
 	constants.InputWidth = input.width;
 	constants.InputHeight = input.height;
 
@@ -1299,11 +1325,15 @@ bool NRIPassDispatcher::DispatchFinalPresent(NRIPassDispatchContext& context, NR
 		context.mResources.TransitionTexture(*exposureStateTexture, NRIComputeShaderResourceState());
 	}
 	context.mResources.TransitionTexture(final, NRIComputeStorageState());
+	context.mResources.TransitionTexture(effects, NRIComputeShaderResourceState());
+	if (effectSmoke != nullptr)
+		context.mResources.TransitionTexture(*effectSmoke, NRIComputeShaderResourceState());
 
-	const nri::Descriptor* inputs[3] = {
+	const nri::Descriptor* inputs[4] = {
 		input.shaderView,
 		exposureStateTextureValid ? exposureStateTexture->shaderView : input.shaderView,
-		input.shaderView
+		effects.shaderView,
+		effectSmoke != nullptr ? effectSmoke->shaderView : effects.shaderView
 	};
 	nri::UpdateDescriptorRangeDesc inputUpdate = {};
 	inputUpdate.descriptorSet = context.mFinalPresentFrameTextureSet;
