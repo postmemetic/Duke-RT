@@ -1,4 +1,5 @@
 #include "nri_persistent_voxel_material_sharing_policy.h"
+#include "nri_persistent_voxel_material_class_eligibility.h"
 
 #include "coreactor.h"
 #include "actor_lifecycle_journal.h"
@@ -28,21 +29,10 @@ void NRIVoxelMaterialSharingPolicy::BuildActorClassEligibility()
 	std::unordered_map<PClass*, bool> classes;
 	auto classInvariant = [&](PClass* actorClass)
 	{
-		if (!actorClass || resolved.resolvedGeneration != rules) return false;
-		auto canMatch = [&](const auto& rule)
+		return NRIVoxelMaterialClassIsInvariant(actorClass, resolved, rules, []
 		{
 			PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingClassRuleChecks);
-			// Unknown classes and future tile/owner changes cannot certify invariance.
-			return !rule.actorClassResolved || !rule.actorClass || actorClass == rule.actorClass ||
-				actorClass->IsDescendantOf(rule.actorClass);
-		};
-		// Even light-only actor rules stay excluded: their rule IDs enter occurrence
-		// metadata. This intentionally accepts a smaller, easily proven subset.
-		for (const auto& rule : resolved.actorRules) if (canMatch(rule)) return false;
-		for (const auto& rule : resolved.actorOverrideRules) if (canMatch(rule)) return false;
-		for (const auto& rule : resolved.smokeActorRules)
-			if (rule.emitterForeground && canMatch(rule)) return false;
-		return true;
+		});
 	};
 	TSpriteIterator<DCoreActor> it;
 	while (auto* actor = it.Next())
