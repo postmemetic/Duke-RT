@@ -3,6 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 
+// LightSourceFlags; shared with SmokeConstants.hlsli.
+static constexpr uint32_t NRISmokeSceneTranslucentEffects = 0x1000u;
+
 enum class NRISmokePass : uint32_t
 {
 	Clear = 0,

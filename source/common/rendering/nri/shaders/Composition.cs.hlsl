@@ -1,4 +1,5 @@
 #include "Include/Shared.hlsli"
+#include "Include/TranslucentEffects.hlsli"
 
 float3 SanitizeColor(float3 value)
 {
@@ -186,5 +187,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			composed = 1.0;
 		}
 	}
+	composed = CompositeTranslucentEffects(pixelPos, composed);
 	gComposedOutput[pixelPos] = float4(SanitizeColor(composed), 1.0);
 }

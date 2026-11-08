@@ -964,13 +964,20 @@ bool NRIPassDispatcher::DispatchDenoiser(NRIPassDispatchContext& context)
 
 
 
-bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRIRenderer::FrameTextureSlot outputSlot)
+bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRIRenderer::FrameTextureSlot outputSlot, bool hasTranslucentEffects)
 {
 	NRIScopedGpuTiming gpuTiming(context.mResources.frameBuffer, NRIGpuTimingScope::Composition);
 	Clocker clock(NriPTComposition);
 
 	NRITraceSceneConstants constants = {};
 	const NRIDenoiserSettings denoiserSettings = BuildNRIDenoiserSettingsFromCVars();
+	// A frame without luminous translucent sprites does no extra ray queries.
+	if (hasTranslucentEffects)
+	{
+		constants.SceneInstanceCount = context.mSceneStats.sceneInstanceCount;
+		constants.DynamicPrimitiveCount = context.mSceneStats.dynamicPrimitiveCount;
+		constants.DynamicMaterialCount = context.mSceneStats.dynamicMaterialCount;
+	}
 	Copy3(context.mFrame.currentCameraPos.data(), constants.CameraPos);
 	Copy3(context.mFrame.currentCameraForward.data(), constants.CameraForward);
 	Copy3(context.mFrame.currentCameraRight.data(), constants.CameraRight);
@@ -1018,6 +1025,7 @@ bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRI
 	NRITextureResource& filteredSpecular = context.mTextures.Get(filteredSpecularSlot);
 	NRITextureResource& filteredShadow = context.mTextures.Get(filteredShadowSlot);
 	NRITextureResource& composed = context.mTextures.Get(outputSlot);
+	NRITextureResource& reactive = context.mTextures.Get(NRIRenderer::FrameTextureSlot::TemporalReactive);
 
 	context.mResources.TransitionTexture(diffuse, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(specular, NRIComputeShaderResourceState());
@@ -1031,6 +1039,11 @@ bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRI
 	context.mResources.TransitionTexture(filteredSpecular, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(filteredShadow, NRIComputeShaderResourceState());
 	context.mResources.TransitionTexture(composed, NRIComputeStorageState());
+	// TraceOpaque also writes this UAV. A state-preserving transition alone
+	// does not order its writes before the effect layer's read/modify/write.
+	if (hasTranslucentEffects)
+		context.mResources.TransitionTexture(reactive, NRIComputeShaderResourceState());
+	context.mResources.TransitionTexture(reactive, NRIComputeStorageState());
 
 	const nri::Descriptor* defaultInput = diffuse.shaderView;
 	context.mFrameInputDescriptors.fill(const_cast<nri::Descriptor*>(defaultInput));
@@ -1050,6 +1063,7 @@ bool NRIPassDispatcher::DispatchComposition(NRIPassDispatchContext& context, NRI
 	const nri::Descriptor* defaultOutput = composed.storageView;
 	context.mOutputDescriptors.fill(const_cast<nri::Descriptor*>(defaultOutput));
 	context.mOutputDescriptors[1] = composed.storageView;
+	context.mOutputDescriptors[18] = reactive.storageView;
 	context.mDescriptors.UpdateOutputSet(context.mCompositionOutputSet, context.mOutputDescriptors);
 
 	context.mCommands.SetPipelineLayout(context.mPipelineLayout);

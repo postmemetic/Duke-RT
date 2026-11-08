@@ -114,15 +114,38 @@ PrimitiveData SmokeGetPrimitive(uint dataSource, uint primitiveIndex);
 MaterialData SmokeGetMaterial(uint dataSource, uint materialIndex);
 uint SmokeResolveMaterialIndex(SceneInstanceData instanceData, PrimitiveData primitive);
 
+uint SmokeOpaqueRayFlags()
+{
+	return (gSmokeConstants.LightSourceFlags & NRI_SMOKE_SCENE_TRANSLUCENT_EFFECTS) != 0u
+		? RAY_FLAG_FORCE_NON_OPAQUE : RAY_FLAG_FORCE_OPAQUE;
+}
+
+bool SmokeAcceptOpaqueCandidate(uint instanceId, uint primitiveIndex)
+{
+	uint count, stride;
+	gSmokeSceneInstances.GetDimensions(count, stride);
+	if (instanceId >= count) return true;
+	const SceneInstanceData instance = gSmokeSceneInstances[instanceId];
+	if (instance.dataSource != NRI_SMOKE_SCENE_DATA_SOURCE_DYNAMIC) return true;
+	const PrimitiveData primitive = SmokeGetPrimitive(instance.dataSource, instance.primitiveBase + primitiveIndex);
+	const MaterialData material = SmokeGetMaterial(instance.dataSource, SmokeResolveMaterialIndex(instance, primitive));
+	return (material.flags & MATERIAL_FLAG_TRANSLUCENT_EFFECT) == 0u;
+}
+
 SmokeIndirectHit SmokeTraceIndirectClosest(float3 origin, float3 direction, float maximumDistance)
 {
 	SmokeIndirectHit result = (SmokeIndirectHit)0;
 	result.sectorIndex = 0xffffffffu;
 	result.instanceSectorIndex = 0xffffffffu;
 	RayDesc ray = { origin + direction * 0.05, 0.001, direction, max(maximumDistance - 0.051, 0.001) };
-	RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
-	query.TraceRayInline(gSmokeWorldTlas, RAY_FLAG_FORCE_OPAQUE, NRI_TLAS_MASK_GI, ray);
-	while (query.Proceed()) {}
+	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+	query.TraceRayInline(gSmokeWorldTlas, SmokeOpaqueRayFlags(), NRI_TLAS_MASK_GI, ray);
+	while (query.Proceed())
+	{
+		if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
+			SmokeAcceptOpaqueCandidate(query.CandidateInstanceID(), query.CandidatePrimitiveIndex()))
+			query.CommitNonOpaqueTriangleHit();
+	}
 	if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
 		return result;
 
@@ -259,6 +282,8 @@ float3 SmokeTransformNormal(SceneInstanceData instanceData, float3 localNormal)
 
 bool SmokeMaterialIsTransparent(MaterialData material, float2 uv)
 {
+	if ((material.flags & MATERIAL_FLAG_TRANSLUCENT_EFFECT) != 0u)
+		return true;
 	if ((material.flags & MATERIAL_FLAG_PLAIN_MIRROR) != 0u)
 		return false;
 	if (material.textureIndex == 0xffffffffu)
@@ -528,10 +553,15 @@ bool SmokePointLightVisibleBiasedWithBlocker(
 	ray.TMin = 0.001;
 	ray.Direction = lightDirection;
 	ray.TMax = max(lightDistance - originBias - endpointBias, 0.001);
-	const uint rayFlags = RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
-	RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+	const uint rayFlags = SmokeOpaqueRayFlags();
+	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
 	query.TraceRayInline(gSmokeWorldTlas, rayFlags, NRI_TLAS_MASK_SHADOW, ray);
-	while (query.Proceed()) {}
+	while (query.Proceed())
+	{
+		if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
+			SmokeAcceptOpaqueCandidate(query.CandidateInstanceID(), query.CandidatePrimitiveIndex()))
+			query.CommitNonOpaqueTriangleHit();
+	}
 	const bool visible = query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
 	if (!visible)
 	{

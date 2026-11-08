@@ -221,10 +221,10 @@ void NRIPassDispatchContext::SelfTestService::SetSelfTestRouteSnapshot(const cha
 	setSelfTestRouteSnapshot(user, routeName, presenterName, ownerName, passListName, denoiserRun, upscalerRun, exposureRun);
 }
 
-bool NRIPassDispatchContext::SmokeService::PrepareFrame(bool mainViewEligible) const
+bool NRIPassDispatchContext::SmokeService::PrepareFrame(bool mainViewEligible, bool hasTranslucentEffects) const
 {
 	static const TArray<PathTracingWeaponLightEvent> emptyWeaponEvents;
-	return prepareFrame == nullptr || prepareFrame(user, mainViewEligible, weaponEvents != nullptr ? *weaponEvents : emptyWeaponEvents);
+	return prepareFrame == nullptr || prepareFrame(user, mainViewEligible, weaponEvents != nullptr ? *weaponEvents : emptyWeaponEvents, hasTranslucentEffects);
 }
 
 bool NRIPassDispatchContext::SmokeService::DispatchRoute(const NRISmokeRouteDesc& route) const

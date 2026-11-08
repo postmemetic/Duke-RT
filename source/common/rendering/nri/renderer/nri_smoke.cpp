@@ -792,8 +792,9 @@ void NRISmokeSystem::AppendSyntheticCommand(NRIRenderer& renderer)
 	mPendingPulseEnqueueInfo.push_back({});
 }
 
-bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents)
+bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents, bool hasTranslucentEffects)
 {
+	mHasTranslucentEffects = hasTranslucentEffects;
 	mSettings = BuildNRISmokeSettingsFromCVars();
 	const NRISmokeWorkSchedulerSnapshot& workSchedule =
 		mWorkScheduler.Resolve(mSettings.workProfile, mSettings.maxSubsteps);
@@ -2429,6 +2430,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		constants.lightSourceFlags |= 0x400u; // Shared with resolve; spatial filtering is not a light-cache key.
 	if (transientHistoryAllowed)
 		constants.lightSourceFlags |= 0x800u; // Smoke-aware motion/opacity history, not legacy radiance reuse.
+	if (mHasTranslucentEffects && filteredResourcesReady)
+		constants.lightSourceFlags |= NRISmokeSceneTranslucentEffects;
 	const bool filteredVisibilityEffective = constants.lightMode >= 2u && mSettings.filteredVisibility && filteredResourcesReady && shadowReady;
 	const uint32_t requestedEmissivePointCandidates = std::clamp(mSettings.emissivePointCandidates, 1u, 8u);
 	const uint32_t effectiveEmissivePointCandidates = mSettings.emissiveReference ? 1u : requestedEmissivePointCandidates;

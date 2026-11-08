@@ -45,6 +45,8 @@ enum MaterialFlags : uint32_t
 	MaterialFlag_PointSampled = 1u << 10,
 	MaterialFlag_PlainMirror = 1u << 11,
 	MaterialFlag_TintEmission = 1u << 12,
+	// Fullbright alpha-blended effects are composed over the traced world.
+	MaterialFlag_TranslucentEffect = 1u << 13,
 };
 
 enum PrimitiveFlags : uint32_t

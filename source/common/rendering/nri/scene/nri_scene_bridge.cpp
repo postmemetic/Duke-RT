@@ -1317,6 +1317,22 @@ namespace
 			style.Flags == 0;
 	}
 
+	bool IsTranslucentEffect(const tspritetype* sprite, const FRenderStyle& style, float alpha, int shade)
+	{
+		// Preserve the game's luminous effect sprites (force ripples, transporter
+		// stars/beams). Ordinary wall markings remain receiver-owned decals and
+		// raster shadow copies must not duplicate the path tracer's shadows.
+		// Duke replaces facing sprites' temporary shade with sector lighting
+		// during animation, including transporter stars. Their owning actor
+		// retains the authored fullbright shade used to identify these effects.
+		const bool luminous = shade <= -127 || (sprite != nullptr && sprite->ownerActor != nullptr &&
+			sprite->ownerActor->spr.shade <= -127);
+		return sprite != nullptr && sprite->statnum != 99 && luminous &&
+			alpha > 0.0f && alpha < 0.999f &&
+			style.BlendOp == STYLEOP_Add && style.SrcAlpha == STYLEALPHA_Src &&
+			style.DestAlpha == STYLEALPHA_InvSrc && style.Flags == 0;
+	}
+
 	bool IsOpaqueSurface(const HWWall& wall)
 	{
 		return wall.texture != nullptr &&
@@ -1463,7 +1479,12 @@ namespace
 	{
 		for (auto* wall : list.walls)
 		{
-			if (wall == nullptr || !IsOpaqueSurface(*wall))
+			const bool translucentEffect = wall != nullptr && wall->texture != nullptr &&
+				IsTranslucentEffect(wall->Sprite, wall->RenderStyle, wall->alpha, wall->shade);
+			// This new draw-list route is only for effect sprites; texture-alpha
+			// walls can also enter it with alpha == 1 and have other scene owners.
+			if (drawListType == GLDL_TRANSLUCENT && !translucentEffect) continue;
+			if (wall == nullptr || (!IsOpaqueSurface(*wall) && !translucentEffect))
 			{
 				continue;
 			}
@@ -1487,6 +1508,7 @@ namespace
 			}
 
 			uint32_t extraFlags = wall->Sprite != nullptr ? MaterialFlag_Sprite : MaterialFlag_None;
+			if (translucentEffect) extraFlags |= MaterialFlag_TranslucentEffect;
 			if (wall->Sprite != nullptr || DrawListUsesAlphaClip(drawListType))
 			{
 				extraFlags |= MaterialFlag_AlphaClip;
@@ -1645,7 +1667,10 @@ namespace
 	{
 		for (auto* sprite : list.sprites)
 		{
-			if (sprite == nullptr || !IsOpaqueSprite(*sprite))
+			const bool translucentEffect = sprite != nullptr && sprite->texture != nullptr &&
+				sprite->modelframe == 0 &&
+				IsTranslucentEffect(sprite->Sprite, sprite->RenderStyle, sprite->alpha, sprite->shade);
+			if (sprite == nullptr || (!IsOpaqueSprite(*sprite) && !translucentEffect))
 			{
 				continue;
 			}
@@ -1667,6 +1692,7 @@ namespace
 			}
 
 			uint32_t extraFlags = MaterialFlag_Sprite | MaterialFlag_AlphaClip;
+			if (translucentEffect) extraFlags |= MaterialFlag_TranslucentEffect;
 			if (sprite->Sprite != nullptr && sprite->Sprite->ownerActor != nullptr)
 			{
 				extraFlags |= MaterialFlag_FacingBillboard;
@@ -6830,6 +6856,7 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 		CaptureWalls(di, di.drawlists[GLDL_MASKEDWALLSD], GLDL_MASKEDWALLSD, outView.opaqueWalls, outView.stats, outView);
 		CaptureWalls(di, di.drawlists[GLDL_MASKEDWALLSV], GLDL_MASKEDWALLSV, outView.opaqueWalls, outView.stats, outView);
 		CaptureWalls(di, di.drawlists[GLDL_MASKEDWALLSH], GLDL_MASKEDWALLSH, outView.opaqueWalls, outView.stats, outView);
+		CaptureWalls(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueWalls, outView.stats, outView);
 	}
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.flatsMs);
@@ -7856,6 +7883,7 @@ bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 	CaptureWalls(di, di.drawlists[GLDL_MASKEDWALLSD], GLDL_MASKEDWALLSD, outView.opaqueWalls, outView.stats, outView);
 	CaptureWalls(di, di.drawlists[GLDL_MASKEDWALLSV], GLDL_MASKEDWALLSV, outView.opaqueWalls, outView.stats, outView);
 	CaptureWalls(di, di.drawlists[GLDL_MASKEDWALLSH], GLDL_MASKEDWALLSH, outView.opaqueWalls, outView.stats, outView);
+	CaptureWalls(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueWalls, outView.stats, outView);
 	CaptureMirrorBorders(di, di.drawlists[GLDL_TRANSLUCENTBORDER], GLDL_TRANSLUCENTBORDER, outView.opaqueWalls, outView.stats);
 
 	CaptureFlats(di, di.drawlists[GLDL_PLAINFLATS], GLDL_PLAINFLATS, outView.opaqueFlats, outView.stats, outView);
