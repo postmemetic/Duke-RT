@@ -4,6 +4,7 @@
 #include "nri_resources.h"
 #include "nri_trace_stats_readback_policy.h"
 #include "nri_static_tangent_integration.h"
+#include "nri_perf_audit.h"
 
 #include <array>
 #include <cstdint>
@@ -342,6 +343,7 @@ struct NRITraceShaderStatsFenceServices
 struct NRITraceShaderStatsCopyInput
 {
 	bool enabled = false;
+	NRITraceAuditCapture audit;
 	uint64_t frameNumber = 0;
 	NRITraceShaderDispatchMetadata dispatchMetadata;
 	NRITraceShaderStatsFenceServices fences;
@@ -382,6 +384,8 @@ private:
 		NRIBufferResource buffer;
 		std::vector<NRITraceShaderInstanceAttribution> attribution;
 		uint64_t frameNumber = 0;
+		NRITraceAuditCapture audit;
+		uint32_t auditInstanceCount = 0;
 		NRITraceShaderDispatchMetadata dispatchMetadata;
 		uint64_t fenceValue = 0;
 		uint64_t copySerial = 0;
@@ -396,4 +400,5 @@ private:
 	uint64_t mNextCopySerial = 1;
 	uint64_t mReadbackConsumerFence = 0;
 	uint32_t mNextCopySlot = 0;
+	bool mResetRecorded = false;
 };

@@ -3,6 +3,7 @@
 
 #include "nri_renderer.h"
 #include "nri_runtime_mutation_trace.h"
+#include "perf_audit.h"
 #include "../system/nri_renderdevice.h"
 #include "../scene/nri_hash.h"
 #include "../scene/nri_fluid_material_binding.h"
@@ -535,7 +536,7 @@ const nri_material_policy::ActorMaterialOverrideMap& NRIRenderer::GetActorMateri
 	const ResolvedLightOverlaySet& resolvedLightOverlays = GetResolvedLightOverlaySet();
 	auto& materialTraceEntry = mLastPerfShellTraceStats.materialBuildByLabel[GetMaterialBuildTraceSlotIndex(traceSlot)];
 	bool built = false;
-	if (nri_runtime_mutation::ShouldTracePtPerf())
+	if (nri_runtime_mutation::ShouldTracePtPerf() || PerfAuditActive())
 	{
 		const auto start = std::chrono::steady_clock::now();
 		const auto& overrides = nri_material_policy::GetActorMaterialOverrideMapForFrame(resolvedLightOverlays, mFrameIndex, mActorMaterialOverrideCache, built);
@@ -567,7 +568,7 @@ void NRIRenderer::ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridge
 void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials, const char* traceLabel)
 {
 	mLastPerfShellTraceStats.materialBuildCalls++;
-	const bool tracePerf = nri_runtime_mutation::ShouldTracePtPerf();
+	const bool tracePerf = nri_runtime_mutation::ShouldTracePtPerf() || PerfAuditActive();
 	const MaterialBuildTraceSlot materialTraceSlot = ResolveMaterialBuildTraceSlot(traceLabel);
 	auto& materialTraceEntry = mLastPerfShellTraceStats.materialBuildByLabel[GetMaterialBuildTraceSlotIndex(materialTraceSlot)];
 	materialTraceEntry.calls++;

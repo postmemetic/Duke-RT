@@ -1,4 +1,5 @@
 #include "nri_persistent_voxel_material_upload.h"
+#include "../../../engine/perf_audit.h"
 
 #include <algorithm>
 #include <cstring>
@@ -102,6 +103,7 @@ bool NRIPersistentVoxelMaterialUploadMirror::Prepare(
 		if (retainedEnd > range.byteOffset)
 		{
 			const uint64_t rollbackOffset = rollbackBytes.size();
+			PerfAuditAdd(PerfAuditMetric::VoxelMaterialMirrorBytesCopied, retainedEnd - range.byteOffset);
 			rollbackBytes.insert(
 				rollbackBytes.end(),
 				bytes.begin() + (size_t)range.byteOffset,
@@ -113,9 +115,11 @@ bool NRIPersistentVoxelMaterialUploadMirror::Prepare(
 		}
 	}
 
+	if (arenaSize > bytes.size()) PerfAuditAdd(PerfAuditMetric::VoxelMaterialMirrorBytesInitialized, arenaSize - bytes.size());
 	bytes.resize((size_t)arenaSize);
 	for (const NRIPersistentVoxelMaterialUploadRange& range : sortedRanges)
 	{
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialMirrorBytesCopied, range.size);
 		std::memcpy(
 			bytes.data() + (size_t)range.byteOffset,
 			activeArenaData + range.byteOffset,
@@ -143,6 +147,7 @@ void NRIPersistentVoxelMaterialUploadMirror::Rollback()
 	{
 		if (rollback.size != 0)
 		{
+			PerfAuditAdd(PerfAuditMetric::VoxelMaterialMirrorBytesCopied, rollback.size);
 			std::memcpy(
 				bytes.data() + (size_t)rollback.byteOffset,
 				rollbackBytes.data() + (size_t)rollback.rollbackOffset,

@@ -2,14 +2,146 @@
 
 #include "../renderer/nri_renderer.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
+
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+
+namespace
+{
+	struct AuditSnapshotJson
+	{
+		char data[16384] = {};
+		size_t used = 0;
+		bool valid = true;
+		void Add(const char* format, ...)
+		{
+			if (!valid) return;
+			va_list args;
+			va_start(args, format);
+			const int count = vsnprintf(data + used, sizeof(data) - used, format, args);
+			va_end(args);
+			if (count < 0 || size_t(count) >= sizeof(data) - used) { valid = false; return; }
+			used += size_t(count);
+		}
+		void Time(const char* name, double value)
+		{
+			if (std::isfinite(value)) Add(",\"%s\":%.6f", name, value);
+			else Add(",\"%s\":null", name);
+		}
+		void Write(const char* kind)
+		{
+			if (valid) PerfAuditWriteEvent(kind, PerfAuditCurrentToken(), data);
+			else PerfAuditAdd(PerfAuditMetric::AuditEventsDropped);
+		}
+	};
+
+	void CaptureAuditSceneSnapshot(const NRIRenderer::PerfShellTraceStats& shell,
+		const NRIRenderer::PerfResourceTraceStats& resource, uint64_t boundaryFrame, bool rendered)
+	{
+		AuditSnapshotJson json;
+		json.Add("\"renderer_frame\":%llu,\"boundary_frame\":%llu,\"valid\":%s,\"rendered\":%s,\"timing_unit\":\"ms\",\"timing_gate\":\"audit_active\",\"nested_scopes\":true,\"settings_key\":%llu,\"workload_key\":%llu",
+			(unsigned long long)shell.traceRendererFrame, (unsigned long long)boundaryFrame,
+			rendered ? "true" : "false", rendered ? "true" : "false",
+			(unsigned long long)shell.traceSettingsKey, (unsigned long long)shell.traceWorkloadKey);
+		// Reuse the owners' snapshots. These are CPU scopes, including command
+		// recording and any existing waits; GPU execution has its own event.
+#define AUDIT_TIME(name, field) json.Time(name, shell.field)
+		AUDIT_TIME("total_ms", totalMs);
+		AUDIT_TIME("init_ms", initResourcesMs);
+		AUDIT_TIME("map_ms", mapWorldMs);
+		AUDIT_TIME("state_ms", updateStateMs);
+		AUDIT_TIME("select_ms", sceneSelectMs);
+		AUDIT_TIME("lights_ms", sceneLightsMs);
+		AUDIT_TIME("resident_light_refresh_ms", residentLightRefreshMs);
+		AUDIT_TIME("emissive_update_ms", emissiveUpdateMs);
+		AUDIT_TIME("emissive_tlas_ms", emissiveTlasMs);
+		AUDIT_TIME("frame_graph_ms", frameGraphMs);
+		AUDIT_TIME("post_diagnostics_ms", postFrameDiagnosticsMs);
+		AUDIT_TIME("unattributed_ms", unattributedMs);
+		AUDIT_TIME("static_scene_ms", staticSceneMs);
+		AUDIT_TIME("mutation_ms", runtimeMutationMs);
+		AUDIT_TIME("mutation_discovery_ms", runtimeMutationDiscoveryMs);
+		AUDIT_TIME("mutation_analyze_ms", runtimeMutationAnalyzeMs);
+		AUDIT_TIME("mutation_material_ms", runtimeMutationMaterialRefreshMs);
+		AUDIT_TIME("mutation_resident_ms", runtimeMutationResidentApplyMs);
+		AUDIT_TIME("dynamic_capture_ms", dynamicCaptureMs);
+		AUDIT_TIME("voxel_batch_ms", sceneSelectPersistentVoxelBatchMs);
+		AUDIT_TIME("voxel_admission_ms", sceneSelectPersistentVoxelAdmissionPumpMs);
+		AUDIT_TIME("voxel_cache_entry_ms", persistentVoxelBatchCacheEntryMs);
+		AUDIT_TIME("voxel_sort_ms", persistentVoxelBatchSortMs);
+		AUDIT_TIME("voxel_instance_sync_ms", persistentVoxelBatchInstanceSyncMs);
+		AUDIT_TIME("voxel_actor_loop_ms", persistentVoxelBatchActorLoopMs);
+		AUDIT_TIME("voxel_material_variant_ms", persistentVoxelBatchMaterialVariantMs);
+		AUDIT_TIME("voxel_material_bridge_ms", persistentVoxelBatchMaterialBridgeMs);
+		AUDIT_TIME("voxel_mesh_admission_ms", persistentVoxelBatchMeshAdmissionMs);
+		AUDIT_TIME("material_bridge_ms", sceneSelectMaterialBridgeMs);
+		AUDIT_TIME("material_build_ms", materialBuildMs);
+		AUDIT_TIME("actor_override_map_ms", actorOverrideMapBuildMs);
+		AUDIT_TIME("textures_ms", sceneSelectTexturesMs);
+		AUDIT_TIME("texture_prepare_ms", sceneSelectTexturePrepMs);
+		AUDIT_TIME("texture_lookup_ms", sceneTextureLookupMs);
+		AUDIT_TIME("texture_realize_ms", sceneTextureRealizeMs);
+		AUDIT_TIME("texture_descriptor_ms", sceneTextureDescriptorMs);
+		AUDIT_TIME("texture_transition_ms", sceneTextureTransitionMs);
+		AUDIT_TIME("buffer_upload_ms", sceneSelectBufferUploadMs);
+		AUDIT_TIME("persistent_voxel_as_ms", persistentVoxelAsMs);
+		AUDIT_TIME("dynamic_as_ms", dynamicAsMs);
+		AUDIT_TIME("world_tlas_ms", worldTlasMs);
+		AUDIT_TIME("scene_data_ms", sceneDataSetMs);
+		AUDIT_TIME("state_commit_ms", sceneSelectStateCommitMs);
+		AUDIT_TIME("persistent_emissive_ms", sceneSelectPersistentEmissiveMs);
+		AUDIT_TIME("dynamic_merge_ms", sceneSelectDynamicMergeMs);
+		AUDIT_TIME("dynamic_merge_copy_ms", sceneSelectDynamicMergeCopyMs);
+		AUDIT_TIME("dynamic_merge_geometry_ms", sceneSelectDynamicMergeGeometryMs);
+		AUDIT_TIME("dynamic_merge_material_ms", sceneSelectDynamicMergeMaterialMs);
+		AUDIT_TIME("light_static_append_ms", sceneLightStaticAppendMs);
+		AUDIT_TIME("light_mutation_append_ms", sceneLightRuntimeMutationAppendMs);
+		AUDIT_TIME("light_dynamic_append_ms", sceneLightDynamicAppendMs);
+		AUDIT_TIME("light_voxel_append_ms", sceneLightPersistentVoxelAppendMs);
+		AUDIT_TIME("light_analytic_ms", sceneLightAnalyticMs);
+		AUDIT_TIME("light_emissive_ms", sceneLightEmissiveMs);
+		AUDIT_TIME("light_sector_ms", sceneLightSectorMs);
+		AUDIT_TIME("trace_cpu_ms", traceOpaqueMs);
+		AUDIT_TIME("trace_readback_ms", traceOpaqueReadbackMs);
+		AUDIT_TIME("trace_command_ms", traceOpaqueCommandMs);
+		AUDIT_TIME("trace_stats_copy_ms", traceOpaqueStatsCopyMs);
+#undef AUDIT_TIME
+		json.Time("resource_wait_ms", resource.waitMs);
+		json.Time("scene_buffer_wait_ms", resource.sceneBufferUploadWaitMs);
+		json.Time("scene_data_wait_ms", resource.sceneDataUploadWaitMs);
+		json.Time("emissive_upload_wait_ms", resource.emissiveSamplingUploadWaitMs);
+		json.Add(",\"wait_calls\":%u,\"scene_upload_bytes\":%llu,\"scene_data_upload_bytes\":%llu,\"emissive_upload_bytes\":%llu,\"resource_growths\":%u,\"material_build_ms_by_slot\":[",
+			resource.waitCalls, (unsigned long long)resource.sceneUploadBytes, (unsigned long long)resource.sceneDataUploadBytes,
+			(unsigned long long)resource.emissiveUploadBytes, resource.growEvents);
+		for (size_t slot = 0; slot < shell.materialBuildByLabel.size(); ++slot)
+		{
+			const double value = shell.materialBuildByLabel[slot].materialBuildMs;
+			if (std::isfinite(value)) json.Add("%s%.6f", slot ? "," : "", value);
+			else json.Add("%snull", slot ? "," : "");
+		}
+		json.Add("],\"basic_counts_available\":%s,\"composition_counts_available\":%s,\"texture_inner_trace_times_available\":true",
+			shell.successDiagnosticsBasicCollected ? "true" : "false",
+			shell.successDiagnosticsInstanceCompositionCollected ? "true" : "false");
+		if (shell.successDiagnosticsBasicCollected)
+			json.Add(",\"active_primitives\":%u,\"active_materials\":%u,\"scene_instances\":%u",
+				shell.activePrimitiveCount, shell.activeMaterialCount, shell.sceneInstanceCount);
+		else json.Add(",\"active_primitives\":null,\"active_materials\":null,\"scene_instances\":null");
+		json.Write("scene_cpu");
+	}
+}
 
 void NRIRenderDevice::CaptureCompactPerfRendererStats(bool rendered)
 {
 	const PerfCompactCaptureToken token = PerfCompactCaptureGetCurrentToken();
-	if (!token || mRenderer == nullptr) return;
+	const bool audit = PerfAuditCensusRequested();
+	if ((!token && !audit) || mRenderer == nullptr) return;
 
 	const auto& shell = mRenderer->GetLastPerfShellTraceStats();
 	const auto& resource = mRenderer->GetLastPerfResourceTraceStats();
+	if (audit) CaptureAuditSceneSnapshot(shell, resource, mLastFrameBoundaryStats.frameNumber, rendered);
+	if (!token) return;
 	PerfCompactNriStats stats = {};
 	stats.frame = mLastFrameBoundaryStats.frameNumber;
 	stats.traceRendererFrame = shell.traceRendererFrame;
@@ -162,6 +294,19 @@ void NRIRenderDevice::CaptureCompactPerfRendererStats(bool rendered)
 
 void NRIRenderDevice::CaptureCompactPerfFrameBoundary(bool presentOk)
 {
+	if (PerfAuditActive())
+	{
+		AuditSnapshotJson json;
+		json.Add("\"renderer_frame\":%llu,\"valid\":true,\"path_traced\":%s,\"present_ok\":%s,\"timing_unit\":\"ms\",\"timing_gate\":\"always_collected\"",
+			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+			mLastFrameBoundaryStats.pathTracedSceneRendered ? "true" : "false", presentOk ? "true" : "false");
+		json.Time("wait_ms", mLastFrameBoundaryStats.waitMs);
+		json.Time("wait_present_ms", mLastFrameBoundaryStats.waitForPresentMs);
+		json.Time("acquire_ms", mLastFrameBoundaryStats.acquireMs);
+		json.Time("submit_ms", mLastFrameBoundaryStats.submitMs);
+		json.Time("present_ms", mLastFrameBoundaryStats.presentMs);
+		json.Write("frame_boundary");
+	}
 	const PerfCompactCaptureToken token = PerfCompactCaptureGetCurrentToken();
 	if (!token) return;
 	PerfCompactBoundaryStats stats = {};

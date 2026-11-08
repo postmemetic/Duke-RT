@@ -1154,6 +1154,7 @@ public:
 	nri_scene::SceneDebugStats BuildOverlayDebugStats() const;
 	uint64_t BuildSceneGenerationHash() const;
 	void RebuildBatchMaterialBridge(PersistentVoxelBatch& targetBatch);
+	void CapturePerfAuditCensus(uint32_t rendererFrameIndex) const;
 	bool PublishCanonicalMaterialResource(
 		PersistentVoxelMaterialVariantResource& candidate,
 		bool& outReused);

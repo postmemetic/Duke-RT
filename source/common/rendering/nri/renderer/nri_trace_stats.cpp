@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
 #include <vector>
 
 
@@ -151,6 +152,7 @@ void NRITraceShaderStats::Destroy(const NRIResourceServices& services)
 	services.DestroyBufferResource(mZeroBuffer);
 	for (ReadbackSlot& slot : mReadbackSlots)
 	{
+		if (slot.pending) NRITraceAuditLoss(slot.audit, slot.frameNumber, slot.fenceValue, "resource_destroyed", true);
 		services.DestroyBufferResource(slot.buffer);
 		slot = {};
 	}
@@ -158,10 +160,12 @@ void NRITraceShaderStats::Destroy(const NRIResourceServices& services)
 	mNextCopySerial = 1;
 	mReadbackConsumerFence = 0;
 	mNextCopySlot = 0;
+	mResetRecorded = false;
 }
 
 void NRITraceShaderStats::ResetBuffer(const NRIResourceServices& services, bool enabled)
 {
+	mResetRecorded = false;
 	const NRIResourceContext& context = services.context;
 	if (!enabled || context.commandBuffer == nullptr || context.core == nullptr || !Ensure(services))
 	{
@@ -196,6 +200,7 @@ void NRITraceShaderStats::ResetBuffer(const NRIResourceServices& services, bool 
 	afterDesc.buffers = &afterBarrier;
 	afterDesc.bufferNum = 1;
 	context.core->CmdBarrier(*context.commandBuffer, afterDesc);
+	mResetRecorded = true;
 }
 
 void NRITraceShaderStats::ClearReadbackSlot(uint32_t slotIndex)
@@ -207,6 +212,8 @@ void NRITraceShaderStats::ClearReadbackSlot(uint32_t slotIndex)
 	ReadbackSlot& slot = mReadbackSlots[slotIndex];
 	slot.attribution.clear();
 	slot.frameNumber = 0;
+	slot.audit = {};
+	slot.auditInstanceCount = 0;
 	slot.dispatchMetadata = {};
 	slot.fenceValue = 0;
 	slot.copySerial = 0;
@@ -230,18 +237,26 @@ void NRITraceShaderStats::CopyForReadback(
 	const NRIResourceContext& context = services.context;
 	if (!input.enabled || context.commandBuffer == nullptr || context.core == nullptr)
 	{
+		NRITraceAuditLoss(input.audit, input.frameNumber, 0, "invalid_copy_context");
 		return;
 	}
 	mObserver.copiesRequested++;
+	if (input.audit && !mResetRecorded)
+	{
+		NRITraceAuditLoss(input.audit, input.frameNumber, input.fences.GetRecordingCommandFenceValue(), "reset_not_recorded");
+		return;
+	}
 
 	const uint64_t fenceValue = input.fences.GetRecordingCommandFenceValue();
 	if (fenceValue == 0)
 	{
+		NRITraceAuditLoss(input.audit, input.frameNumber, fenceValue, "no_fence");
 		mObserver.copiesDroppedNoFence++;
 		return;
 	}
 	if (!Ensure(services))
 	{
+		NRITraceAuditLoss(input.audit, input.frameNumber, fenceValue, "buffer_unavailable");
 		return;
 	}
 
@@ -250,6 +265,7 @@ void NRITraceShaderStats::CopyForReadback(
 		ReadbackSlot& slot = mReadbackSlots[slotIndex];
 		if (slot.pending && input.fences.IsCommandFenceValueAbandoned(slot.fenceValue))
 		{
+			NRITraceAuditLoss(slot.audit, slot.frameNumber, slot.fenceValue, "fence_abandoned", true);
 			ClearReadbackSlot(slotIndex);
 			mObserver.readbacksAbandoned++;
 		}
@@ -267,6 +283,7 @@ void NRITraceShaderStats::CopyForReadback(
 	}
 	if (selectedSlot == NRI_TRACE_SHADER_INVALID_READBACK_SLOT)
 	{
+		NRITraceAuditLoss(input.audit, input.frameNumber, fenceValue, "slots_busy");
 		mObserver.copiesDroppedBusy++;
 		return;
 	}
@@ -317,6 +334,9 @@ void NRITraceShaderStats::CopyForReadback(
 		0,
 		byteSize);
 	slot.frameNumber = input.frameNumber;
+	slot.audit = input.audit;
+	slot.auditInstanceCount = input.boundSceneInstances != nullptr ? (uint32_t)input.boundSceneInstances->size() : 0;
+	if (slot.audit) PerfAuditAdd(PerfAuditMetric::AuditReadbacksRecorded);
 	slot.dispatchMetadata = input.dispatchMetadata;
 	slot.fenceValue = fenceValue;
 	slot.copySerial = mNextCopySerial++;
@@ -344,6 +364,54 @@ void NRITraceShaderStats::Readback(
 	if (context.core == nullptr)
 	{
 		return;
+	}
+	if (PerfAuditCensusRequested())
+	{
+		uint64_t readbackBytes = 0, attributionCapacity = 0;
+		uint32_t pending = 0;
+		for (const auto& slot : mReadbackSlots)
+		{
+			readbackBytes += slot.buffer.memorySize;
+			attributionCapacity += slot.attribution.capacity() * sizeof(NRITraceShaderInstanceAttribution);
+			pending += slot.pending ? 1u : 0u;
+		}
+		char fields[512];
+		snprintf(fields, sizeof(fields), "\"device_bytes\":%llu,\"upload_bytes\":%llu,\"readback_bytes\":%llu,\"attribution_capacity_bytes\":%llu,\"pending_slots\":%u,\"slot_capacity\":%u",
+			(unsigned long long)mStatsBuffer.memorySize, (unsigned long long)mZeroBuffer.memorySize,
+			(unsigned long long)readbackBytes, (unsigned long long)attributionCapacity, pending, (uint32_t)mReadbackSlots.size());
+		PerfAuditWriteEvent("trace_observer_memory", PerfAuditCurrentToken(), fields);
+	}
+
+	// Audit samples are producer-attributed and complete-or-explicit-loss. Drain
+	// every ready audit slot before the legacy newest-only display observer; the
+	// current capture toggle must not discard a previous producer's sample.
+	for (uint32_t slotIndex = 0; slotIndex < mReadbackSlots.size(); ++slotIndex)
+	{
+		ReadbackSlot& slot = mReadbackSlots[slotIndex];
+		if (!slot.pending || !slot.audit) continue;
+		if (fences.IsCommandFenceValueAbandoned(slot.fenceValue))
+		{
+			NRITraceAuditLoss(slot.audit, slot.frameNumber, slot.fenceValue, "fence_abandoned", true);
+			ClearReadbackSlot(slotIndex);
+			mObserver.readbacksAbandoned++;
+			continue;
+		}
+		if (!fences.IsCommandFenceValueComplete(slot.fenceValue)) continue;
+		const auto* counters = static_cast<const uint32_t*>(context.core->MapBuffer(*slot.buffer.buffer, 0,
+			(uint64_t)NRI_TRACE_SHADER_STAT_COUNT * sizeof(uint32_t)));
+		if (counters == nullptr)
+		{
+			NRITraceAuditLoss(slot.audit, slot.frameNumber, slot.fenceValue, "map_failed");
+			mObserver.readbackMapFailures++;
+		}
+		else
+		{
+			NRIPublishTraceAudit(slot.audit, slot.frameNumber, slot.fenceValue, slot.dispatchMetadata,
+				counters, slot.attribution, slot.auditInstanceCount);
+			context.core->UnmapBuffer(*slot.buffer.buffer);
+			mObserver.readbacksPublished++;
+		}
+		ClearReadbackSlot(slotIndex);
 	}
 
 	std::array<NRITraceShaderReadbackSlotObservation, NRI_TRACE_SHADER_READBACK_SLOT_COUNT> observations = {};

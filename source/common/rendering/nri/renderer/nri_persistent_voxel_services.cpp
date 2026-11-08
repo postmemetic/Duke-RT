@@ -1,4 +1,5 @@
 #include "nri_persistent_voxel_services.h"
+#include "../scene/nri_cpu_perf_audit.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 #include "nri_render_geometry_helpers.h"
@@ -805,6 +806,7 @@ public:
 		NRIPersistentVoxelMaterialClosureSource source,
 		NRIPersistentVoxelMaterialClosureResult& outResult)
 	{
+		PerfAuditScope audit(PerfAuditMetric::VoxelMaterialClosureNs);
 		EnsurePersistentVoxelMaterialClosureBuildSerial(renderer, buildSerial, FirstUseFrameIndex(renderer));
 		PersistentVoxelMaterialClosureServiceState& state = GetPersistentVoxelMaterialClosureState(renderer);
 		NRIPersistentVoxelMaterialSeed seed = {};
@@ -925,6 +927,7 @@ public:
 		nri_scene::MaterialBridgeData& outMaterials,
 		NRIPersistentVoxelMaterialClosureResult& outResult)
 	{
+		PerfAuditScope audit(PerfAuditMetric::VoxelMaterialClosureNs);
 		EnsurePersistentVoxelMaterialClosureBuildSerial(renderer, buildSerial, FirstUseFrameIndex(renderer));
 		PersistentVoxelMaterialClosureServiceState& state = GetPersistentVoxelMaterialClosureState(renderer);
 		const NRIPersistentVoxelMaterialSeed* seed =
@@ -933,6 +936,12 @@ public:
 		{
 			return false;
 		}
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialClosureCopies);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialClosureRowsCopied, seed->materials.size());
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialClosureBytesCopied,
+			seed->materials.size() * sizeof(NRIPersistentVoxelMaterialRowSeed) +
+			seed->lighting.size() * sizeof(NRIPersistentVoxelMaterialLightingSeed) +
+			seed->textures.size() * sizeof(NRIPersistentVoxelTextureDependency));
 		NRIPersistentVoxelMaterialSeed refreshedSeed = *seed;
 
 		for (size_t textureIndex = 0; textureIndex < refreshedSeed.textures.size(); ++textureIndex)
@@ -988,6 +997,7 @@ public:
 			validatedSignature,
 			PerfCompactFirstUseState::Ready);
 
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialClosureRowsBuilt, refreshedSeed.materials.size());
 		outMaterials = {};
 		outMaterials.materials.reserve(refreshedSeed.materials.size());
 		for (const NRIPersistentVoxelMaterialRowSeed& material : refreshedSeed.materials)
@@ -1221,7 +1231,19 @@ public:
 			NRIScopedGpuTiming arenaCopyGpuTiming(
 				recordsCopy ? renderer.mFrameBuffer : nullptr,
 				NRIGpuTimingScope::VoxelArenaCopy);
-			return renderer.EnsureResidentArenaBuffer(resource, requiredSize, stride, usage, after);
+			const uint64_t oldBytes = resource.memorySize;
+			const uint64_t oldUsed = resource.usedSize;
+			const auto oldBuffer = resource.buffer;
+			const bool ready = renderer.EnsureResidentArenaBuffer(resource, requiredSize, stride, usage, after);
+			if (ready && resource.buffer != oldBuffer)
+			{
+				PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaGrowths);
+				PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaOldBytes, oldBytes);
+				PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaNewBytes, resource.memorySize);
+				PerfAuditSet(PerfAuditMetric::VoxelGeometryArenaOverlapBytes, oldBytes + resource.memorySize);
+				if (recordsCopy) PerfAuditAdd(PerfAuditMetric::VoxelArenaCopyBytes, std::min(oldUsed, resource.size));
+			}
+			return ready;
 		};
 		services.stageBufferCopyRange = [](void* user, NRIBufferResource& resource, uint64_t byteOffset, const void* data, uint64_t size, nri::AccessStage after, int uploadKind) -> bool
 		{
@@ -1640,7 +1662,19 @@ public:
 			NRIScopedGpuTiming arenaCopyGpuTiming(
 				recordsCopy ? renderer.mFrameBuffer : nullptr,
 				NRIGpuTimingScope::VoxelArenaCopy);
-			return renderer.EnsureResidentArenaBuffer(resource, requiredSize, stride, usage, after);
+			const uint64_t oldBytes = resource.memorySize;
+			const uint64_t oldUsed = resource.usedSize;
+			const auto oldBuffer = resource.buffer;
+			const bool ready = renderer.EnsureResidentArenaBuffer(resource, requiredSize, stride, usage, after);
+			if (ready && resource.buffer != oldBuffer)
+			{
+				PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaGrowths);
+				PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaOldBytes, oldBytes);
+				PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaNewBytes, resource.memorySize);
+				PerfAuditSet(PerfAuditMetric::VoxelGeometryArenaOverlapBytes, oldBytes + resource.memorySize);
+				if (recordsCopy) PerfAuditAdd(PerfAuditMetric::VoxelArenaCopyBytes, std::min(oldUsed, resource.size));
+			}
+			return ready;
 		};
 		batchServices.stageBufferCopyRange = [](void* user, NRIBufferResource& resource, uint64_t byteOffset, const void* data, uint64_t size, nri::AccessStage after, int uploadKind) -> bool
 		{

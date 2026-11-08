@@ -1,4 +1,5 @@
 #include "nri_scene_material_frame_cache.h"
+#include "../scene/nri_cpu_perf_audit.h"
 
 #include <algorithm>
 
@@ -40,6 +41,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 		mCombinedMaterials.materials.resize(mResidentMaterialCount);
 		mCombinedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
 		mCombinedMaterials.textures.resize(mResidentTextureCount);
+		NRIAuditFrameBridgeCopy(staticMaterials);
 		std::copy(staticMaterials.materials.begin(), staticMaterials.materials.end(), mCombinedMaterials.materials.begin());
 		std::copy(staticMaterials.lightMetadata.begin(), staticMaterials.lightMetadata.end(), mCombinedMaterials.lightMetadata.begin());
 		std::copy(staticMaterials.textures.begin(), staticMaterials.textures.end(), mCombinedMaterials.textures.begin());
@@ -58,11 +60,18 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 
 	if (rebuildResident)
 	{
+		NRIAuditFrameBridgeCopy(staticMaterials);
 		mCombinedMaterials = staticMaterials;
 		outStats.staticRowsCopied = (uint32_t)staticMaterials.materials.size();
 		if (hasPersistentMaterials)
 		{
+			const uint64_t auditBytesBefore = PerfAuditActive() ? NRIAuditMaterialBridgeBytes(mCombinedMaterials) : 0;
 			nri_scene::AppendMaterialBridge(*persistentMaterials, mCombinedMaterials);
+			if (PerfAuditActive())
+			{
+				PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeRowsCopied, persistentMaterials->materials.size());
+				PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeBytesCopied, NRIAuditMaterialBridgeBytes(mCombinedMaterials) - auditBytesBefore);
+			}
 			outStats.persistentRowsAppended = (uint32_t)persistentMaterials->materials.size();
 		}
 
@@ -106,6 +115,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		mResolvedTextureSlotRevision != slotTable.MappingRevision();
 	if (rebuildResident)
 	{
+		NRIAuditFrameBridgeCopy(mCombinedMaterials);
 		mResolvedMaterials = mCombinedMaterials;
 		mResolvedMaterials.materials.resize(mResidentMaterialCount);
 		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);

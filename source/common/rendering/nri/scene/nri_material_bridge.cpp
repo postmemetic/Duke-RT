@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "../../../engine/perf_audit.h"
 #include "nri_sector_color_policy.h"
 #include "nri_voxel_palette_policy.h"
 #include "../renderer/nri_cvars.h"
@@ -885,6 +886,7 @@ namespace
 
 		if (surface.material.voxelPalettePolicy != nullptr && surface.materialRowSpan == VoxelPalettePolicyEntryCount)
 		{
+			PerfAuditAdd(PerfAuditMetric::VoxelPolicyRowsBuilt, VoxelPalettePolicyEntryCount);
 			const MaterialData baseMaterial = outMaterials.materials.back();
 			const MaterialLightingMetadata baseMetadata = outMaterials.lightMetadata.back();
 			const size_t baseRow = outMaterials.materials.size() - 1u;

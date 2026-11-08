@@ -31,6 +31,7 @@ public:
 
 	const uint8_t* Data() const { return bytes.empty() ? nullptr : bytes.data(); }
 	uint64_t Size() const { return bytes.size(); }
+	uint64_t CapacityBytes() const { return bytes.capacity() + rollbackBytes.capacity() + rollbackRanges.capacity() * sizeof(RollbackRange); }
 
 private:
 	struct RollbackRange

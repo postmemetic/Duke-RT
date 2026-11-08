@@ -1,5 +1,6 @@
 #include "nri_scene_lights.h"
 #include "nri_scene_light_rule_helpers.h"
+#include "nri_perf_audit.h"
 #include "nri_cvars.h"
 
 #include "nri_actor_sprite_diagnostics.h"
@@ -554,6 +555,8 @@ namespace
 			}
 
 			destination.push_back(surface);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSurfaceCopyBytes, sizeof(surface) +
+				surface.vertices.size() * sizeof(nri_scene::CapturedVertex) + surface.indices.size() * sizeof(uint32_t) + surface.primitiveLocalMaterialSlots.size());
 			if (appendedCount != nullptr)
 			{
 				(*appendedCount)++;
@@ -2573,6 +2576,7 @@ SceneLightSystem::PersistentDynamicMergeStats SceneLightSystem::MergePersistentD
 
 void SceneLightSystem::PrunePersistentDynamicEmissiveCacheToLiveActors(const PersistentDynamicEmissiveCacheBuildServices& services)
 {
+	PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
 	mActorSpriteDebugStats = {};
 	if (!mPersistentDynamicEmissiveCache.valid)
 	{
@@ -2585,8 +2589,10 @@ void SceneLightSystem::PrunePersistentDynamicEmissiveCacheToLiveActors(const Per
 	liveActorsByIndex.reserve(256);
 
 	TSpriteIterator<DCoreActor> it;
+	uint64_t auditActorScans = 0;
 	while (auto actor = it.Next())
 	{
+		auditActorScans++;
 		if (actor == nullptr ||
 			!actor->exists() ||
 			(actor->ObjectFlags & OF_EuthanizeMe) != 0)
@@ -2597,6 +2603,7 @@ void SceneLightSystem::PrunePersistentDynamicEmissiveCacheToLiveActors(const Per
 		liveActorIndices[(int32_t)actor->GetIndex()] = true;
 		liveActorsByIndex[(int32_t)actor->GetIndex()] = actor;
 	}
+	PerfAuditAdd(PerfAuditMetric::EmissiveActorScanRows, auditActorScans);
 
 	bool needsPrune = false;
 	auto detectStaleActorOwnership = [this, &services, &needsPrune, &liveActorIndices, &liveActorsByIndex](const auto& surfaces)
@@ -2696,6 +2703,7 @@ void SceneLightSystem::PrunePersistentDynamicEmissiveCacheToLiveActors(const Per
 	{
 		return;
 	}
+	PerfAuditAdd(PerfAuditMetric::EmissivePruneRebuilds);
 
 	PersistentDynamicEmissiveCache next = {};
 	next.sceneView.drawInfo = mPersistentDynamicEmissiveCache.sceneView.drawInfo;
@@ -2727,6 +2735,8 @@ void SceneLightSystem::PrunePersistentDynamicEmissiveCacheToLiveActors(const Per
 			}
 
 			destination.push_back(surface);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSurfaceCopyBytes, sizeof(surface) +
+				surface.vertices.size() * sizeof(nri_scene::CapturedVertex) + surface.indices.size() * sizeof(uint32_t) + surface.primitiveLocalMaterialSlots.size());
 		}
 	};
 
@@ -2771,6 +2781,10 @@ bool SceneLightSystem::RebuildPersistentDynamicEmissiveCache(
 	const nri_scene::MaterialBridgeData& materials,
 	const PersistentDynamicEmissiveCacheBuildServices& services)
 {
+	PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
+	PerfAuditAdd(PerfAuditMetric::EmissiveRebuilds);
+	PerfAuditSet(PerfAuditMetric::EmissiveCurrentSurfaces,
+		sceneView.opaqueWalls.size() + sceneView.opaqueFlats.size() + sceneView.opaqueSprites.size());
 	PersistentDynamicEmissiveCache next = {};
 	next.sceneView.drawInfo = sceneView.drawInfo;
 	next.sceneView.sky = sceneView.sky;
@@ -2817,6 +2831,8 @@ bool SceneLightSystem::RebuildPersistentDynamicEmissiveCache(
 				if (seenSurfaceKeys.insert(identityKey).second)
 				{
 					destination.push_back(surface);
+					PerfAuditAdd(PerfAuditMetric::EmissiveSurfaceCopyBytes, sizeof(surface) +
+						surface.vertices.size() * sizeof(nri_scene::CapturedVertex) + surface.indices.size() * sizeof(uint32_t) + surface.primitiveLocalMaterialSlots.size());
 				}
 			}
 			materialIndex++;

@@ -1,4 +1,5 @@
 #include "nri_scene_bridge.h"
+#include "nri_cpu_perf_audit.h"
 #include "nri_voxel_actor_publication.h"
 #include "nri_scene_view_scratch.h"
 #include "nri_retained_scratch.h"
@@ -5259,6 +5260,7 @@ namespace
 		auto found = gVoxelMeshCache.find(model);
 		if (found == gVoxelMeshCache.end())
 		{
+			PerfAuditAdd(PerfAuditMetric::VoxelMeshCacheMisses);
 			gDynamicCapturePerfStats.voxelMeshCacheMisses++;
 			if (!CanBuildVoxelMeshThisFrame())
 			{
@@ -5339,7 +5341,8 @@ namespace
 		}
 		else
 		{
-			gDynamicCapturePerfStats.voxelMeshCacheHits++;
+			PerfAuditAdd(PerfAuditMetric::VoxelMeshCacheHits);
+		gDynamicCapturePerfStats.voxelMeshCacheHits++;
 		}
 
 		const VoxelMeshCacheEntry& entry = found->second;
@@ -5637,6 +5640,7 @@ namespace
 		auto found = gVoxelMeshVariantSurfaceCache.find(lookup.meshVariantHash);
 		if (found == gVoxelMeshVariantSurfaceCache.end())
 		{
+			PerfAuditAdd(PerfAuditMetric::VoxelCanonicalCacheMisses);
 			VoxelMeshVariantSurfaceCacheEntry entry = {};
 			entry.meshVariantHash = lookup.meshVariantHash;
 			entry.sourcePicnum = lookup.sourcePicnum;
@@ -5664,6 +5668,7 @@ namespace
 		}
 		else
 		{
+			PerfAuditAdd(PerfAuditMetric::VoxelCanonicalCacheHits);
 			if (recordPerf)
 			{
 				gDynamicCapturePerfStats.voxelCanonicalSurfaceHits++;
@@ -6834,6 +6839,19 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.voxelFrameMs);
 		return BeginVoxelActorCacheFrame();
 	}();
+	if (rootVoxelCacheFrame && PerfAuditCensusRequested())
+	{
+		PerfAuditScope census(PerfAuditMetric::VoxelRegistryCensusNs);
+		uint64_t meshBytes = 0, canonicalBytes = 0;
+		for (const auto& pair : gVoxelMeshCache)
+			meshBytes += (uint64_t)pair.second.mesh.vertices.Size() * sizeof(FModelVertex) + (uint64_t)pair.second.mesh.indices.Size() * sizeof(unsigned int);
+		for (const auto& pair : gVoxelMeshVariantSurfaceCache)
+			canonicalBytes += NRIAuditSurfaceBytes(pair.second.canonicalSurface, true);
+		PerfAuditSet(PerfAuditMetric::VoxelCpuMeshCacheEntries, gVoxelMeshCache.size());
+		PerfAuditSet(PerfAuditMetric::VoxelCpuMeshCacheBytes, meshBytes);
+		PerfAuditSet(PerfAuditMetric::VoxelCpuCanonicalEntries, gVoxelMeshVariantSurfaceCache.size());
+		PerfAuditSet(PerfAuditMetric::VoxelCpuCanonicalBytes, canonicalBytes);
+	}
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.countMs);
 		outView.stats.wallDrawItems =

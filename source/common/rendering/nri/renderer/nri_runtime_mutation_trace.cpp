@@ -3,6 +3,7 @@
 
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 
 
 namespace nri_runtime_mutation
@@ -19,7 +20,7 @@ namespace nri_runtime_mutation
 
 	bool ShouldCollectRuntimeMutationPerfTiming()
 	{
-		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	static double RuntimeMutationDurationMs(const std::chrono::steady_clock::time_point& start, const std::chrono::steady_clock::time_point& end)

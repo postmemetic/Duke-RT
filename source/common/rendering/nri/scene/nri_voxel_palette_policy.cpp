@@ -1,6 +1,7 @@
 #include "nri_voxel_palette_policy.h"
 
 #include "nri_hash.h"
+#include "../../../engine/perf_audit.h"
 
 #include "cmdlib.h"
 #include "filesystem.h"
@@ -644,7 +645,9 @@ class VoxelPalettePolicyCache::Impl
 public:
 	VoxelPalettePolicyResolution Resolve(const VoxelPalettePolicyRequest& request, bool forceReload)
 	{
+		PerfAuditScope audit(PerfAuditMetric::VoxelPolicyLookupNs);
 		std::lock_guard<std::mutex> lock(mMutex);
+		if (PerfAuditCensusRequested()) PerfAuditSet(PerfAuditMetric::VoxelPolicyCacheEntries, mEntries.size());
 		return ResolveLocked(request, forceReload);
 	}
 
@@ -701,9 +704,12 @@ private:
 		auto existing = mEntries.find(key);
 		if (!forceReload && existing != mEntries.end())
 		{
+			PerfAuditAdd(PerfAuditMetric::VoxelPolicyLookupHits);
+			PerfAuditAdd(PerfAuditMetric::VoxelPolicyResultCopies);
 			return existing->second.result;
 		}
 
+		PerfAuditAdd(PerfAuditMetric::VoxelPolicyLookupMisses);
 		VoxelPalettePolicyResolution result;
 		const std::shared_ptr<const VoxelPalettePolicyDocument> previousPolicy =
 			existing != mEntries.end() ? existing->second.result.policy : nullptr;

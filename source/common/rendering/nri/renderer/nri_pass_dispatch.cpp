@@ -8,11 +8,13 @@
 #include "nri_renderer_settings.h"
 #include "nri_scene_upload.h"
 #include "nri_shader_contracts.h"
+#include "nri_perf_audit.h"
 #include "../system/nri_renderdevice.h"
 #include "../system/nri_gpu_timing.h"
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -36,7 +38,7 @@ namespace
 
 	static bool ShouldCollectPtPerfTiming()
 	{
-		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	static bool ShouldEnableTraceShaderStats(const NRIRenderDevice* device)
@@ -435,6 +437,8 @@ bool NRIPassDispatcher::DispatchFrameGraph(NRIPassDispatchContext& context, HWDr
 
 bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWDrawInfo&, const nri_scene::GeometryData& geometry, const std::vector<nri_scene::MaterialData>& materials)
 {
+	if (PerfAuditCensusRequested() && context.mResources.frameBuffer != nullptr)
+		context.mResources.frameBuffer->CapturePerfAuditMemoryCensus();
 	NRIScopedGpuTiming gpuTiming(context.mResources.frameBuffer, NRIGpuTimingScope::Trace);
 	Clocker clock(NriPTTraceOpaque);
 	ScopedPtPerfTimer traceOpaqueTimer(context.mLastPerfShellTraceStats.traceOpaqueMs);
@@ -587,7 +591,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		!nri_ptindirectradiancecache &&
 		context.mPipelines.Get(NRIRenderer::PipelineSlot::TraceOpaqueLeanDebug) != nullptr;
 	const bool rawDebugLeanActive = nri_ptrawdebuglightingelision && rawDebugLeanEligible;
-	if (ShouldCollectPtPerfTiming() && (nri_ptrawdebuglightingelision || rawDebugLightingIndependent))
+	if ((ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive()) && (nri_ptrawdebuglightingelision || rawDebugLightingIndependent))
 	{
 		Printf("PERF pt raw debug variant NRI: nri_frame=%llu debug=%u requested=%u eligible=%u active=%u shader=%s\n",
 			(unsigned long long)context.mFrame.frameIndex + 1ull, constants.DebugMode,
@@ -598,7 +602,13 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	constants.StaticPrimitiveCount = context.mSceneStats.staticPrimitiveCount;
 	constants.FrameIndex = context.mFrame.frameIndex;
 	constants.DynamicPrimitiveCount = context.mSceneStats.dynamicPrimitiveCount;
+	const NRITraceAuditCapture auditCapture = NRIBeginTraceAudit(
+		context.mResources.frameBuffer != nullptr && context.mResources.frameBuffer->UsesDiagnosticTraceShaderVariant(indirectRadianceCacheActive, rawDebugLeanActive),
+		ShouldCollectTraceShaderStats(context.mResources.frameBuffer) || (int)nri_pt360absenceformat == 2,
+		(uint64_t)context.mFrame.frameIndex,
+		BuildTraceShaderStatsFenceServices(context.mResources.frameBuffer).GetRecordingCommandFenceValue());
 	constants.Flags =
+		(auditCapture ? NRI_TRACE_FLAG_PERF_AUDIT : 0u) |
 		(context.mFrame.resetHistory ? NRI_FLAG_RESET_HISTORY : 0u) |
 		(directSceneTrace ? NRI_FLAG_PRESENT_RAW_TRACE : 0u) |
 		(context.mUseSplitShadowDenoiser && !directSceneTrace ? NRI_FLAG_SPLIT_SHADOW_DENOISER : 0u) |
@@ -705,6 +715,8 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		context.mPipelines.GetIndirectRadianceCachePipelineLayout() : context.mPipelineLayout;
 	if (tracePipelineLayout == nullptr)
 	{
+		NRITraceAuditLoss(auditCapture, context.mFrame.frameIndex,
+			BuildTraceShaderStatsFenceServices(context.mResources.frameBuffer).GetRecordingCommandFenceValue(), "pipeline_layout_unavailable");
 		return false;
 	}
 	const bool tangentDiagnosticWindow =
@@ -722,6 +734,8 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	context.mCommands.SetRootConstants(&constants, sizeof(constants));
 	if (!context.mSceneBinding.BindSceneRootDescriptors())
 	{
+		NRITraceAuditLoss(auditCapture, context.mFrame.frameIndex,
+			BuildTraceShaderStatsFenceServices(context.mResources.frameBuffer).GetRecordingCommandFenceValue(), "scene_descriptors_unavailable");
 		return false;
 	}
 	context.mCommands.SetDescriptorSet(0, context.mSamplerSet);
@@ -855,7 +869,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	tracePerf.traceWorkloadKeyWithoutStaticTangent = AppendTraceWorkloadHash(workloadKeyWithoutStaticTangent, emissivePowerBits);
 	{
 		ScopedPtPerfTimer perfTimer(context.mLastPerfShellTraceStats.traceOpaqueCommandMs);
-		context.mTraceShaderStats.ResetBuffer(context.mResources.BuildResourceServices(), ShouldCollectTraceShaderStats(context.mResources.frameBuffer));
+		context.mTraceShaderStats.ResetBuffer(context.mResources.BuildResourceServices(), auditCapture || ShouldCollectTraceShaderStats(context.mResources.frameBuffer));
 		context.mCommands.core->CmdBeginAnnotation(*context.mCommands.commandBuffer, "Raze.TraceOpaque.Dispatch", nri::BGRA_UNUSED);
 		context.mCommands.SetPipeline(context.mPipelines.Get(
 			indirectRadianceCacheActive ? NRIRenderer::PipelineSlot::TraceOpaqueCache :
@@ -869,7 +883,8 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	{
 		ScopedPtPerfTimer perfTimer(context.mLastPerfShellTraceStats.traceOpaqueStatsCopyMs);
 		NRITraceShaderStatsCopyInput input = {};
-		input.enabled = ShouldCollectTraceShaderStats(context.mResources.frameBuffer);
+		input.enabled = auditCapture || ShouldCollectTraceShaderStats(context.mResources.frameBuffer);
+		input.audit = auditCapture;
 		input.frameNumber = (uint64_t)context.mFrame.frameIndex;
 		input.dispatchMetadata.traceFlags = constants.Flags;
 		input.dispatchMetadata.staticTangents = context.mSceneBinding.StaticTangentState();

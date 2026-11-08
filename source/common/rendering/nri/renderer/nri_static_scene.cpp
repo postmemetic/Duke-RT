@@ -19,6 +19,7 @@
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "mapinfo.h"
 #include "texturemanager.h"
 #include "texinfo.h"
@@ -367,7 +368,7 @@ namespace
 
 	static bool ShouldCollectStaticScenePerfTiming()
 	{
-		return ShouldTracePtPerf() || PerfCompactCaptureTimingActive();
+		return ShouldTracePtPerf() || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	class ScopedStaticScenePerfTimer

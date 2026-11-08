@@ -8,6 +8,7 @@
 #include "nri_scene_lights.h"
 #include "printf.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 #include <chrono>
@@ -29,7 +30,7 @@ namespace
 
 	static bool ShouldCollectSceneDataTiming()
 	{
-		return ShouldTraceSceneDataTiming() || PerfCompactCaptureTimingActive();
+		return ShouldTraceSceneDataTiming() || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	class ScopedPtPerfTimer

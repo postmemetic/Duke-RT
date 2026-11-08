@@ -1,4 +1,5 @@
 #include "nri_voxel_actor_publication.h"
+#include "nri_cpu_perf_audit.h"
 
 #include <algorithm>
 #include <cstring>
@@ -143,10 +144,20 @@ std::shared_ptr<const SurfaceRef> VoxelActorPublication::OwnSurface(const Surfac
 	auto& cached = sharedSurfaces.at(source);
 	auto backing = cached.backing.lock();
 	if (backing && cached.geometryHash == geometryHash && cached.primitiveHash == primitiveHash &&
-		SameSurface(source, backing.get(), geometryHash == 0 || primitiveHash == 0)) return backing;
+		SameSurface(source, backing.get(), geometryHash == 0 || primitiveHash == 0))
+	{
+		PerfAuditAdd(PerfAuditMetric::VoxelPublicationCacheHits);
+		return backing;
+	}
+	PerfAuditAdd(PerfAuditMetric::VoxelPublicationCacheMisses);
 	// Canonical geometry is copied once per current source/content, then shared
 	// by all actor bindings. Material/light-only changes retain unchanged meshes.
+	PerfAuditScope copyAudit(PerfAuditMetric::VoxelPublicationCopyNs);
 	backing = std::make_shared<SurfaceRef>(*source);
+	PerfAuditAdd(PerfAuditMetric::VoxelPublicationSurfaceCopies);
+	PerfAuditAdd(source->vertices.empty() && source->indices.empty() && source->primitiveLocalMaterialSlots.empty() ?
+		PerfAuditMetric::VoxelPublicationMetadataCopies : PerfAuditMetric::VoxelPublicationGeometryCopies);
+	if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::VoxelPublicationSurfaceBytes, NRIAuditSurfaceBytes(*source));
 	cached.backing = backing;
 	cached.geometryHash = geometryHash;
 	cached.primitiveHash = primitiveHash;
@@ -258,6 +269,18 @@ void VoxelActorPublication::SetExternalReadiness(uint64_t identity, bool needed)
 
 std::shared_ptr<const VoxelActorPublicationSnapshot> VoxelActorPublication::Publish(uint64_t frame, const BuildEntry& build)
 {
+	if (PerfAuditCensusRequested())
+	{
+		PerfAuditScope census(PerfAuditMetric::VoxelRegistryCensusNs);
+		uint64_t bytes = 0;
+		for (const auto& pair : sharedSurfaces)
+		{
+			if (auto surface = pair.second.backing.lock()) bytes += NRIAuditSurfaceBytes(*surface, true);
+		}
+		PerfAuditSet(PerfAuditMetric::VoxelCpuPublicationBytes, bytes);
+		PerfAuditSet(PerfAuditMetric::VoxelPublicationEntries, current.size());
+		PerfAuditSet(PerfAuditMetric::VoxelPublicationSources, sharedSurfaces.size());
+	}
 	const uint32_t highWater = stats.highWater;
 	stats = {};
 	stats.highWater = std::max(highWater, (uint32_t)current.size());

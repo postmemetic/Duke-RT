@@ -6,6 +6,7 @@
 #include "../system/nri_renderdevice.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "printf.h"
 
 #include <chrono>
@@ -23,7 +24,7 @@ namespace
 
     static bool ShouldCollectResidentStaticPerfTiming()
     {
-		return ShouldTraceResidentStaticPerf() || (bool)nri_ptslowdowntrace || (bool)nri_ptscenestats || PerfCompactCaptureTimingActive();
+		return ShouldTraceResidentStaticPerf() || (bool)nri_ptslowdowntrace || (bool)nri_ptscenestats || PerfCompactCaptureTimingActive() || PerfAuditActive();
     }
 
     static double ResidentStaticDurationMs(const std::chrono::steady_clock::time_point& start, const std::chrono::steady_clock::time_point& end)

@@ -7,6 +7,7 @@
 #include "../system/nri_renderdevice.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -34,7 +35,7 @@ namespace
 
 	static bool ShouldCollectDescriptorTiming()
 	{
-		return (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	static double DurationMs(const std::chrono::steady_clock::time_point& start, const std::chrono::steady_clock::time_point& end)

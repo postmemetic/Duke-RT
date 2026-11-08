@@ -196,11 +196,16 @@ public:
 #endif
 	uint64_t GetAdapterLocalBudgetBytes() const { return mAdapterLocalBudgetBytes; }
 	NRIAdapterMemoryTelemetry GetAdapterMemoryTelemetry() const;
+	void CapturePerfAuditMemoryCensus() const;
 	uint64_t GetAdapterNonLocalBudgetBytes() const { return mAdapterNonLocalBudgetBytes; }
 	NRIBackendCapabilities BuildBackendCapabilities() const;
 	uint32_t BeginGpuTimingScope(NRIGpuTimingScope scope);
 	void EndGpuTimingScope(uint32_t markerIndex);
 	bool UsesDiagnosticShaderVariant() const;
+	bool UsesDiagnosticTraceShaderVariant(bool cache, bool lean) const
+	{
+		return (mDiagnosticTraceAuditVariants & (cache ? 2u : lean ? 4u : 1u)) != 0;
+	}
 
 private:
 	static constexpr uint32_t FrameSequenceHistorySize = NRIFrameShell::FrameSequenceHistorySize;
@@ -435,6 +440,7 @@ private:
 	std::vector<uint8_t> mVertexShaderBlob;
 	std::vector<uint8_t> mPixelShaderBlob;
 	bool mDiagnosticShaderVariantEffective = false;
+	uint32_t mDiagnosticTraceAuditVariants = 0;
 	bool mShaderVariantWarningEmitted = false;
 	bool mShaderVariantSelectionEmitted = false;
 	FString mDeviceName = "NRI";

@@ -9,6 +9,7 @@
 #include "../system/nri_renderdevice.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 #include <chrono>
@@ -20,7 +21,7 @@ namespace
 {
 	bool ShouldTraceResourcePerf()
 	{
-		return PerfLoopTraceActive() || ShouldEmitRendererTemporalTraceLogs() || PerfCompactCaptureTimingActive();
+		return PerfLoopTraceActive() || ShouldEmitRendererTemporalTraceLogs() || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	double DurationMs(const std::chrono::steady_clock::time_point& start, const std::chrono::steady_clock::time_point& end)

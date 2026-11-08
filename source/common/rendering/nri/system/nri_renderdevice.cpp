@@ -1,6 +1,7 @@
 #include "nri_renderdevice.h"
 #include "../scene/nri_sector_color_policy.h"
 #include "nri_gpu_timing.h"
+#include "perf_audit.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_settings_availability.h"
 #include "../renderer/nri_diagnostic_cadence.h"
@@ -10106,6 +10107,7 @@ void NRIRenderDevice::DestroyQueuedFrames()
 
 bool NRIRenderDevice::CreateRenderResources()
 {
+	mDiagnosticTraceAuditVariants = 0;
 	mShaderVariantWarningEmitted = false;
 	mShaderVariantSelectionEmitted = false;
 	if (!LoadShaderBlob(GetSelectedAPI() == nri::GraphicsAPI::D3D12 ? "Nri2D.vs.dxil" : "Nri2D.vs.spirv", mVertexShaderBlob) ||
@@ -11161,6 +11163,7 @@ void NRIRenderDevice::TransitionTexture(NRITextureResource& texture, nri::Access
 	barriers.textureNum = 1;
 	mCore.CmdBarrier(*mCommandBuffer, barriers);
 	texture.state = after;
+	PerfAuditAdd(PerfAuditMetric::TextureBarrierCalls);
 }
 
 void NRIRenderDevice::PrepareTargetForRendering(NRITextureResource& target, bool)
@@ -11679,6 +11682,7 @@ bool NRIRenderDevice::SnapshotTextureToCanvas(FCanvasTexture* tex, NRITextureRes
 
 bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>& outBlob)
 {
+	bool auditDiagnosticSelected = false;
 	const char* diagnosticPrefix = "variants/diagnostic/";
 	const bool explicitDiagnosticPath = std::strncmp(
 		fileName, diagnosticPrefix, std::strlen(diagnosticPrefix)) == 0;
@@ -11686,6 +11690,9 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 	const bool diagnosticRequested = startupShaderVariant != nullptr ?
 		FString(startupShaderVariant).CompareNoCase("diagnostic") == 0 :
 		FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
+	const bool perfAuditRequested = startupShaderVariant != nullptr ?
+		FString(startupShaderVariant).CompareNoCase("perf-audit") == 0 :
+		FString(nri_shadervariant).CompareNoCase("perf-audit") == 0;
 	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.dxil") == 0 ||
@@ -11702,11 +11709,37 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 	shaderPath << "shaders/nri/";
 	if (explicitDiagnosticPath)
 	{
+		auditDiagnosticSelected = true;
 		mDiagnosticShaderVariantEffective = true;
 		if (!mShaderVariantSelectionEmitted)
 		{
 			Printf("NRI shader variant: diagnostic (explicit comparison route, first=%s).\n", fileName);
 			mShaderVariantSelectionEmitted = true;
+		}
+	}
+	else if (perfAuditRequested && diagnosticCandidate && std::strncmp(fileName, "Trace", 5) == 0)
+	{
+		FString manifestPath = shaderPath;
+		manifestPath << "variants/perf-audit/perf-audit.json";
+		std::ifstream manifestFile(manifestPath.GetChars(), std::ios::binary);
+		const std::string manifest((std::istreambuf_iterator<char>(manifestFile)), std::istreambuf_iterator<char>());
+		const std::string declaredPath = std::string("\"path\": \"") + fileName + "\"";
+		if (manifest.find("\"variant\": \"perf-audit\"") != std::string::npos &&
+			manifest.find("\"schema\": 1") != std::string::npos && manifest.find(declaredPath) != std::string::npos)
+		{
+			shaderPath << "variants/perf-audit/";
+			auditDiagnosticSelected = true;
+			mDiagnosticShaderVariantEffective = true;
+			if (!mShaderVariantSelectionEmitted)
+			{
+				Printf("NRI shader variant: perf-audit (dedicated diagnostic manifest, first=%s).\n", fileName);
+				mShaderVariantSelectionEmitted = true;
+			}
+		}
+		else if (!mShaderVariantWarningEmitted)
+		{
+			Printf(TEXTCOLOR_ORANGE "NRI perf-audit shader variant is unavailable; using production shaders.\n");
+			mShaderVariantWarningEmitted = true;
 		}
 	}
 	else if (diagnosticRequested && diagnosticCandidate)
@@ -11721,6 +11754,7 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 			manifest.find(declaredPath) != std::string::npos)
 		{
 			shaderPath << "variants/diagnostic/";
+			auditDiagnosticSelected = true;
 			mDiagnosticShaderVariantEffective = true;
 			if (!mShaderVariantSelectionEmitted)
 			{
@@ -11751,7 +11785,24 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 	const std::streamsize size = file.tellg();
 	file.seekg(0, std::ios::beg);
 	outBlob.resize((size_t)size);
-	return file.read((char*)outBlob.data(), size).good();
+	const bool loaded = file.read((char*)outBlob.data(), size).good();
+	// Track the actual loaded Trace family separately from the legacy global
+	// 'some diagnostic shader was loaded' flag. A production fallback in one
+	// family must never authorize audit copies for that production pipeline.
+	const char* stem = explicitDiagnosticPath ? fileName + std::strlen(diagnosticPrefix) : fileName;
+	uint32_t auditFamily = 0;
+	if (std::strncmp(stem, "TraceOpaqueLeanDebug.", 21) == 0) auditFamily = 4u;
+	else if (std::strncmp(stem, "TraceOpaqueCache.", 17) == 0 || std::strncmp(stem, "TraceOpaqueTypedCache.", 22) == 0 ||
+		std::strncmp(stem, "TraceOpaqueCompareCache.", 24) == 0) auditFamily = 2u;
+	else if (std::strncmp(stem, "TraceOpaque.", 12) == 0 || std::strncmp(stem, "TraceOpaqueTyped.", 17) == 0 ||
+		std::strncmp(stem, "TraceOpaqueCompare.", 19) == 0) auditFamily = 1u;
+	if (auditFamily != 0)
+	{
+		mDiagnosticTraceAuditVariants &= ~auditFamily;
+		if (loaded && auditDiagnosticSelected && std::strstr(stem, "Compare") == nullptr)
+			mDiagnosticTraceAuditVariants |= auditFamily;
+	}
+	return loaded;
 }
 
 const void* NRIRenderDevice::GetVertexShaderBytecode(size_t& size) const

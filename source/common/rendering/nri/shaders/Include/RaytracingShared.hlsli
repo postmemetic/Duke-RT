@@ -1,6 +1,13 @@
 #ifndef RAZE_NRI_PT_RAYTRACING_SHARED_HLSLI
 #define RAZE_NRI_PT_RAYTRACING_SHARED_HLSLI
 
+#ifndef NRI_SHADER_PERF_AUDIT_ONLY
+#define NRI_SHADER_PERF_AUDIT_ONLY 0
+#endif
+#if NRI_SHADER_PERF_AUDIT_ONLY && !NRI_SHADER_DIAGNOSTICS
+#error Performance audit shaders must be diagnostic variants
+#endif
+
 #include "Shared.hlsli"
 #include "MotionContracts.hlsli"
 #include "StaticShadingData.hlsli"
@@ -356,7 +363,7 @@ static const uint TRACE_STAT_STATIC_TANGENT_UNSUPPORTED = TRACE_STAT_STATIC_TANG
 
 bool TraceShaderStatsEnabled()
 {
-#if NRI_SHADER_DIAGNOSTICS
+#if NRI_SHADER_DIAGNOSTICS && !NRI_SHADER_PERF_AUDIT_ONLY
 	return (gTraceConstants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u;
 #else
 	return false;
@@ -403,24 +410,55 @@ void RecordSurfaceProbePrimaryPixel(
 
 void TraceShaderStatAdd(uint index, uint value)
 {
-	if (TraceShaderStatsEnabled())
+#if NRI_SHADER_DIAGNOSTICS
+	// Trace-only bit 1 is separate from the broad stats/probe flag. Limit the
+	// audit to existing call/reject/candidate and instance counters; in particular
+	// it does not turn on the spatial footprint oracle's second evaluation.
+	const bool auditCounter = (gTraceConstants.Flags & 0x2u) != 0u &&
+		(index < 79u || (index >= TRACE_STAT_FILTER_QUERY_BASE && index < TRACE_STAT_FILTER_QUERY_BASE + 6u) ||
+		(index >= TRACE_STAT_INSTANCE_COMMITTED_BASE && index < TRACE_STAT_PROFILE_BASE));
+	if (auditCounter)
+	{
+		uint previous;
+		InterlockedAdd(gTraceShaderStats[index], value, previous);
+		if (previous > 0xffffffffu - value) InterlockedOr(gTraceShaderStats[127u], 1u);
+	}
+	else if (TraceShaderStatsEnabled())
 	{
 		InterlockedAdd(gTraceShaderStats[index], value);
 	}
+#endif
 }
 
 void TraceShaderStatMax(uint index, uint value)
 {
-	if (TraceShaderStatsEnabled())
+#if NRI_SHADER_DIAGNOSTICS
+	if (TraceShaderStatsEnabled() || ((gTraceConstants.Flags & 0x2u) != 0u && index < 79u))
 	{
 		InterlockedMax(gTraceShaderStats[index], value);
 	}
+#endif
 }
 
 void TraceShaderStatCall(uint kind)
 {
 	TraceShaderStatAdd(TRACE_STAT_CALLS, 1u);
 	TraceShaderStatAdd(TRACE_STAT_PRIMARY_CALLS + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE), 1u);
+}
+
+// Audit-only interpretation of the otherwise inactive probe range. Broad
+// probes and this mode are mutually exclusive at dispatch. Keeping the range
+// in the existing UAV avoids changing production resource layouts/allocation.
+void TracePerfAuditRayAdd(uint kind, uint metric)
+{
+#if NRI_SHADER_DIAGNOSTICS
+	if ((gTraceConstants.Flags & 0x2u) != 0u)
+	{
+		uint previous;
+		InterlockedAdd(gTraceShaderStats[79u + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE) * 8u + metric], 1u, previous);
+		if (previous == 0xffffffffu) InterlockedOr(gTraceShaderStats[127u], 1u);
+	}
+#endif
 }
 
 void TraceShaderStatSource(uint staticIndex, uint dynamicIndex, uint voxelIndex, uint dataSource)
@@ -2523,6 +2561,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					continue;
 				}
 				TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATES, 1u);
+				TracePerfAuditRayAdd(statsKind, 0u);
 
 				const uint candidateInstanceId = rayQuery.CandidateInstanceID();
 				const SceneInstanceData candidateInstance = GetSceneInstanceData(candidateInstanceId);
@@ -2559,6 +2598,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					{
 						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 						TraceShaderStatAdd(TRACE_STAT_REJECT_REFLECTION, 1u);
+						TracePerfAuditRayAdd(statsKind, 6u);
 						TraceShaderStatSource(
 							TRACE_STAT_REJECT_STATIC,
 							TRACE_STAT_REJECT_DYNAMIC,
@@ -2574,6 +2614,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					{
 						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 						TraceShaderStatAdd(TRACE_STAT_REJECT_VISIBLE, 1u);
+						TracePerfAuditRayAdd(statsKind, 6u);
 						TraceShaderStatSource(
 							TRACE_STAT_REJECT_STATIC,
 							TRACE_STAT_REJECT_DYNAMIC,
@@ -2595,6 +2636,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					{
 						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 						TraceShaderStatAdd(TRACE_STAT_REJECT_ONEWAY, 1u);
+						TracePerfAuditRayAdd(statsKind, 6u);
 						TraceShaderStatSource(
 							TRACE_STAT_REJECT_STATIC,
 							TRACE_STAT_REJECT_DYNAMIC,
@@ -2607,6 +2649,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					{
 						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 						TraceShaderStatAdd(TRACE_STAT_REJECT_NO_SHADOW, 1u);
+						TracePerfAuditRayAdd(statsKind, 4u);
 						TraceShaderStatSource(
 							TRACE_STAT_REJECT_STATIC,
 							TRACE_STAT_REJECT_DYNAMIC,
@@ -2633,6 +2676,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 						{
 							TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 							TraceShaderStatAdd(TRACE_STAT_REJECT_TRANSPARENT, 1u);
+							TracePerfAuditRayAdd(statsKind, 5u);
 							TraceShaderStatSource(
 								TRACE_STAT_REJECT_STATIC,
 								TRACE_STAT_REJECT_DYNAMIC,
@@ -2796,6 +2840,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			return false;
 		}
 		TraceShaderStatAdd(TRACE_STAT_COMMITTED, 1u);
+		TracePerfAuditRayAdd(statsKind, 1u);
 
 		TraceShaderStatInstance(TRACE_STAT_INSTANCE_COMMITTED_BASE, TRACE_STAT_INSTANCE_COMMITTED_OVERFLOW, committedInstanceId);
 		TraceShaderStatInstanceKind(statsKind, committedInstanceId);
@@ -2809,9 +2854,11 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_REFLECTION, 1u);
+			TracePerfAuditRayAdd(statsKind, 6u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -2825,9 +2872,11 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_VISIBLE, 1u);
+			TracePerfAuditRayAdd(statsKind, 6u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -2869,6 +2918,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					}
 					accumulatedDistance = committedDistance;
 					TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+					TracePerfAuditRayAdd(statsKind, 3u);
 					continue;
 				}
 			}
@@ -2965,6 +3015,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -2973,9 +3024,11 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_HIDDEN_FLAT, 1u);
+			TracePerfAuditRayAdd(statsKind, 6u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -2985,9 +3038,11 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_ONEWAY, 1u);
+			TracePerfAuditRayAdd(statsKind, 6u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -2998,9 +3053,11 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_NO_SHADOW, 1u);
+			TracePerfAuditRayAdd(statsKind, 4u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -3012,9 +3069,11 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatAdd(TRACE_STAT_REJECT_TRANSPARENT, 1u);
+			TracePerfAuditRayAdd(statsKind, 5u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
 			accumulatedDistance = committedDistance;
 			TraceShaderStatAdd(TRACE_STAT_FILTER_POSTCOMMIT_RESTARTS, 1u);
+			TracePerfAuditRayAdd(statsKind, 3u);
 			continue;
 		}
 
@@ -3041,6 +3100,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				committedPosition);
 		}
 		TraceShaderStatSource(TRACE_STAT_ACCEPT_STATIC, TRACE_STAT_ACCEPT_DYNAMIC, TRACE_STAT_ACCEPT_VOXEL, instanceData.dataSource);
+		TracePerfAuditRayAdd(statsKind, 2u);
 		TraceShaderStatInstance(TRACE_STAT_INSTANCE_ACCEPTED_BASE, TRACE_STAT_INSTANCE_ACCEPTED_OVERFLOW, committedInstanceId);
 #if NRI_SHADER_DIAGNOSTICS
 		TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);

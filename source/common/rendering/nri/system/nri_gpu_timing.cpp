@@ -5,11 +5,22 @@
 #include "printf.h"
 
 #include <cstring>
+#include <cstdio>
 
 CVAR(Bool, nri_ptgputiming, false, 0)
 
 namespace
 {
+	void AuditTimingEvent(const char* kind, const PerfAuditToken& token, uint64_t request, uint64_t frame, const char* reason)
+	{
+		if (!token) return;
+		if (token.epoch == PerfAuditCurrentToken().epoch)
+			PerfAuditAdd(std::strcmp(kind, "gpu_timing_request") == 0 ? PerfAuditMetric::GpuTimingRequests : PerfAuditMetric::GpuTimingLost);
+		char fields[320];
+		snprintf(fields, sizeof(fields), "\"request\":%llu,\"renderer_frame\":%llu,\"reason\":\"%s\"",
+			(unsigned long long)request, (unsigned long long)frame, reason);
+		PerfAuditWriteEvent(kind, token, fields);
+	}
 	bool IsVoxelTimingScope(NRIGpuTimingScope scope)
 	{
 		return scope >= NRIGpuTimingScope::VoxelAdmission && scope <= NRIGpuTimingScope::WorldTlas;
@@ -80,6 +91,7 @@ void NRIGpuTiming::Destroy(nri::CoreInterface& core)
 	mActiveSlot = SlotCount;
 	for (Slot& slot : mSlots)
 	{
+		if (slot.pending || slot.auditRequest) AuditTimingEvent("gpu_timing_loss", slot.auditToken, slot.auditRequest, slot.rendererFrame, "resource_destroyed");
 		if (slot.readback != nullptr) core.DestroyBuffer(slot.readback);
 		if (slot.queryPool != nullptr) core.DestroyQueryPool(slot.queryPool);
 		slot = {};
@@ -260,7 +272,22 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 	timing.smokeVolumeMs = smokeVolumeMs;
 	const double smokeTotalMs = smokeSimulationMs + smokeVolumeMs;
 	const double smokeDetailMs = timing.SmokeDetailTotalMs();
-	Printf("PERF pt smoke gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f simulation=%.6f volume=%.6f total=%.6f detail_total=%.6f unattributed=%.6f grid_allocate=%.6f grid_initialize=%.6f grid_deposit=%.6f grid_halo=%.6f grid_simulate=%.6f grid_rebuild=%.6f dormant_archive=%.6f dormant_promote=%.6f dormant_evolve=%.6f world_active=%.6f world_link=%.6f world_proposal=%.6f world_seed=%.6f world_temporal=%.6f world_filter=%.6f world_scatter=%.6f carrier=%.6f view_prepare=%.6f materialize=%.6f evaluate_grid=%.6f analytic_materialize=%.6f transient_bins=%.6f transient_light_build=%.6f transient_materialize=%.6f view_point=%.6f view_directional=%.6f view_direct_reuse=%.6f view_emissive=%.6f analytic_emissive_build=%.6f analytic_emissive_apply=%.6f view_indirect=%.6f integrate=%.6f reconstruction=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
+	if (slot.auditToken)
+	{
+		if (slot.auditToken.epoch == PerfAuditCurrentToken().epoch)
+			PerfAuditAdd(segmentValid && timing.invalidPairs == 0 && slot.droppedScopes == 0 ?
+				PerfAuditMetric::GpuTimingPublished : PerfAuditMetric::GpuTimingLost);
+		char fields[2048];
+		snprintf(fields, sizeof(fields),
+			"\"request\":%llu,\"renderer_frame\":%llu,\"queued_slot\":%u,\"valid\":%s,\"invalid_pairs\":%u,\"dropped_scopes\":%u,\"segment_ms\":%.6f,\"scene_ms\":%.6f,\"trace_ms\":%.6f,\"trace_dispatch_ms\":%.6f,\"denoise_ms\":%.6f,\"composition_ms\":%.6f,\"upscale_ms\":%.6f,\"final_ms\":%.6f,\"voxel_admission_ms\":%.6f,\"voxel_upload_ms\":%.6f,\"voxel_arena_copy_ms\":%.6f,\"voxel_blas_ms\":%.6f,\"world_tlas_ms\":%.6f,\"overlay_blas_ms\":%.6f,\"query_count\":%u,\"readback_bytes\":%llu",
+			(unsigned long long)slot.auditRequest, (unsigned long long)slot.rendererFrame, slotIndex,
+			segmentValid && timing.invalidPairs == 0 && slot.droppedScopes == 0 ? "true" : "false",
+			timing.invalidPairs, slot.droppedScopes, timing.segmentMs, timing.sceneMs, timing.traceMs, timing.traceDispatchMs,
+			timing.denoiseMs, timing.compositionMs, timing.upscaleMs, timing.finalMs, voxelAdmissionMs, voxelUploadMs,
+			voxelArenaCopyMs, voxelBlasMs, worldTlasMs, overlayBlasMs, slot.queryCount, (unsigned long long)readbackSize);
+		PerfAuditWriteEvent("gpu_timing_sample", slot.auditToken, fields);
+	}
+	if (slot.token) Printf("PERF pt smoke gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f simulation=%.6f volume=%.6f total=%.6f detail_total=%.6f unattributed=%.6f grid_allocate=%.6f grid_initialize=%.6f grid_deposit=%.6f grid_halo=%.6f grid_simulate=%.6f grid_rebuild=%.6f dormant_archive=%.6f dormant_promote=%.6f dormant_evolve=%.6f world_active=%.6f world_link=%.6f world_proposal=%.6f world_seed=%.6f world_temporal=%.6f world_filter=%.6f world_scatter=%.6f carrier=%.6f view_prepare=%.6f materialize=%.6f evaluate_grid=%.6f analytic_materialize=%.6f transient_bins=%.6f transient_light_build=%.6f transient_materialize=%.6f view_point=%.6f view_directional=%.6f view_direct_reuse=%.6f view_emissive=%.6f analytic_emissive_build=%.6f analytic_emissive_apply=%.6f view_indirect=%.6f integrate=%.6f reconstruction=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
 		(unsigned long long)slot.rendererFrame,
 		(unsigned long long)slot.token.presentationGeneration,
 		slotIndex,
@@ -309,7 +336,7 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 		slot.droppedSmokeScopes,
 		(unsigned long long)slot.token.epoch,
 		slot.token.recordIndex);
-	Printf("PERF pt voxel gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f segment_valid=%u admission=%.6f upload=%.6f arena_copy=%.6f classify=%.6f scan=%.6f emit=%.6f finalize=%.6f voxel_blas=%.6f world_tlas=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
+	if (slot.token) Printf("PERF pt voxel gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f segment_valid=%u admission=%.6f upload=%.6f arena_copy=%.6f classify=%.6f scan=%.6f emit=%.6f finalize=%.6f voxel_blas=%.6f world_tlas=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
 		(unsigned long long)slot.rendererFrame,
 		(unsigned long long)slot.token.presentationGeneration,
 		slotIndex,
@@ -340,7 +367,7 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 	// Keep this additive attribution row outside PerfCompactGpuTiming's ABI.
 	// Join presentation_gen to the compact loop row, then epoch/sample to GPU
 	// totals. Raw record is an observed-record index, not an eligible sample.
-	Printf("PERF pt dynamic overlay blas gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f segment_valid=%u overlay_blas=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
+	if (slot.token) Printf("PERF pt dynamic overlay blas gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f segment_valid=%u overlay_blas=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
 		(unsigned long long)slot.rendererFrame,
 		(unsigned long long)slot.token.presentationGeneration,
 		slotIndex,
@@ -355,6 +382,8 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 		slot.token.recordIndex);
 	slot.pending = false;
 	slot.token = {};
+	slot.auditToken = {};
+	slot.auditRequest = 0;
 	slot.queryCount = 0;
 	slot.markerCount = 0;
 	slot.droppedScopes = 0;
@@ -367,12 +396,27 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 
 void NRIGpuTiming::BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t slotIndex, uint64_t rendererFrame)
 {
-	if (!mPrepared || !nri_ptgputiming || !PerfCompactCaptureTimingActive() || slotIndex >= SlotCount) return;
+	const bool auditRequested = nri_ptgputiming && PerfAuditCensusRequested();
+	const PerfAuditToken auditToken = auditRequested ? PerfAuditCurrentToken() : PerfAuditToken{};
+	static uint64_t nextAuditRequest = 0;
+	const uint64_t auditRequest = auditRequested ? ++nextAuditRequest : 0;
+	AuditTimingEvent("gpu_timing_request", auditToken, auditRequest, rendererFrame, "requested");
+	if (!mPrepared || !nri_ptgputiming || (!PerfCompactCaptureTimingActive() && !auditRequested) || slotIndex >= SlotCount)
+	{
+		AuditTimingEvent("gpu_timing_loss", auditToken, auditRequest, rendererFrame, "timing_unavailable");
+		return;
+	}
 	Slot& slot = mSlots[slotIndex];
-	if (slot.pending) return;
+	if (slot.pending)
+	{
+		AuditTimingEvent("gpu_timing_loss", auditToken, auditRequest, rendererFrame, "slot_busy");
+		return;
+	}
 	core.ResetQueries(*slot.queryPool, 0, QueryCapacity);
 	slot.token = PerfCompactCaptureGetCurrentToken();
-	if (!slot.token) return;
+	slot.auditToken = auditToken;
+	slot.auditRequest = auditRequest;
+	if (!slot.token && !slot.auditToken) return;
 	slot.queryCount = 2;
 	slot.markerCount = 0;
 	slot.droppedScopes = 0;
@@ -449,6 +493,7 @@ void NRIGpuTiming::AbandonSlot(uint32_t slotIndex)
 	if (slotIndex >= SlotCount) return;
 	Slot& slot = mSlots[slotIndex];
 	if (!slot.pending && mActiveSlot != slotIndex) return;
+	AuditTimingEvent("gpu_timing_loss", slot.auditToken, slot.auditRequest, slot.rendererFrame, "command_abandoned");
 	PerfCompactGpuTiming timing = {};
 	timing.invalidPairs = 1;
 	timing.droppedScopes = slot.droppedScopes;

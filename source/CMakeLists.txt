@@ -977,6 +977,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_geometry_arena_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_perf_audit.cpp
+	common/rendering/nri/renderer/nri_perf_audit.cpp
 	common/rendering/nri/renderer/nri_persistent_voxels.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_publication.cpp
 	common/rendering/nri/renderer/nri_voxel_publication_order.cpp
@@ -1383,6 +1385,7 @@ set (PCH_SOURCES
 	common/engine/d_event.cpp
 	common/engine/input_lineage.cpp
 	common/engine/perf_capture.cpp
+	common/engine/perf_audit.cpp
 	common/engine/date.cpp
 	common/engine/stats.cpp
 	common/engine/sc_man.cpp

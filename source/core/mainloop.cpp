@@ -104,6 +104,7 @@
 #include "d_eventbase.h"
 #include "input_lineage.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "hw_clock.h"
 
 CVAR(Bool, vid_activeinbackground, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -1782,6 +1783,7 @@ void MainLoop ()
 				startFrameMs = I_msTimeF() - stageStartMs;
 			}
 			I_SetFrameTime();
+			PerfAuditBeginFrame(gPresentationGeneration, gametic);
 
 			// update the scale factor for unsynchronised input here.
 			gameInput.UpdateInputScale();
@@ -1798,6 +1800,7 @@ void MainLoop ()
 			const double displayStartMs = I_msTimeF();
 			Display();
 			const double displayMs = I_msTimeF() - displayStartMs;
+			PerfAuditEndFrame();
 			const double musicStartMs = I_msTimeF();
 			Mus_UpdateMusic();		// must be at the end.
 			const double musicMs = I_msTimeF() - musicStartMs;

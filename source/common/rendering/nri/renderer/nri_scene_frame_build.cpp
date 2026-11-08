@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "nri_perf_audit.h"
 #include "nri_cvars.h"
 
 #include "../framegen/nri_framegen.h"
@@ -32,6 +33,7 @@
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "coreactor.h"
 #include "coreplayer.h"
 #include "hw_voxels.h"
@@ -603,7 +605,7 @@ static bool ShouldTracePtPerf()
 
 static bool ShouldCollectPtPerfTiming()
 {
-	return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+	return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 }
 
 class ScopedPtPerfTimer
@@ -1186,6 +1188,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		{
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectPersistentEmissiveMs);
 			mSceneLights.PrunePersistentDynamicEmissiveCacheToLiveActors(BuildPersistentDynamicEmissiveCacheServices());
+			NRIAuditEmissiveCensus(mSceneLights);
 			persistentDynamicStats = mSceneLights.GatherPersistentDynamicEmissiveSurfaceStats();
 			mSceneLights.UpdatePersistentDynamicEmissiveHighWaterStats(persistentDynamicStats);
 		}
@@ -1233,6 +1236,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				else
 				{
 					mLastPerfShellTraceStats.dynamicMergeDeltaAppendFallbacks++;
+					PerfAuditAdd(PerfAuditMetric::EmissiveMergeRebuilds);
+					PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
 					mLastPerfShellTraceStats.dynamicMergeDeltaAppendFallbackNonZeroSurfaces++;
 					{
 						ScopedPtPerfTimer statsPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeStatsMs);

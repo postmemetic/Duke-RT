@@ -5,6 +5,7 @@
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "gamestruct.h"
 #include "nri_render_geometry_helpers.h"
 
@@ -18,7 +19,7 @@ namespace
 	{
 		const bool perfLoopTraceActive = (int)perf_looptraceframes > 0;
 		const bool temporalTraceActive = !!nri_pttemporaltrace && (int)nri_pttraceframes > 0;
-		return perfLoopTraceActive || temporalTraceActive || (bool)nri_ptslowdowntrace || (bool)nri_ptscenestats || PerfCompactCaptureTimingActive();
+		return perfLoopTraceActive || temporalTraceActive || (bool)nri_ptslowdowntrace || (bool)nri_ptscenestats || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	static double RuntimeSpaceLinkDurationMs(const std::chrono::steady_clock::time_point& start, const std::chrono::steady_clock::time_point& end)

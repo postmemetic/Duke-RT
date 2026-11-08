@@ -49,6 +49,7 @@
 #include "texturemanager.h"
 #include "d_eventbase.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "v_video.h"
 
 #ifndef NOMINMAX
@@ -444,7 +445,7 @@ namespace
 
 	bool ShouldCollectPtPerfTiming()
 	{
-		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	bool ShouldCollectTraceShaderStats()

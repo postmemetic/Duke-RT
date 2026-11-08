@@ -9,6 +9,7 @@
 #include "nri_diagnostic_names.h"
 #include "nri_shader_contracts.h"
 #include "nri_scene_material_texture_slots.h"
+#include "perf_audit.h"
 #include "../../../engine/perf_capture.h"
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
@@ -349,6 +350,7 @@ bool NRISceneTextureResidency::EnsureCacheEntry(NRIRenderDevice& device, const n
 		const CachedTextureReadiness readiness = PollCachedTexture(device, existingIndex, existingResult);
 		if (readiness == CachedTextureReadiness::Ready)
 		{
+			PerfAuditAdd(PerfAuditMetric::TextureHits);
 			return true;
 		}
 		if (readiness != CachedTextureReadiness::Abandoned)
@@ -959,6 +961,10 @@ void NRISceneTextureResidency::PopulateStableSlotDescriptors(
 uint32_t NRISceneTextureResidency::TransitionInputsForCompute(NRIRenderDevice& device)
 {
 	uint32_t transitionCount = 0;
+	const bool auditCensus = PerfAuditCensusRequested();
+	const uint64_t auditStart = auditCensus ? PerfAuditClockNs() : 0;
+	uint64_t auditBytes = 0, auditPending = 0, auditEntries = 0;
+	uint32_t readyVisits = 0;
 
 	if (mPaletteTexture.texture != nullptr)
 	{
@@ -972,9 +978,17 @@ uint32_t NRISceneTextureResidency::TransitionInputsForCompute(NRIRenderDevice& d
 
 	for (uint32_t cacheIndex = 0; cacheIndex < mTextureCache.size(); ++cacheIndex)
 	{
+		if (auditCensus)
+		{
+			const auto& cached = mTextureCache[cacheIndex];
+			auditBytes += cached.resource.memorySize;
+			auditEntries += cached.resource.texture != nullptr ? 1u : 0u;
+			auditPending += cached.uploadFenceValue != 0 ? 1u : 0u;
+		}
 		NRISceneTextureClosureResult closureResult = {};
 		if (PollCachedTexture(device, cacheIndex, closureResult) == CachedTextureReadiness::Ready)
 		{
+			readyVisits++;
 			transitionCount++;
 			device.TransitionTexture(mTextureCache[cacheIndex].resource, NRIComputeShaderResourceState());
 		}
@@ -989,6 +1003,19 @@ uint32_t NRISceneTextureResidency::TransitionInputsForCompute(NRIRenderDevice& d
 		}
 	}
 
+	PerfAuditAdd(PerfAuditMetric::TexturePolls, mTextureCache.size());
+	PerfAuditAdd(PerfAuditMetric::TextureReadyVisits, readyVisits);
+	PerfAuditAdd(PerfAuditMetric::TextureTransitionCalls, transitionCount +
+		(mPaletteTexture.texture != nullptr ? 1u : 0u) + (device.mWhiteTexture != nullptr ? 1u : 0u));
+	if (auditCensus)
+	{
+		PerfAuditSet(PerfAuditMetric::TextureCacheEntries, auditEntries);
+		PerfAuditSet(PerfAuditMetric::TextureCacheCapacity, mTextureCache.capacity());
+		PerfAuditSet(PerfAuditMetric::TextureCacheBytes, auditBytes);
+		PerfAuditSet(PerfAuditMetric::TexturePendingCount, auditPending);
+		// This timer includes the existing sweep; census adds no second walk.
+		PerfAuditAdd(PerfAuditMetric::TextureCensusNs, PerfAuditClockNs() - auditStart);
+	}
 	return transitionCount;
 }
 
@@ -1058,7 +1085,7 @@ void NRIRenderer::PrepareSceneTextureInputsForCompute()
 		return;
 	}
 
-	const bool tracePerf = ShouldTraceSceneTexturePerf();
+	const bool tracePerf = ShouldTraceSceneTexturePerf() || PerfAuditActive();
 	const auto transitionStart = tracePerf ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 	const uint32_t transitionCount = mSceneTextures.TransitionInputsForCompute(*mFrameBuffer);
 
@@ -1252,7 +1279,7 @@ bool NRIRenderer::EnsureSceneTextures(
 {
 	Clocker clock(NriPTSceneTextures);
 	static bool sLoggedActiveCanvasTextureReuse = false;
-	const bool tracePerf = ShouldTraceSceneTexturePerf();
+	const bool tracePerf = ShouldTraceSceneTexturePerf() || PerfAuditActive();
 	uint32_t lookupMisses = 0;
 	uint32_t insertCount = 0;
 	double lookupMs = 0.0;
@@ -2193,15 +2220,18 @@ void NRISceneTextureResidency::InvalidateCachedTexture(NRIRenderDevice& device, 
 	}
 	device.RetireTextureResource(cached.resource);
 	cached = {};
+	PerfAuditAdd(PerfAuditMetric::TextureInvalidations);
 }
 
 uint32_t NRISceneTextureResidency::AddCachedTexture(NRISceneCachedTexture&& texture)
 {
+	PerfAuditAdd(PerfAuditMetric::TextureInserts);
 	for (uint32_t cacheIndex = 0; cacheIndex < mTextureCache.size(); ++cacheIndex)
 	{
 		NRISceneCachedTexture& cached = mTextureCache[cacheIndex];
 		if (cached.key == 0 && cached.resource.texture == nullptr)
 		{
+			PerfAuditAdd(PerfAuditMetric::TextureInsertSearchRows, cacheIndex + 1u);
 			cached = std::move(texture);
 			mTextureCacheKeyIndex[cached.key] = cacheIndex;
 			return cacheIndex;
@@ -2209,6 +2239,7 @@ uint32_t NRISceneTextureResidency::AddCachedTexture(NRISceneCachedTexture&& text
 	}
 
 	const uint32_t cacheIndex = (uint32_t)mTextureCache.size();
+	PerfAuditAdd(PerfAuditMetric::TextureInsertSearchRows, cacheIndex);
 	mTextureCacheKeyIndex[texture.key] = cacheIndex;
 	mTextureCache.push_back(std::move(texture));
 	return cacheIndex;

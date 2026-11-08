@@ -2,6 +2,7 @@
 
 #include "nri_local.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 
 #include <array>
 #include <cstdint>
@@ -96,6 +97,8 @@ private:
 		nri::QueryPool* queryPool = nullptr;
 		nri::Buffer* readback = nullptr;
 		PerfCompactCaptureToken token;
+		PerfAuditToken auditToken;
+		uint64_t auditRequest = 0;
 		std::array<Marker, ScopeCapacity> markers = {};
 		uint32_t querySize = 0;
 		uint32_t queryCount = 0;

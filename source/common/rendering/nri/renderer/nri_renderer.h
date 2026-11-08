@@ -2095,6 +2095,7 @@ public:
 	NRIMapMaterialOnlyRouteFrameStats GetMapMaterialOnlyRouteFrameStats() const;
 	nri_scene::PTMapMaterialStateVariantStats GetMapMaterialVariantStats() const;
 	MemoryTelemetry GetMemoryTelemetry() const;
+	void CapturePerfAuditVoxelCensus() const;
 	static const char* GetMaterialBuildTraceSlotName(MaterialBuildTraceSlot slot);
 	enum class FrameTextureSlot : uint32_t
 	{

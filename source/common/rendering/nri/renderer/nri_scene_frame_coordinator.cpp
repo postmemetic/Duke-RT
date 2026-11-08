@@ -32,6 +32,7 @@
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 #include "coreactor.h"
 #include "coreplayer.h"
 #include "hw_voxels.h"
@@ -334,7 +335,7 @@ static bool ShouldTracePtPerf()
 
 static bool ShouldCollectPtPerfTiming()
 {
-	return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+	return ShouldTracePtPerf() || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 }
 
 class ScopedPtPerfTimer

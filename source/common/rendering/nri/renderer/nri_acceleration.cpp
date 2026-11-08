@@ -8,12 +8,14 @@
 #include "nri_shader_contracts.h"
 #include "nri_upload_hash.h"
 #include "nri_world_tlas_policy.h"
+#include "nri_perf_audit.h"
 #include "../scene/nri_hash.h"
 #include "../system/nri_gpu_timing.h"
 #include "../system/nri_renderdevice.h"
 #include "../../hwrenderer/data/hw_clock.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 #include <chrono>
@@ -30,7 +32,7 @@ namespace
 
 	bool ShouldCollectAccelerationPerfTiming()
 	{
-		return ((int)perf_looptraceframes > 0 || (!!nri_pttemporaltrace && (int)nri_pttraceframes > 0)) || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return ((int)perf_looptraceframes > 0 || (!!nri_pttemporaltrace && (int)nri_pttraceframes > 0)) || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive() || PerfAuditActive();
 	}
 
 	class ScopedPtPerfTimer
@@ -1542,6 +1544,7 @@ bool NRIRenderer::BuildTopLevelAccelerationStructure(
 	uint32_t sceneBufferMask,
 	const std::vector<SceneInstanceData>& sceneInstances)
 {
+	NRIAuditTlasCensus(instances, sceneInstances, mFrameIndex, mMapWorld.valid ? mMapWorld.buildSerial : 0);
 	if (!BuildTopLevelAccelerationStructure(instances, sceneBufferMask))
 	{
 		return false;
