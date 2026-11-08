@@ -8,6 +8,9 @@
 
 bool NRIVoxelMaterialSharingPolicy::BeginFrame(uint64_t buildSerial, uint32_t frameIndex)
 {
+	// Private ranges do not depend on actor class or rule certification. Their
+	// ordinary occurrence/material authority remains in the publication owner.
+	if (!mode.Enabled()) return false;
 	const uint32_t generation = GetResolvedLightOverlaySet().resolvedGeneration;
 	const auto& lifecycle = GetActorLifecycleJournal();
 	const bool lifecycleInvalidated = lifecycleChanges.Poll(lifecycle);
@@ -48,6 +51,7 @@ void NRIVoxelMaterialSharingPolicy::BuildActorClassEligibility()
 
 NRIVoxelMaterialSharingCertificate NRIVoxelMaterialSharingPolicy::Certify(const nri_scene::MaterialBridgeData& bridge)
 {
+	if (!mode.Enabled()) return {};
 	NRIVoxelMaterialSharingCertificate result = { world, rules, false, actorWorld };
 	if (!world || !actorWorld || bridge.lightMetadata.empty() || bridge.materials.size() != bridge.lightMetadata.size()) return result;
 	const int32_t actorIndex = bridge.lightMetadata.front().actorIndex;
@@ -66,6 +70,7 @@ NRIVoxelMaterialSharingCertificate NRIVoxelMaterialSharingPolicy::Certify(const 
 
 void NRIVoxelMaterialSharingPolicy::Reset()
 {
+	mode.Reset();
 	world = 0; actorWorld = 0; actorLifecycle = 0; rules = 0; frame = UINT32_MAX; actorsReady = false; actors.clear();
 	lifecycleChanges.Reset();
 }

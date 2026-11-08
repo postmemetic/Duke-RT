@@ -305,3 +305,11 @@ PERF_AUDIT_METRIC(VoxelMaterialSharingPreLightSharedRows, counter)
 PERF_AUDIT_METRIC(VoxelMaterialSharingPostLightSharedRows, counter)
 PERF_AUDIT_METRIC(VoxelMaterialRangeQuarantinedCount, gauge)
 PERF_AUDIT_METRIC(VoxelMaterialRangeQuarantinedBytes, gauge)
+
+// The private-binding experiment preserves the payload/range lifetime owner.
+PERF_AUDIT_METRIC(VoxelMaterialSharingModeLatched, gauge)
+PERF_AUDIT_METRIC(VoxelMaterialSharingEnabled, gauge)
+PERF_AUDIT_METRIC(VoxelMaterialSharingRequested, gauge)
+PERF_AUDIT_METRIC(VoxelMaterialSharingEnabledAcquires, counter)
+PERF_AUDIT_METRIC(VoxelMaterialSharingPrivateAcquires, counter)
+PERF_AUDIT_METRIC(VoxelMaterialSharingModeChangeIgnored, counter)

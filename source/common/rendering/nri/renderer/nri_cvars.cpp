@@ -397,6 +397,8 @@ CVAR(Int, nri_ptvoxelblaspolicy, 3, 0)
 
 // Reserve manifest-known geometry during loading when live memory headroom permits.
 CVAR(Bool, nri_ptvoxelarenapresize, true, 0)
+// Session experiment: latched until a full shared-resource reset; set before loading.
+CVAR(Bool, nri_ptvoxelmaterialsharing, true, 0)
 CVAR(Bool, nri_ptvoxelcachebounded, true, 0)
 CVAR(Bool, nri_ptvoxelcachevalidate, false, 0)
 // -1 retains inactive runtime meshes while adapter headroom is available;

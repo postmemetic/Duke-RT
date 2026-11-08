@@ -1,6 +1,10 @@
 #include "nri_persistent_voxels.h"
 #include "nri_persistent_voxel_material_bindings.h"
+#include "nri_cvars.h"
 #include "perf_audit.h"
+#include "printf.h"
+
+#include <cstdio>
 
 NRIVoxelMaterialRetirementScope::NRIVoxelMaterialRetirementScope(
 	NRIPersistentVoxelResidency& owner, const NRIPersistentVoxelResetServices& services)
@@ -21,6 +25,8 @@ bool NRIPersistentVoxelResidency::AcquireMaterialBinding(
 	if (contentChanged || !range)
 	{
 		PerfAuditScope audit(PerfAuditMetric::VoxelMaterialSharingAcquireNs);
+		PerfAuditAdd(materialSharingPolicy.Mode().Enabled() ?
+			PerfAuditMetric::VoxelMaterialSharingEnabledAcquires : PerfAuditMetric::VoxelMaterialSharingPrivateAcquires);
 		const auto before = materialPayloads.Counters();
 		NRIPersistentVoxelMaterialRangeHandle retired;
 		const bool acquired = materialPayloads.AcquireBinding(resource.materialKeyHash,
@@ -44,6 +50,20 @@ bool NRIPersistentVoxelResidency::AcquireMaterialBinding(
 
 bool NRIPersistentVoxelResidency::PrepareMaterialSharing(uint64_t buildSerial, uint32_t frameIndex)
 {
+	const bool wasLatched = materialSharingPolicy.Mode().Latched();
+	if (materialSharingPolicy.ObserveRequestedMode((bool)nri_ptvoxelmaterialsharing))
+	{
+		const auto& mode = materialSharingPolicy.Mode();
+		const bool ignored = mode.Requested() != mode.Enabled();
+		const char* action = !wasLatched ? "latch" : ignored ? "ignore-request" : "request-restored";
+		if (ignored) PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingModeChangeIgnored);
+		Printf("NRI PT voxel material sharing mode: effective=%s requested=%s action=%s latch_scope=shared-resource-lifetime\n",
+			mode.Enabled() ? "sharing" : "private", mode.Requested() ? "sharing" : "private", action);
+		char fields[256];
+		std::snprintf(fields, sizeof(fields), "\"enabled\":%s,\"requested\":%s,\"latched\":true,\"action\":\"%s\"",
+			mode.Enabled() ? "true" : "false", mode.Requested() ? "true" : "false", action);
+		PerfAuditWriteEvent("voxel_material_sharing_mode", PerfAuditCurrentToken(), fields);
+	}
 	materialSharingRecertificationPending |= materialSharingPolicy.BeginFrame(buildSerial, frameIndex);
 	const auto& actors = materialSharingPolicy.ChangedActors();
 	if (!materialSharingRecertificationPending && actors.empty()) return true;

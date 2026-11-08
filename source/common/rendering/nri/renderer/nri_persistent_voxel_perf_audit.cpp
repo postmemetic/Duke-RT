@@ -1,5 +1,6 @@
 #include "nri_persistent_voxels.h"
 #include "nri_renderer.h"
+#include "nri_cvars.h"
 #include "../scene/nri_cpu_perf_audit.h"
 #include "../scene/nri_voxel_material_slots.h"
 
@@ -36,6 +37,18 @@ void NRIPersistentVoxelResidency::CapturePerfAuditCensus(uint32_t rendererFrameI
 {
 	if (!PerfAuditCensusRequested()) return;
 	PerfAuditScope census(PerfAuditMetric::VoxelRegistryCensusNs);
+	const auto& sharingMode = materialSharingPolicy.Mode();
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingModeLatched, sharingMode.Latched());
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingEnabled, sharingMode.Enabled());
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingRequested, (bool)nri_ptvoxelmaterialsharing);
+	char controls[320];
+	std::snprintf(controls, sizeof(controls),
+		"\"sharing_requested\":%s,\"sharing_effective\":%s,\"sharing_latched\":%s,"
+		"\"actorlightmaintenance\":%s,\"cachebounded\":%s,\"meshbytes\":%d",
+		(bool)nri_ptvoxelmaterialsharing ? "true" : "false", sharingMode.Enabled() ? "true" : "false",
+		sharingMode.Latched() ? "true" : "false", (bool)nri_ptactorlightmaintenance ? "true" : "false",
+		(bool)nri_ptvoxelcachebounded ? "true" : "false", (int)nri_ptvoxelcachemeshbytes);
+	PerfAuditWriteEvent("renderer_experiment_controls", PerfAuditCurrentToken(), controls);
 	uint64_t meshCold = 0, meshBytes = 0, meshUnused = 0, meshUnusedBytes = 0;
 	uint64_t materialCold = 0, materialRows = 0, materialBytes = 0, materialUnused = 0, materialUnusedRows = 0;
 	uint64_t readyZeroRef = 0, readyZeroRefBytes = 0, pinned = 0, policyMaterials = 0, highestActiveRow = 0;

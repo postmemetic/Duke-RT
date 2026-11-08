@@ -463,6 +463,7 @@ EXTERN_CVAR(Int, nri_ptvoxelcomputepreloadpeakpercent)
 EXTERN_CVAR(Int, nri_ptvoxelcomputepreloadminreservemb)
 EXTERN_CVAR(Int, nri_ptvoxelblaspolicy)
 EXTERN_CVAR(Bool, nri_ptvoxelarenapresize)
+EXTERN_CVAR(Bool, nri_ptvoxelmaterialsharing)
 EXTERN_CVAR(Bool, nri_ptvoxelcachebounded)
 EXTERN_CVAR(Bool, nri_ptvoxelcachevalidate)
 EXTERN_CVAR(Int, nri_ptvoxelcachemeshbytes) // -1: pressure/transition only; >=0: inactive byte cap.
