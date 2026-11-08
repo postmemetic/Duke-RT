@@ -2298,7 +2298,7 @@ void NRIRenderer::ResetPerfTraceStats()
 
 void NRIRenderer::NotePerfBufferUpload(const SceneBufferDebugStats* stats, uint64_t size, bool growth, const char* reason, int uploadKind)
 {
-	if (!ShouldTracePtPerf() || stats == nullptr)
+	if ((!ShouldTracePtPerf() && !PerfAuditActive()) || stats == nullptr)
 	{
 		return;
 	}

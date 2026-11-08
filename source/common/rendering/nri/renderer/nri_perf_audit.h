@@ -29,3 +29,9 @@ void NRIPublishTraceAudit(const NRITraceAuditCapture& capture, uint64_t renderer
 void NRIAuditEmissiveCensus(const SceneLightSystem& lights);
 void NRIAuditTlasCensus(const std::vector<nri::TopLevelInstance>& instances,
     const std::vector<SceneInstanceData>& records, uint64_t rendererFrame, uint64_t mapEpoch);
+// Sparse event at actual resident arena growth, independent of census cadence.
+// CPU time includes allocation/view creation/copy recording, not GPU copy execution.
+void NRIAuditResidentArenaGrowth(uint32_t rendererFrame, uint32_t stride,
+    uint64_t oldSize, uint64_t oldMemory, uint64_t oldUsed, uint64_t required,
+    uint64_t newSize, uint64_t newMemory, uint64_t copied, bool retiredToSlot,
+    double allocationMs, double totalMs);

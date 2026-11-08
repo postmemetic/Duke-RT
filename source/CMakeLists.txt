@@ -1386,6 +1386,7 @@ set (PCH_SOURCES
 	common/engine/input_lineage.cpp
 	common/engine/perf_capture.cpp
 	common/engine/perf_audit.cpp
+	core/perf_actor_census.cpp
 	common/engine/date.cpp
 	common/engine/stats.cpp
 	common/engine/sc_man.cpp

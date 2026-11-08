@@ -39,6 +39,24 @@ bool NRITraceAuditRequested()
     return PerfAuditActive() && nri_ptperfauditgpu && PerfAuditCensusRequested();
 }
 
+void NRIAuditResidentArenaGrowth(uint32_t rendererFrame, uint32_t stride,
+    uint64_t oldSize, uint64_t oldMemory, uint64_t oldUsed, uint64_t required,
+    uint64_t newSize, uint64_t newMemory, uint64_t copied, bool retiredToSlot,
+    double allocationMs, double totalMs)
+{
+    if (!PerfAuditActive()) return;
+    Json json;
+    json.Add("\"domain\":\"resident_arena\",\"renderer_frame\":%u,\"stride\":%u,"
+        "\"old_size\":%llu,\"old_memory\":%llu,\"old_used\":%llu,\"required\":%llu,"
+        "\"new_size\":%llu,\"new_memory\":%llu,\"copy_recorded_bytes\":%llu,"
+        "\"retired_to_slot\":%s,\"allocation_cpu_ms\":%.6f,\"total_cpu_ms\":%.6f",
+        rendererFrame, stride, (unsigned long long)oldSize, (unsigned long long)oldMemory,
+        (unsigned long long)oldUsed, (unsigned long long)required, (unsigned long long)newSize,
+        (unsigned long long)newMemory, (unsigned long long)copied,
+        retiredToSlot ? "true" : "false", allocationMs, totalMs);
+    PerfAuditWriteEvent("resident_arena_growth", PerfAuditCurrentToken(), json.data);
+}
+
 NRITraceAuditCapture NRIBeginTraceAudit(bool diagnostic, bool conflictingProbe, uint64_t rendererFrame, uint64_t fence)
 {
     if (!NRITraceAuditRequested()) return {};

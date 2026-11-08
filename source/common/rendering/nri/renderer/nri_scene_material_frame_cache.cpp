@@ -110,21 +110,29 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureSlots(
 	const NRISceneTextureSlotTable& slotTable)
 {
+	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveCalls);
 	const bool rebuildResident =
 		!mResolvedResidentValid ||
 		mResolvedTextureSlotRevision != slotTable.MappingRevision();
 	if (rebuildResident)
 	{
+		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRebuilds);
+		if (!mResolvedResidentValid) PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveInvalidResident);
+		if (mResolvedTextureSlotRevision != slotTable.MappingRevision())
+			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveSlotRevisionChanges);
+		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mCombinedMaterials.materials.size());
 		NRIAuditFrameBridgeCopy(mCombinedMaterials);
 		mResolvedMaterials = mCombinedMaterials;
 		mResolvedMaterials.materials.resize(mResidentMaterialCount);
 		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
+		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mResolvedMaterials.materials.size());
 		NRIResolveSceneMaterialBridgeTextureSlots(slotTable, mResolvedMaterials, 0u);
 		mResolvedResidentValid = true;
 		mResolvedTextureSlotRevision = slotTable.MappingRevision();
 	}
 	else
 	{
+		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveHits);
 		mResolvedMaterials.materials.resize(mResidentMaterialCount);
 		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
 		mResolvedMaterials.textures = mCombinedMaterials.textures;
@@ -134,6 +142,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 	}
 
 	const uint32_t firstOverlayRow = (uint32_t)mResolvedMaterials.materials.size();
+	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mCombinedMaterials.materials.size() - mResidentMaterialCount);
 	mResolvedMaterials.materials.insert(
 		mResolvedMaterials.materials.end(),
 		mCombinedMaterials.materials.begin() + mResidentMaterialCount,
@@ -142,6 +151,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		mResolvedMaterials.lightMetadata.end(),
 		mCombinedMaterials.lightMetadata.begin() + mResidentLightMetadataCount,
 		mCombinedMaterials.lightMetadata.end());
+	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mResolvedMaterials.materials.size() - firstOverlayRow);
 	NRIResolveSceneMaterialBridgeTextureSlots(slotTable, mResolvedMaterials, firstOverlayRow);
 	return mResolvedMaterials;
 }

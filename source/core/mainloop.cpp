@@ -105,6 +105,7 @@
 #include "input_lineage.h"
 #include "perf_capture.h"
 #include "perf_audit.h"
+#include "perf_actor_census.h"
 #include "hw_clock.h"
 
 CVAR(Bool, vid_activeinbackground, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -1759,7 +1760,7 @@ void MainLoop ()
 			if (gPresentationGeneration == 0) gPresentationGeneration = 1;
 			PerfCompactCaptureBeginOuterFrame(gPresentationGeneration);
 			PerfInputLineageBeginPresentation(gPresentationGeneration);
-			if (PerfLoopTraceActive() || PerfCompactCaptureTimingActive())
+			if (PerfLoopTraceActive() || PerfCompactCaptureTimingActive() || PerfAuditActive())
 			{
 				if (PerfLoopTraceActive())
 				{
@@ -1800,10 +1801,16 @@ void MainLoop ()
 			const double displayStartMs = I_msTimeF();
 			Display();
 			const double displayMs = I_msTimeF() - displayStartMs;
+			if (gamestate == GS_LEVEL) PerfAuditCaptureActors();
 			PerfAuditEndFrame();
 			const double musicStartMs = I_msTimeF();
 			Mus_UpdateMusic();		// must be at the end.
 			const double musicMs = I_msTimeF() - musicStartMs;
+			if (PerfAuditActive())
+			{
+				PerfAuditNoteLoop(tryRunMs, displayMs, startTicMs, musicMs, I_msTimeF() - frameStartMs,
+					gGameUpdateTicksThisPresentation, perfDisplayTraceStats.levelRendered);
+			}
 			if (PerfCompactCaptureTimingActive())
 			{
 				const auto renderTrace = GetPerfRenderTraceStats();

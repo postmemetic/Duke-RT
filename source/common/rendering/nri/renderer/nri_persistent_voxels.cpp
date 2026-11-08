@@ -4236,6 +4236,8 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	bool traceEnabled,
 	const NRIPersistentVoxelResetServices& services)
 {
+	PerfAuditScope auditPressure(PerfAuditMetric::VoxelPressureNs);
+	PerfAuditAdd(PerfAuditMetric::VoxelPressureCalls);
 	maintenanceStats.pressureEvaluatedLast = false;
 	maintenanceStats.pressureSkippedLast = false;
 	maintenanceStats.pressureProtectionBlockedLast = pressureProtectionBlocked;
@@ -4269,11 +4271,13 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	maintenanceStats.pressureEvaluationReasonMaskLast = pressureEvaluationDecision.reasonMask;
 	if (!pressureEvaluationDecision.evaluate)
 	{
+		PerfAuditAdd(PerfAuditMetric::VoxelPressureSkips);
 		maintenanceStats.pressureSkippedLast = true;
 		maintenanceStats.pressureSkips++;
 		return;
 	}
 	maintenanceStats.pressureEvaluatedLast = true;
+	PerfAuditAdd(PerfAuditMetric::VoxelPressureEvaluations);
 	maintenanceStats.pressureEvaluations++;
 	if ((pressureEvaluationDecision.reasonMask & NRIPersistentVoxelPressureEvaluationReason_SafetyAudit) != 0)
 	{

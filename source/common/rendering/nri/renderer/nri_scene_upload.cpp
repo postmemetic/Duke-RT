@@ -15,6 +15,7 @@
 #include "c_cvars.h"
 #include "perf_capture.h"
 #include "perf_audit.h"
+#include "nri_perf_audit.h"
 #include "../../hwrenderer/data/hw_clock.h"
 
 #include <algorithm>
@@ -2176,6 +2177,7 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	resource = {};
 	const auto growthStart = std::chrono::steady_clock::now();
 	const uint64_t oldSize = oldResource.size;
+	const uint64_t oldMemory = oldResource.memorySize;
 	const uint64_t oldUsedSize = oldResource.usedSize;
 	const bool retiredOldResource = oldResource.buffer != nullptr;
 
@@ -2185,6 +2187,7 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 		resource = oldResource;
 		return false;
 	}
+	const double auditAllocationMs = PerfAuditActive() ? DurationMs(growthStart, std::chrono::steady_clock::now()) : 0.0;
 
 	nri::BufferViewDesc viewDesc = {};
 	viewDesc.buffer = resource.buffer;
@@ -2254,6 +2257,13 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	else if (oldResource.buffer != nullptr || oldResource.shaderView != nullptr || oldResource.storageView != nullptr)
 	{
 		DestroyBufferResource(oldResource);
+	}
+	if (PerfAuditActive())
+	{
+		NRIAuditResidentArenaGrowth(mFrameIndex, stride, oldSize, oldMemory, oldUsedSize,
+			requiredSize, resource.size, resource.memorySize, copiedSize,
+			retiredOldResource && mFrameBuffer->mCommandBuffer != nullptr,
+			auditAllocationMs, DurationMs(growthStart, std::chrono::steady_clock::now()));
 	}
 	if ((int)nri_ptvoxelcomputetrace > 0 || (int)perf_looptraceframes > 0)
 	{

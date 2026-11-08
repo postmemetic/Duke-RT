@@ -41,7 +41,7 @@ namespace
 		const NRIRenderer::PerfResourceTraceStats& resource, uint64_t boundaryFrame, bool rendered)
 	{
 		AuditSnapshotJson json;
-		json.Add("\"renderer_frame\":%llu,\"boundary_frame\":%llu,\"valid\":%s,\"rendered\":%s,\"timing_unit\":\"ms\",\"timing_gate\":\"audit_active\",\"nested_scopes\":true,\"settings_key\":%llu,\"workload_key\":%llu",
+		json.Add("\"snapshot_version\":2,\"upload_counters_available\":true,\"renderer_frame\":%llu,\"boundary_frame\":%llu,\"valid\":%s,\"rendered\":%s,\"timing_unit\":\"ms\",\"timing_gate\":\"audit_active\",\"nested_scopes\":true,\"settings_key\":%llu,\"workload_key\":%llu",
 			(unsigned long long)shell.traceRendererFrame, (unsigned long long)boundaryFrame,
 			rendered ? "true" : "false", rendered ? "true" : "false",
 			(unsigned long long)shell.traceSettingsKey, (unsigned long long)shell.traceWorkloadKey);
@@ -63,19 +63,30 @@ namespace
 		AUDIT_TIME("static_scene_ms", staticSceneMs);
 		AUDIT_TIME("mutation_ms", runtimeMutationMs);
 		AUDIT_TIME("mutation_discovery_ms", runtimeMutationDiscoveryMs);
+		AUDIT_TIME("mutation_budget_ms", runtimeMutationBudgetMs);
 		AUDIT_TIME("mutation_analyze_ms", runtimeMutationAnalyzeMs);
+		AUDIT_TIME("mutation_structural_ms", runtimeMutationStructuralRebuildMs);
 		AUDIT_TIME("mutation_material_ms", runtimeMutationMaterialRefreshMs);
 		AUDIT_TIME("mutation_resident_ms", runtimeMutationResidentApplyMs);
+		AUDIT_TIME("mutation_commit_ms", runtimeMutationCommitMs);
+		AUDIT_TIME("mutation_geometry_build_ms", geometryBuildRuntimeMutationRebuildMs);
+		AUDIT_TIME("mutation_geometry_bridge_ms", runtimeMutationGeometryBridgeMs);
+		AUDIT_TIME("mutation_resident_geometry_ms", runtimeMutationResidentApplyGeometryBuildMs);
+		AUDIT_TIME("mutation_resident_material_ms", runtimeMutationResidentApplyMaterialBuildMs);
+		AUDIT_TIME("mutation_resident_atlas_ms", runtimeMutationResidentApplyAtlasMs);
+		AUDIT_TIME("mutation_resident_blas_ms", runtimeMutationResidentApplyDownstreamBlasMs);
 		AUDIT_TIME("dynamic_capture_ms", dynamicCaptureMs);
 		AUDIT_TIME("voxel_batch_ms", sceneSelectPersistentVoxelBatchMs);
 		AUDIT_TIME("voxel_admission_ms", sceneSelectPersistentVoxelAdmissionPumpMs);
 		AUDIT_TIME("voxel_cache_entry_ms", persistentVoxelBatchCacheEntryMs);
 		AUDIT_TIME("voxel_sort_ms", persistentVoxelBatchSortMs);
 		AUDIT_TIME("voxel_instance_sync_ms", persistentVoxelBatchInstanceSyncMs);
+		AUDIT_TIME("voxel_existing_actor_map_ms", persistentVoxelBatchExistingActorMapMs);
 		AUDIT_TIME("voxel_actor_loop_ms", persistentVoxelBatchActorLoopMs);
 		AUDIT_TIME("voxel_material_variant_ms", persistentVoxelBatchMaterialVariantMs);
 		AUDIT_TIME("voxel_material_bridge_ms", persistentVoxelBatchMaterialBridgeMs);
 		AUDIT_TIME("voxel_mesh_admission_ms", persistentVoxelBatchMeshAdmissionMs);
+		AUDIT_TIME("voxel_state_ms", persistentVoxelBatchStateMs);
 		AUDIT_TIME("material_bridge_ms", sceneSelectMaterialBridgeMs);
 		AUDIT_TIME("material_build_ms", materialBuildMs);
 		AUDIT_TIME("actor_override_map_ms", actorOverrideMapBuildMs);
@@ -86,6 +97,15 @@ namespace
 		AUDIT_TIME("texture_descriptor_ms", sceneTextureDescriptorMs);
 		AUDIT_TIME("texture_transition_ms", sceneTextureTransitionMs);
 		AUDIT_TIME("buffer_upload_ms", sceneSelectBufferUploadMs);
+		AUDIT_TIME("buffer_upload_primitive_rewrite_ms", sceneSelectBufferUploadPrimitiveRewriteMs);
+		AUDIT_TIME("buffer_upload_hash_ms", sceneSelectBufferUploadPayloadHashMs);
+		AUDIT_TIME("buffer_upload_dirty_range_ms", sceneSelectBufferUploadDirtyRangeMs);
+		AUDIT_TIME("buffer_upload_wait_ms", sceneSelectBufferUploadWaitMs);
+		AUDIT_TIME("buffer_upload_vertex_ms", sceneSelectBufferUploadVertexMs);
+		AUDIT_TIME("buffer_upload_index_ms", sceneSelectBufferUploadIndexMs);
+		AUDIT_TIME("buffer_upload_primitive_ms", sceneSelectBufferUploadPrimitiveMs);
+		AUDIT_TIME("buffer_upload_material_ms", sceneSelectBufferUploadMaterialMs);
+		AUDIT_TIME("buffer_upload_voxel_material_ms", sceneSelectBufferUploadPersistentVoxelMaterialMs);
 		AUDIT_TIME("persistent_voxel_as_ms", persistentVoxelAsMs);
 		AUDIT_TIME("dynamic_as_ms", dynamicAsMs);
 		AUDIT_TIME("world_tlas_ms", worldTlasMs);
@@ -98,11 +118,13 @@ namespace
 		AUDIT_TIME("dynamic_merge_material_ms", sceneSelectDynamicMergeMaterialMs);
 		AUDIT_TIME("light_static_append_ms", sceneLightStaticAppendMs);
 		AUDIT_TIME("light_mutation_append_ms", sceneLightRuntimeMutationAppendMs);
+		AUDIT_TIME("light_captured_append_ms", sceneLightCapturedAppendMs);
 		AUDIT_TIME("light_dynamic_append_ms", sceneLightDynamicAppendMs);
 		AUDIT_TIME("light_voxel_append_ms", sceneLightPersistentVoxelAppendMs);
 		AUDIT_TIME("light_analytic_ms", sceneLightAnalyticMs);
 		AUDIT_TIME("light_emissive_ms", sceneLightEmissiveMs);
 		AUDIT_TIME("light_sector_ms", sceneLightSectorMs);
+		AUDIT_TIME("light_topology_sort_ms", sceneLightTopologySortMs);
 		AUDIT_TIME("trace_cpu_ms", traceOpaqueMs);
 		AUDIT_TIME("trace_readback_ms", traceOpaqueReadbackMs);
 		AUDIT_TIME("trace_command_ms", traceOpaqueCommandMs);
@@ -110,11 +132,21 @@ namespace
 #undef AUDIT_TIME
 		json.Time("resource_wait_ms", resource.waitMs);
 		json.Time("scene_buffer_wait_ms", resource.sceneBufferUploadWaitMs);
+		json.Time("resident_chunk_write_wait_ms", resource.residentChunkWriteWaitMs);
+		json.Time("resident_chunk_blas_wait_ms", resource.residentChunkBlasRebuildWaitMs);
 		json.Time("scene_data_wait_ms", resource.sceneDataUploadWaitMs);
 		json.Time("emissive_upload_wait_ms", resource.emissiveSamplingUploadWaitMs);
-		json.Add(",\"wait_calls\":%u,\"scene_upload_bytes\":%llu,\"scene_data_upload_bytes\":%llu,\"emissive_upload_bytes\":%llu,\"resource_growths\":%u,\"material_build_ms_by_slot\":[",
+		json.Add(",\"wait_calls\":%u,\"scene_upload_bytes\":%llu,\"scene_data_upload_bytes\":%llu,\"emissive_upload_bytes\":%llu,\"resource_growths\":%u,\"resource_overwrites\":%u",
 			resource.waitCalls, (unsigned long long)resource.sceneUploadBytes, (unsigned long long)resource.sceneDataUploadBytes,
-			(unsigned long long)resource.emissiveUploadBytes, resource.growEvents);
+			(unsigned long long)resource.emissiveUploadBytes, resource.growEvents, resource.overwriteEvents);
+		json.Add(",\"scene_upload_calls\":%u,\"scene_data_upload_calls\":%u,\"emissive_upload_calls\":%u,\"scene_vertex_upload_bytes\":%llu,\"scene_index_upload_bytes\":%llu,\"scene_primitive_upload_bytes\":%llu,\"scene_material_upload_bytes\":%llu",
+			resource.sceneUploadCalls, resource.sceneDataUploadCalls, resource.emissiveUploadCalls,
+			(unsigned long long)resource.sceneVertexUploadBytes, (unsigned long long)resource.sceneIndexUploadBytes,
+			(unsigned long long)resource.scenePrimitiveUploadBytes, (unsigned long long)resource.sceneMaterialUploadBytes);
+		json.Add(",\"scene_dynamic_upload_bytes\":%llu,\"scene_resident_chunk_upload_bytes\":%llu,\"scene_persistent_voxel_upload_bytes\":%llu,\"scene_persistent_voxel_variant_upload_bytes\":%llu,\"scene_static_refresh_upload_bytes\":%llu,\"scene_other_upload_bytes\":%llu,\"material_build_ms_by_slot\":[",
+			(unsigned long long)resource.sceneDynamicUploadBytes, (unsigned long long)resource.sceneResidentChunkUploadBytes,
+			(unsigned long long)resource.scenePersistentVoxelUploadBytes, (unsigned long long)resource.scenePersistentVoxelVariantUploadBytes,
+			(unsigned long long)resource.sceneStaticRefreshUploadBytes, (unsigned long long)resource.sceneOtherUploadBytes);
 		for (size_t slot = 0; slot < shell.materialBuildByLabel.size(); ++slot)
 		{
 			const double value = shell.materialBuildByLabel[slot].materialBuildMs;

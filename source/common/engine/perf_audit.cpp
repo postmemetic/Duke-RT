@@ -179,6 +179,18 @@ void PerfAuditMark(const char* label)
     Printf("PERF audit marker: checkpoint=%" PRIu64 " label=%s\n", markerToken.checkpoint, safe);
 }
 
+void PerfAuditNoteLoop(double tryMs, double displayMs, double startTicMs, double musicMs,
+    double frameMs, uint32_t ticks, bool levelRendered)
+{
+    if (!PerfAuditActive()) return;
+    char fields[768];
+    snprintf(fields, sizeof(fields),
+        "\"valid\":true,\"timing_unit\":\"ms\",\"try_ms\":%.6f,\"display_ms\":%.6f,"
+        "\"start_tic_ms\":%.6f,\"music_ms\":%.6f,\"loop_ms\":%.6f,\"ticks\":%u,\"level_rendered\":%s",
+        tryMs, displayMs, startTicMs, musicMs, frameMs, ticks, levelRendered ? "true" : "false");
+    PerfAuditWriteEvent("loop_cpu", PerfAuditCurrentToken(), fields);
+}
+
 void PerfAuditWriteEvent(const char* kind, const PerfAuditToken& token, const char* fieldsJson)
 {
     if (!PerfAuditActive() || !token || token.epoch != Token.epoch) return;

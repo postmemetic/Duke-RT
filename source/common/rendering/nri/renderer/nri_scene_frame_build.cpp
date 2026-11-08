@@ -2336,16 +2336,20 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		activeMaterialBridge == &combinedMaterialBridge &&
 		!overlayGeometry.primitives.empty())
 	{
-		const nri_scene::MaterialBridgeData& refreshedMaterialSource =
-			mSceneTextureStableSlotsActive ?
-			mSceneMaterialFrameCache.ResolveTextureSlots(mSceneTextures.SlotTable()) :
-			combinedMaterialBridge;
-		const auto materialPatch = RefreshCombinedMaterialProduct(
-			refreshedMaterialSource,
-			mStaticMapScene.gpuMaterials.size(),
-			mSceneMaterialFrameCache.PersistentMaterialCount(),
-			deferredTextureMaterialIndices,
-			combinedGpuMaterials, persistentVoxelGpuMaterials, dynamicGpuMaterials);
+		const auto materialPatch = [&]()
+		{
+			PerfAuditScope auditTimer(PerfAuditMetric::MaterialPostLightRefreshNs);
+			const nri_scene::MaterialBridgeData& refreshedMaterialSource =
+				mSceneTextureStableSlotsActive ?
+				mSceneMaterialFrameCache.ResolveTextureSlots(mSceneTextures.SlotTable()) :
+				combinedMaterialBridge;
+			return RefreshCombinedMaterialProduct(
+				refreshedMaterialSource,
+				mStaticMapScene.gpuMaterials.size(),
+				mSceneMaterialFrameCache.PersistentMaterialCount(),
+				deferredTextureMaterialIndices,
+				combinedGpuMaterials, persistentVoxelGpuMaterials, dynamicGpuMaterials);
+		}();
 		if (!materialPatch.valid)
 		{
 			LogFallback("PT runtime overlay material refresh produced an invalid material slice.");

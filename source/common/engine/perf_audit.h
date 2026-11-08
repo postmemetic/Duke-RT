@@ -2,7 +2,7 @@
 #include <atomic>
 #include <cstdint>
 
-// Local diagnostic facility: disabled unless explicitly started. Never archives settings.
+// Session diagnostic facility: disabled unless explicitly started. Never archives settings.
 enum class PerfAuditMetric : uint16_t
 {
 #define PERF_AUDIT_METRIC(name, kind) name,
@@ -31,6 +31,9 @@ void PerfAuditBeginFrame(uint64_t presentation, int64_t tic);
 // Align periodic census to a route's first presentation, independent of load time.
 void PerfAuditAlignSampling();
 void PerfAuditEndFrame();
+// Real-clock loop timings; no simulation-clock override. Called only while active.
+void PerfAuditNoteLoop(double tryMs, double displayMs, double startTicMs, double musicMs,
+    double frameMs, uint32_t ticks, bool levelRendered);
 void PerfAuditMark(const char* label);
 // Main thread only. fieldsJson contains JSON object members, without outer braces.
 // The caller must escape strings. Fixed diagnostic data only, no user commands.

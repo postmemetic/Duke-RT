@@ -960,6 +960,7 @@ void NRISceneTextureResidency::PopulateStableSlotDescriptors(
 
 uint32_t NRISceneTextureResidency::TransitionInputsForCompute(NRIRenderDevice& device)
 {
+	PerfAuditScope auditSweep(PerfAuditMetric::TextureTransitionSweepNs);
 	uint32_t transitionCount = 0;
 	const bool auditCensus = PerfAuditCensusRequested();
 	const uint64_t auditStart = auditCensus ? PerfAuditClockNs() : 0;
@@ -1277,6 +1278,8 @@ bool NRIRenderer::EnsureSceneTextures(
 	std::vector<uint32_t>* outDeferredMaterialIndices,
 	bool preserveMaterialTextureNamespace)
 {
+	PerfAuditScope auditTextures(PerfAuditMetric::SceneTexturesNs);
+	PerfAuditAdd(PerfAuditMetric::SceneTexturesCalls);
 	Clocker clock(NriPTSceneTextures);
 	static bool sLoggedActiveCanvasTextureReuse = false;
 	const bool tracePerf = ShouldTraceSceneTexturePerf() || PerfAuditActive();
@@ -1525,19 +1528,39 @@ bool NRIRenderer::EnsureSceneTextures(
 	const nri_scene::MaterialBridgeData* gpuMaterialSource = &materials;
 	if (mSceneTextureStableSlotsActive && &materials == &mSceneMaterialFrameCache.Materials())
 	{
+		PerfAuditScope auditResolve(PerfAuditMetric::SceneTexturesResolveMaterialNs);
 		gpuMaterialSource = &mSceneMaterialFrameCache.ResolveTextureSlots(mSceneTextures.SlotTable());
 	}
-	outGpuMaterials = gpuMaterialSource->materials;
-	ApplyEmissiveMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
-	ApplyActorShadowMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
-	nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), *gpuMaterialSource, outGpuMaterials);
+	{
+		PerfAuditScope auditCopy(PerfAuditMetric::SceneTexturesGpuMaterialCopyNs);
+		outGpuMaterials = gpuMaterialSource->materials;
+		PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialRowsCopied, gpuMaterialSource->materials.size());
+		PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialBytesCopied,
+			(uint64_t)gpuMaterialSource->materials.size() * sizeof(nri_scene::MaterialData));
+	}
+	{
+		PerfAuditScope auditOverrides(PerfAuditMetric::SceneTexturesEmissiveOverrideNs);
+		ApplyEmissiveMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
+	}
+	{
+		PerfAuditScope auditOverrides(PerfAuditMetric::SceneTexturesActorShadowOverrideNs);
+		ApplyActorShadowMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
+	}
+	{
+		PerfAuditScope auditBindings(PerfAuditMetric::SceneTexturesFluidBindingNs);
+		nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), *gpuMaterialSource, outGpuMaterials);
+	}
 	if (mSceneTextureStableSlotsActive)
 	{
 		if (gpuMaterialSource == &materials)
 		{
+			PerfAuditScope auditResolve(PerfAuditMetric::SceneTexturesFallbackResolveNs);
 			ResolveSceneMaterialTextureSlots(materials, outGpuMaterials);
 		}
 	}
+	// Includes sky/descriptor residency and pending/overflow material fixups;
+	// the material-frame copies and override passes above are separate scopes.
+	PerfAuditScope auditResidencyTail(PerfAuditMetric::SceneTexturesResidencyTailNs);
 	if (mSceneTextureStableSlotsActive)
 	{
 		mSceneTextures.CacheStats().stableSlotModeLastBuild = 1;
