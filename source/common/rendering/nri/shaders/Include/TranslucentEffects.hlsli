@@ -4,8 +4,9 @@
 #include "Shared.hlsli"
 
 // Effect sprites share the live scene's geometry/material uploads, but do not
-// own opaque depth, lighting or denoiser guides. Resolve their alpha layers
-// after opaque lighting, in both the NRD and ray-reconstruction compositions.
+// own opaque depth, lighting or denoiser guides. Keep their premultiplied
+// palette colors separate from scene radiance: exposure and tone mapping
+// before the alpha blend would wash out the background behind white effects.
 float4 SampleTranslucentEffect(MaterialData material, float2 uv)
 {
 	if (material.textureIndex >= MAX_SCENE_TEXTURES) return 0.0;
@@ -27,10 +28,10 @@ float4 SampleTranslucentEffect(MaterialData material, float2 uv)
 	return float4(color.rgb * material.lightLevel, coverage * saturate(material.alpha));
 }
 
-float3 CompositeTranslucentEffects(uint2 pixelPos, float3 background)
+float4 ResolveTranslucentEffects(uint2 pixelPos)
 {
 	// Composition publishes scene counts only when this frame has effects.
-	if (gTraceConstants.SceneInstanceCount == 0u) return background;
+	if (gTraceConstants.SceneInstanceCount == 0u) return 0.0;
 	const float2 resolution = float2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight);
 	const float2 jitter = gReprojectionDataBuffer[0].currentJitter;
 	float2 ndc = ((float2(pixelPos) + 0.5 + jitter) / resolution) * 2.0 - 1.0;
@@ -49,7 +50,7 @@ float3 CompositeTranslucentEffects(uint2 pixelPos, float3 background)
 	// still blend only once at a shared edge.
 	uint2 blendedSurfaces[32];
 	float transmittance = 1.0;
-	float3 radiance = 0.0;
+	float3 premultipliedColor = 0.0;
 	[loop]
 	for (uint layer = 0u; layer < 32u && transmittance > 1.0 / 255.0 && 1e-4 < maxDistance; ++layer)
 	{
@@ -97,16 +98,11 @@ float3 CompositeTranslucentEffects(uint2 pixelPos, float3 background)
 			nearestDistance = distance;
 		}
 		if (nearestColor.a <= 0.0) break;
-		radiance += transmittance * nearestColor.a * nearestColor.rgb;
+		premultipliedColor += transmittance * nearestColor.a * nearestColor.rgb;
 		transmittance *= 1.0 - nearestColor.a;
 		blendedSurfaces[layer] = nearestSurface;
 	}
-	if (transmittance < 1.0)
-	{
-		const float existingReactive = gTemporalReactiveOutput[pixelPos].x;
-		gTemporalReactiveOutput[pixelPos] = float4(max(existingReactive, 1.0 - transmittance), 0.0, 0.0, 1.0);
-	}
-	return radiance + transmittance * background;
+	return float4(premultipliedColor, 1.0 - transmittance);
 }
 
 #endif

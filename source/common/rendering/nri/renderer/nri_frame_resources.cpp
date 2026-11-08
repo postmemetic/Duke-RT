@@ -215,6 +215,7 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::DenoisedSpecular, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::DenoisedShadow, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::Composed, renderWidth, renderHeight, colorFormat) &&
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TranslucentEffects, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::TraceTransparentOutput, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::DirectLighting, renderWidth, renderHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::DirectEmission, renderWidth, renderHeight, colorFormat) &&

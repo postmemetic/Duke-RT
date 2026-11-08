@@ -2109,6 +2109,7 @@ public:
 		DenoisedSpecular,
 		DenoisedShadow,
 		Composed,
+		TranslucentEffects,
 		TraceTransparentOutput,
 		DirectLighting,
 		DirectEmission,

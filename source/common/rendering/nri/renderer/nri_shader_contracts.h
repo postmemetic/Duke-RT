@@ -105,6 +105,7 @@ constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_OFFSCREEN_HDR_TARGET = 0x8u;
 constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_AUTO_EXPOSURE = 0x10u;
 constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_EXPOSURE_TEXTURE_VALID = 0x20u;
 constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_INPUT_PRE_EXPOSED = 0x40u;
+constexpr uint32_t NRI_PRESENT_OUTPUT_FLAG_EFFECT_SMOKE = 0x80u;
 
 constexpr uint32_t NRI_TEMPORAL_FLAG_AUTO_EXPOSURE = 0x1000u;
 constexpr uint32_t NRI_TEMPORAL_FLAG_EXPOSURE_TEXTURE_VALID = 0x2000u;
@@ -208,11 +209,12 @@ struct NRIPresentConstants
 	float NightVisionStrength = 0.0f;
 	float NightVisionExposure = 1.0f;
 	uint32_t NightVisionPackedControls = 0;
+	float EffectJitter[2] = {};
 };
 
 static_assert(sizeof(NRITraceSceneConstants) == 224, "NRITraceSceneConstants must match the validated shared root-constant budget.");
 static_assert(sizeof(NRITemporalConstants) <= 32, "NRITemporalConstants must stay compact.");
-static_assert(sizeof(NRIPresentConstants) <= 96, "NRIPresentConstants must stay compact.");
+static_assert(sizeof(NRIPresentConstants) == 104, "NRIPresentConstants must match PresentConstants.hlsli.");
 
 // Mirrors shaders/Include/ExposureConstants.hlsli.
 constexpr uint32_t NRI_EXPOSURE_SET_INPUTS = 0;

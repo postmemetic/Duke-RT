@@ -6,7 +6,10 @@ NRI_ROOT_CONSTANTS(NRIPresentConstants, gPresentConstants, 0, 2);
 
 Texture2D<float4> gInputTexture : register(t0, space0);
 Texture2D<float4> gExposureStateTexture : register(t1, space0);
-Texture2D<float4> gUnused2 : register(t2, space0);
+Texture2D<float4> gTranslucentEffects : register(t2, space0);
+Texture2D<float4> gEffectSmoke : register(t3, space0);
+
+#include "Include/TranslucentEffectsPresent.hlsli"
 
 NRI_FORMAT("unknown") NRI_RESOURCE(RWTexture2D<float3>, gOutputTexture, u, 0, 1);
 
@@ -73,7 +76,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		return;
 	}
 
-	gOutputTexture[targetPixelPos] = ApplyPresentDisplayMapping(
+	float3 displayColor = ApplyPresentDisplayMapping(
 		inputColor,
 		targetPixelPos,
 		gPresentConstants.FrameIndex,
@@ -92,4 +95,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		gPresentConstants.PaperWhiteNits,
 		gPresentConstants.DisplaySdrLuminance,
 		gPresentConstants.DisplayMaxLuminance);
+	if (gPresentConstants.DebugMode == 0u)
+	{
+		displayColor = BlendTranslucentEffectLayer(displayColor,
+			SampleTranslucentEffectLayer(uint2(pixelPos), outputSize), hdrSwapChainActive);
+	}
+	gOutputTexture[targetPixelPos] = displayColor;
 }

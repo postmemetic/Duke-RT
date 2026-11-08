@@ -187,6 +187,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			composed = 1.0;
 		}
 	}
-	composed = CompositeTranslucentEffects(pixelPos, composed);
+	// Composition binds the effect layer to the otherwise unused u0 output.
+	// Write transparent black on empty frames so expired sprites cannot persist.
+	gTraceOutput[pixelPos] = ResolveTranslucentEffects(pixelPos);
 	gComposedOutput[pixelPos] = float4(SanitizeColor(composed), 1.0);
 }
