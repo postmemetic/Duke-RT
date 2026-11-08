@@ -2,16 +2,15 @@
 
 #include "nri_scene_bridge.h"
 #include "nri_wall_decal_projection.h"
+#include "nri_wall_decal_receivers.h"
 #include "coreactor.h"
 #include "gamecontrol.h"
-#include "gamefuncs.h"
 #include "hw_voxels.h"
 #include "texinfo.h"
 #include "buildtiles.h"
 #include "texturemanager.h"
 
 #include <algorithm>
-#include <cmath>
 
 EXTERN_CVAR(Bool, r_voxels)
 
@@ -25,46 +24,6 @@ bool IsCandidate(const spritetypebase& sprite)
 		(sprite.cstat & CSTAT_SPRITE_INVISIBLE) == 0 &&
 		(sprite.cstat & CSTAT_SPRITE_TRANSLUCENT) != 0 &&
 		(sprite.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_WALL;
-}
-
-void FindReceivers(const tspritetype& sprite, const HWWall& quad, std::vector<walltype*>& receivers)
-{
-	receivers.clear();
-	// Stock markers can start over a unit off their wall, and crack initialization
-	// moves them another half unit. A two-unit envelope covers those placements;
-	// exact receiver identity, side and overlap still prevent corner bleed.
-	constexpr double attachmentDistance = 2.0;
-	constexpr double parallelCosine = 0.999961923; // half a degree, including map angle rounding
-	const DVector2 a(quad.glseg.x1, -quad.glseg.y1);
-	const DVector2 b(quad.glseg.x2, -quad.glseg.y2);
-	const auto span = b - a;
-	const double spanSquared = span.LengthSquared();
-	if (spanSquared <= 1.e-8) return;
-	const auto facing = sprite.Angles.Yaw.ToVector();
-	double bestDistance = attachmentDistance;
-	for (auto& candidate : sprite.sectp->walls)
-	{
-		const auto delta = candidate.delta();
-		if (delta.LengthSquared() <= 1.e-8) continue;
-		const auto normal = delta.Rotated90CCW().Unit();
-		const double alignment = normal.X * facing.X + normal.Y * facing.Y;
-		if (std::abs(alignment) < parallelCosine ||
-			((sprite.cstat & CSTAT_SPRITE_ONE_SIDE) && alignment <= 0.0)) continue;
-		const double distance = std::abs((sprite.pos.X - candidate.pos.X) * normal.X +
-			(sprite.pos.Y - candidate.pos.Y) * normal.Y);
-		if (distance > attachmentDistance || distance > bestDistance + 1.e-4) continue;
-		const auto start = candidate.pos - a;
-		const auto end = candidate.pos + delta - a;
-		const double t0 = (start.X * span.X + start.Y * span.Y) / spanSquared;
-		const double t1 = (end.X * span.X + end.Y * span.Y) / spanSquared;
-		if (std::max(t0, t1) <= 0.0 || std::min(t0, t1) >= 1.0) continue;
-		if (distance < bestDistance - 1.e-4)
-		{
-			receivers.clear();
-			bestDistance = distance;
-		}
-		receivers.push_back(&candidate);
-	}
 }
 }
 
@@ -110,7 +69,7 @@ void CaptureWallDecals(HWDrawInfo& view, std::vector<WallDecalCapture>& decals)
 			quad.RenderStyle.BlendOp != STYLEOP_Add || quad.RenderStyle.SrcAlpha != STYLEALPHA_Src ||
 			quad.RenderStyle.DestAlpha != STYLEALPHA_InvSrc || quad.RenderStyle.Flags != 0)
 			continue;
-		FindReceivers(*sprite, quad, receivers);
+		FindWallDecalReceivers(*sprite, quad, receivers);
 		if (receivers.empty()) continue;
 
 		WallDecalCapture capture = {};

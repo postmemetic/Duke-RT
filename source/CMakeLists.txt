@@ -1124,6 +1124,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_sector_color_policy.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
 	common/rendering/nri/scene/nri_wall_decals.cpp
+	common/rendering/nri/scene/nri_wall_decal_receivers.cpp
 	../libraries/ShaderMake/ShaderMake/ShaderBlob.cpp
 	../libraries/NRD/Source/Wrapper.cpp
 	../libraries/NRD/Source/InstanceImpl.cpp
