@@ -1447,14 +1447,8 @@ void NRIPersistentVoxelResidency::RebuildBatchMaterialBridge(PersistentVoxelBatc
 {
 	PerfAuditScope audit(PerfAuditMetric::VoxelMaterialBridgeNs);
 	PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRebuilds);
-	nri_scene::ClearMaterialBridgeRetainingCapacity(targetBatch.materialBridge);
-	const uint32_t materialCursor = materialRangeAllocator.Stats().cursorRows;
-	targetBatch.materialBridge.materials.reserve(materialCursor);
-	targetBatch.materialBridge.lightMetadata.reserve(materialCursor);
 	const std::unordered_set<uint64_t> activeMaterialKeys =
 		CollectActivePersistentVoxelMaterialKeys(targetBatch);
-	std::unordered_map<uint64_t, uint32_t> textureLookup;
-	textureLookup.reserve(targetBatch.materialBridge.textures.capacity() + activeMaterialKeys.size());
 	std::vector<PersistentVoxelMaterialVariantResource*> materialResources;
 	materialResources.reserve(activeMaterialKeys.size());
 	for (uint64_t materialKey : activeMaterialKeys)
@@ -1472,25 +1466,23 @@ void NRIPersistentVoxelResidency::RebuildBatchMaterialBridge(PersistentVoxelBatc
 		{
 			return left->materialOffset < right->materialOffset;
 		});
+	std::vector<NRIVoxelMaterialBridgeResourceView> resourceViews;
+	resourceViews.reserve(materialResources.size());
+	for (const auto* resource : materialResources)
+	{
+		// CPU publication consumes these dirty keys before UploadArenaMaterialBuffers
+		// clears them. materialBridgeBuildSerial alone is a map/build identity and
+		// does not identify an in-place, metadata-only content change.
+		resourceViews.push_back({resource->materialKeyHash, resource->materialSlotGeneration,
+			resource->materialBridgeBuildSerial, resource->materialOffset, resource->materialCount,
+			dirtyMaterialResourceKeys.find(resource->materialKeyHash) != dirtyMaterialResourceKeys.end(),
+			&resource->materialBridge});
+	}
+	targetBatch.materialBridgeUpdates.Update(resourceViews, materialRangeAllocator.Stats().cursorRows,
+		batchMaterialPublicationGeneration, batchMaterialPublicationGeneration + 1, targetBatch.materialBridge,
+		(bool)nri_ptmaterialrangesvalidate);
 	for (PersistentVoxelMaterialVariantResource* resource : materialResources)
 	{
-		if (resource == nullptr)
-		{
-			continue;
-		}
-		if (targetBatch.materialBridge.materials.size() < resource->materialOffset)
-		{
-			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsInitialized, resource->materialOffset - targetBatch.materialBridge.materials.size());
-			targetBatch.materialBridge.materials.resize(resource->materialOffset);
-			targetBatch.materialBridge.lightMetadata.resize(resource->materialOffset);
-		}
-		const uint64_t auditBytesBefore = PerfAuditActive() ? NRIAuditMaterialBridgeBytes(targetBatch.materialBridge) : 0;
-		nri_scene::AppendMaterialBridge(resource->materialBridge, targetBatch.materialBridge, textureLookup);
-		if (PerfAuditActive())
-		{
-			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsCopied, resource->materialBridge.materials.size());
-			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeBytesCopied, NRIAuditMaterialBridgeBytes(targetBatch.materialBridge) - auditBytesBefore);
-		}
 		const uint64_t materialSize = (uint64_t)resource->materialCount * sizeof(nri_scene::MaterialData);
 		if ((resource->materialPayloadHash == 0 ||
 			dirtyMaterialResourceKeys.find(resource->materialKeyHash) != dirtyMaterialResourceKeys.end()) &&

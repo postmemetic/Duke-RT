@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../scene/nri_material_bridge.h"
+#include "../scene/nri_material_bridge_ranges.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,7 @@ struct NRIMaterialProductPatchResult
 	size_t copiedRows = 0;
 	size_t dirtyRanges = 0;
 	size_t preservedRows = 0;
+	size_t uniformRows = 0;
 };
 
 // This owner retains scratch, never material authority. Every candidate row is
@@ -30,6 +32,15 @@ class NRISceneMaterialProduct
 public:
 	using TransformRow = void (*)(void*, size_t, nri_scene::MaterialData&);
 	using TransformReference = void (*)(void*, std::vector<nri_scene::MaterialData>&);
+
+	// Uniform ranges must be published by an owner proving equal clean rows AND
+	// policy metadata. The current policy is evaluated afresh on every call.
+	NRIMaterialProductPatchResult BuildTransformed(
+		const std::vector<nri_scene::MaterialData>& base,
+		const std::vector<nri_scene::MaterialRowRange>& uniformRanges,
+		std::vector<nri_scene::MaterialData>& output,
+		void* context, TransformRow transformRow, TransformReference transformReference,
+		bool validate);
 
 	NRIMaterialProductPatchResult Refresh(
 		const std::vector<nri_scene::MaterialData>& base,
@@ -43,7 +54,9 @@ public:
 		TransformRow transformRow,
 		TransformReference transformReference,
 		bool enabled,
-		bool validate);
+		bool validate,
+		const std::vector<nri_scene::MaterialRowRange>* uniformRanges = nullptr,
+		bool validateEveryUpdate = false);
 
 	bool Quarantined() const { return mQuarantined; }
 	static bool EqualRows(const nri_scene::MaterialData* a, const nri_scene::MaterialData* b, size_t count);

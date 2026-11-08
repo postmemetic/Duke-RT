@@ -5,6 +5,7 @@
 
 #include "nri_persistent_voxel_admission_index.h"
 #include "nri_persistent_voxel_material_closure.h"
+#include "nri_persistent_voxel_material_bridge.h"
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_material_upload.h"
 #include "nri_frame_resources.h"
@@ -95,6 +96,7 @@ struct PersistentVoxelBatch
 	nri_scene::SceneDebugStats stats;
 	nri_scene::MaterialBridgeData materialBridge;
 	std::vector<ActorEntry> actors;
+	NRIPersistentVoxelMaterialBridge materialBridgeUpdates;
 };
 
 struct PersistentVoxelMeshVariantResource
@@ -1149,6 +1151,8 @@ public:
 	uint32_t OverlayMaterialCount() const;
 	const nri_scene::MaterialBridgeData& MaterialBridge() const { return batch.materialBridge; }
 	uint64_t MaterialPublicationGeneration() const { return batchMaterialPublicationGeneration; }
+	const nri_scene::MaterialBridgeChanges& MaterialChanges() const { return batch.materialBridgeUpdates.Changes(); }
+	const std::vector<nri_scene::MaterialRowRange>& UniformDefaultMaterialRanges() const { return batch.materialBridgeUpdates.UniformDefaultRanges(); }
 	const NRIPersistentVoxelMaterialRangeStats& MaterialRangeStats() const { return materialRangeAllocator.Stats(); }
 	uint32_t EstimatePrimitiveCountForInstanceOffset(uint32_t primitiveOffset) const;
 	nri_scene::SceneDebugStats BuildOverlayDebugStats() const;

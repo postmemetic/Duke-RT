@@ -1531,24 +1531,35 @@ bool NRIRenderer::EnsureSceneTextures(
 		PerfAuditScope auditResolve(PerfAuditMetric::SceneTexturesResolveMaterialNs);
 		gpuMaterialSource = &mSceneMaterialFrameCache.ResolveTextureSlots(mSceneTextures.SlotTable());
 	}
+	const bool useUniformPolicyRanges = (bool)nri_ptmaterialpatch &&
+		&materials == &mSceneMaterialFrameCache.Materials() &&
+		!mSceneMaterialFrameCache.UniformDefaultRanges().empty();
+	if (useUniformPolicyRanges)
 	{
-		PerfAuditScope auditCopy(PerfAuditMetric::SceneTexturesGpuMaterialCopyNs);
-		outGpuMaterials = gpuMaterialSource->materials;
-		PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialRowsCopied, gpuMaterialSource->materials.size());
-		PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialBytesCopied,
-			(uint64_t)gpuMaterialSource->materials.size() * sizeof(nri_scene::MaterialData));
+		PerfAuditScope auditProduct(PerfAuditMetric::SceneTexturesMaterialProductNs);
+		BuildSceneMaterialPolicyProduct(*gpuMaterialSource, mSceneMaterialFrameCache.UniformDefaultRanges(), outGpuMaterials);
 	}
+	else
 	{
-		PerfAuditScope auditOverrides(PerfAuditMetric::SceneTexturesEmissiveOverrideNs);
-		ApplyEmissiveMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
-	}
-	{
-		PerfAuditScope auditOverrides(PerfAuditMetric::SceneTexturesActorShadowOverrideNs);
-		ApplyActorShadowMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
-	}
-	{
-		PerfAuditScope auditBindings(PerfAuditMetric::SceneTexturesFluidBindingNs);
-		nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), *gpuMaterialSource, outGpuMaterials);
+		{
+			PerfAuditScope auditCopy(PerfAuditMetric::SceneTexturesGpuMaterialCopyNs);
+			outGpuMaterials = gpuMaterialSource->materials;
+			PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialRowsCopied, gpuMaterialSource->materials.size());
+			PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialBytesCopied,
+				(uint64_t)gpuMaterialSource->materials.size() * sizeof(nri_scene::MaterialData));
+		}
+		{
+			PerfAuditScope auditOverrides(PerfAuditMetric::SceneTexturesEmissiveOverrideNs);
+			ApplyEmissiveMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
+		}
+		{
+			PerfAuditScope auditOverrides(PerfAuditMetric::SceneTexturesActorShadowOverrideNs);
+			ApplyActorShadowMaterialOverrides(*gpuMaterialSource, outGpuMaterials);
+		}
+		{
+			PerfAuditScope auditBindings(PerfAuditMetric::SceneTexturesFluidBindingNs);
+			nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), *gpuMaterialSource, outGpuMaterials);
+		}
 	}
 	if (mSceneTextureStableSlotsActive)
 	{

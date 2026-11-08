@@ -971,6 +971,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_actor_workload_mask_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_closure.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_range_allocator.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_material_bridge.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_upload.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_index.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_blas_compaction.cpp
@@ -1040,7 +1041,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_builder.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_material_frame_cache_updates.cpp
 	common/rendering/nri/renderer/nri_scene_material_product.cpp
+	common/rendering/nri/renderer/nri_scene_material_product_uniform.cpp
 	common/rendering/nri/renderer/nri_scene_material_product_policy.cpp
 	common/rendering/nri/renderer/nri_scene_material_texture_slots.cpp
 	common/rendering/nri/renderer/nri_scene_texture_frame_cache.cpp
@@ -1125,6 +1128,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_sector_color_policy.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
+	common/rendering/nri/scene/nri_material_bridge_ranges.cpp
 	common/rendering/nri/scene/nri_wall_decals.cpp
 	common/rendering/nri/scene/nri_wall_decal_receivers.cpp
 	../libraries/ShaderMake/ShaderMake/ShaderBlob.cpp

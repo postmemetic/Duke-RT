@@ -2667,6 +2667,9 @@ private:
 		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
 	void ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials) const;
 	void ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials);
+	void BuildSceneMaterialPolicyProduct(const nri_scene::MaterialBridgeData& source,
+		const std::vector<nri_scene::MaterialRowRange>& uniformRanges,
+		std::vector<nri_scene::MaterialData>& output);
 	NRIMaterialProductPatchResult RefreshCombinedMaterialProduct(
 		const nri_scene::MaterialBridgeData& source,
 		size_t staticCount,
@@ -2674,7 +2677,8 @@ private:
 		const std::vector<uint32_t>& deferredIndices,
 		std::vector<nri_scene::MaterialData>& combined,
 		std::vector<nri_scene::MaterialData>& persistent,
-		std::vector<nri_scene::MaterialData>& dynamic);
+		std::vector<nri_scene::MaterialData>& dynamic,
+		const std::vector<nri_scene::MaterialRowRange>* uniformRanges = nullptr);
 	uint64_t ComputeChunkActorOverrideHash(const nri_scene::MaterialBridgeData& materials);
 	uint64_t ComputeChunkEmissiveOverrideHash(const nri_scene::MaterialBridgeData& materials) const;
 	void QueueStaticMapSceneLightingInvalidation();

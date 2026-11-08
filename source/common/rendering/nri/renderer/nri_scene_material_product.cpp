@@ -1,4 +1,5 @@
 #include "nri_scene_material_product.h"
+#include "nri_material_uniform_ranges.h"
 
 #include <algorithm>
 #include <cstring>
@@ -24,7 +25,9 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 	TransformRow transformRow,
 	TransformReference transformReference,
 	bool enabled,
-	bool validate)
+	bool validate,
+	const std::vector<nri_scene::MaterialRowRange>* uniformRanges,
+	bool validateEveryUpdate)
 {
 	NRIMaterialProductPatchResult result;
 	if (staticCount > base.size() || persistentCount > base.size() - staticCount)
@@ -37,7 +40,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 	if (!validate) mValidationCount = 0;
 	if (validate && !mValidationWasEnabled) mValidationCount = 0;
 	mValidationWasEnabled = validate;
-	result.validationChecked = patch && validate && mValidationCount < 64;
+	result.validationChecked = patch && (validateEveryUpdate || (validate && mValidationCount < 64));
 	if (result.validationChecked) ++mValidationCount;
 	result.fullRebuild = !patch;
 
@@ -54,6 +57,10 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 
 	if (patch)
 	{
+		const bool useUniformRanges = uniformRanges != nullptr && NRIValidMaterialUniformRanges(*uniformRanges, base.size());
+		size_t uniformIndex = 0;
+		bool uniformEvaluated = false;
+		nri_scene::MaterialData uniformCandidate;
 		mDeferredMarks.resize(base.size(), 0);
 		if (++mMarkGeneration == 0)
 		{
@@ -72,14 +79,40 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 		bool precedingChanged = false;
 		for (size_t index = 0; index < base.size(); ++index)
 		{
+			if (useUniformRanges)
+			{
+				while (uniformIndex < uniformRanges->size() && index >=
+					(size_t)(*uniformRanges)[uniformIndex].first + (*uniformRanges)[uniformIndex].count)
+				{
+					++uniformIndex;
+					uniformEvaluated = false;
+				}
+			}
 			if (mDeferredMarks[index] == mMarkGeneration)
 			{
 				precedingChanged = false;
 				continue;
 			}
-			auto candidate = base[index];
-			transformRow(context, index, candidate);
-			++result.evaluatedRows;
+			nri_scene::MaterialData candidate;
+			if (useUniformRanges && uniformIndex < uniformRanges->size() && index >= (*uniformRanges)[uniformIndex].first)
+			{
+				if (!uniformEvaluated)
+				{
+					const size_t first = (*uniformRanges)[uniformIndex].first;
+					uniformCandidate = base[first];
+					transformRow(context, first, uniformCandidate);
+					++result.evaluatedRows;
+					uniformEvaluated = true;
+				}
+				candidate = uniformCandidate;
+				++result.uniformRows;
+			}
+			else
+			{
+				candidate = base[index];
+				transformRow(context, index, candidate);
+				++result.evaluatedRows;
+			}
 			if (EqualRows(&candidate, &combined[index], 1))
 			{
 				precedingChanged = false;

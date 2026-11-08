@@ -1558,7 +1558,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						persistentMaterials,
 						hasPersistentVoxelOverlay ? mPersistentVoxels.MaterialPublicationGeneration() : 0,
 						overlayMaterialBridge,
-						cacheStats);
+						cacheStats,
+						hasPersistentVoxelOverlay ? &mPersistentVoxels.MaterialChanges() : nullptr,
+						hasPersistentVoxelOverlay ? &mPersistentVoxels.UniformDefaultMaterialRanges() : nullptr,
+						(bool)nri_ptmaterialrangesvalidate);
 					const uint32_t persistentVoxelMaterialCount =
 						hasPersistentVoxelOverlay ? mPersistentVoxels.OverlayMaterialCount() : 0u;
 					if (mSceneMaterialFrameCache.PersistentMaterialCount() != persistentVoxelMaterialCount)
@@ -2348,7 +2351,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				mStaticMapScene.gpuMaterials.size(),
 				mSceneMaterialFrameCache.PersistentMaterialCount(),
 				deferredTextureMaterialIndices,
-				combinedGpuMaterials, persistentVoxelGpuMaterials, dynamicGpuMaterials);
+				combinedGpuMaterials, persistentVoxelGpuMaterials, dynamicGpuMaterials,
+				&mSceneMaterialFrameCache.UniformDefaultRanges());
 		}();
 		if (!materialPatch.valid)
 		{
