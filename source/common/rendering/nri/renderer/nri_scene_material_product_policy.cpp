@@ -3,6 +3,7 @@
 #include "nri_scene_material_product.h"
 #include "../scene/nri_fluid_material_binding.h"
 #include "perf_audit.h"
+#include "nri_material_policy_audit.h"
 
 #include "lightoverlay.h"
 #include "fluidoverlay.h"
@@ -61,6 +62,7 @@ void NRIRenderer::BuildSceneMaterialPolicyProduct(
 	std::vector<nri_scene::MaterialData>& output)
 {
 	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyPrelightNs);
+	NRIMaterialPolicyAuditScope policyCounters;
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPrelightCalls);
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPrelightInputRows, source.materials.size());
 	const auto& overlays = GetResolvedLightOverlaySet();
@@ -92,6 +94,7 @@ NRIMaterialProductPatchResult NRIRenderer::RefreshCombinedMaterialProduct(
 	const std::vector<nri_scene::MaterialRowRange>* uniformRanges)
 {
 	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyPostlightNs);
+	NRIMaterialPolicyAuditScope policyCounters;
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPostlightCalls);
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPostlightInputRows, source.materials.size());
 	const auto& overlays = GetResolvedLightOverlaySet();

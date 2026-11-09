@@ -1,5 +1,6 @@
 #include "nri_fluid_material_binding.h"
 #include "perf_audit.h"
+#include "../renderer/nri_material_policy_audit.h"
 
 #include "fluidoverlay.h"
 #include "texinfo.h"
@@ -93,7 +94,7 @@ uint32_t ResolveFluidMaterialBindingIndex(
 		return UINT32_MAX;
 	}
 
-	PerfAuditAdd(PerfAuditMetric::MaterialPolicyFluidRuleTests, overlays.materialRules.Size());
+	NRIMaterialPolicyAuditAdd(NRIMaterialPolicyAuditCounter::FluidRuleTests, overlays.materialRules.Size());
 	FluidOverlayMaterialMatch match;
 	ResolveFluidOverlayMaterial(overlays, BuildIdentity(metadata), match);
 	if (!match.matched)
@@ -114,6 +115,7 @@ void ApplyFluidMaterialBindings(
 	FluidMaterialBindingStats* outStats)
 {
 	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyBulkFluidNs);
+	NRIMaterialPolicyAuditScope policyCounters;
 	FluidMaterialBindingStats stats;
 	const size_t materialCount = std::min(inOutGpuMaterials.size(), materials.lightMetadata.size());
 	stats.materialCount = (uint32_t)materialCount;

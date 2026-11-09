@@ -4,6 +4,7 @@
 #include "nri_renderer.h"
 #include "nri_runtime_mutation_trace.h"
 #include "perf_audit.h"
+#include "nri_material_policy_audit.h"
 #include "../system/nri_renderdevice.h"
 #include "../scene/nri_hash.h"
 #include "../scene/nri_fluid_material_binding.h"
@@ -83,7 +84,7 @@ namespace
 
 	std::string NormalizeLightOverlayTextureSelector(const char* value)
 	{
-		PerfAuditAdd(PerfAuditMetric::MaterialPolicyGlowNameNormalizations);
+		NRIMaterialPolicyAuditAdd(NRIMaterialPolicyAuditCounter::GlowNameNormalizations);
 		std::string normalized = value != nullptr ? value : "";
 		for (char& c : normalized)
 		{
@@ -169,7 +170,7 @@ namespace
 		float fallbackScale)
 	{
 		float scale = fallbackScale;
-		PerfAuditAdd(PerfAuditMetric::MaterialPolicyGlowRuleTests, resolved.emissiveMaterialResponseRules.Size());
+		NRIMaterialPolicyAuditAdd(NRIMaterialPolicyAuditCounter::GlowRuleTests, resolved.emissiveMaterialResponseRules.Size());
 		for (const auto& rule : resolved.emissiveMaterialResponseRules)
 		{
 			if (rule.hasVisibleGlowBlend && EmissiveMaterialResponseRuleMatchesMaterial(rule, metadata))
@@ -1234,6 +1235,7 @@ void nri_material_policy::ApplyEmissiveMaterialOverrides(
 	std::vector<nri_scene::MaterialData>& inOutGpuMaterials)
 {
 	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyBulkEmissiveNs);
+	NRIMaterialPolicyAuditScope policyCounters;
 	const uint32_t count = std::min<uint32_t>((uint32_t)inOutGpuMaterials.size(), (uint32_t)materials.lightMetadata.size());
 	for (uint32_t materialIndex = 0; materialIndex < count; ++materialIndex)
 	{
@@ -1249,6 +1251,7 @@ void nri_material_policy::ApplyActorShadowMaterialOverrides(
 	std::vector<nri_scene::MaterialData>& inOutGpuMaterials)
 {
 	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyBulkActorNs);
+	NRIMaterialPolicyAuditScope policyCounters;
 	if (actorOverrides.empty())
 	{
 		return;
@@ -1348,6 +1351,7 @@ uint64_t nri_material_policy::ComputeChunkEmissiveOverrideHash(
 	const SceneLightSystem& sceneLights,
 	const nri_scene::MaterialBridgeData& materials)
 {
+	NRIMaterialPolicyAuditScope policyCounters;
 	const uint32_t count = std::min<uint32_t>((uint32_t)materials.materials.size(), (uint32_t)materials.lightMetadata.size());
 	if (count == 0)
 	{

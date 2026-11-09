@@ -1,3 +1,4 @@
+#include "nri_material_policy_audit.h"
 #include "nri_scene_lights.h"
 #include "nri_scene_light_rule_helpers.h"
 #include "nri_perf_audit.h"
@@ -1704,7 +1705,7 @@ namespace
 			break;
 		}
 
-		PerfAuditAdd(PerfAuditMetric::MaterialPolicyEmissiveRuleTests, policyRuleTests);
+		NRIMaterialPolicyAuditAdd(NRIMaterialPolicyAuditCounter::EmissiveRuleTests, policyRuleTests);
 
 		if (outMode == nri_scene::MaterialEmissiveMode_None || outIntensity <= 0.0f)
 		{
@@ -2524,6 +2525,7 @@ bool SceneLightSystem::RebuildPersistentDynamicEmissiveCache(
 	const nri_scene::MaterialBridgeData& materials,
 	const PersistentDynamicEmissiveCacheBuildServices& services)
 {
+	NRIMaterialPolicyAuditScope policyCounters;
 	PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
 	PerfAuditAdd(PerfAuditMetric::EmissiveRebuilds);
 	PerfAuditSet(PerfAuditMetric::EmissiveCurrentSurfaces,
@@ -3449,6 +3451,7 @@ void SceneLightSystem::RebuildEmissiveSurfaces(
 	const std::vector<EmissiveOverrideRule>* surfaceLightFixtureRules,
 	const std::vector<EmissiveMaterialResponseRule>* materialResponseRules)
 {
+	NRIMaterialPolicyAuditScope policyCounters;
 	const NRILightingSettings settings = CaptureSettings();
 	mEmissiveSurfaces.totalPowerEstimate = 0.0f;
 	mEmissiveSurfaces.autoTaggedCount = 0;
@@ -5768,7 +5771,7 @@ bool SceneLightSystem::MaterialWouldEmit(const nri_scene::MaterialLightingMetada
 
 bool SceneLightSystem::ApplyEmissiveMaterialSettings(const nri_scene::MaterialLightingMetadata& metadata, nri_scene::MaterialData& inOutMaterial) const
 {
-	PerfAuditAdd(PerfAuditMetric::MaterialPolicyLegacySettingsCaptures);
+	NRIMaterialPolicyAuditAdd(NRIMaterialPolicyAuditCounter::LegacySettingsCaptures);
 	const NRILightingSettings settings = CaptureSettings();
 	uint32_t sourceFlags = SceneEmissiveSurfaceSourceFlag_None;
 	uint32_t sourceRuleId = 0;
