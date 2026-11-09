@@ -3,6 +3,7 @@
 
 #include "nri_descriptor_sets.h"
 #include "nri_emissive_sampling_upload_policy.h"
+#include "nri_emissive_sampling_audit.h"
 #include "nri_renderer.h"
 #include "nri_runtime_mutation_trace.h"
 #include "nri_scene_lights.h"
@@ -116,6 +117,9 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	bool allowSceneDataFrameSlot)
 {
 	ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.emissiveUpdateMs);
+	PerfAuditScope auditUpdate(PerfAuditMetric::EmissiveSamplingUpdateNs);
+	SceneLightSystem::EmissiveSamplingUploadStats emissiveStats = {};
+	NRIEmissiveSamplingAudit audit(mSceneLights, emissiveStats, mEmissiveSamplingUploadScratch, mFrameIndex);
 	const uint64_t payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming());
 	const uint64_t sectorResponsePayloadHash = mSceneLights.BuildEmissiveSectorResponsePayloadHash();
 	const bool sectorResponseChanged =
@@ -163,10 +167,10 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	emissiveCdf.clear();
 	emissiveMaterialResponses.clear();
 	emissiveDebugRecords.clear();
-	SceneLightSystem::EmissiveSamplingUploadStats emissiveStats = {};
 	const bool buildForValidation = stabilityTraceEnabled || (bool)nri_ptemissivecachevalidate;
 	if (buildForValidation)
 	{
+		audit.built = true;
 		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
 	}
 
@@ -344,6 +348,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		emissiveMaterialResponseBuffer.shaderView != nullptr)
 	{
 		commitEmissiveDescriptors();
+		audit.reused = true;
 		if (frameSlot != nullptr)
 		{
 			mBoundEmissivePrimitiveCount = frameSlot->emissivePrimitiveCount;
@@ -361,17 +366,20 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		mEmissiveSectorResponsePayloadHash = sectorResponsePayloadHash;
 		emitStabilityTrace(0);
 		emitCacheTrace(true);
+		audit.completed = true;
 		return true;
 	}
 
 	if (!buildForValidation)
 	{
+		audit.built = true;
 		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
 	}
-	emissiveShaderPrimitives.reserve(emissivePrimitives.size());
-	for (const NRIEmissivePrimitiveGpuData& primitive : emissivePrimitives)
 	{
-		emissiveShaderPrimitives.push_back(PackNRIEmissivePrimitiveShaderData(primitive));
+		PerfAuditScope auditPack(PerfAuditMetric::EmissiveSamplingPackNs);
+		emissiveShaderPrimitives.reserve(emissivePrimitives.size());
+		for (const NRIEmissivePrimitiveGpuData& primitive : emissivePrimitives)
+			emissiveShaderPrimitives.push_back(PackNRIEmissivePrimitiveShaderData(primitive));
 	}
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceStatic = emissiveStats.surfaceStatic;
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceCaptured = emissiveStats.surfaceCaptured;
@@ -394,6 +402,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	}
 
 	const uint64_t headerBytes = sizeof(emissiveHeader);
+	PerfAuditScope auditUpload(PerfAuditMetric::EmissiveSamplingUploadAndPublishNs);
 	const uint64_t primitiveBytes = emissiveShaderPrimitives.size() * sizeof(NRIEmissivePrimitiveShaderData);
 	const uint64_t cdfBytes = emissiveCdf.size() * sizeof(float);
 	const uint64_t materialResponseBytes = emissiveMaterialResponses.size() * sizeof(NRIEmissiveMaterialResponseGpuData);
@@ -562,5 +571,6 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	mEmissiveSamplingPayloadHash = frameSlot == nullptr ? payloadHash : 0;
 	mEmissiveSectorResponsePayloadCacheValid = true;
 	mEmissiveSectorResponsePayloadHash = sectorResponsePayloadHash;
+	audit.completed = true;
 	return true;
 }

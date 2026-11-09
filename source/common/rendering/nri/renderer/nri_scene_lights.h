@@ -1059,6 +1059,9 @@ public:
 		uint32_t proposalRetiredMissingCount = 0;
 		uint32_t proposalRetiredReplacedCount = 0;
 		uint32_t proposalRecordCount = 0;
+		uint32_t distributionTopologyBuilds = 0;
+		uint32_t distributionTopologyReuses = 0;
+		uint64_t distributionComparedCandidates = 0;
 	};
 
 	void BuildEmissiveSamplingUpload(
@@ -1072,6 +1075,8 @@ public:
 	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming = false);
 	const NRIEmissiveGeometryCacheStats& GetEmissiveGeometryCacheStats() const { return mEmissiveGeometryCache.Stats(); }
 	uint64_t GetEmissiveGeometryCacheCapacityBytes() const { return mEmissiveGeometryCache.CapacityBytes(); }
+	uint64_t GetEmissiveGeometrySnapshotCapacityBytes() const { return mEmissiveGeometryCache.SnapshotCapacityBytes(); }
+	uint64_t GetEmissiveDistributionTopologyCapacityBytes() const { return mEmissiveSamplingDistribution.TopologyCapacityBytes(); }
 	void BuildSectorLightingUpload(
 		float sectorLightMultiplier,
 		bool sectorLightingEnabled,

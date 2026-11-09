@@ -125,6 +125,9 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 			referenceStats.buildCapacityGrowthBytes = stats.buildCapacityGrowthBytes;
 			referenceStats.fullStaticPrimitivesScanned = stats.fullStaticPrimitivesScanned;
 			referenceStats.fullDynamicPrimitivesScanned = stats.fullDynamicPrimitivesScanned;
+			referenceStats.distributionTopologyBuilds = stats.distributionTopologyBuilds;
+			referenceStats.distributionTopologyReuses = stats.distributionTopologyReuses;
+			referenceStats.distributionComparedCandidates = stats.distributionComparedCandidates;
 			referenceStats.payloadValidationChecks = stats.payloadValidationChecks;
 			referenceStats.payloadValidationMismatches = stats.payloadValidationMismatches;
 			referenceStats.weightsBuildMs = stats.weightsBuildMs;
@@ -473,7 +476,8 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		NriMaxEmissivePrimitives,
 		distributionEntries,
 		outCdf,
-		&distributionStats);
+		&distributionStats,
+		useGeometryCache);
 	localStats.buildCapacityGrowths = distributionStats.scratchCapacityGrowths;
 	localStats.buildCapacityGrowthBytes = distributionStats.scratchCapacityGrowthBytes;
 	localStats.proposalBoundGrowthCount = distributionStats.boundGrowthCount;
@@ -487,6 +491,9 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	localStats.proposalRetiredMissingCount = distributionStats.retiredMissingCount;
 	localStats.proposalRetiredReplacedCount = distributionStats.retiredReplacedCount;
 	localStats.proposalRecordCount = distributionStats.recordCount;
+	localStats.distributionTopologyBuilds = distributionStats.topologyBuilds;
+	localStats.distributionTopologyReuses = distributionStats.topologyReuses;
+	localStats.distributionComparedCandidates = distributionStats.topologyComparedCandidates;
 
 	outPrimitives.reserve(candidates.size());
 	outDebugRecords.reserve(candidates.size());

@@ -14,6 +14,9 @@ namespace
 void NRIEmissiveSamplingDistribution::Reset()
 {
 	mProposalRecords.clear();
+	mTopologyValid = false;
+	mTopologyDuplicateCount = 0;
+	std::vector<TopologyKey>{}.swap(mTopologyKeys);
 }
 
 void NRIEmissiveSamplingDistribution::Build(
@@ -22,17 +25,18 @@ void NRIEmissiveSamplingDistribution::Build(
 	size_t maxCandidateCount,
 	std::vector<NRIEmissiveSamplingDistributionEntry>& outEntries,
 	std::vector<float>& outCdf,
-	NRIEmissiveSamplingDistributionStats* outStats)
+	NRIEmissiveSamplingDistributionStats* outStats,
+	bool allowTopologyReuse)
 {
 	NRIEmissiveSamplingDistributionStats stats = {};
 	const size_t oldCapacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
-		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity() };
+		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity() };
 	const auto recordScratchGrowth = [&]()
 	{
 		const size_t capacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
-			mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity() };
-		const size_t strides[] = { sizeof(size_t), sizeof(size_t), sizeof(uint64_t), sizeof(uint64_t), sizeof(float) };
-		for (size_t i = 0; i < 5; ++i)
+			mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity() };
+		const size_t strides[] = { sizeof(size_t), sizeof(size_t), sizeof(uint64_t), sizeof(uint64_t), sizeof(float), sizeof(TopologyKey) };
+		for (size_t i = 0; i < 6; ++i)
 		{
 			if (capacities[i] > oldCapacities[i])
 			{
@@ -46,77 +50,104 @@ void NRIEmissiveSamplingDistribution::Build(
 	outCdf.clear();
 
 	auto& orderedIndices = mOrderedIndices;
-	orderedIndices.resize(candidates.size());
-	for (size_t i = 0; i < candidates.size(); ++i)
-	{
-		orderedIndices[i] = i;
-	}
-	std::sort(orderedIndices.begin(), orderedIndices.end(), [&](size_t aIndex, size_t bIndex)
-	{
-		const auto& a = candidates[aIndex];
-		const auto& b = candidates[bIndex];
-		if (a.stableKey != b.stableKey)
-		{
-			return a.stableKey < b.stableKey;
-		}
-		if (a.bindingKey != b.bindingKey)
-		{
-			return a.bindingKey < b.bindingKey;
-		}
-		if (a.tieBreakKey != b.tieBreakKey)
-		{
-			return a.tieBreakKey < b.tieBreakKey;
-		}
-		return aIndex < bIndex;
-	});
-
 	auto& uniqueIndices = mUniqueIndices;
-	uniqueIndices.clear();
-	uniqueIndices.reserve(orderedIndices.size());
 	auto& resolvedStableKeys = mResolvedStableKeys;
-	resolvedStableKeys.assign(candidates.size(), 0);
-	for (size_t first = 0; first < orderedIndices.size();)
+	bool sameTopology = allowTopologyReuse && mTopologyValid && mTopologyKeys.size() == candidates.size();
+	for (size_t i = 0; sameTopology && i < candidates.size(); ++i)
 	{
-		size_t last = first + 1u;
-		while (last < orderedIndices.size() && candidates[orderedIndices[last]].stableKey == candidates[orderedIndices[first]].stableKey)
-		{
-			last++;
-		}
-		const bool duplicateGroup = last - first > 1u;
-		if (duplicateGroup)
-		{
-			stats.duplicateCount += (uint32_t)(last - first - 1u);
-		}
-		for (size_t i = first; i < last; ++i)
-		{
-			const size_t index = orderedIndices[i];
-			resolvedStableKeys[index] = duplicateGroup ?
-				HashCandidateIdentity(candidates[index].stableKey, (uint64_t)(i - first)) :
-				candidates[index].stableKey;
-			uniqueIndices.push_back(index);
-		}
-		first = last;
+		++stats.topologyComparedCandidates;
+		const auto& previous = mTopologyKeys[i];
+		const auto& current = candidates[i];
+		sameTopology = previous.stableKey == current.stableKey &&
+			previous.bindingKey == current.bindingKey && previous.tieBreakKey == current.tieBreakKey;
 	}
-	stats.uniqueCount = (uint32_t)uniqueIndices.size();
-	auto& liveKeys = mLiveKeys;
-	liveKeys.clear();
-	liveKeys.reserve(uniqueIndices.size());
-	for (size_t index : uniqueIndices)
+	if (sameTopology)
 	{
-		liveKeys.push_back(resolvedStableKeys[index]);
+		// Restore the complete pre-cap order. The selected tail of the previous
+		// build must not determine which candidates update proposal history now.
+		uniqueIndices.assign(orderedIndices.begin(), orderedIndices.end());
+		stats.duplicateCount = mTopologyDuplicateCount;
+		stats.uniqueCount = (uint32_t)uniqueIndices.size();
+		stats.topologyReuses = 1;
 	}
-	std::sort(liveKeys.begin(), liveKeys.end());
-	for (auto it = mProposalRecords.begin(); it != mProposalRecords.end();)
+	else
 	{
-		if (!std::binary_search(liveKeys.begin(), liveKeys.end(), it->first))
+		stats.topologyBuilds = 1;
+		orderedIndices.resize(candidates.size());
+		for (size_t i = 0; i < candidates.size(); ++i)
 		{
-			stats.retiredMissingCount++;
-			it = mProposalRecords.erase(it);
+			orderedIndices[i] = i;
 		}
-		else
+		std::sort(orderedIndices.begin(), orderedIndices.end(), [&](size_t aIndex, size_t bIndex)
 		{
-			++it;
+			const auto& a = candidates[aIndex];
+			const auto& b = candidates[bIndex];
+			if (a.stableKey != b.stableKey)
+			{
+				return a.stableKey < b.stableKey;
+			}
+			if (a.bindingKey != b.bindingKey)
+			{
+				return a.bindingKey < b.bindingKey;
+			}
+			if (a.tieBreakKey != b.tieBreakKey)
+			{
+				return a.tieBreakKey < b.tieBreakKey;
+			}
+			return aIndex < bIndex;
+		});
+
+		uniqueIndices.clear();
+		uniqueIndices.reserve(orderedIndices.size());
+		resolvedStableKeys.assign(candidates.size(), 0);
+		for (size_t first = 0; first < orderedIndices.size();)
+		{
+			size_t last = first + 1u;
+			while (last < orderedIndices.size() && candidates[orderedIndices[last]].stableKey == candidates[orderedIndices[first]].stableKey)
+			{
+				last++;
+			}
+			const bool duplicateGroup = last - first > 1u;
+			if (duplicateGroup)
+			{
+				stats.duplicateCount += (uint32_t)(last - first - 1u);
+			}
+			for (size_t i = first; i < last; ++i)
+			{
+				const size_t index = orderedIndices[i];
+				resolvedStableKeys[index] = duplicateGroup ?
+					HashCandidateIdentity(candidates[index].stableKey, (uint64_t)(i - first)) :
+					candidates[index].stableKey;
+				uniqueIndices.push_back(index);
+			}
+			first = last;
 		}
+		stats.uniqueCount = (uint32_t)uniqueIndices.size();
+		auto& liveKeys = mLiveKeys;
+		liveKeys.clear();
+		liveKeys.reserve(uniqueIndices.size());
+		for (size_t index : uniqueIndices)
+		{
+			liveKeys.push_back(resolvedStableKeys[index]);
+		}
+		std::sort(liveKeys.begin(), liveKeys.end());
+		for (auto it = mProposalRecords.begin(); it != mProposalRecords.end();)
+		{
+			if (!std::binary_search(liveKeys.begin(), liveKeys.end(), it->first))
+			{
+				stats.retiredMissingCount++;
+				it = mProposalRecords.erase(it);
+			}
+			else
+			{
+				++it;
+			}
+		}
+		mTopologyKeys.resize(candidates.size());
+		for (size_t i = 0; i < candidates.size(); ++i)
+			mTopologyKeys[i] = { candidates[i].stableKey, candidates[i].bindingKey, candidates[i].tieBreakKey };
+		mTopologyDuplicateCount = stats.duplicateCount;
+		mTopologyValid = allowTopologyReuse;
 	}
 
 	auto& resolvedWeights = mResolvedWeights;

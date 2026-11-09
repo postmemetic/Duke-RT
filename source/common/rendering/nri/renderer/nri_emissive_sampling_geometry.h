@@ -53,6 +53,12 @@ struct NRIEmissiveGeometryCacheStats
 	uint32_t primitiveReuses = 0;
 	uint32_t capacityGrowths = 0;
 	uint64_t capacityGrowthBytes = 0;
+	uint64_t snapshotComparedBytes = 0;
+	uint64_t snapshotWrittenBytes = 0;
+	uint32_t snapshotChecks = 0;
+	uint32_t snapshotHits = 0;
+	uint32_t snapshotPositionOnlyChanges = 0;
+	uint32_t primitiveInvalidations = 0;
 };
 
 // Geometry facts only. Active lights and sector/material responses remain
@@ -72,6 +78,7 @@ public:
 	const NRIEmissiveGeometryCacheStats& Stats() const { return mStats; }
 	bool TimingEnabled() const { return mCollectTiming; }
 	uint64_t CapacityBytes() const;
+	uint64_t SnapshotCapacityBytes() const;
 	void QuarantineAll();
 	static uint64_t HashGeometry(const nri_scene::GeometryData* geometry);
 	// Compare exactly the sampling fields written by a resident atlas copy.
@@ -88,18 +95,31 @@ public:
 		const nri_scene::GeometryData& geometry, uint32_t primitiveIndex);
 
 private:
+	struct SamplingPosition { uint32_t bits[3] = {}; };
+	struct SamplingPrimitive { uint32_t indices[3] = {}; uint32_t material = 0; };
 	struct DomainState
 	{
 		uint64_t identity = 0;
+		uint64_t rangesIdentity = 0;
+		uint64_t primitiveIdentity = 0;
+		uint64_t cachedPrimitiveIdentity = 0;
 		uint64_t topologyIdentity = 0;
 		uint64_t validatedIdentity = 0;
 		uint64_t validatedHash = 0;
 		bool topologyValid = false;
 		bool validationValid = false;
 		bool quarantined = false;
+		bool snapshotValid = false;
+		bool snapshotPresent = false;
+		uint64_t snapshotIdentity = 0;
+		uint64_t snapshotRangesIdentity = 0;
+		uint64_t snapshotPrimitiveIdentity = 0;
+		std::vector<SamplingPosition> positions;
+		std::vector<SamplingPrimitive> topology;
 		std::vector<NRIEmissiveMaterialPrimitiveRange> ranges;
 		std::vector<NRIEmissivePrimitiveGeometry> primitives;
 	};
+	uint64_t ResolveSnapshot(DomainState& state, const nri_scene::GeometryData* geometry);
 	std::array<DomainState, (size_t)NRIEmissiveGeometryDomain::Count> mDomains = {};
 	NRIEmissiveGeometryCacheStats mStats = {};
 	bool mCollectTiming = false;

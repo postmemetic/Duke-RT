@@ -135,23 +135,101 @@ uint64_t NRIEmissiveGeometryCache::PublishTransientIdentity()
 	return ++publicationSerial;
 }
 
+uint64_t NRIEmissiveGeometryCache::ResolveSnapshot(DomainState& state,
+	const nri_scene::GeometryData* geometry)
+{
+	// Observe every sampling field at consumption. Transient publication stamps
+	// also change for UV/history writes and byte-identical recaptures; they do
+	// not certify sampling content. Exact snapshots cover all existing producers.
+	const size_t vertexCount = geometry != nullptr ? geometry->vertices.size() : 0;
+	const size_t primitiveCount = geometry != nullptr ? geometry->primitives.size() : 0;
+	const bool presenceChanged = !state.snapshotValid || state.snapshotPresent != (geometry != nullptr);
+	bool positionsChanged = presenceChanged || state.positions.size() != vertexCount;
+	bool connectivityChanged = presenceChanged || state.topology.size() != primitiveCount;
+	bool materialsChanged = connectivityChanged;
+	const size_t oldPositionCount = state.positions.size();
+	const size_t oldTopologyCount = state.topology.size();
+	const size_t oldPositionCapacity = state.positions.capacity();
+	const size_t oldTopologyCapacity = state.topology.capacity();
+	state.positions.resize(vertexCount);
+	state.topology.resize(primitiveCount);
+	if (state.snapshotValid)
+		mStats.snapshotComparedBytes += std::min(vertexCount, oldPositionCount) * sizeof(SamplingPosition) +
+			std::min(primitiveCount, oldTopologyCount) * sizeof(SamplingPrimitive);
+	for (size_t i = 0; i < vertexCount; ++i)
+	{
+		SamplingPosition current;
+		std::memcpy(current.bits, geometry->vertices[i].position, sizeof(current.bits));
+		const bool existing = state.snapshotValid && i < oldPositionCount;
+		if (!existing || std::memcmp(current.bits, state.positions[i].bits, sizeof(current.bits)) != 0)
+		{
+			positionsChanged = true;
+			state.positions[i] = current;
+			mStats.snapshotWrittenBytes += sizeof(current.bits);
+		}
+	}
+	for (size_t i = 0; i < primitiveCount; ++i)
+	{
+		const auto& source = geometry->primitives[i];
+		auto& previous = state.topology[i];
+		const bool existing = state.snapshotValid && i < oldTopologyCount;
+		if (!existing || std::memcmp(source.indices, previous.indices, sizeof(previous.indices)) != 0)
+		{
+			connectivityChanged = true;
+			std::memcpy(previous.indices, source.indices, sizeof(previous.indices));
+			mStats.snapshotWrittenBytes += sizeof(previous.indices);
+		}
+		if (!existing || previous.material != source.materialIndex)
+		{
+			materialsChanged = true;
+			previous.material = source.materialIndex;
+			mStats.snapshotWrittenBytes += sizeof(previous.material);
+		}
+	}
+	const auto growth = [&](size_t before, size_t after, size_t stride)
+	{
+		if (after > before)
+		{
+			++mStats.capacityGrowths;
+			mStats.capacityGrowthBytes += (after - before) * stride;
+		}
+	};
+	growth(oldPositionCapacity, state.positions.capacity(), sizeof(SamplingPosition));
+	growth(oldTopologyCapacity, state.topology.capacity(), sizeof(SamplingPrimitive));
+	++mStats.snapshotChecks;
+	if (positionsChanged || connectivityChanged || materialsChanged)
+		state.snapshotIdentity = PublishTransientIdentity();
+	else ++mStats.snapshotHits;
+	// Ranges depend on material membership/order, not positions/connectivity.
+	// Primitive facts depend on positions/connectivity, not material identity.
+	if (materialsChanged) state.snapshotRangesIdentity = PublishTransientIdentity();
+	if (positionsChanged || connectivityChanged) state.snapshotPrimitiveIdentity = PublishTransientIdentity();
+	if (positionsChanged && !connectivityChanged && !materialsChanged)
+		++mStats.snapshotPositionOnlyChanges;
+	state.snapshotValid = true;
+	state.snapshotPresent = geometry != nullptr;
+	state.rangesIdentity = state.snapshotRangesIdentity;
+	state.primitiveIdentity = state.snapshotPrimitiveIdentity;
+	return nri_scene::HashCombine64(0x454d4953534e4150ull, state.snapshotIdentity);
+}
+
 uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain domain,
 	const nri_scene::GeometryData* geometry, uint64_t producerIdentity, bool validate)
 {
 	const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 	const double previousHashMs = mStats.validationHashMs;
 	auto& state = mDomains[(size_t)domain];
-	// These capture producers publish when payloads are written, including
-	// byte-identical recaptures and changes to history/UV data. Their stamps do
-	// not identify sampling content. Retain the exact hash for these domains;
-	// static geometry and the retained surface-light product keep their fast path.
+	// Keep existing certified static/retained producer identities. Transient
+	// producers get exact sampling-only identities independent of their stamps.
 	const bool transientContent = domain == NRIEmissiveGeometryDomain::Captured ||
 		domain == NRIEmissiveGeometryDomain::RuntimeMutation || domain == NRIEmissiveGeometryDomain::Dynamic;
 	uint64_t identity = nri_scene::HashCombine64(0x454d495347454f4dull, producerIdentity);
 	identity = nri_scene::HashCombine64(identity, geometry != nullptr ? geometry->vertices.size() : 0);
 	identity = nri_scene::HashCombine64(identity, geometry != nullptr ? geometry->primitives.size() : 0);
 	identity = nri_scene::HashCombine64(identity, geometry != nullptr ? 1u : 0u);
-	if (validate || producerIdentity == 0 || state.quarantined || transientContent)
+	const bool useSnapshot = transientContent && producerIdentity != 0 && !state.quarantined;
+	if (useSnapshot) identity = ResolveSnapshot(state, geometry);
+	if (validate || producerIdentity == 0 || state.quarantined)
 	{
 		const auto validationStart = mCollectTiming ? Clock::now() : Clock::time_point{};
 		const uint64_t exactHash = HashGeometry(geometry);
@@ -173,7 +251,7 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 			state.validatedIdentity = identity;
 			state.validatedHash = exactHash;
 		}
-		if (producerIdentity == 0 || state.quarantined || transientContent)
+		if (producerIdentity == 0 || state.quarantined)
 			identity = nri_scene::HashCombine64(0x454d495346554c4cull, exactHash);
 		if (mCollectTiming) mStats.validationHashMs += ElapsedMs(validationStart);
 	}
@@ -182,6 +260,11 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 	// On a first check, keep cached topology intact so the full-payload shadow
 	// comparison can detect stale geometry from previously unchecked frames.
 	state.identity = identity;
+	if (!useSnapshot || state.quarantined)
+	{
+		state.rangesIdentity = identity;
+		state.primitiveIdentity = identity;
+	}
 	if (mCollectTiming) mStats.identityMs += ElapsedMs(start) - (mStats.validationHashMs - previousHashMs);
 	return identity;
 }
@@ -189,27 +272,34 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::Ranges(
 	NRIEmissiveGeometryDomain domain, const nri_scene::GeometryData* geometry)
 {
-	auto& state = mDomains[(size_t)domain];
-	if (state.topologyValid && state.topologyIdentity == state.identity)
-	{
-		mStats.topologyReuses++;
-		return state.ranges;
-	}
 	const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
-	const auto oldRangeCapacity = state.ranges.capacity();
+	auto& state = mDomains[(size_t)domain];
 	const auto oldPrimitiveCapacity = state.primitives.capacity();
-	BuildRanges(geometry, state.ranges);
-	state.primitives.clear();
-	state.primitives.resize(geometry != nullptr ? geometry->primitives.size() : 0);
-	if (state.ranges.capacity() > oldRangeCapacity)
+	if (state.cachedPrimitiveIdentity != state.primitiveIdentity ||
+		state.primitives.size() != (geometry != nullptr ? geometry->primitives.size() : 0))
 	{
-		mStats.capacityGrowths++;
-		mStats.capacityGrowthBytes += (state.ranges.capacity() - oldRangeCapacity) * sizeof(NRIEmissiveMaterialPrimitiveRange);
+		state.primitives.clear();
+		state.primitives.resize(geometry != nullptr ? geometry->primitives.size() : 0);
+		state.cachedPrimitiveIdentity = state.primitiveIdentity;
+		++mStats.primitiveInvalidations;
 	}
 	if (state.primitives.capacity() > oldPrimitiveCapacity)
 	{
 		mStats.capacityGrowths++;
 		mStats.capacityGrowthBytes += (state.primitives.capacity() - oldPrimitiveCapacity) * sizeof(NRIEmissivePrimitiveGeometry);
+	}
+	if (state.topologyValid && state.topologyIdentity == state.rangesIdentity)
+	{
+		mStats.topologyReuses++;
+		if (mCollectTiming) mStats.topologyMs += ElapsedMs(start);
+		return state.ranges;
+	}
+	const auto oldRangeCapacity = state.ranges.capacity();
+	BuildRanges(geometry, state.ranges);
+	if (state.ranges.capacity() > oldRangeCapacity)
+	{
+		mStats.capacityGrowths++;
+		mStats.capacityGrowthBytes += (state.ranges.capacity() - oldRangeCapacity) * sizeof(NRIEmissiveMaterialPrimitiveRange);
 	}
 	if (geometry != nullptr)
 	{
@@ -217,7 +307,7 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 			mStats.staticPrimitivesScanned : mStats.dynamicPrimitivesScanned;
 		scanned += 2u * geometry->primitives.size();
 	}
-	state.topologyIdentity = state.identity;
+	state.topologyIdentity = state.rangesIdentity;
 	state.topologyValid = true;
 	mStats.topologyBuilds++;
 	if (mCollectTiming) mStats.topologyMs += ElapsedMs(start);
@@ -241,10 +331,19 @@ const NRIEmissivePrimitiveGeometry& NRIEmissiveGeometryCache::Primitive(
 
 uint64_t NRIEmissiveGeometryCache::CapacityBytes() const
 {
-	uint64_t bytes = 0;
+	uint64_t bytes = SnapshotCapacityBytes();
 	for (const auto& state : mDomains)
 		bytes += state.ranges.capacity() * sizeof(NRIEmissiveMaterialPrimitiveRange) +
 			state.primitives.capacity() * sizeof(NRIEmissivePrimitiveGeometry);
+	return bytes;
+}
+
+uint64_t NRIEmissiveGeometryCache::SnapshotCapacityBytes() const
+{
+	uint64_t bytes = 0;
+	for (const auto& state : mDomains)
+		bytes += state.positions.capacity() * sizeof(SamplingPosition) +
+			state.topology.capacity() * sizeof(SamplingPrimitive);
 	return bytes;
 }
 

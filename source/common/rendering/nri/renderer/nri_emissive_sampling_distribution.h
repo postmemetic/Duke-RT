@@ -44,19 +44,24 @@ struct NRIEmissiveSamplingDistributionStats
 	uint32_t retiredMissingCount = 0;
 	uint32_t retiredReplacedCount = 0;
 	uint32_t recordCount = 0;
+	uint32_t topologyBuilds = 0;
+	uint32_t topologyReuses = 0;
+	uint64_t topologyComparedCandidates = 0;
 };
 
 class NRIEmissiveSamplingDistribution
 {
 public:
 	void Reset();
+	uint64_t TopologyCapacityBytes() const { return mTopologyKeys.capacity() * sizeof(TopologyKey); }
 	void Build(
 		const std::vector<NRIEmissiveSamplingDistributionCandidate>& candidates,
 		uint64_t frameIndex,
 		size_t maxCandidateCount,
 		std::vector<NRIEmissiveSamplingDistributionEntry>& outEntries,
 		std::vector<float>& outCdf,
-		NRIEmissiveSamplingDistributionStats* outStats = nullptr);
+		NRIEmissiveSamplingDistributionStats* outStats = nullptr,
+		bool allowTopologyReuse = true);
 
 private:
 	struct ProposalRecord
@@ -74,4 +79,13 @@ private:
 	std::vector<uint64_t> mResolvedStableKeys;
 	std::vector<uint64_t> mLiveKeys;
 	std::vector<float> mResolvedWeights;
+	struct TopologyKey
+	{
+		uint64_t stableKey = 0;
+		uint64_t bindingKey = 0;
+		uint64_t tieBreakKey = 0;
+	};
+	std::vector<TopologyKey> mTopologyKeys;
+	uint32_t mTopologyDuplicateCount = 0;
+	bool mTopologyValid = false;
 };
