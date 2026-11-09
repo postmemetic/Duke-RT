@@ -255,13 +255,25 @@ struct ResidentMapChunkRegistry
 
 struct StaticMapSceneResources;
 
+enum class NRIStaticSceneRegistrySyncReason : uint8_t
+{
+	Unspecified,
+	FullBuild,
+	RuntimeCommit,
+	AnimatedMaterial,
+	AccelerationReset,
+};
+
 struct NRIStaticSceneRegistrySyncInput
 {
 	const nri_scene::PTMapWorld* mapWorld = nullptr;
 	const StaticMapSceneCache* staticScene = nullptr;
 	const StaticMapChunkAtlas* atlas = nullptr;
-	const std::vector<RuntimeMutationResidentReplacementInfo>* replacements = nullptr;
+	const void* replacementOwner = nullptr;
+	RuntimeMutationResidentReplacementInfo (*getReplacement)(const void* owner, uint32_t chunkListIndex) = nullptr;
 	uint64_t (*hashResidentMaterialPayload)(const nri_scene::MaterialBridgeData& materials) = nullptr;
+	NRIStaticSceneRegistrySyncReason reason = NRIStaticSceneRegistrySyncReason::Unspecified;
+	bool validate = false;
 };
 
 struct NRIPreservedStaticMapSkyState;
@@ -583,7 +595,7 @@ public:
 
 	ResidentMapChunkRegistry& Registry() { return mResidentMapChunkRegistry; }
 	const ResidentMapChunkRegistry& Registry() const { return mResidentMapChunkRegistry; }
-	void ResetResidentMapChunkRegistry() { mResidentMapChunkRegistry = {}; }
+	void ResetResidentMapChunkRegistry();
 	void SyncResidentMapChunkRegistryFromStaticScene(const NRIStaticSceneRegistrySyncInput& input);
 
 	static uint32_t GetStaticSceneChunkSlotPreference(
@@ -603,7 +615,21 @@ public:
 		uint32_t chunkIndex);
 
 private:
+	struct RegistryPayloadStamp
+	{
+		uint64_t baselineRevision = 0;
+		uint64_t materialGeneration = 0;
+		uint64_t materialHash = 0;
+		uint32_t slot = UINT32_MAX;
+		bool materialValid = false;
+	};
 	ResidentMapChunkRegistry mResidentMapChunkRegistry;
+	std::vector<RegistryPayloadStamp> mRegistryPayloadStamps;
+	std::vector<uint32_t> mRegistryPreferredSlots;
+	std::vector<int32_t> mRegistrySlotScores;
+	uint64_t mRegistryContentBuildSerial = 0;
+	const void* mRegistryReplacementOwner = nullptr;
+	bool mRegistryQuarantined = false;
 };
 
 struct StaticMapSceneResources

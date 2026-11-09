@@ -1638,5 +1638,5 @@ void NRIRenderer::DestroyAccelerationStructures()
 	mEmissiveTlasBuildCount = 0;
 	mEmissiveTlasInstancePayloadCacheValid = false;
 	mEmissiveTlasInstancePayloadHash = 0;
-	SyncResidentMapChunkRegistryFromStaticScene();
+	SyncResidentMapChunkRegistryFromStaticScene(NRIStaticSceneRegistrySyncReason::AccelerationReset);
 }

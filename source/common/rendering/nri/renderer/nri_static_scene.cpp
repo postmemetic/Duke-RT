@@ -477,20 +477,20 @@ NRIStaticSceneGeometryUploadServices NRIRenderer::BuildStaticSceneGeometryUpload
 	return services;
 }
 
-void NRIRenderer::SyncResidentMapChunkRegistryFromStaticScene()
+void NRIRenderer::SyncResidentMapChunkRegistryFromStaticScene(NRIStaticSceneRegistrySyncReason reason)
 {
-	std::vector<RuntimeMutationResidentReplacementInfo> replacements;
-	if (mMapWorld.valid)
-	{
-		mRuntimeMutation.CollectResidentReplacementInfo((uint32_t)mMapWorld.chunks.size(), replacements);
-	}
-
 	NRIStaticSceneRegistrySyncInput input = {};
 	input.mapWorld = &mMapWorld;
 	input.staticScene = &mStaticMapScene;
 	input.atlas = &mStaticMapChunkAtlas;
-	input.replacements = &replacements;
+	input.replacementOwner = &mRuntimeMutation;
+	input.getReplacement = [](const void* owner, uint32_t chunkListIndex)
+	{
+		return static_cast<const NRIRuntimeMutationSystem*>(owner)->GetResidentReplacementInfo(chunkListIndex);
+	};
 	input.hashResidentMaterialPayload = nri_runtime_mutation::HashResidentMaterialPayload;
+	input.reason = reason;
+	input.validate = (bool)nri_ptregistryvalidate;
 	mStaticSceneResidency.SyncResidentMapChunkRegistryFromStaticScene(input);
 }
 
@@ -563,7 +563,7 @@ bool NRIRenderer::RefreshStaticMapAnimatedMaterials()
 	};
 	services.syncResidentRegistry = [](void* user)
 	{
-		static_cast<NRIRenderer*>(user)->SyncResidentMapChunkRegistryFromStaticScene();
+		static_cast<NRIRenderer*>(user)->SyncResidentMapChunkRegistryFromStaticScene(NRIStaticSceneRegistrySyncReason::AnimatedMaterial);
 	};
 	services.markUploadedStaticMapSceneLastFrame = [](void* user)
 	{
@@ -675,7 +675,7 @@ bool NRIRenderer::EnsureStaticMapScene()
 	};
 	services.syncResidentRegistryFromStaticScene = [](void* user)
 	{
-		static_cast<NRIRenderer*>(user)->SyncResidentMapChunkRegistryFromStaticScene();
+		static_cast<NRIRenderer*>(user)->SyncResidentMapChunkRegistryFromStaticScene(NRIStaticSceneRegistrySyncReason::FullBuild);
 	};
 	services.noteResidentStaticSceneTextureBuild = [](void*)
 	{

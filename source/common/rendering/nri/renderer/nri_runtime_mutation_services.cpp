@@ -456,7 +456,7 @@ NRIRuntimeMutationResidentSceneRefreshServices BuildNRIRuntimeMutationResidentSc
 		renderer->mStaticMapScene.accelerationResident = true;
 		renderer->mStaticMapScene.gpuUploadCount += materialDirty ? 1u : 0u;
 		renderer->mStaticMapScene.accelerationBuildCount += (uint32_t)geometryChunkListIndices.size();
-		renderer->SyncResidentMapChunkRegistryFromStaticScene();
+		renderer->SyncResidentMapChunkRegistryFromStaticScene(NRIStaticSceneRegistrySyncReason::RuntimeCommit);
 		renderer->RefreshStateCommitCombinedGeometryStaticPrefixForResidentUpdate(geometryChunkListIndices);
 	};
 	services.recoverFailure = [](void* user, const char* reason) -> bool

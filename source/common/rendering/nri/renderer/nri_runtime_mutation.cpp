@@ -462,27 +462,17 @@ uint64_t NRIRuntimeMutationSystem::BuildFrameGenerationHash(bool hasRuntimeMutat
 	return hash;
 }
 
-void NRIRuntimeMutationSystem::CollectResidentReplacementInfo(
-	uint32_t chunkCount,
-	std::vector<RuntimeMutationResidentReplacementInfo>& outReplacements) const
+RuntimeMutationResidentReplacementInfo NRIRuntimeMutationSystem::GetResidentReplacementInfo(uint32_t chunkListIndex) const
 {
-	outReplacements.clear();
-	outReplacements.reserve(chunkCount);
-	for (uint32_t chunkListIndex = 0; chunkListIndex < chunkCount; ++chunkListIndex)
+	RuntimeMutationResidentReplacementInfo info = {};
+	if (const auto* replacement = FindReplacement(chunkListIndex))
 	{
-		const auto* replacement = FindReplacement(chunkListIndex);
-		if (replacement == nullptr)
-		{
-			continue;
-		}
-
-		RuntimeMutationResidentReplacementInfo info = {};
-		info.chunkListIndex = chunkListIndex;
-		info.baseline = replacement->baseline;
+		info.baseline = &replacement->baseline;
+		info.revision = replacement->registryInputRevision;
 		info.baselineSignature = replacement->baselineSignature;
 		info.liveSignature = replacement->liveSignature;
-		outReplacements.push_back(info);
 	}
+	return info;
 }
 
 const RuntimeMapMutationCache::ChunkReplacement* NRIRuntimeMutationSystem::FindReplacement(uint32_t chunkIndex) const
@@ -495,7 +485,10 @@ RuntimeMapMutationCache::ChunkReplacement* NRIRuntimeMutationSystem::FindReplace
 	// Explicit update accesses include startup baseline correction. Ordinary
 	// readers cannot enlist the full cache into per-frame reconciliation.
 	discovery.NoteTouchedChunk(chunkIndex);
-	return chunkIndex < cache.chunks.size() ? &cache.chunks[chunkIndex] : nullptr;
+	if (chunkIndex >= cache.chunks.size()) return nullptr;
+	if (++registryInputSerial == 0) ++registryInputSerial;
+	cache.chunks[chunkIndex].registryInputRevision = registryInputSerial;
+	return &cache.chunks[chunkIndex];
 }
 
 bool NRIRuntimeMutationSystem::IsReplacementActive(uint32_t chunkIndex) const
@@ -1050,6 +1043,8 @@ void NRIRuntimeMutationSystem::InitializeStaticChunkReplacement(const nri_scene:
 	}
 
 	auto& replacement = cache.chunks[chunk.chunkIndex];
+	if (++registryInputSerial == 0) ++registryInputSerial;
+	replacement.registryInputRevision = registryInputSerial;
 	nri_scene::CaptureMapChunkMutationBaseline(chunk, replacement.baseline);
 	// A neighboring wave plane can change this floor's shading normals while
 	// its own geometry/dirty bits stay unchanged. Keep fluid floors observed.

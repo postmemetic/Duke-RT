@@ -110,6 +110,9 @@ struct RuntimeMapMutationCache
 
 		nri_scene::PTMapChunkMutationBaseline baseline;
 		nri_scene::PTMapChunkMutationBaseline replacementBaseline;
+		// Conservative publication stamp: mutable access invalidates a borrowed
+		// registry snapshot even when only baseline section membership changes.
+		uint64_t registryInputRevision = 0;
 		uint64_t baselineSignature = 0;
 		uint64_t liveSignature = 0;
 		uint64_t exactGeometrySignature = 0;
@@ -237,8 +240,9 @@ struct RuntimeMutationResidentApplyResult
 
 struct RuntimeMutationResidentReplacementInfo
 {
-	uint32_t chunkListIndex = UINT32_MAX;
-	nri_scene::PTMapChunkMutationBaseline baseline;
+	// Borrowed only for the synchronous registry update; never retained there.
+	const nri_scene::PTMapChunkMutationBaseline* baseline = nullptr;
+	uint64_t revision = 0;
 	uint64_t baselineSignature = 0;
 	uint64_t liveSignature = 0;
 };
@@ -381,9 +385,7 @@ public:
 	uint32_t GetCacheChunkCount() const;
 	uint64_t BuildFrameGenerationHash(bool hasRuntimeMutationOverlay) const;
 	ChunkDiagnosticFacts BuildChunkDiagnosticFacts(uint32_t chunkIndex) const;
-	void CollectResidentReplacementInfo(
-		uint32_t chunkCount,
-		std::vector<RuntimeMutationResidentReplacementInfo>& outReplacements) const;
+	RuntimeMutationResidentReplacementInfo GetResidentReplacementInfo(uint32_t chunkListIndex) const;
 	const RuntimeMapMutationCache::ChunkReplacement* FindReplacement(uint32_t chunkIndex) const;
 	RuntimeMapMutationCache::ChunkReplacement* FindReplacementForUpdate(uint32_t chunkIndex);
 	bool IsReplacementActive(uint32_t chunkIndex) const;
@@ -490,4 +492,5 @@ public:
 	std::vector<uint32_t> signatureWatchlistChunks;
 	uint64_t signatureWatchlistBuildSerial = 0;
 	uint32_t worklistSweepCursor = 0;
+	uint64_t registryInputSerial = 0;
 };

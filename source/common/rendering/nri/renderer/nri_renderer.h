@@ -2484,7 +2484,7 @@ private:
 	bool EnsureSkyTexture(const nri_scene::SceneView& sceneView, bool preserveExistingSky);
 	bool EnsureStaticMapScene();
 	void ResetResidentMapChunkRegistry();
-	void SyncResidentMapChunkRegistryFromStaticScene();
+	void SyncResidentMapChunkRegistryFromStaticScene(NRIStaticSceneRegistrySyncReason reason = NRIStaticSceneRegistrySyncReason::Unspecified);
 	bool EnsureResidentStaticMapChunkAtlasBufferCapacity(const StaticMapChunkAtlas& atlas);
 	bool RefreshResidentStaticMaterialSlices(
 		const std::vector<uint32_t>& chunkListIndices,
