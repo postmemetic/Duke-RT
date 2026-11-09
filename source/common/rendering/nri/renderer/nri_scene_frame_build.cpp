@@ -592,7 +592,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	nri_scene::MaterialBridgeData& surfaceLightMaterialBridge = frame.surfaceLightMaterialBridge;
 	nri_scene::GeometryData& overlayGeometry = mSelectOverlayGeometryScratch;
 	nri_scene::MaterialBridgeData& overlayMaterialBridge = mSelectOverlayMaterialBridgeScratch;
-	nri_scene::MaterialBridgeData& combinedMaterialBridge = mSceneMaterialFrameCache.Materials();
+	const nri_scene::MaterialBridgeData& combinedMaterialBridge = mSceneMaterialFrameCache.Materials();
 	auto& capturedGpuMaterials = mSelectCapturedGpuMaterialScratch;
 	auto& dynamicGpuMaterials = mSelectDynamicGpuMaterialScratch;
 	auto& persistentVoxelGpuMaterials = mSelectPersistentVoxelGpuMaterialScratch;

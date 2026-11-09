@@ -16,6 +16,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 	bool validateRangeUpdates)
 {
 	outStats = {};
+	mResolvedProductValid = false;
 	mValidateRangeUpdates = validateRangeUpdates;
 	const bool hasPersistentMaterials = persistentMaterials != nullptr;
 	const bool staticLayoutCompatible = [&]()
@@ -90,7 +91,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 		if (hasPersistentMaterials)
 		{
 			const uint64_t auditBytesBefore = PerfAuditActive() ? NRIAuditMaterialBridgeBytes(mCombinedMaterials) : 0;
-			nri_scene::AppendMaterialBridge(*persistentMaterials, mCombinedMaterials);
+			nri_scene::AppendMaterialBridge(*persistentMaterials, mCombinedMaterials, mAppendTextureRemapScratch);
 			if (PerfAuditActive())
 			{
 				PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeRowsCopied, persistentMaterials->materials.size());
@@ -127,7 +128,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 
 	if (!overlayMaterials.materials.empty() || !overlayMaterials.textures.empty())
 	{
-		nri_scene::AppendMaterialBridge(overlayMaterials, mCombinedMaterials);
+		nri_scene::AppendMaterialBridge(overlayMaterials, mCombinedMaterials, mAppendTextureRemapScratch);
 		outStats.overlayRowsAppended = (uint32_t)overlayMaterials.materials.size();
 	}
 	mUniformDefaultRanges.clear();
@@ -160,7 +161,9 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 		if (!nri_scene::MaterialBridgesEquivalent(mCombinedMaterials, reference.Materials()))
 		{
 			PerfAuditAdd(PerfAuditMetric::MaterialRangeFrameMismatches);
+			const bool textureProductQuarantined = mResolvedProductQuarantined;
 			*this = std::move(reference);
+			mResolvedProductQuarantined = textureProductQuarantined;
 			mValidateRangeUpdates = true;
 			mRangeUpdatesQuarantined = true;
 			outStats = referenceStats;
@@ -169,120 +172,14 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 	return mCombinedMaterials;
 }
 
-const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureSlots(
-	const NRISceneTextureSlotTable& slotTable)
-{
-	PerfAuditScope auditResolve(PerfAuditMetric::MaterialProductReuseResolveNs);
-	PerfAuditAdd(PerfAuditMetric::MaterialProductReuseRequests);
-	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveCalls);
-	const bool rebuildResident =
-		!mResolvedResidentValid ||
-		mResolvedTextureSlotRevision != slotTable.MappingRevision();
-	if (rebuildResident)
-	{
-		if (mResolvedStaticPrefixDirty)
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameStaticPrefixFallbacks);
-		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRebuilds);
-		if (!mResolvedResidentValid) PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveInvalidResident);
-		if (mResolvedTextureSlotRevision != slotTable.MappingRevision())
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveSlotRevisionChanges);
-		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mCombinedMaterials.materials.size());
-		NRIAuditFrameBridgeCopy(mCombinedMaterials);
-		mResolvedMaterials = mCombinedMaterials;
-		mResolvedMaterials.materials.resize(mResidentMaterialCount);
-		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
-		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mResolvedMaterials.materials.size());
-		NRIResolveSceneMaterialBridgeTextureSlots(slotTable, mResolvedMaterials, 0u);
-		mResolvedResidentValid = true;
-		mResolvedTextureSlotRevision = slotTable.MappingRevision();
-		mResolvedStaticPrefixDirty = false;
-		mResolvedDirtyRows.clear();
-	}
-	else
-	{
-		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveHits);
-		mResolvedMaterials.materials.resize(mResidentMaterialCount);
-		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
-		mResolvedMaterials.textures = mCombinedMaterials.textures;
-		mResolvedMaterials.paletteLookup = mCombinedMaterials.paletteLookup;
-		mResolvedMaterials.paletteWidth = mCombinedMaterials.paletteWidth;
-		mResolvedMaterials.paletteHeight = mCombinedMaterials.paletteHeight;
-		if (mResolvedStaticPrefixDirty)
-		{
-			std::copy_n(mCombinedMaterials.materials.begin(), mStaticMaterialCount, mResolvedMaterials.materials.begin());
-			std::copy_n(mCombinedMaterials.lightMetadata.begin(), mStaticLightMetadataCount, mResolvedMaterials.lightMetadata.begin());
-			NRIResolveSceneMaterialBridgeTextureSlotRange(slotTable, mResolvedMaterials, 0u, mStaticMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveStaticPatches);
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveStaticRowsCopied, mStaticMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolvePersistentRowsPreserved, mResidentMaterialCount - mStaticMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mStaticMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mStaticMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeRowsCopied, mStaticMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeBytesCopied,
-				(uint64_t)mStaticMaterialCount * sizeof(nri_scene::MaterialData) +
-				(uint64_t)mStaticLightMetadataCount * sizeof(nri_scene::MaterialLightingMetadata));
-			mResolvedStaticPrefixDirty = false;
-		}
-		if (!mResolvedDirtyRows.empty())
-		{
-			nri_scene::MergeMaterialRowRanges(mResolvedDirtyRows, mResidentMaterialCount);
-			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolvePersistentPatches);
-			for (const auto range : mResolvedDirtyRows)
-			{
-				std::copy_n(mCombinedMaterials.materials.begin() + range.first, range.count, mResolvedMaterials.materials.begin() + range.first);
-				std::copy_n(mCombinedMaterials.lightMetadata.begin() + range.first, range.count, mResolvedMaterials.lightMetadata.begin() + range.first);
-				NRIResolveSceneMaterialBridgeTextureSlotRange(slotTable, mResolvedMaterials, range.first, range.first + range.count);
-				PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, range.count);
-				PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, range.count);
-				PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeRowsCopied, range.count);
-				PerfAuditAdd(PerfAuditMetric::VoxelSceneFrameBridgeBytesCopied,
-					(uint64_t)range.count * (sizeof(nri_scene::MaterialData) + sizeof(nri_scene::MaterialLightingMetadata)));
-			}
-			mResolvedDirtyRows.clear();
-		}
-	}
-
-	const uint32_t firstOverlayRow = (uint32_t)mResolvedMaterials.materials.size();
-	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mCombinedMaterials.materials.size() - mResidentMaterialCount);
-	mResolvedMaterials.materials.insert(
-		mResolvedMaterials.materials.end(),
-		mCombinedMaterials.materials.begin() + mResidentMaterialCount,
-		mCombinedMaterials.materials.end());
-	mResolvedMaterials.lightMetadata.insert(
-		mResolvedMaterials.lightMetadata.end(),
-		mCombinedMaterials.lightMetadata.begin() + mResidentLightMetadataCount,
-		mCombinedMaterials.lightMetadata.end());
-	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mResolvedMaterials.materials.size() - firstOverlayRow);
-	NRIResolveSceneMaterialBridgeTextureSlots(slotTable, mResolvedMaterials, firstOverlayRow);
-	if (mValidateRangeUpdates)
-	{
-		auto reference = mCombinedMaterials;
-		reference.materials.resize(mResidentMaterialCount);
-		reference.lightMetadata.resize(mResidentLightMetadataCount);
-		NRIResolveSceneMaterialBridgeTextureSlots(slotTable, reference, 0u);
-		reference.materials.insert(reference.materials.end(),
-			mCombinedMaterials.materials.begin() + mResidentMaterialCount, mCombinedMaterials.materials.end());
-		reference.lightMetadata.insert(reference.lightMetadata.end(),
-			mCombinedMaterials.lightMetadata.begin() + mResidentLightMetadataCount, mCombinedMaterials.lightMetadata.end());
-		NRIResolveSceneMaterialBridgeTextureSlots(slotTable, reference, mResidentMaterialCount);
-		PerfAuditAdd(PerfAuditMetric::MaterialRangeResolveValidations);
-		if (!nri_scene::MaterialBridgesEquivalent(mResolvedMaterials, reference))
-		{
-			PerfAuditAdd(PerfAuditMetric::MaterialRangeResolveMismatches);
-			mResolvedMaterials = std::move(reference);
-			mResolvedResidentValid = false;
-			mResolvedStaticPrefixDirty = false;
-			mResolvedDirtyRows.clear();
-			mUniformDefaultRanges.clear();
-			mRangeUpdatesQuarantined = true;
-		}
-	}
-	return mResolvedMaterials;
-}
-
 void NRISceneMaterialFrameCache::Reset()
 {
 	mCombinedMaterials = {};
+	mTextureRemap.Reset();
+	std::vector<uint64_t>{}.swap(mAppendTextureRemapScratch);
+	mResolvedProductValid = false;
+	mResolvedProductQuarantined = false;
+	mResolvedResidentTextureLimit = 0;
 	mResolvedMaterials = {};
 	mStaticMaterialIdentity = 0;
 	mStaticMaterialGeneration = 0;
@@ -303,4 +200,5 @@ void NRISceneMaterialFrameCache::Reset()
 	mResolvedDirtyRows.clear();
 	mUniformDefaultRanges.clear();
 	mResolvedTextureSlotRevision = 0;
+	ReportResolvedTextureStorage();
 }

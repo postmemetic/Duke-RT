@@ -356,5 +356,10 @@ void AppendMaterialBridge(
 	const MaterialBridgeData& source,
 	MaterialBridgeData& destination,
 	std::unordered_map<uint64_t, uint32_t>& textureLookup);
+// Optional caller-owned bounded scratch avoids allocation in recurring appends.
+void AppendMaterialBridge(const MaterialBridgeData& source, MaterialBridgeData& destination,
+ std::vector<uint64_t>& textureRemapScratch);
+void AppendMaterialBridge(const MaterialBridgeData& source, MaterialBridgeData& destination,
+ std::unordered_map<uint64_t, uint32_t>& textureLookup, std::vector<uint64_t>& textureRemapScratch);
 bool RealizeTextureUploadPayload(const TextureUpload& upload, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight);
 }

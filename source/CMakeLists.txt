@@ -1059,6 +1059,11 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_builder.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_material_frame_resolve.cpp
+	common/rendering/nri/renderer/nri_scene_material_texture_slots_reference.cpp
+	common/rendering/nri/scene/nri_material_bridge_append.cpp
+	common/rendering/nri/scene/nri_material_bridge_append_reference.cpp
+	common/rendering/nri/scene/nri_material_bridge_exact.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache_updates.cpp
 	common/rendering/nri/renderer/nri_scene_material_product.cpp
 	common/rendering/nri/renderer/nri_scene_material_product_uniform.cpp

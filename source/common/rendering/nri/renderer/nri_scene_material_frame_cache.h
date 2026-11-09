@@ -32,18 +32,29 @@ public:
 		bool validateRangeUpdates = false);
 
 	void Reset();
-	nri_scene::MaterialBridgeData& Materials() { return mCombinedMaterials; }
+	const nri_scene::MaterialBridgeData& Materials() const { return mCombinedMaterials; }
 	uint32_t PersistentMaterialCount() const { return mPersistentMaterialCount; }
 	uint32_t StaticMaterialCount() const { return mStaticMaterialCount; }
 	const nri_scene::MaterialBridgeData& ResolveTextureSlots(const NRISceneTextureSlotTable& slotTable);
 	const std::vector<nri_scene::MaterialRowRange>& UniformDefaultRanges() const { return mUniformDefaultRanges; }
 
 private:
+	void BuildResolvedTextureReference(const NRISceneTextureSlotTable& slotTable,
+		nri_scene::MaterialBridgeData& reference) const;
+	void ValidateResolvedTextureProduct(const NRISceneTextureSlotTable& slotTable, bool productHit);
+	void ReportResolvedTextureStorage() const;
 	bool TryPatchPersistentMaterials(const nri_scene::MaterialBridgeData& source,
 		uint64_t generation, const nri_scene::MaterialBridgeChanges& changes,
 		NRISceneMaterialFrameCacheStats& outStats);
 	nri_scene::MaterialBridgeData mCombinedMaterials;
 	nri_scene::MaterialBridgeData mResolvedMaterials;
+	NRISceneMaterialTextureSlotRemap mTextureRemap;
+	std::vector<uint64_t> mAppendTextureRemapScratch;
+	// A publication is immutable outside this owner. Every Build invalidates
+	// complete reuse; only exact current dense slot outputs may certify a hit.
+	bool mResolvedProductValid = false;
+	bool mResolvedProductQuarantined = false;
+	uint64_t mResolvedResidentTextureLimit = 0;
 	uint64_t mStaticMaterialIdentity = 0;
 	uint64_t mStaticMaterialGeneration = 0;
 	uint64_t mPersistentMaterialGeneration = 0;
