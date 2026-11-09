@@ -6,6 +6,7 @@
 #include "nri_resources.h"
 #include "nri_runtime_mutation.h"
 #include "nri_static_material_slices.h"
+#include "nri_static_filter_cache.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_builder.h"
 #include "../scene/nri_material_bridge.h"
@@ -194,6 +195,7 @@ struct StaticMapSceneCache
 	uint32_t animatedRefreshSuppressedChunkCount = 0;
 	uint32_t reuseCount = 0;
 	NRIStaticAnimatedMaterialState animatedMaterials;
+	NRIStaticFilterCache filterCandidateCache;
 	nri_scene::SceneView sceneView;
 	std::vector<nri_scene::SceneView> lightChunkViews;
 	nri_scene::GeometryData geometry;

@@ -540,6 +540,8 @@ bool NRIRenderer::RefreshResidentStaticMaterialSlices(
 			remappedGpuMaterials.data(),
 			atlasChunk.materialCount,
 			mStaticMapScene.gpuMaterials.data() + atlasChunk.materialOffset);
+		mStaticMapScene.filterCandidateCache.PublishMaterials(
+			mStaticMapScene.gpuMaterials, atlasChunk.materialOffset, atlasChunk.materialCount);
 		if (!textureTableGrew && (!reusedCachedRemap || !reusedCachedGpuPayload))
 		{
 			StaticMapSceneCache::ChunkCache::ResidentMaterialSliceCacheEntry cacheEntry = {};

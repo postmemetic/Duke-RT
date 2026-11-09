@@ -1098,6 +1098,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_static_scene_animated.cpp
 	common/rendering/nri/renderer/nri_static_scene_animated_bindings.cpp
 	common/rendering/nri/renderer/nri_static_material_slices.cpp
+	common/rendering/nri/renderer/nri_static_filter_cache.cpp
 	common/rendering/nri/renderer/nri_static_scene_diagnostics.cpp
 	common/rendering/nri/renderer/nri_static_scene_residency.cpp
 	common/rendering/nri/renderer/nri_surface_probe.cpp

@@ -1693,6 +1693,9 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // into the existing inline ray query. Session-only and independently
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
+// CPU-only static classification reuse and independent legacy predicate oracle.
+CVAR(Bool, nri_ptstaticfiltercache, true, 0)
+CVAR(Bool, nri_ptstaticfiltervalidate, false, 0)
 // Whole-occurrence workload certificates are independently benchmarkable.
 // Enabled by default with session-only rollback; optional smoke consumers
 // can withhold bits when they cannot certify a workload.

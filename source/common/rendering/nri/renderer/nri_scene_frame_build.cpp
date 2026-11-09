@@ -25,6 +25,7 @@
 #include "nri_scene_upload.h"
 #include "nri_shader_contracts.h"
 #include "nri_static_scene_geometry.h"
+#include "nri_static_filter_cache.h"
 #include "nri_surface_light_overlay.h"
 #include "nri_runtime_mutation_shared.h"
 #include "nri_sky_environment.h"
@@ -129,149 +130,6 @@ namespace
 			(uint32_t)instance.flags |
 			(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
 		return true;
-	}
-
-	struct StaticFilterAudit
-	{
-		PerfAuditScope timer{ PerfAuditMetric::StaticFilterNs };
-		bool enabled = PerfAuditActive();
-		uint64_t instances = 0, staticInstances = 0, directHits = 0;
-		uint64_t registryFallbackEntries = 0, chunkFallbackEntries = 0;
-		uint64_t invalidSpans = 0, hiddenDetermined = 0, primitiveRows = 0;
-		uint64_t invalidMaterials = 0, forced = 0;
-		~StaticFilterAudit()
-		{
-			if (!enabled) return;
-			PerfAuditAdd(PerfAuditMetric::StaticFilterCalls);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterInstances, instances);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterStaticInstances, staticInstances);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterRegistryDirectHits, directHits);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterRegistryFallbackEntries, registryFallbackEntries);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterChunkFallbackEntries, chunkFallbackEntries);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterEmptyOrInvalidSpans, invalidSpans);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterHiddenDeterminedInstances, hiddenDetermined);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterPrimitiveRowsVisited, primitiveRows);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterInvalidMaterialRows, invalidMaterials);
-			PerfAuditAdd(PerfAuditMetric::StaticFilterForcedInstances, forced);
-		}
-	};
-
-	static uint32_t ResolveStaticFilterPrimitiveCount(
-		const StaticMapSceneCache& staticScene,
-		const ResidentMapChunkRegistry& registry,
-		uint32_t chunkIndex,
-		uint32_t primitiveOffset,
-		StaticFilterAudit& audit)
-	{
-		if (registry.valid && chunkIndex < registry.entries.size())
-		{
-			const ResidentMapChunkRegistry::Entry& entry = registry.entries[chunkIndex];
-			if (entry.valid && entry.chunkIndex == chunkIndex &&
-				entry.primitiveOffset == primitiveOffset)
-			{
-				if (audit.enabled) ++audit.directHits;
-				return entry.primitiveCount;
-			}
-		}
-		if (registry.valid)
-		{
-			for (const ResidentMapChunkRegistry::Entry& entry : registry.entries)
-			{
-				if (audit.enabled) ++audit.registryFallbackEntries;
-				if (entry.valid && entry.chunkIndex == chunkIndex &&
-					entry.primitiveOffset == primitiveOffset)
-				{
-					return entry.primitiveCount;
-				}
-			}
-		}
-		for (const StaticMapSceneCache::ChunkCache& chunk : staticScene.chunks)
-		{
-			if (audit.enabled) ++audit.chunkFallbackEntries;
-			if (chunk.active && chunk.chunkIndex == chunkIndex &&
-				chunk.primitiveOffset == primitiveOffset)
-			{
-				return chunk.primitiveCount;
-			}
-		}
-		return 0u;
-	}
-
-	static void ApplyStaticFilterCandidateFlags(
-		const StaticMapSceneCache& staticScene,
-		const ResidentMapChunkRegistry& registry,
-		const std::vector<uint32_t>& visibleChunkWords,
-		std::vector<nri::TopLevelInstance>& instances,
-		const std::vector<SceneInstanceData>& sceneInstances)
-	{
-		StaticFilterAudit audit;
-		if (audit.enabled) audit.instances = sceneInstances.size();
-		if (!(bool)nri_ptfilterquery || instances.size() != sceneInstances.size())
-		{
-			return;
-		}
-		const uint32_t enabledPolicyMask = (uint32_t)std::max(0, (int)nri_ptfilterpolicymask);
-		for (size_t instanceIndex = 0; instanceIndex < sceneInstances.size(); ++instanceIndex)
-		{
-			const SceneInstanceData& sceneInstance = sceneInstances[instanceIndex];
-			if (sceneInstance.dataSource != nri_diag::SceneDataSourceStatic)
-			{
-				continue;
-			}
-			if (audit.enabled) ++audit.staticInstances;
-			const uint32_t primitiveCount = ResolveStaticFilterPrimitiveCount(
-				staticScene,
-				registry,
-				sceneInstance.metadata0,
-				sceneInstance.primitiveBase,
-				audit);
-			if (primitiveCount == 0u ||
-				(uint64_t)sceneInstance.primitiveBase + primitiveCount > staticScene.geometry.primitives.size())
-			{
-				if (audit.enabled) ++audit.invalidSpans;
-				continue;
-			}
-
-			const uint32_t chunkIndex = sceneInstance.metadata0;
-			const uint32_t visibleWordIndex = chunkIndex >> 5u;
-			const bool chunkVisible = visibleWordIndex < visibleChunkWords.size() &&
-				(visibleChunkWords[visibleWordIndex] & (1u << (chunkIndex & 31u))) != 0u;
-			bool requiresCandidateTraversal =
-				(enabledPolicyMask & NRIFilterCandidatePolicy_Visibility) != 0u &&
-				(bool)nri_ptvisiblechunkgate && !chunkVisible;
-			if (audit.enabled && requiresCandidateTraversal) ++audit.hiddenDetermined;
-			for (uint32_t localPrimitive = 0u; localPrimitive < primitiveCount; ++localPrimitive)
-			{
-				if (audit.enabled) ++audit.primitiveRows;
-				const nri_scene::PrimitiveData& primitive =
-					staticScene.geometry.primitives[sceneInstance.primitiveBase + localPrimitive];
-				if (primitive.materialIndex >= staticScene.gpuMaterials.size())
-				{
-					if (audit.enabled) ++audit.invalidMaterials;
-					continue;
-				}
-				const nri_scene::MaterialData& material = staticScene.gpuMaterials[primitive.materialIndex];
-				if (((enabledPolicyMask & NRIFilterCandidatePolicy_ReflectionOnly) != 0u &&
-						(primitive.flags & nri_scene::PrimitiveFlag_ReflectionOnly) != 0u) ||
-					((enabledPolicyMask & NRIFilterCandidatePolicy_OneWay) != 0u &&
-						(material.flags & nri_scene::MaterialFlag_OneWay) != 0u) ||
-					((enabledPolicyMask & NRIFilterCandidatePolicy_NoShadow) != 0u &&
-						(material.lightingFlags & nri_scene::MaterialLightingFlag_NoShadowCast) != 0u) ||
-					((enabledPolicyMask & NRIFilterCandidatePolicy_Alpha) != 0u &&
-						((material.flags & nri_scene::MaterialFlag_AlphaClip) != 0u || material.alpha < 0.999f)))
-				{
-					requiresCandidateTraversal = true;
-					break;
-				}
-			}
-			if (requiresCandidateTraversal)
-			{
-				if (audit.enabled) ++audit.forced;
-				instances[instanceIndex].flags = (nri::TopLevelInstanceBits)(
-					(uint32_t)instances[instanceIndex].flags |
-					(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
-			}
-		}
 	}
 
 	static uint32_t GetBootstrapMode()
@@ -1547,12 +1405,14 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectStaticInstancesMs);
 				BuildStaticMapInstances(instances, sceneInstances);
 				mMapMoverRigidRoute.PatchStaticInstances(instances, sceneInstances);
-				ApplyStaticFilterCandidateFlags(
+				ApplyNRIStaticFilterCandidateFlags(
 					mStaticMapScene,
 					mStaticSceneResidency.Registry(),
 					mCurrentVisibleChunkWords,
 					instances,
-					sceneInstances);
+					sceneInstances,
+					{ (uint32_t)std::max(0, (int)nri_ptfilterpolicymask), (bool)nri_ptfilterquery,
+						(bool)nri_ptvisiblechunkgate, (bool)nri_ptstaticfiltercache, (bool)nri_ptstaticfiltervalidate });
 				const bool spatialCandidateRouteReady = mSpatialAbsenceFormat == 0u ?
 					mSpatialAbsenceGate.GetSnapshot().HasNegativeAuthority() :
 					mSpatialAbsenceGpuSnapshot.HasNegativeAuthority(mSpatialAbsenceGate.GetSnapshot());

@@ -1534,6 +1534,10 @@ bool NRIRenderer::EnsureSceneTextures(
 	const bool useUniformPolicyRanges = (bool)nri_ptmaterialpatch &&
 		&materials == &mSceneMaterialFrameCache.Materials() &&
 		!mSceneMaterialFrameCache.UniformDefaultRanges().empty();
+	// Arm only at the actual output write, after no-op/rejection exits. Include
+	// later pending-texture transparency and every subsequent failure return.
+	NRIStaticFilterMaterialPublication filterPublication(mStaticMapScene.filterCandidateCache,
+		&outGpuMaterials == &mStaticMapScene.gpuMaterials ? &outGpuMaterials : nullptr);
 	if (useUniformPolicyRanges)
 	{
 		PerfAuditScope auditProduct(PerfAuditMetric::SceneTexturesMaterialProductNs);

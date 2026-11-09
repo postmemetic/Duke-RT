@@ -555,6 +555,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 		{
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyAtlasMs);
 			auto& mutableChunk = mStaticMapScene.chunks[chunkListIndex];
+			mStaticMapScene.filterCandidateCache.InvalidateChunk(chunkListIndex);
 			const auto& oldAtlasChunk = mStaticMapChunkAtlas.chunks[chunkListIndex];
 			const uint32_t oldMaterialOffset = oldAtlasChunk.materialOffset;
 			const uint32_t oldMaterialCount = oldAtlasChunk.materialCount;
@@ -627,6 +628,8 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 					mStaticMapScene.gpuMaterials.begin() + oldMaterialOffset,
 					oldMaterialCount,
 					nri_scene::MaterialData{});
+				mStaticMapScene.filterCandidateCache.PublishMaterials(
+					mStaticMapScene.gpuMaterials, oldMaterialOffset, oldMaterialCount);
 			}
 			if (oldMaterialCount > 0)
 			{
@@ -1020,7 +1023,11 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			mStaticMapScene.geometry.primitiveProvenance.resize(std::max<size_t>(mStaticMapScene.geometry.primitiveProvenance.size(), mStaticMapChunkAtlas.primitiveCount));
 			mStaticMapScene.materialBridge.materials.resize(std::max<size_t>(mStaticMapScene.materialBridge.materials.size(), mStaticMapChunkAtlas.materialCount));
 			mStaticMapScene.materialBridge.lightMetadata.resize(std::max<size_t>(mStaticMapScene.materialBridge.lightMetadata.size(), mStaticMapChunkAtlas.materialCount));
-			mStaticMapScene.gpuMaterials.resize(std::max<size_t>(mStaticMapScene.gpuMaterials.size(), mStaticMapChunkAtlas.materialCount));
+			if (mStaticMapChunkAtlas.materialCount > mStaticMapScene.gpuMaterials.size())
+			{
+				mStaticMapScene.gpuMaterials.resize(mStaticMapChunkAtlas.materialCount);
+				mStaticMapScene.filterCandidateCache.PublishMaterials(mStaticMapScene.gpuMaterials);
+			}
 		}
 
 		if (!fastResidentMaterialOnlyUpdate &&
@@ -1118,6 +1125,8 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 				ScopedPtPerfTimer detailPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyPrimitiveRewriteMs);
 				if (!preserveResidentPrimitiveSlice)
 				{
+					mStaticMapScene.filterCandidateCache.InvalidatePrimitiveRange(
+						nextAtlasChunk.primitiveOffset, sourceChunk.primitiveCount);
 					{
 						ScopedPtPerfTimer primitiveCpuTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyPrimitiveCpuRewriteMs);
 						nri_static_scene_geometry::CopyChunkPrimitiveDataToAtlas(

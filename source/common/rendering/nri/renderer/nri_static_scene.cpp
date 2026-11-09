@@ -1616,6 +1616,7 @@ void nri_static_scene::InitializeStaticMapSceneCacheBuild(
 	outStaticScene.animatedRefreshSuppressedChunkCount = 0;
 	outStaticScene.reuseCount = 0;
 	outStaticScene.animatedMaterials = {};
+	outStaticScene.filterCandidateCache = {};
 	outStaticScene.animatedMaterials.canonicalTopologyRevision = mapWorld.topologyRevision;
 	outStaticScene.animatedMaterials.aggregateSkyPreserved = preservedSkyState != nullptr;
 	outStaticScene.sceneView = {};
@@ -1716,6 +1717,7 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 		services.chunkHasAnimatedStaticMapSurfaceCandidates(services.user, mapWorld, chunk);
 	chunkCache.animatedRefreshSuppressed = false;
 
+	outStaticScene.filterCandidateCache.InvalidateGeometry();
 	AppendGeometry(chunkGeometry, chunkCache.materialOffset, outStaticScene.geometry);
 	++outStaticScene.geometryGeneration;
 	nri_scene::AppendMaterialBridge(chunkMaterials, outStaticScene.materialBridge);
