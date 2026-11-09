@@ -17,6 +17,7 @@ class FVoxelModel;
 
 namespace nri_scene
 {
+struct VoxelPublicationDiagnosticStatus;
 bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor);
 void ResetAverageTextureColorCache();
 void Copy3(const float* source, float* destination);
@@ -439,6 +440,9 @@ ActorSpriteSceneCaptureResult CaptureActorVoxelSprite(
 bool CaptureScene(HWDrawInfo& di, SceneView& outView);
 bool BuildPersistentVoxelCacheSceneView(SceneView& outView);
 bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>& outEntries);
+// Diagnostic-only: call immediately after an empty result. This does not change
+// the Boolean contract or certify discovery of all live voxel actors.
+VoxelPublicationDiagnosticStatus InspectPersistentVoxelEmptyPublication();
 const VoxelActorPublication& GetPersistentVoxelActorPublicationOwner();
 std::shared_ptr<const VoxelActorPublicationSnapshot> PublishPersistentVoxelActorSnapshot();
 bool GetPersistentVoxelActorAuthority(

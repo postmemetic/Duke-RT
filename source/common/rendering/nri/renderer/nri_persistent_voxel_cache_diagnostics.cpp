@@ -1,4 +1,5 @@
 #include "nri_persistent_voxels.h"
+#include "../scene/nri_voxel_publication_diagnostic_status.h"
 #include "nri_cvars.h"
 #include "perf_audit.h"
 #include "actor_presentation_snapshot.h"
@@ -153,19 +154,61 @@ void NRIPersistentVoxelResidency::EndCacheDiagnostics(uint32_t frameIndex, const
     state.begun = false;
     const auto token = PerfAuditCurrentToken();
     std::vector<nri_scene::PersistentVoxelCacheEntryView> source;
+    std::string emptySourceEvidence;
     if (!nri_scene::BuildPersistentVoxelCacheEntries(source))
     {
-        PerfAuditWriteEvent("voxel_cache_actor_summary", token,
-            "\"authority_available\":false,\"stage\":\"batch-publication\",\"complete\":false");
-        return; // Unavailable authority is not an empty/dead actor set.
+        const auto status = nri_scene::InspectPersistentVoxelEmptyPublication();
+        using Filter = nri_scene::VoxelPublicationFilter;
+        const auto& captured = status.completedCapture;
+        char evidence[3072];
+        std::snprintf(evidence, sizeof(evidence),
+            "\"source_status\":{\"schema\":1,\"scope\":\"eligible-discovered-publication-set\","
+            "\"classification\":\"%s\",\"provider_current\":%s,\"capture_current\":%s,\"counts_match\":%s,"
+            "\"startup_suppressed\":%s,\"snapshot_complete\":%s,\"snapshot_generation\":%llu,"
+            "\"snapshot_world\":%llu,\"journal_world\":%llu,\"snapshot_simulation\":%llu,\"current_simulation\":%llu,"
+            "\"snapshot_lifecycle\":%llu,\"journal_serial\":%llu,\"snapshot_actors\":%llu,"
+            "\"audit_epoch\":%llu,\"cache_frame\":%llu,\"cache_serial\":%llu,\"capture_depth\":%u,"
+            "\"capture_observed\":%s,\"capture_audit_epoch\":%llu,\"capture_frame\":%llu,\"capture_serial\":%llu,"
+            "\"capture_snapshot_generation\":%llu,\"capture_world\":%llu,\"capture_simulation\":%llu,"
+            "\"capture_lifecycle\":%llu,\"capture_journal_serial\":%llu,"
+            "\"cache_entries\":%llu,\"eligible_entries\":%llu,\"filter_accepted\":%llu,\"filter_startup\":%llu,"
+            "\"filter_invalid_placement\":%llu,\"filter_authority_not_current\":%llu,\"filter_publication_ineligible\":%llu,"
+            "\"filter_pending_removal\":%llu,\"filter_representation_unready\":%llu,\"filter_shared_surface_unavailable\":%llu}",
+            status.Classification(), Bool(status.ProviderCurrent()), Bool(status.CaptureCurrent()), Bool(status.CountsMatch()),
+            Bool(status.startupSuppressed), Bool(status.snapshotComplete), U64(status.snapshotGeneration),
+            U64(status.snapshotWorld), U64(status.journalWorld), U64(status.snapshotSimulation), U64(status.currentSimulation),
+            U64(status.snapshotLifecycle), U64(status.journalSerial), U64(status.snapshotActors),
+            U64(status.auditEpoch), U64(status.cacheFrame), U64(status.cacheSerial), status.captureDepth,
+            Bool(captured.observed), U64(captured.auditEpoch), U64(captured.cacheFrame), U64(captured.cacheSerial),
+            U64(captured.snapshotGeneration), U64(captured.worldEpoch), U64(captured.simulationGeneration),
+            U64(captured.lifecycleSerial), U64(captured.journalSerial), U64(status.cacheEntries), U64(status.eligibleEntries),
+            U64(status.Filter(Filter::Accepted)), U64(status.Filter(Filter::StartupSuppressed)),
+            U64(status.Filter(Filter::InvalidPlacement)), U64(status.Filter(Filter::AuthorityNotCurrent)),
+            U64(status.Filter(Filter::PublicationIneligible)), U64(status.Filter(Filter::PendingRemoval)),
+            U64(status.Filter(Filter::RepresentationUnready)), U64(status.Filter(Filter::SharedSurfaceUnavailable)));
+        emptySourceEvidence = evidence;
+        if (!status.ObservationAvailable())
+        {
+            char unavailable[3584];
+            std::snprintf(unavailable, sizeof(unavailable),
+                "\"authority_available\":false,\"stage\":\"batch-publication\",\"complete\":false,"
+                "\"renderer_frame\":%u,\"map_generation\":%u,%s", frameIndex, residencyMapGeneration, evidence);
+            PerfAuditWriteEvent("voxel_cache_actor_summary", token, unavailable);
+            return; // Unavailable/suppressed/unready authority is never empty/dead actor evidence.
+        }
+        // Only a proven current empty eligible set proceeds through the same
+        // history reconciliation; no fabricated successful publication.
     }
     std::unordered_map<uint64_t, const PersistentVoxelBatch::ActorEntry*> published;
     for (const auto& actor : batch.actors) if (actor.active) published[actor.identityKey] = &actor;
     // Diagnostic-only transient lookup; never retain an actor pointer.
     std::unordered_map<int32_t, std::string> classNames;
-    TSpriteIterator<DCoreActor> iterator;
-    while (auto actor = iterator.Next())
-        classNames.emplace(actor->GetIndex(), JsonName(actor->GetClass()->TypeName.GetChars()));
+    if (!source.empty())
+    {
+        TSpriteIterator<DCoreActor> iterator;
+        while (auto actor = iterator.Next())
+            classNames.emplace(actor->GetIndex(), JsonName(actor->GetClass()->TypeName.GetChars()));
+    }
     std::unordered_set<uint64_t> observed;
     uint32_t readyCount = 0, heldCount = 0, omittedCaptured = 0, omittedRetained = 0;
     uint32_t omittedPreviouslyActive = 0, transitions = 0, pendingMaxFrames = 0;
@@ -274,7 +317,7 @@ void NRIPersistentVoxelResidency::EndCacheDiagnostics(uint32_t frameIndex, const
         history.pending = false;
         history.outcome = "source-absent";
     }
-    if (transitions || omittedCaptured || omittedRetained || heldCount || PerfAuditCensusRequested() || state.suppressed)
+    if (source.empty() || transitions || omittedCaptured || omittedRetained || heldCount || PerfAuditCensusRequested() || state.suppressed)
     {
         std::snprintf(fields, sizeof(fields), "\"stage\":\"batch-publication\",\"renderer_frame\":%u,\"map_generation\":%u,"
             "\"authority_available\":true,\"source_eligible\":%zu,\"published\":%u,\"held\":%u,\"omitted_captured\":%u,\"omitted_retained\":%u,"
@@ -289,6 +332,11 @@ void NRIPersistentVoxelResidency::EndCacheDiagnostics(uint32_t frameIndex, const
             state.evictions.size(), MeshLimit, state.meshOverflow, EventLimit, state.suppressed,
             Bool(!state.actorOverflow && !state.meshOverflow && !state.previousOverflow && !state.reasonOverflow && !state.suppressed));
         // One summary per EnsureBatch even if the detailed event cap was hit.
-        PerfAuditWriteEvent("voxel_cache_actor_summary", token, fields);
+        if (!emptySourceEvidence.empty())
+        {
+            const std::string combined = std::string(fields) + "," + emptySourceEvidence;
+            PerfAuditWriteEvent("voxel_cache_actor_summary", token, combined.c_str());
+        }
+        else PerfAuditWriteEvent("voxel_cache_actor_summary", token, fields);
     }
 }

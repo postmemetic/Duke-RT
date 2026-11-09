@@ -1,4 +1,5 @@
 #include "nri_scene_bridge.h"
+#include "nri_voxel_publication_diagnostic_status.h"
 #include "nri_cpu_perf_audit.h"
 #include "nri_voxel_actor_publication.h"
 #include "nri_scene_view_scratch.h"
@@ -150,6 +151,7 @@ namespace
 	uint64_t gVoxelActorCacheFrame = 0;
 	uint32_t gVoxelActorCacheCaptureDepth = 0;
 	uint64_t gVoxelActorCacheSerial = 1;
+	VoxelPublicationDiagnosticStamp gVoxelPublicationDiagnosticCapture;
 	bool gVoxelActorStartupTransientMode = false;
 	uint64_t gVoxelActorLifecycleCursor = 0;
 	bool gVoxelActorPendingRemoval = false;
@@ -5162,6 +5164,17 @@ namespace
 		if (rootCapture)
 		{
 			PruneVoxelActorCache(stats);
+			// Optional observer evidence, never consulted by renderer policy.
+			// Recording only after reconciliation prevents an empty cache from
+			// masquerading as a completed authoritative capture.
+			if ((bool)nri_ptvoxelcachevalidate && PerfAuditActive())
+			{
+				const auto& snapshot = GetActorPresentationSnapshot();
+				gVoxelPublicationDiagnosticCapture = {
+					PerfAuditCurrentToken().epoch, gVoxelActorCacheFrame, gVoxelActorCacheSerial,
+					snapshot.snapshotGeneration, snapshot.worldEpoch, snapshot.simulationGeneration,
+					snapshot.lifecycleSerial, GetActorLifecycleJournal().LatestSerial(), true };
+			}
 		}
 	}
 
@@ -7050,6 +7063,7 @@ uint64_t GetPersistentVoxelCacheSerial()
 
 void ResetPersistentVoxelActorCache(const char* reason)
 {
+	gVoxelPublicationDiagnosticCapture = {};
 	gVoxelActorPublication.Reset();
 	gVoxelActorPublicationQuarantined = false;
 	gVoxelActorPublicationChecks = 0;
@@ -7297,6 +7311,55 @@ bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>
 		if (BuildVoxelActorPublicationEntry(identity, view)) outEntries.push_back(std::move(view));
 	}
 	return !outEntries.empty();
+}
+
+VoxelPublicationDiagnosticStatus InspectPersistentVoxelEmptyPublication()
+{
+	VoxelPublicationDiagnosticStatus result;
+	// No registry/snapshot reads or scans for a disabled observer.
+	if (!(bool)nri_ptvoxelcachevalidate || !PerfAuditActive()) return result;
+	const auto& snapshot = GetActorPresentationSnapshot();
+	const auto& journal = GetActorLifecycleJournal();
+	result.completedCapture = gVoxelPublicationDiagnosticCapture;
+	result.auditEpoch = PerfAuditCurrentToken().epoch;
+	result.cacheFrame = gVoxelActorCacheFrame;
+	result.cacheSerial = gVoxelActorCacheSerial;
+	result.captureDepth = gVoxelActorCacheCaptureDepth;
+	result.snapshotGeneration = snapshot.snapshotGeneration;
+	result.snapshotWorld = snapshot.worldEpoch;
+	result.journalWorld = journal.WorldEpoch();
+	result.snapshotSimulation = snapshot.simulationGeneration;
+	result.currentSimulation = GetGameUpdateSnapshot().simulationGeneration;
+	result.snapshotLifecycle = snapshot.lifecycleSerial;
+	result.journalSerial = journal.LatestSerial();
+	result.snapshotActors = snapshot.actors.size();
+	result.snapshotComplete = snapshot.complete;
+	result.startupSuppressed = gVoxelActorStartupTransientMode;
+	result.cacheEntries = gVoxelActorCache.size();
+	// The caller just observed zero eligible entries. Independently classify
+	// all cache records; an unexpected accepted row becomes a count mismatch.
+	result.eligibleEntries = 0;
+	const bool direct = ShouldDirectPublishNRIVoxelComputeMeshing();
+	for (const auto& pair : gVoxelActorCache)
+	{
+		const auto& cached = pair.second;
+		VoxelPublicationEntryDiagnosticFacts facts;
+		facts.startupSuppressed = result.startupSuppressed;
+		facts.validPlacement = cached.ownerWorldEpoch != 0 && cached.placementGeneration != 0 &&
+			cached.placementStateHash != 0 && cached.physicalSectorIndex >= 0;
+		facts.authorityCurrent = cached.authorityCurrent;
+		facts.publicationEligible = cached.publicationEligible;
+		facts.pendingRemoval = cached.pendingRemoval;
+		facts.currentReady = cached.hasSurface && cached.persistentReady && !cached.startupPending;
+		facts.desiredDirectPending = direct &&
+			cached.pendingReason != (uint8_t)VoxelActorPendingReason::None &&
+			cached.hasDesiredMaterialSurface && cached.desiredMeshKeyHash != 0 &&
+			cached.desiredMaterialKeyHash != 0 && cached.desiredPrimitiveCount != 0 && cached.voxelModelPtr != 0;
+		facts.surfaceAvailable = !cached.sharedVariantSurface ||
+			GetReadyVoxelMeshVariantSurface(cached.meshVariantHash) != nullptr;
+		++result.filters[uint32_t(ClassifyVoxelPublicationEntry(facts))];
+	}
+	return result;
 }
 
 const VoxelActorPublication& GetPersistentVoxelActorPublicationOwner()
