@@ -60,6 +60,9 @@ void NRIRenderer::BuildSceneMaterialPolicyProduct(
 	const std::vector<nri_scene::MaterialRowRange>& uniformRanges,
 	std::vector<nri_scene::MaterialData>& output)
 {
+	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyPrelightNs);
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPrelightCalls);
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPrelightInputRows, source.materials.size());
 	const auto& overlays = GetResolvedLightOverlaySet();
 	const auto* actors = nri_material_policy::HasActorMaterialOverrideRules(overlays) ?
 		&GetActorMaterialOverrideMapForFrame() : nullptr;
@@ -88,6 +91,9 @@ NRIMaterialProductPatchResult NRIRenderer::RefreshCombinedMaterialProduct(
 	std::vector<nri_scene::MaterialData>& dynamic,
 	const std::vector<nri_scene::MaterialRowRange>* uniformRanges)
 {
+	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyPostlightNs);
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPostlightCalls);
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicyPostlightInputRows, source.materials.size());
 	const auto& overlays = GetResolvedLightOverlaySet();
 	const auto* actors = nri_material_policy::HasActorMaterialOverrideRules(overlays) ?
 		&GetActorMaterialOverrideMapForFrame() : nullptr;

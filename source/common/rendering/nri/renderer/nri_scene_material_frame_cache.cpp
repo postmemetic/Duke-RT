@@ -172,6 +172,8 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::Build(
 const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureSlots(
 	const NRISceneTextureSlotTable& slotTable)
 {
+	PerfAuditScope auditResolve(PerfAuditMetric::MaterialProductReuseResolveNs);
+	PerfAuditAdd(PerfAuditMetric::MaterialProductReuseRequests);
 	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveCalls);
 	const bool rebuildResident =
 		!mResolvedResidentValid ||

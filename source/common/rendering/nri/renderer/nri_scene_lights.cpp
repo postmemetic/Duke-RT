@@ -1649,8 +1649,10 @@ namespace
 			Copy3f(metadata.emissiveColor, outColor);
 		}
 
+		uint64_t policyRuleTests = 0;
 		for (const auto& rule : registry.textureRules)
 		{
+			++policyRuleTests;
 			if (metadata.textureId != rule.textureId)
 			{
 				continue;
@@ -1701,6 +1703,8 @@ namespace
 			outIntensity = baseIntensity * std::max(rule.intensityScale, 0.0f);
 			break;
 		}
+
+		PerfAuditAdd(PerfAuditMetric::MaterialPolicyEmissiveRuleTests, policyRuleTests);
 
 		if (outMode == nri_scene::MaterialEmissiveMode_None || outIntensity <= 0.0f)
 		{
@@ -5764,6 +5768,7 @@ bool SceneLightSystem::MaterialWouldEmit(const nri_scene::MaterialLightingMetada
 
 bool SceneLightSystem::ApplyEmissiveMaterialSettings(const nri_scene::MaterialLightingMetadata& metadata, nri_scene::MaterialData& inOutMaterial) const
 {
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicyLegacySettingsCaptures);
 	const NRILightingSettings settings = CaptureSettings();
 	uint32_t sourceFlags = SceneEmissiveSurfaceSourceFlag_None;
 	uint32_t sourceRuleId = 0;

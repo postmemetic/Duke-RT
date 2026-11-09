@@ -1004,7 +1004,11 @@ void AppendMaterialBridge(
 	std::unordered_map<uint64_t, uint32_t>& textureLookup)
 {
 
-	auto remapTextureIndex = [&source, &destination, &textureLookup](uint32_t textureIndex) -> uint32_t
+	PerfAuditScope auditAppend(PerfAuditMetric::TextureResolveBridgeAppendNs);
+	PerfAuditAdd(PerfAuditMetric::TextureResolveBridgeAppendCalls);
+	PerfAuditAdd(PerfAuditMetric::TextureResolveBridgeAppendRows, source.materials.size());
+	uint64_t textureLookups = 0;
+	auto remapTextureIndex = [&source, &destination, &textureLookup, &textureLookups](uint32_t textureIndex) -> uint32_t
 	{
 		if (textureIndex == UINT32_MAX)
 		{
@@ -1016,6 +1020,7 @@ void AppendMaterialBridge(
 		}
 
 		const auto& texture = source.textures[textureIndex];
+		++textureLookups;
 		auto it = textureLookup.find(texture.key);
 		if (it == textureLookup.end())
 		{
@@ -1053,6 +1058,7 @@ void AppendMaterialBridge(
 		}
 	}
 
+	PerfAuditAdd(PerfAuditMetric::TextureResolveBridgeAppendKeyLookups, textureLookups);
 	if (destination.paletteLookup.empty())
 	{
 		destination.paletteLookup = source.paletteLookup;

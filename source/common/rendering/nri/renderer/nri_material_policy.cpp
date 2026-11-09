@@ -83,6 +83,7 @@ namespace
 
 	std::string NormalizeLightOverlayTextureSelector(const char* value)
 	{
+		PerfAuditAdd(PerfAuditMetric::MaterialPolicyGlowNameNormalizations);
 		std::string normalized = value != nullptr ? value : "";
 		for (char& c : normalized)
 		{
@@ -168,6 +169,7 @@ namespace
 		float fallbackScale)
 	{
 		float scale = fallbackScale;
+		PerfAuditAdd(PerfAuditMetric::MaterialPolicyGlowRuleTests, resolved.emissiveMaterialResponseRules.Size());
 		for (const auto& rule : resolved.emissiveMaterialResponseRules)
 		{
 			if (rule.hasVisibleGlowBlend && EmissiveMaterialResponseRuleMatchesMaterial(rule, metadata))
@@ -1231,6 +1233,7 @@ void nri_material_policy::ApplyEmissiveMaterialOverrides(
 	const nri_scene::MaterialBridgeData& materials,
 	std::vector<nri_scene::MaterialData>& inOutGpuMaterials)
 {
+	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyBulkEmissiveNs);
 	const uint32_t count = std::min<uint32_t>((uint32_t)inOutGpuMaterials.size(), (uint32_t)materials.lightMetadata.size());
 	for (uint32_t materialIndex = 0; materialIndex < count; ++materialIndex)
 	{
@@ -1245,6 +1248,7 @@ void nri_material_policy::ApplyActorShadowMaterialOverrides(
 	const nri_scene::MaterialBridgeData& materials,
 	std::vector<nri_scene::MaterialData>& inOutGpuMaterials)
 {
+	PerfAuditScope policyAudit(PerfAuditMetric::MaterialPolicyBulkActorNs);
 	if (actorOverrides.empty())
 	{
 		return;

@@ -2059,6 +2059,8 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			{
 				return true;
 			}
+			PerfAuditScope inputAudit(PerfAuditMetric::MutationInputsPreparedViewNs);
+			PerfAuditAdd(PerfAuditMetric::MutationInputsPreparedViewBuilds);
 
 			nri_scene::PTMapBuildOptions mapBuildOptions = {};
 			if (!nri_scene::BuildLiveMapChunkWorld(mapChunk, liveWorld, &liveStats, mapBuildOptions))
@@ -2176,6 +2178,8 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			}
 
 			attemptedResidentComparableLiveChunkView = true;
+			PerfAuditScope inputAudit(PerfAuditMetric::MutationInputsComparableViewNs);
+			PerfAuditAdd(PerfAuditMetric::MutationInputsComparableViewAttempts);
 			haveResidentComparableLiveChunkView = false;
 			if (!IsPureSectorRuntimeMutationMaterialOnlyReasonMask(normalizedReasonMask))
 			{
@@ -2299,6 +2303,8 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				const nri_scene::CanonicalPTMapMaterialLayout* canonicalLayout,
 				nri_scene::MaterialBridgeData& outMaterials) -> bool
 		{
+			PerfAuditScope inputAudit(PerfAuditMetric::MutationInputsMaterialCacheProbeNs);
+			PerfAuditAdd(PerfAuditMetric::MutationInputsMaterialCacheProbes);
 			auto& cache = replacement.materialStateCache;
 			for (size_t index = 0; index < cache.size(); ++index)
 			{
@@ -2429,7 +2435,12 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			// signature advanced. The retained static hint is intentionally not used as
 			// authority because it misses runtime-resolved Build tile animations.
 			routeInput.allowAnimatedMaterialState = allowAnimatedMaterialState;
-			NRIMapMaterialOnlyRouteResult routeResult = mMapMaterialOnlyRoute.TryPrepare(routeInput);
+			NRIMapMaterialOnlyRouteResult routeResult = [&]()
+			{
+				PerfAuditScope inputAudit(PerfAuditMetric::MutationInputsCanonicalPrepareNs);
+				PerfAuditAdd(PerfAuditMetric::MutationInputsCanonicalPrepareCalls);
+				return mMapMaterialOnlyRoute.TryPrepare(routeInput);
+			}();
 			if (!routeResult.admitted)
 			{
 				return false;

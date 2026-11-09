@@ -1,4 +1,5 @@
 #include "nri_scene_material_texture_slots.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 
@@ -15,6 +16,7 @@ uint32_t ResolveRequired(
 		stats.requiredFallbacks++;
 		return 0;
 	}
+	++stats.keyLookups;
 	const NRISceneTextureSlotHandle handle = slotTable.Lookup(materials.textures[textureIndex].key);
 	if (!handle)
 	{
@@ -37,6 +39,7 @@ uint32_t ResolveOptional(
 		stats.optionalFallbacks++;
 		return UINT32_MAX;
 	}
+	++stats.keyLookups;
 	const NRISceneTextureSlotHandle handle = slotTable.Lookup(materials.textures[textureIndex].key);
 	if (!handle)
 	{
@@ -53,6 +56,8 @@ void NRIResolveSceneMaterialTextureSlots(
 	std::vector<nri_scene::MaterialData>& gpuMaterials,
 	NRISceneMaterialTextureSlotResolveStats* outStats)
 {
+	PerfAuditScope auditResolve(PerfAuditMetric::TextureResolveNs);
+	PerfAuditAdd(PerfAuditMetric::TextureResolveCalls);
 	NRISceneMaterialTextureSlotResolveStats stats = {};
 	for (nri_scene::MaterialData& material : gpuMaterials)
 	{
@@ -64,6 +69,8 @@ void NRIResolveSceneMaterialTextureSlots(
 		stats.materialRows++;
 	}
 
+	PerfAuditAdd(PerfAuditMetric::TextureResolveRows, stats.materialRows);
+	PerfAuditAdd(PerfAuditMetric::TextureResolveKeyLookups, stats.keyLookups);
 	if (outStats != nullptr)
 	{
 		*outStats = stats;
@@ -87,6 +94,8 @@ void NRIResolveSceneMaterialBridgeTextureSlotRange(
 	uint32_t endMaterialRow,
 	NRISceneMaterialTextureSlotResolveStats* outStats)
 {
+	PerfAuditScope auditResolve(PerfAuditMetric::TextureResolveNs);
+	PerfAuditAdd(PerfAuditMetric::TextureResolveCalls);
 	NRISceneMaterialTextureSlotResolveStats stats = {};
 	const size_t end = std::min<size_t>(endMaterialRow, materials.materials.size());
 	for (uint32_t row = firstMaterialRow; row < end; ++row)
@@ -109,6 +118,8 @@ void NRIResolveSceneMaterialBridgeTextureSlotRange(
 		}
 		stats.materialRows++;
 	}
+	PerfAuditAdd(PerfAuditMetric::TextureResolveRows, stats.materialRows);
+	PerfAuditAdd(PerfAuditMetric::TextureResolveKeyLookups, stats.keyLookups);
 	if (outStats != nullptr)
 		*outStats = stats;
 }

@@ -9,6 +9,7 @@
 struct NRISceneMaterialTextureSlotResolveStats
 {
 	uint32_t materialRows = 0;
+	uint64_t keyLookups = 0;
 	uint32_t requiredFallbacks = 0;
 	uint32_t optionalFallbacks = 0;
 };

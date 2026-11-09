@@ -1,5 +1,6 @@
 #include "nri_map_builder.h"
 #include "nri_fluid_surface_normals.h"
+#include "perf_audit.h"
 
 #include "build.h"
 #include "gamefuncs.h"
@@ -1446,6 +1447,8 @@ bool BuildMapWorld(PTMapWorld& outWorld, const PTMapBuildOptions& options)
 
 bool BuildLiveMapChunkWorld(const PTMapChunk& chunk, PTMapWorld& outWorld, PTMapWorldStats* outStats, const PTMapBuildOptions& options)
 {
+	PerfAuditScope audit(PerfAuditMetric::MutationInputsLiveWorldNs);
+	PerfAuditAdd(PerfAuditMetric::MutationInputsLiveWorldBuilds);
 	outWorld = {};
 	if (outStats != nullptr)
 	{
@@ -1496,6 +1499,8 @@ bool BuildLiveMapChunkSceneView(const PTMapChunk& chunk, SceneView& outView, PTM
 
 uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 {
+	PerfAuditScope audit(PerfAuditMetric::MutationInputsSignatureNs);
+	PerfAuditAdd(PerfAuditMetric::MutationInputsSignatureCalls);
 	if (chunk.kind != PTMapChunkKind::Sector || chunk.sectorIndex < 0 || (unsigned)chunk.sectorIndex >= sector.Size())
 	{
 		return 0;
@@ -1503,6 +1508,7 @@ uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 
 	const sectortype& sec = sector[(unsigned)chunk.sectorIndex];
 	uint64_t hash = 1469598103934665603ull;
+	PerfAuditAdd(PerfAuditMetric::MutationInputsSignatureWallRows, sec.walls.Size());
 	hash = HashMix(hash, chunk.chunkIndex);
 	hash = HashMix(hash, (uint64_t)(uint32_t)chunk.sectorIndex);
 	hash = HashMix(hash, ComputeFluidFloorNormalSignature(chunk.sectorIndex));
@@ -1569,11 +1575,15 @@ uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 
 bool CaptureMapChunkMutationBaseline(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline)
 {
+	PerfAuditScope audit(PerfAuditMetric::MutationInputsBaselineCaptureNs);
+	PerfAuditAdd(PerfAuditMetric::MutationInputsBaselineCaptures);
 	return CaptureChunkMutationBaselineInternal(chunk, outBaseline);
 }
 
 bool AnalyzeMapChunkMutation(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis)
 {
+	PerfAuditScope audit(PerfAuditMetric::MutationInputsAnalysisNs);
+	PerfAuditAdd(PerfAuditMetric::MutationInputsAnalysisCalls);
 	if (!AnalyzeChunkMutationInternal(chunk, baseline, outAnalysis))
 	{
 		return false;
