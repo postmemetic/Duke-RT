@@ -6,6 +6,24 @@
 
 #include <cstdio>
 
+namespace
+{
+void ObserveMaterialDigestMode(NRIVoxelMaterialPayloadOwner& owner)
+{
+	const bool wasLatched = owner.DigestModeLatched();
+	if (!owner.ObserveDigestMode((bool)nri_ptvoxelmaterialdigestcache)) return;
+	const bool ignored = owner.DigestModeRequested() != owner.DigestModeEnabled();
+	const char* action = !wasLatched ? "latch" : ignored ? "ignore-request" : "request-restored";
+	if (ignored) PerfAuditAdd(PerfAuditMetric::VoxelMaterialDigestModeChangeIgnored);
+	Printf("NRI PT voxel material digest mode: effective=%s requested=%s action=%s latch_scope=payload-owner-lifetime\n",
+		owner.DigestModeEnabled() ? "cached" : "raw", owner.DigestModeRequested() ? "cached" : "raw", action);
+	char fields[256];
+	std::snprintf(fields, sizeof(fields), "\"enabled\":%s,\"requested\":%s,\"latched\":true,\"action\":\"%s\"",
+		owner.DigestModeEnabled() ? "true" : "false", owner.DigestModeRequested() ? "true" : "false", action);
+	PerfAuditWriteEvent("voxel_material_digest_mode", PerfAuditCurrentToken(), fields);
+}
+}
+
 NRIVoxelMaterialRetirementScope::NRIVoxelMaterialRetirementScope(
 	NRIPersistentVoxelResidency& owner, const NRIPersistentVoxelResetServices& services)
 	: owner(owner), services(services)
@@ -21,6 +39,7 @@ NRIVoxelMaterialRetirementScope::~NRIVoxelMaterialRetirementScope()
 bool NRIPersistentVoxelResidency::AcquireMaterialBinding(
 	PersistentVoxelMaterialVariantResource& resource, bool contentChanged, bool& moved)
 {
+	ObserveMaterialDigestMode(materialPayloads);
 	auto range = materialPayloads.FindBinding(resource.materialKeyHash);
 	if (contentChanged || !range)
 	{
@@ -29,14 +48,26 @@ bool NRIPersistentVoxelResidency::AcquireMaterialBinding(
 			PerfAuditMetric::VoxelMaterialSharingEnabledAcquires : PerfAuditMetric::VoxelMaterialSharingPrivateAcquires);
 		const auto before = materialPayloads.Counters();
 		NRIPersistentVoxelMaterialRangeHandle retired;
+		NRIVoxelMaterialSharingCertificate certificate;
+		{
+			PerfAuditScope certify(PerfAuditMetric::VoxelMaterialSharingCertifyNs);
+			certificate = materialSharingPolicy.Certify(resource.materialBridge);
+		}
 		const bool acquired = materialPayloads.AcquireBinding(resource.materialKeyHash,
-			materialSharingPolicy.Certify(resource.materialBridge), resource.materialBridge,
+			certificate, resource.materialBridge,
 			materialRangeAllocator, range, retired);
 		const auto& after = materialPayloads.Counters();
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingLookups, after.lookups - before.lookups);
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingHits, after.hits - before.hits);
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingComparisons, after.comparisons - before.comparisons);
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingBytesHashed, after.bytesHashed - before.bytesHashed);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialHashRawCalls, after.rawHashCalls - before.rawHashCalls);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialHashCachedCalls, after.cachedHashCalls - before.cachedHashCalls);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialHashInjectedCalls, after.injectedHashCalls - before.injectedHashCalls);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialDigestHits, after.digestHits - before.digestHits);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialDigestMisses, after.digestMisses - before.digestMisses);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialImmutableBytesScanned, after.immutableBytesScanned - before.immutableBytesScanned);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialImmutableBytesAvoided, after.immutableBytesAvoided - before.immutableBytesAvoided);
 		if (!acquired) return false;
 		if (retired) pendingMaterialRangeRetirements.push_back(retired);
 	}
@@ -50,6 +81,7 @@ bool NRIPersistentVoxelResidency::AcquireMaterialBinding(
 
 bool NRIPersistentVoxelResidency::PrepareMaterialSharing(uint64_t buildSerial, uint32_t frameIndex)
 {
+	ObserveMaterialDigestMode(materialPayloads);
 	const bool wasLatched = materialSharingPolicy.Mode().Latched();
 	if (materialSharingPolicy.ObserveRequestedMode((bool)nri_ptvoxelmaterialsharing))
 	{

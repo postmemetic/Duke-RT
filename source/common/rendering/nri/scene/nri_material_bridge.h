@@ -4,6 +4,7 @@
 
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -36,7 +37,7 @@ public:
 
 	void Assign(std::vector<uint8_t>&& bytes, uint64_t signature = 0)
 	{
-		mBytes = bytes.empty() ? nullptr : std::make_shared<const std::vector<uint8_t>>(std::move(bytes));
+		mBytes = bytes.empty() ? nullptr : std::make_shared<const Backing>(std::move(bytes));
 		mSignature = mBytes != nullptr ? signature : 0;
 	}
 
@@ -53,14 +54,40 @@ public:
 	}
 	void reserve(size_t) {}
 
-	bool empty() const { return mBytes == nullptr || mBytes->empty(); }
-	size_t size() const { return mBytes != nullptr ? mBytes->size() : 0; }
+	bool empty() const { return mBytes == nullptr || mBytes->bytes.empty(); }
+	size_t size() const { return mBytes != nullptr ? mBytes->bytes.size() : 0; }
 	size_t capacity() const { return size(); }
-	const uint8_t* data() const { return mBytes != nullptr ? mBytes->data() : nullptr; }
+	const uint8_t* data() const { return mBytes != nullptr ? mBytes->bytes.data() : nullptr; }
 	uint64_t signature() const { return mSignature; }
 	uint64_t uniqueStorageBytes() const
 	{
-		return mBytes != nullptr && mBytes.use_count() == 1 ? (uint64_t)mBytes->size() : 0;
+		return mBytes != nullptr && mBytes.use_count() == 1 ? (uint64_t)mBytes->bytes.size() : 0;
+	}
+
+	struct DigestResult
+	{
+		uint64_t value = 14695981039346656037ull;
+		uint64_t bytesScanned = 0;
+		bool computed = false;
+	};
+	// Canonical byte-only digest, independent of the caller-defined signature.
+	// Copies share both bytes and once-state; Assign replaces the whole backing.
+	// Concurrent const reads are supported. Assign/clear on the SAME wrapper
+	// still require external synchronization, like ordinary shared_ptr mutation.
+	DigestResult ContentDigest() const
+	{
+		DigestResult result;
+		if (!mBytes) return result;
+		std::call_once(mBytes->digestOnce, [&]()
+		{
+			uint64_t value = 14695981039346656037ull;
+			for (uint8_t byte : mBytes->bytes) value = (value ^ byte) * 1099511628211ull;
+			mBytes->digest = value;
+			result.bytesScanned = mBytes->bytes.size();
+			result.computed = true;
+		});
+		result.value = mBytes->digest;
+		return result;
 	}
 
 	bool operator==(const ImmutableBytePayload& other) const
@@ -72,13 +99,20 @@ public:
 	bool operator!=(const std::vector<uint8_t>& other) const { return !(*this == other); }
 
 private:
+	struct Backing
+	{
+		explicit Backing(std::vector<uint8_t>&& value) : bytes(std::move(value)) {}
+		const std::vector<uint8_t> bytes;
+		mutable std::once_flag digestOnce;
+		mutable uint64_t digest = 14695981039346656037ull;
+	};
 	const std::vector<uint8_t>& Bytes() const
 	{
 		static const std::vector<uint8_t> empty;
-		return mBytes != nullptr ? *mBytes : empty;
+		return mBytes != nullptr ? mBytes->bytes : empty;
 	}
 
-	std::shared_ptr<const std::vector<uint8_t>> mBytes;
+	std::shared_ptr<const Backing> mBytes;
 	uint64_t mSignature = 0;
 };
 

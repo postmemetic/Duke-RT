@@ -41,12 +41,18 @@ void NRIPersistentVoxelResidency::CapturePerfAuditCensus(uint32_t rendererFrameI
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingModeLatched, sharingMode.Latched());
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingEnabled, sharingMode.Enabled());
 	PerfAuditSet(PerfAuditMetric::VoxelMaterialSharingRequested, (bool)nri_ptvoxelmaterialsharing);
-	char controls[320];
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialDigestModeLatched, materialPayloads.DigestModeLatched());
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialDigestEnabled, materialPayloads.DigestModeEnabled());
+	PerfAuditSet(PerfAuditMetric::VoxelMaterialDigestRequested, (bool)nri_ptvoxelmaterialdigestcache);
+	char controls[512];
 	std::snprintf(controls, sizeof(controls),
 		"\"sharing_requested\":%s,\"sharing_effective\":%s,\"sharing_latched\":%s,"
+		"\"digest_requested\":%s,\"digest_effective\":%s,\"digest_latched\":%s,"
 		"\"actorlightmaintenance\":%s,\"cachebounded\":%s,\"meshbytes\":%d",
 		(bool)nri_ptvoxelmaterialsharing ? "true" : "false", sharingMode.Enabled() ? "true" : "false",
-		sharingMode.Latched() ? "true" : "false", (bool)nri_ptactorlightmaintenance ? "true" : "false",
+		sharingMode.Latched() ? "true" : "false", (bool)nri_ptvoxelmaterialdigestcache ? "true" : "false",
+		materialPayloads.DigestModeEnabled() ? "true" : "false", materialPayloads.DigestModeLatched() ? "true" : "false",
+		(bool)nri_ptactorlightmaintenance ? "true" : "false",
 		(bool)nri_ptvoxelcachebounded ? "true" : "false", (int)nri_ptvoxelcachemeshbytes);
 	PerfAuditWriteEvent("renderer_experiment_controls", PerfAuditCurrentToken(), controls);
 	uint64_t meshCold = 0, meshBytes = 0, meshUnused = 0, meshUnusedBytes = 0;

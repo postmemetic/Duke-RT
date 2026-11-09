@@ -1,5 +1,6 @@
 #include "nri_persistent_voxel_material_payload.h"
 #include "../scene/nri_material_payload_semantics.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 
@@ -21,6 +22,8 @@ bool NRIVoxelMaterialPayloadOwner::AcquireBinding(uint64_t key, const NRIVoxelMa
 {
 	result = {}; retired = {};
 	if (!key || source.materials.empty() || source.materials.size() > UINT32_MAX) return false;
+	// Direct owner clients retain legacy raw behavior unless configured first.
+	if (!digestModeLatched) ObserveDigestMode(false);
 	++counters.lookups;
 	const auto previous = bindings.find(key);
 	if (previous != bindings.end())
@@ -52,10 +55,31 @@ bool NRIVoxelMaterialPayloadOwner::AcquireBinding(uint64_t key, const NRIVoxelMa
 			return true;
 		}
 	}
-	uint64_t bytesHashed = 0;
-	const uint64_t hash = certificate.invariant ?
-		(hashFunction ? hashFunction : nri_scene::HashMaterialPayload)(source, &bytesHashed) : 0;
-	counters.bytesHashed += bytesHashed;
+	uint64_t hash = 0;
+	if (certificate.invariant)
+	{
+		PerfAuditScope audit(PerfAuditMetric::VoxelMaterialSharingHashNs);
+		if (hashFunction)
+		{
+			// Preserve injection semantics, including forced-collision tests.
+			uint64_t bytes = 0;
+			hash = hashFunction(source, &bytes);
+			counters.bytesHashed += bytes;
+			++counters.injectedHashCalls;
+		}
+		else
+		{
+			nri_scene::MaterialPayloadHashWork work;
+			hash = nri_scene::HashMaterialPayloadWithWork(source, digestModeEnabled, work);
+			if (digestModeEnabled) ++counters.cachedHashCalls;
+			else ++counters.rawHashCalls;
+			counters.bytesHashed += work.bytesHashed;
+			counters.immutableBytesScanned += work.immutableBytesScanned;
+			counters.immutableBytesAvoided += work.immutableBytesAvoided;
+			counters.digestHits += work.digestHits;
+			counters.digestMisses += work.digestMisses;
+		}
+	}
 	uint64_t identity = 0;
 	if (certificate.invariant)
 	{
@@ -214,5 +238,6 @@ void NRIVoxelMaterialPayloadOwner::Reset()
 {
 	bindings.clear(); bindingActors.clear(); actorBindings.clear();
 	payloads.clear(); lookup.clear(); ranges.clear(); counters = {};
+	digestModeLatched = digestModeEnabled = digestModeRequested = false;
 	// Keep the monotonic identity sequence across resets, like range generations.
 }

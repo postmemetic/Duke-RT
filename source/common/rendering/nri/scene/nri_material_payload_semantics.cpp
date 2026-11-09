@@ -37,7 +37,34 @@ struct Hasher
 
 uint64_t HashMaterialPayload(const MaterialBridgeData& bridge, uint64_t* bytesHashed)
 {
+	MaterialPayloadHashWork work;
+	const auto hash = HashMaterialPayloadWithWork(bridge, false, work);
+	if (bytesHashed) *bytesHashed = work.bytesHashed;
+	return hash;
+}
+
+uint64_t HashMaterialPayloadWithWork(const MaterialBridgeData& bridge, bool useDigests,
+	MaterialPayloadHashWork& work)
+{
+	work = {};
 	Hasher h;
+	auto immutableBytes = [&](const ImmutableBytePayload& bytes)
+	{
+		if (!useDigests)
+		{
+			h.Bytes(bytes.data(), bytes.size());
+			work.immutableBytesScanned += bytes.size();
+			return;
+		}
+		const auto digest = bytes.ContentDigest();
+		h.Add(digest.value);
+		work.immutableBytesScanned += digest.bytesScanned;
+		if (!bytes.empty())
+		{
+			if (digest.computed) ++work.digestMisses;
+			else { ++work.digestHits; work.immutableBytesAvoided += bytes.size(); }
+		}
+	};
 	h.Add(bridge.materials.size());
 	h.Bytes(bridge.materials.data(), bridge.materials.size() * sizeof(MaterialData));
 	h.Add(bridge.lightMetadata.size());
@@ -54,11 +81,11 @@ uint64_t HashMaterialPayload(const MaterialBridgeData& bridge, uint64_t* bytesHa
 	{
 		h.Add(t.key); h.Add(t.width); h.Add(t.height); h.Add(t.mipCount);
 		h.Add(t.indexed); h.Add(t.sourceTexture); h.Add(t.pixels.size());
-		h.Bytes(t.pixels.data(), t.pixels.size());
+		immutableBytes(t.pixels);
 	}
 	h.Add(bridge.paletteWidth); h.Add(bridge.paletteHeight); h.Add(bridge.paletteLookup.size());
-	h.Bytes(bridge.paletteLookup.data(), bridge.paletteLookup.size());
-	if (bytesHashed) *bytesHashed = h.bytes;
+	immutableBytes(bridge.paletteLookup);
+	work.bytesHashed = h.bytes + (useDigests ? work.immutableBytesScanned : 0);
 	return h.value;
 }
 

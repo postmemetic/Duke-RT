@@ -24,6 +24,9 @@ struct NRIVoxelMaterialPayloadStats
 	uint64_t descriptorBytes = 0, retiringDescriptorBytes = 0;
 	uint64_t eligibleBindings = 0, excludedBindings = 0, excludedRows = 0;
 	uint64_t lookups = 0, hits = 0, comparisons = 0, bytesHashed = 0;
+	uint64_t rawHashCalls = 0, cachedHashCalls = 0, injectedHashCalls = 0;
+	uint64_t immutableBytesScanned = 0, immutableBytesAvoided = 0;
+	uint64_t digestHits = 0, digestMisses = 0;
 };
 
 // Actor-specific bridges remain in occurrence resources. This owner holds the
@@ -33,6 +36,18 @@ class NRIVoxelMaterialPayloadOwner
 public:
 	using HashFn = uint64_t (*)(const nri_scene::MaterialBridgeData&, uint64_t*);
 	explicit NRIVoxelMaterialPayloadOwner(HashFn hash = nullptr) : hashFunction(hash) {}
+	// Raw/cached aggregate hashes differ. Latch before any lookup entry exists;
+	// map changes and compaction preserve the mode, full Reset releases it.
+	bool ObserveDigestMode(bool requested)
+	{
+		const bool report = !digestModeLatched || digestModeRequested != requested;
+		digestModeRequested = requested;
+		if (!digestModeLatched) { digestModeEnabled = requested; digestModeLatched = true; }
+		return report;
+	}
+	bool DigestModeLatched() const { return digestModeLatched; }
+	bool DigestModeEnabled() const { return digestModeEnabled; }
+	bool DigestModeRequested() const { return digestModeRequested; }
 	bool AcquireBinding(uint64_t key, const NRIVoxelMaterialSharingCertificate& certificate,
 		const nri_scene::MaterialBridgeData& source, NRIPersistentVoxelMaterialRangeAllocator& allocator,
 		NRIPersistentVoxelMaterialRangeHandle& result, NRIPersistentVoxelMaterialRangeHandle& retired);
@@ -57,6 +72,7 @@ private:
 		uint64_t hash = 0, aliases = 0;
 	};
 	HashFn hashFunction = nullptr;
+	bool digestModeLatched = false, digestModeEnabled = false, digestModeRequested = false;
 	uint64_t nextIdentity = 1;
 	std::unordered_map<uint64_t, uint64_t> bindings;
 	std::unordered_map<uint64_t, int32_t> bindingActors;
