@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "nri_material_palette.h"
 #include "../../../engine/perf_audit.h"
 #include "nri_sector_color_policy.h"
 #include "nri_voxel_palette_policy.h"
@@ -15,7 +16,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <mutex>
 #include <unordered_map>
 
 
@@ -909,106 +909,7 @@ namespace
 		}
 	}
 
-	struct PaletteLookupCache
-	{
-		uint64_t sourceSignature = 0;
-		ImmutableBytePayload payload;
-	};
 
-	PaletteLookupCache gPaletteLookupCache;
-	std::mutex gPaletteLookupCacheMutex;
-
-	uint64_t BuildPaletteSourceSignature()
-	{
-		uint64_t signature = 1469598103934665603ull;
-		for (uint32_t colorIndex = 0; colorIndex < 256; ++colorIndex)
-		{
-			const PalEntry color = GPalette.BaseColors[colorIndex];
-			Fnv1a64Append(signature, &color.b, sizeof(color.b));
-			Fnv1a64Append(signature, &color.g, sizeof(color.g));
-			Fnv1a64Append(signature, &color.r, sizeof(color.r));
-		}
-		for (uint32_t paletteIndex = 0; paletteIndex < MAXPALOOKUPS; ++paletteIndex)
-		{
-			const uint8_t* table = lookups.getTable((int)paletteIndex);
-			if (table != nullptr)
-			{
-				Fnv1a64Append(signature, table, 256);
-			}
-			else
-			{
-				for (uint32_t colorIndex = 0; colorIndex < 256; ++colorIndex)
-				{
-					const uint8_t identity = (uint8_t)colorIndex;
-					Fnv1a64Append(signature, &identity, sizeof(identity));
-				}
-			}
-		}
-		return signature;
-	}
-
-	bool PalettePayloadMatchesLiveSamples(const ImmutableBytePayload& payload)
-	{
-		if (payload.size() != (size_t)256 * MAXPALOOKUPS * 4u)
-		{
-			return false;
-		}
-		for (uint32_t sample = 0; sample < 32; ++sample)
-		{
-			const uint32_t paletteIndex = (sample * 67u) & 255u;
-			const uint32_t colorIndex = (sample * 149u) & 255u;
-			const uint8_t* table = lookups.getTable((int)paletteIndex);
-			const uint8_t remappedIndex = table != nullptr ? table[colorIndex] : (uint8_t)colorIndex;
-			const PalEntry color = GPalette.BaseColors[remappedIndex];
-			const size_t pixelIndex = ((size_t)paletteIndex * 256u + colorIndex) * 4u;
-			const uint8_t* bytes = payload.data();
-			if (bytes[pixelIndex + 0] != color.b ||
-				bytes[pixelIndex + 1] != color.g ||
-				bytes[pixelIndex + 2] != color.r ||
-				bytes[pixelIndex + 3] != 255)
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
-	bool BuildPaletteLookup(MaterialBridgeData& outMaterials)
-	{
-		outMaterials.paletteWidth = 256;
-		outMaterials.paletteHeight = MAXPALOOKUPS;
-		const uint64_t sourceSignature = BuildPaletteSourceSignature();
-		std::lock_guard<std::mutex> lock(gPaletteLookupCacheMutex);
-		if (gPaletteLookupCache.sourceSignature == sourceSignature &&
-			PalettePayloadMatchesLiveSamples(gPaletteLookupCache.payload))
-		{
-			outMaterials.paletteLookup = gPaletteLookupCache.payload;
-			return false;
-		}
-
-		std::vector<uint8_t> paletteLookup(
-			(size_t)outMaterials.paletteWidth * (size_t)outMaterials.paletteHeight * 4u);
-
-		for (uint32_t paletteIndex = 0; paletteIndex < outMaterials.paletteHeight; ++paletteIndex)
-		{
-			const uint8_t* table = lookups.getTable((int)paletteIndex);
-			for (uint32_t colorIndex = 0; colorIndex < outMaterials.paletteWidth; ++colorIndex)
-			{
-				const uint8_t remappedIndex = table != nullptr ? table[colorIndex] : (uint8_t)colorIndex;
-				const PalEntry color = GPalette.BaseColors[remappedIndex];
-				const size_t pixelIndex = ((size_t)paletteIndex * outMaterials.paletteWidth + colorIndex) * 4u;
-				paletteLookup[pixelIndex + 0] = color.b;
-				paletteLookup[pixelIndex + 1] = color.g;
-				paletteLookup[pixelIndex + 2] = color.r;
-				paletteLookup[pixelIndex + 3] = 255;
-			}
-		}
-		const uint64_t payloadSignature = Fnv1a64(paletteLookup.data(), paletteLookup.size());
-		gPaletteLookupCache.sourceSignature = sourceSignature;
-		gPaletteLookupCache.payload.Assign(std::move(paletteLookup), payloadSignature);
-		outMaterials.paletteLookup = gPaletteLookupCache.payload;
-		return true;
-	}
 }
 
 namespace nri_scene
@@ -1163,7 +1064,7 @@ void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials
 {
 	ClearMaterialBridgeRetainingCapacity(outMaterials);
 	const auto paletteStart = std::chrono::steady_clock::now();
-	const bool paletteBuilt = BuildPaletteLookup(outMaterials);
+	const bool paletteBuilt = ResolveMaterialPalette(outMaterials);
 	outMaterials.buildStats.paletteMs = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - paletteStart).count();
 	outMaterials.buildStats.paletteBuilds = paletteBuilt ? 1u : 0u;

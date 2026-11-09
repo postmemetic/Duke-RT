@@ -7,6 +7,7 @@
 #include "nri_voxel_compute_meshing.h"
 #include "nri_voxel_compute_preload.h"
 #include "../scene/nri_hash.h"
+#include "../scene/nri_material_palette.h"
 #include "../system/nri_renderdevice.h"
 
 #include "mapinfo.h"
@@ -908,6 +909,7 @@ bool NRIPreloadCoordinator::Run(NRIRenderer& renderer, const NRIPreloadLevelScen
 		return true;
 	}
 	ResetSceneStats(renderer);
+	nri_scene::ScopedMaterialPaletteSnapshot paletteSnapshot(nri_ptpalettesnapshot, nri_ptpalettesnapshotvalidate);
 
 	const StepResult staticSceneResult = PreloadStaticSceneAndStartupCorrection(renderer, context);
 	if (staticSceneResult != StepResult::Continue)

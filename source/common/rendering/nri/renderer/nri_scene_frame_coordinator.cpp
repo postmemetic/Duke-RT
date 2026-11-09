@@ -27,6 +27,7 @@
 #include "nri_sky_environment.h"
 #include "nri_voxel_compute_meshing.h"
 #include "../scene/nri_hash.h"
+#include "../scene/nri_material_palette.h"
 #include "../scene/nri_scene_stats.h"
 #include "../system/nri_renderdevice.h"
 #include "../../hwrenderer/data/hw_clock.h"
@@ -1156,6 +1157,7 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 	ScopedPtPerfAttributionFinalizer attributionFinalizer(mLastPerfShellTraceStats);
 	ScopedPtPerfTimer totalPerfTimer(mLastPerfShellTraceStats.totalMs);
 	Clocker totalClock(NriPTAll);
+	nri_scene::ScopedMaterialPaletteSnapshot paletteSnapshot(nri_ptpalettesnapshot, nri_ptpalettesnapshotvalidate);
 
 	const uint32_t bootstrapMode = GetBootstrapMode();
 	const bool bootstrapSimpleView = nri_ptbootstrap && bootstrapMode <= 3u;

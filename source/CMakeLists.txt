@@ -1144,6 +1144,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_sector_color_policy.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
+	common/rendering/nri/scene/nri_material_palette.cpp
 	common/rendering/nri/scene/nri_material_bridge_ranges.cpp
 	common/rendering/nri/scene/nri_material_payload_semantics.cpp
 	common/rendering/nri/scene/nri_wall_decals.cpp
