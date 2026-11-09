@@ -1,5 +1,8 @@
 #include "nri_map_motion_history.h"
+#include "nri_map_motion_reference_history.h"
+#include "nri_cvars.h"
 #include "perf_audit.h"
+#include "printf.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,97 +10,103 @@
 
 namespace
 {
-	template <typename Callback>
-	void ForEachSurface(nri_scene::SceneView& view, const Callback& callback)
+	template <typename View, typename Callback>
+	void ForEachSurface(View& view, const Callback& callback)
 	{
-		for (nri_scene::SurfaceRef& surface : view.opaqueWalls) callback(surface);
-		for (nri_scene::SurfaceRef& surface : view.opaqueFlats) callback(surface);
-	}
-
-	template <typename Callback>
-	void ForEachSurface(const nri_scene::SceneView& view, const Callback& callback)
-	{
-		for (const nri_scene::SurfaceRef& surface : view.opaqueWalls) callback(surface);
-		for (const nri_scene::SurfaceRef& surface : view.opaqueFlats) callback(surface);
+		for (auto& surface : view.opaqueWalls) callback(surface);
+		for (auto& surface : view.opaqueFlats) callback(surface);
 	}
 
 	void SeedPreviousFromCurrent(nri_scene::SurfaceRef& surface)
 	{
 		surface.temporal.materialUvReactive = 0.0f;
-		for (nri_scene::CapturedVertex& vertex : surface.vertices)
-		{
+		for (auto& vertex : surface.vertices)
 			std::memcpy(vertex.prevPosition, vertex.position, sizeof(vertex.prevPosition));
-		}
+	}
+
+	bool AppliedMotionEqual(const nri_scene::SceneView& a, const nri_scene::SceneView& b)
+	{
+		const auto same = [](const auto& first, const auto& second)
+		{
+			if (first.size() != second.size()) return false;
+			for (size_t i = 0; i < first.size(); ++i)
+			{
+				const auto& x = first[i];
+				const auto& y = second[i];
+				if (x.vertices.size() != y.vertices.size() ||
+					x.temporal.correspondenceValid != y.temporal.correspondenceValid ||
+					x.temporal.historyAge != y.temporal.historyAge || x.temporal.reason != y.temporal.reason ||
+					std::memcmp(&x.temporal.materialUvReactive, &y.temporal.materialUvReactive, sizeof(float)) != 0)
+					return false;
+				for (size_t vertex = 0; vertex < x.vertices.size(); ++vertex)
+					if (std::memcmp(x.vertices[vertex].prevPosition, y.vertices[vertex].prevPosition,
+						sizeof(x.vertices[vertex].prevPosition)) != 0) return false;
+			}
+			return true;
+		};
+		return same(a.opaqueWalls, b.opaqueWalls) && same(a.opaqueFlats, b.opaqueFlats);
 	}
 }
 
-bool NRIMapMotionHistory::PayloadEqual(
-	const nri_scene::PTMapTemporalSurfacePayload& a,
-	const nri_scene::PTMapTemporalSurfacePayload& b)
+NRIMapMotionHistory::NRIMapMotionHistory() = default;
+NRIMapMotionHistory::~NRIMapMotionHistory() = default;
+
+const NRIMapMotionHistory::Stats& NRIMapMotionHistory::GetStats() const
 {
-	if (a.occurrenceId != b.occurrenceId || a.topologyKey != b.topologyKey ||
-		a.generation != b.generation || a.chunkIndex != b.chunkIndex ||
-		a.materialUvAnchorValid != b.materialUvAnchorValid ||
-		(a.materialUvAnchorValid &&
-			(std::memcmp(a.materialUvAnchor, b.materialUvAnchor, sizeof(a.materialUvAnchor)) != 0 ||
-				std::memcmp(a.materialUvTexelScale, b.materialUvTexelScale, sizeof(a.materialUvTexelScale)) != 0)) ||
-		a.materialVerticalReferenceValid != b.materialVerticalReferenceValid ||
-		(a.materialVerticalReferenceValid &&
-			std::memcmp(&a.materialVerticalReference, &b.materialVerticalReference,
-				sizeof(a.materialVerticalReference)) != 0) ||
-		a.corners.size() != b.corners.size())
-	{
-		return false;
-	}
-	for (size_t i = 0; i < a.corners.size(); ++i)
-	{
-		if (a.corners[i].key != b.corners[i].key ||
-			std::memcmp(a.corners[i].position, b.corners[i].position, sizeof(a.corners[i].position)) != 0)
-		{
-			return false;
-		}
-	}
-	return true;
+	return m_quarantined ? m_reference->GetStats() : m_stats;
+}
+
+const std::set<uint32_t>& NRIMapMotionHistory::GetSettleChunks() const
+{
+	return m_quarantined ? m_reference->GetSettleChunks() : m_settleChunks;
+}
+
+bool NRIMapMotionHistory::HasFinalizedStage() const
+{
+	return m_quarantined ? m_reference->HasFinalizedStage() : m_stageFinalized;
+}
+
+const char* NRIMapMotionHistory::GetLastResetReason() const
+{
+	return m_quarantined ? m_reference->GetLastResetReason() : m_lastResetReason.c_str();
 }
 
 NRIMapMotionHistory::DiagnosticRecord NRIMapMotionHistory::FindCommitted(uint64_t occurrenceId) const
 {
+	if (m_quarantined) return m_reference->FindCommitted(occurrenceId);
 	DiagnosticRecord result;
-	const auto found = m_committed.find(occurrenceId);
-	if (found == m_committed.end() || !found->second.valid)
-		return result;
+	const auto found = m_records.find(occurrenceId);
+	if (found == m_records.end() || found->second.committedSlot < 0 || !found->second.valid) return result;
+	const Record& record = found->second;
+	const auto& payload = record.snapshots[record.committedSlot].payload;
 	result.valid = true;
 	result.occurrenceId = occurrenceId;
-	result.topologyKey = found->second.payload.topologyKey;
-	result.generation = found->second.payload.generation;
-	result.historyAge = found->second.historyAge;
-	result.chunkIndex = found->second.payload.chunkIndex;
-	result.provenance = found->second.payload.provenance;
+	result.topologyKey = payload.topologyKey;
+	result.generation = payload.generation;
+	result.historyAge = record.historyAge;
+	result.chunkIndex = payload.chunkIndex;
+	result.provenance = payload.provenance;
 	return result;
 }
 
 bool NRIMapMotionHistory::SurfaceHasMotion(const nri_scene::SurfaceRef& surface)
 {
 	if (surface.temporal.materialUvReactive > 0.0f) return true;
-	for (const nri_scene::CapturedVertex& vertex : surface.vertices)
-	{
+	for (const auto& vertex : surface.vertices)
 		for (uint32_t axis = 0; axis < 3; ++axis)
-		{
-			if (std::fabs(vertex.position[axis] - vertex.prevPosition[axis]) > 1.0e-5f)
-			{
-				return true;
-			}
-		}
-	}
+			if (std::fabs(vertex.position[axis] - vertex.prevPosition[axis]) > 1.0e-5f) return true;
 	return false;
 }
 
 void NRIMapMotionHistory::Reset(const char* reason)
 {
 	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
-	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_committed.size() + m_staged.size());
-	m_committed.clear();
-	m_staged.clear();
+	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_records.size());
+	RecordMap{}.swap(m_records);
+	std::vector<Record*>{}.swap(m_committed);
+	std::vector<Record*>{}.swap(m_staged);
+	std::vector<ChunkObservation>{}.swap(m_chunkObservations);
+	m_buildScratch = {};
 	m_settleChunks.clear();
 	m_mapEpoch = 0;
 	m_stageSerial = 0;
@@ -105,8 +114,10 @@ void NRIMapMotionHistory::Reset(const char* reason)
 	m_stageFinalized = false;
 	m_stats = {};
 	m_lastResetReason = reason != nullptr ? reason : "unspecified";
-	m_committedCornerCapacityBytes = 0;
-	m_stagedCornerCapacityBytes = 0;
+	m_payloadCapacityBytes = 0;
+	m_inputCapacityBytes = 0;
+	m_reference.reset();
+	m_quarantined = false;
 	ReportAuditStorage();
 }
 
@@ -115,19 +126,18 @@ void NRIMapMotionHistory::ReportAuditStorage() const
 	if (!PerfAuditActive()) return;
 	PerfAuditSet(PerfAuditMetric::MapMotionCommittedRecords, m_committed.size());
 	PerfAuditSet(PerfAuditMetric::MapMotionStagedRecords, m_staged.size());
-	// Value and vector storage only: allocator headers/tree links are excluded.
-	PerfAuditSet(PerfAuditMetric::MapMotionRecordValueBytes,
-		(m_committed.size() + m_staged.size()) * sizeof(RecordMap::value_type));
-	PerfAuditSet(PerfAuditMetric::MapMotionPayloadCapacityBytes,
-		m_committedCornerCapacityBytes + m_stagedCornerCapacityBytes);
+	// Allocator/node headers and unordered-map bucket storage are not measured.
+	PerfAuditSet(PerfAuditMetric::MapMotionRecordValueBytes, m_records.size() * sizeof(RecordMap::value_type));
+	PerfAuditSet(PerfAuditMetric::MapMotionPayloadCapacityBytes, m_payloadCapacityBytes + m_buildScratch.PayloadCapacityBytes());
+	PerfAuditSet(PerfAuditMetric::MapMotionInputCapacityBytes, m_inputCapacityBytes + m_buildScratch.InputCapacityBytes());
+	PerfAuditSet(PerfAuditMetric::MapMotionScratchCapacityBytes,
+		(m_committed.capacity() + m_staged.capacity()) * sizeof(Record*) +
+		m_chunkObservations.capacity() * sizeof(ChunkObservation));
 }
 
 void NRIMapMotionHistory::BeginMapEpoch(uint64_t mapEpoch)
 {
-	if (m_mapEpoch == mapEpoch)
-	{
-		return;
-	}
+	if (m_mapEpoch == mapEpoch) return;
 	Reset("map-epoch-change");
 	m_mapEpoch = mapEpoch;
 	m_stats.mapEpoch = mapEpoch;
@@ -144,14 +154,15 @@ void NRIMapMotionHistory::ApplySurface(nri_scene::SurfaceRef& surface)
 		surface.temporal.reason = nri_scene::MotionValidityReason::UnsupportedSource;
 		return;
 	}
-	const auto found = m_committed.find(surface.temporal.occurrenceId);
-	if (found == m_committed.end() || !found->second.valid)
+	const auto found = m_records.find(surface.temporal.occurrenceId);
+	if (found == m_records.end() || found->second.committedSlot < 0 || !found->second.valid)
 	{
 		m_stats.seededCount++;
 		return;
 	}
+	const Record& record = found->second;
 	nri_scene::MotionValidityReason reason = nri_scene::MotionValidityReason::NoHistory;
-	if (!nri_scene::ApplyMapTemporalSurfacePayload(found->second.payload, surface, reason))
+	if (!nri_scene::ApplyMapTemporalSurfacePayload(record.snapshots[record.committedSlot].payload, surface, reason))
 	{
 		surface.temporal.reason = reason;
 		if (reason == nri_scene::MotionValidityReason::TopologyMismatch) m_stats.topologyRejectCount++;
@@ -159,7 +170,7 @@ void NRIMapMotionHistory::ApplySurface(nri_scene::SurfaceRef& surface)
 	}
 	surface.temporal.correspondenceValid = true;
 	surface.temporal.reason = nri_scene::MotionValidityReason::Valid;
-	surface.temporal.historyAge = found->second.historyAge;
+	surface.temporal.historyAge = record.historyAge;
 	m_stats.appliedCount++;
 }
 
@@ -167,136 +178,223 @@ void NRIMapMotionHistory::ApplyCommitted(nri_scene::SceneView& sceneView, uint64
 {
 	PerfAuditScope applyScope(PerfAuditMetric::MapMotionApplyNs);
 	BeginMapEpoch(mapEpoch);
+	EnsureReference();
+	if (m_quarantined) { m_reference->ApplyCommitted(sceneView, mapEpoch); return; }
+	nri_scene::SceneView referenceView;
+	if (m_reference)
+	{
+		PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+		referenceView = sceneView;
+		m_reference->ApplyCommitted(referenceView, mapEpoch);
+	}
 	ForEachSurface(sceneView, [&](nri_scene::SurfaceRef& surface) { ApplySurface(surface); });
+	if (m_reference)
+	{
+		PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+		PerfAuditAdd(PerfAuditMetric::MapMotionValidationChecks);
+		if (!AppliedMotionEqual(sceneView, referenceView))
+		{
+			sceneView = std::move(referenceView);
+			Quarantine("apply");
+		}
+	}
+}
+
+void NRIMapMotionHistory::EraseRecord(Record& record)
+{
+	for (const auto& snapshot : record.snapshots)
+	{
+		m_payloadCapacityBytes -= snapshot.PayloadCapacityBytes();
+		m_inputCapacityBytes -= snapshot.InputCapacityBytes();
+	}
+	const uint64_t occurrenceId = record.occurrenceId;
+	m_records.erase(occurrenceId);
+	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords);
+}
+
+void NRIMapMotionHistory::ClearStage(bool countDiscard)
+{
+	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
+	if (countDiscard && m_stageOpen) m_stats.discardCount++;
+	for (Record* record : m_staged)
+	{
+		if (record->committedSlot < 0) EraseRecord(*record);
+		else record->stagedSlot = -1;
+	}
+	m_staged.clear();
+	m_stageSerial = 0;
+	m_stageOpen = false;
+	m_stageFinalized = false;
+	m_stats.stagedSurfaceCount = 0;
 }
 
 void NRIMapMotionHistory::BeginStage(uint64_t proposedSerial, uint64_t mapEpoch)
 {
 	BeginMapEpoch(mapEpoch);
+	EnsureReference();
+	if (m_reference)
 	{
-		PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
-		PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_staged.size());
-		m_staged.clear();
+		PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+		m_reference->BeginStage(proposedSerial, mapEpoch);
 	}
-	m_stagedCornerCapacityBytes = 0;
+	if (m_quarantined) return;
+	ClearStage(false);
 	m_stageSerial = proposedSerial;
 	m_stageOpen = true;
 	m_stageFinalized = false;
-	m_stats.stagedSurfaceCount = 0;
 }
 
 bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 {
-	if (!surface.temporal.identityValid)
+	if (!surface.temporal.identityValid) return true;
+	const auto found = m_records.find(surface.temporal.occurrenceId);
+	Record* record = found != m_records.end() ? &found->second : nullptr;
+	int candidateSlot = -1;
+	uint64_t comparedBytes = 0;
+	if (record != nullptr)
 	{
-		return true;
+		// The current proposal is most useful for duplicate publications, then
+		// the committed payload, then the bounded spare (e.g. recurring motion).
+		const int candidates[] = { record->stagedSlot, record->committedSlot, 0, 1 };
+		unsigned tested = 0;
+		for (int slot : candidates)
+		{
+			if (slot < 0 || (tested & (1u << slot))) continue;
+			tested |= 1u << slot;
+			if (record->snapshots[slot].Matches(surface, comparedBytes)) { candidateSlot = slot; break; }
+		}
 	}
-	nri_scene::PTMapTemporalSurfacePayload payload;
-	nri_scene::MotionValidityReason reason;
-	bool payloadValid = false;
+	PerfAuditAdd(PerfAuditMetric::MapMotionSnapshotComparedBytes, comparedBytes);
+	if (candidateSlot < 0)
 	{
 		PerfAuditScope payloadScope(PerfAuditMetric::MapMotionPayloadBuildNs);
 		PerfAuditAdd(PerfAuditMetric::MapMotionPayloadBuilds);
 		PerfAuditAdd(PerfAuditMetric::MapMotionInputVertices, surface.vertices.size());
-		payloadValid = nri_scene::BuildMapTemporalSurfacePayload(surface, payload, reason);
-		PerfAuditAdd(PerfAuditMetric::MapMotionBuiltCorners, payload.corners.size());
+		nri_scene::MotionValidityReason reason;
+		const bool valid = m_buildScratch.Build(surface, reason);
+		PerfAuditAdd(PerfAuditMetric::MapMotionBuiltCorners, m_buildScratch.payload.corners.size());
+		if (!valid) return false;
 	}
-	if (!payloadValid)
+	else PerfAuditAdd(PerfAuditMetric::MapMotionPayloadReuses);
+	const auto& candidate = candidateSlot >= 0 ? record->snapshots[candidateSlot].payload : m_buildScratch.payload;
+	if (record != nullptr && record->stagedSlot >= 0)
 	{
-		return false;
-	}
-	const auto staged = m_staged.find(payload.occurrenceId);
-	if (staged != m_staged.end())
-	{
-		if (!PayloadEqual(staged->second.payload, payload))
+		if (!NRIMapMotionPayloadEqual(record->snapshots[record->stagedSlot].payload, candidate))
 		{
-			staged->second.valid = false;
+			record->stagedValid = false;
 			m_stats.duplicatePublicationCount++;
 			return false;
 		}
-		staged->second.publishedWithMotion |= SurfaceHasMotion(surface);
+		record->publishedWithMotion |= SurfaceHasMotion(surface);
 		return true;
 	}
-	Record record;
-	record.payload = std::move(payload);
-	record.publishedWithMotion = SurfaceHasMotion(surface);
-	const auto committed = m_committed.find(record.payload.occurrenceId);
-	record.historyAge = committed != m_committed.end() ? committed->second.historyAge + 1u : 1u;
-	m_stagedCornerCapacityBytes += record.payload.corners.capacity() * sizeof(nri_scene::PTMapTemporalCorner);
-	m_staged.emplace(record.payload.occurrenceId, std::move(record));
-	PerfAuditAdd(PerfAuditMetric::MapMotionRecordInsertions);
+	if (record == nullptr)
+	{
+		auto inserted = m_records.try_emplace(candidate.occurrenceId);
+		record = &inserted.first->second;
+		record->occurrenceId = candidate.occurrenceId;
+		PerfAuditAdd(PerfAuditMetric::MapMotionRecordInsertions);
+	}
+	else PerfAuditAdd(PerfAuditMetric::MapMotionOccurrenceReuses);
+	if (candidateSlot < 0)
+	{
+		candidateSlot = record->committedSlot < 0 ? 0 : 1 - record->committedSlot;
+		auto& destination = record->snapshots[candidateSlot];
+		m_payloadCapacityBytes -= destination.PayloadCapacityBytes();
+		m_inputCapacityBytes -= destination.InputCapacityBytes();
+		std::swap(destination, m_buildScratch);
+		m_payloadCapacityBytes += destination.PayloadCapacityBytes();
+		m_inputCapacityBytes += destination.InputCapacityBytes();
+	}
+	record->stagedSlot = candidateSlot;
+	record->stagedAge = record->committedSlot >= 0 ? record->historyAge + 1u : 1u;
+	record->stagedValid = true;
+	record->publishedWithMotion = SurfaceHasMotion(surface);
+	m_staged.push_back(record);
 	return true;
 }
 
 bool NRIMapMotionHistory::StagePublishedView(const nri_scene::SceneView& sceneView)
 {
-	if (!m_stageOpen)
+	EnsureReference();
+	bool referenceValid = false;
+	if (m_reference)
 	{
-		return false;
+		PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+		referenceValid = m_reference->StagePublishedView(sceneView);
 	}
-	bool valid = true;
-	ForEachSurface(sceneView, [&](const nri_scene::SurfaceRef& surface)
-	{
-		valid &= StageSurface(surface);
-	});
+	if (m_quarantined) return referenceValid;
+	bool valid = m_stageOpen;
+	if (m_stageOpen)
+		ForEachSurface(sceneView, [&](const nri_scene::SurfaceRef& surface) { valid &= StageSurface(surface); });
 	m_stats.stagedSurfaceCount = (uint32_t)m_staged.size();
+	if (m_reference)
+	{
+		PerfAuditAdd(PerfAuditMetric::MapMotionValidationChecks);
+		if (valid != referenceValid) { Quarantine("stage-result"); return referenceValid; }
+	}
 	return valid;
 }
 
 void NRIMapMotionHistory::FinalizeStage()
 {
+	EnsureReference();
+	if (m_reference) m_reference->FinalizeStage();
+	if (m_quarantined) return;
 	if (m_stageOpen) m_stageFinalized = true;
 	ReportAuditStorage();
+	CheckReference("finalize");
 }
 
-bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
+bool NRIMapMotionHistory::CommitOptimized(uint64_t serial)
 {
-	PerfAuditScope commitScope(PerfAuditMetric::MapMotionCommitNs);
 	if (!m_stageOpen || !m_stageFinalized || serial != m_stageSerial)
 	{
-		DiscardStaged();
+		ClearStage(true);
 		return false;
 	}
-	struct ChunkSettleObservation
+	m_chunkObservations.clear();
+	for (const Record* record : m_staged)
 	{
-		bool comparable = false;
-		bool moved = false;
-		bool publishedWithMotion = false;
-	};
-	std::map<uint32_t, ChunkSettleObservation> chunkObservations;
-	for (const auto& entry : m_staged)
-	{
-		const Record& current = entry.second;
-		const auto previous = m_committed.find(entry.first);
-		if (current.payload.chunkIndex == UINT32_MAX) continue;
-		ChunkSettleObservation& observation = chunkObservations[current.payload.chunkIndex];
-		observation.publishedWithMotion |= current.publishedWithMotion;
-		if (previous != m_committed.end() && previous->second.valid && current.valid)
-		{
-			observation.comparable = true;
-			observation.moved |= !PayloadEqual(previous->second.payload, current.payload);
-		}
+		const auto& current = record->snapshots[record->stagedSlot].payload;
+		if (current.chunkIndex == UINT32_MAX) continue;
+		ChunkObservation observation;
+		observation.chunkIndex = current.chunkIndex;
+		observation.publishedWithMotion = record->publishedWithMotion;
+		observation.comparable = record->committedSlot >= 0 && record->valid && record->stagedValid;
+		observation.moved = observation.comparable && record->committedSlot != record->stagedSlot &&
+			!NRIMapMotionPayloadEqual(record->snapshots[record->committedSlot].payload, current);
+		m_chunkObservations.push_back(observation);
 	}
-	for (const auto& entry : chunkObservations)
+	std::sort(m_chunkObservations.begin(), m_chunkObservations.end(),
+		[](const ChunkObservation& a, const ChunkObservation& b) { return a.chunkIndex < b.chunkIndex; });
+	for (size_t first = 0; first < m_chunkObservations.size();)
 	{
-		const uint32_t chunkIndex = entry.first;
-		const ChunkSettleObservation& observation = entry.second;
-		if (observation.moved)
+		ChunkObservation observation = m_chunkObservations[first++];
+		while (first < m_chunkObservations.size() && m_chunkObservations[first].chunkIndex == observation.chunkIndex)
 		{
-			m_settleChunks.insert(chunkIndex);
+			observation.comparable |= m_chunkObservations[first].comparable;
+			observation.moved |= m_chunkObservations[first].moved;
+			observation.publishedWithMotion |= m_chunkObservations[first].publishedWithMotion;
+			++first;
 		}
-		else if (observation.comparable && !observation.publishedWithMotion)
-		{
-			m_settleChunks.erase(chunkIndex);
-		}
+		if (observation.moved) m_settleChunks.insert(observation.chunkIndex);
+		else if (observation.comparable && !observation.publishedWithMotion) m_settleChunks.erase(observation.chunkIndex);
 	}
 	{
 		PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
-		PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_committed.size());
-		m_committed = std::move(m_staged);
+		for (Record* record : m_committed)
+			if (record->stagedSlot < 0) EraseRecord(*record);
 	}
-	m_committedCornerCapacityBytes = m_stagedCornerCapacityBytes;
-	m_stagedCornerCapacityBytes = 0;
+	for (Record* record : m_staged)
+	{
+		record->committedSlot = record->stagedSlot;
+		record->stagedSlot = -1;
+		record->historyAge = record->stagedAge;
+		record->valid = record->stagedValid;
+	}
+	m_committed.swap(m_staged);
+	m_staged.clear();
 	m_stageOpen = false;
 	m_stageFinalized = false;
 	m_stageSerial = 0;
@@ -305,27 +403,126 @@ bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
 	m_stats.stagedSurfaceCount = 0;
 	m_stats.settleChunkCount = (uint32_t)m_settleChunks.size();
 	m_stats.commitCount++;
-	ReportAuditStorage();
 	return true;
+}
+
+bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
+{
+	PerfAuditScope commitScope(PerfAuditMetric::MapMotionCommitNs);
+	EnsureReference();
+	bool referenceValid = false;
+	if (m_reference)
+	{
+		PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+		referenceValid = m_reference->CommitSubmitted(serial);
+	}
+	if (m_quarantined) return referenceValid;
+	const bool valid = CommitOptimized(serial);
+	ReportAuditStorage();
+	if (m_reference && valid != referenceValid) { Quarantine("commit-result"); return referenceValid; }
+	CheckReference("commit");
+	return m_quarantined ? referenceValid : valid;
 }
 
 void NRIMapMotionHistory::DiscardStaged()
 {
-	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
-	if (m_stageOpen) m_stats.discardCount++;
-	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_staged.size());
-	m_staged.clear();
-	m_stagedCornerCapacityBytes = 0;
-	m_stageSerial = 0;
-	m_stageOpen = false;
-	m_stageFinalized = false;
-	m_stats.stagedSurfaceCount = 0;
+	EnsureReference();
+	if (m_reference)
+	{
+		PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+		m_reference->DiscardStaged();
+	}
+	if (m_quarantined) return;
+	ClearStage(true);
 	ReportAuditStorage();
+	CheckReference("discard");
 }
 
 bool NRIMapMotionHistory::NeedsSettle(uint32_t chunkIndex) const
 {
-	return m_settleChunks.find(chunkIndex) != m_settleChunks.end();
+	return GetSettleChunks().find(chunkIndex) != GetSettleChunks().end();
+}
+
+void NRIMapMotionHistory::EnsureReference()
+{
+	if (m_quarantined) return;
+	if (!(bool)nri_ptmapmotionvalidate) { m_reference.reset(); return; }
+	if (m_reference) return;
+	PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+	m_reference = std::make_unique<NRIMapMotionReferenceHistory>();
+	// A diagnostic enable in a running map must begin from the actual submitted
+	// history and any open proposal, never an empty synthetic previous frame.
+	m_reference->m_mapEpoch = m_mapEpoch;
+	m_reference->m_stageSerial = m_stageSerial;
+	m_reference->m_stageOpen = m_stageOpen;
+	m_reference->m_stageFinalized = m_stageFinalized;
+	m_reference->m_stats = m_stats;
+	m_reference->m_lastResetReason = m_lastResetReason;
+	m_reference->m_settleChunks = m_settleChunks;
+	for (const Record* record : m_committed)
+	{
+		NRIMapMotionReferenceHistory::Record copy;
+		copy.payload = record->snapshots[record->committedSlot].payload;
+		copy.historyAge = record->historyAge;
+		copy.valid = record->valid;
+		copy.publishedWithMotion = record->publishedWithMotion;
+		m_reference->m_committed.emplace(record->occurrenceId, std::move(copy));
+	}
+	for (const Record* record : m_staged)
+	{
+		NRIMapMotionReferenceHistory::Record copy;
+		copy.payload = record->snapshots[record->stagedSlot].payload;
+		copy.historyAge = record->stagedAge;
+		copy.valid = record->stagedValid;
+		copy.publishedWithMotion = record->publishedWithMotion;
+		m_reference->m_staged.emplace(record->occurrenceId, std::move(copy));
+	}
+}
+
+void NRIMapMotionHistory::Quarantine(const char* operation)
+{
+	if (m_quarantined) return;
+	m_quarantined = true;
+	PerfAuditAdd(PerfAuditMetric::MapMotionValidationMismatches);
+	PerfAuditAdd(PerfAuditMetric::MapMotionQuarantines);
+	Printf("NRI PT map motion validation: operation=%s serial=%llu mismatch=1 action=reference-until-reset\n",
+		operation, (unsigned long long)m_stats.mainTemporalSerial);
+}
+
+bool NRIMapMotionHistory::CheckReference(const char* operation)
+{
+	if (!m_reference || m_quarantined) return !m_quarantined;
+	PerfAuditScope referenceScope(PerfAuditMetric::MapMotionReferenceNs);
+	PerfAuditAdd(PerfAuditMetric::MapMotionValidationChecks);
+	bool equal = m_committed.size() == m_reference->m_committed.size() &&
+		m_staged.size() == m_reference->m_staged.size() && m_settleChunks == m_reference->m_settleChunks &&
+		m_mapEpoch == m_reference->m_mapEpoch && m_stageSerial == m_reference->m_stageSerial &&
+		m_stageOpen == m_reference->m_stageOpen && m_stageFinalized == m_reference->m_stageFinalized;
+	const Stats& a = m_stats;
+	const Stats& b = m_reference->m_stats;
+	equal &= a.mainTemporalSerial == b.mainTemporalSerial && a.mapEpoch == b.mapEpoch &&
+		a.committedSurfaceCount == b.committedSurfaceCount && a.stagedSurfaceCount == b.stagedSurfaceCount &&
+		a.appliedCount == b.appliedCount && a.seededCount == b.seededCount &&
+		a.topologyRejectCount == b.topologyRejectCount && a.duplicatePublicationCount == b.duplicatePublicationCount &&
+		a.settleChunkCount == b.settleChunkCount && a.commitCount == b.commitCount && a.discardCount == b.discardCount;
+	for (const Record* record : m_committed)
+	{
+		const auto found = m_reference->m_committed.find(record->occurrenceId);
+		if (found == m_reference->m_committed.end() || found->second.historyAge != record->historyAge ||
+			found->second.valid != record->valid ||
+			!NRIMapMotionPayloadExactEqual(record->snapshots[record->committedSlot].payload, found->second.payload))
+		{ equal = false; break; }
+	}
+	for (const Record* record : m_staged)
+	{
+		const auto found = m_reference->m_staged.find(record->occurrenceId);
+		if (found == m_reference->m_staged.end() || found->second.historyAge != record->stagedAge ||
+			found->second.valid != record->stagedValid || found->second.publishedWithMotion != record->publishedWithMotion ||
+			!NRIMapMotionPayloadExactEqual(record->snapshots[record->stagedSlot].payload, found->second.payload))
+		{ equal = false; break; }
+	}
+	if (!equal) Quarantine(operation);
+	return equal;
 }
 
 bool RunNRIMapMotionHistorySelfTests(std::string* failureReason)

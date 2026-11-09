@@ -131,6 +131,7 @@ CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
 // One immutable palette snapshot per view/preload operation; session-only reference switches.
 CVAR(Bool, nri_ptpalettesnapshot, true, 0)
 CVAR(Bool, nri_ptpalettesnapshotvalidate, false, 0)
+CVAR(Bool, nri_ptmapmotionvalidate, false, 0)
 CVAR(Bool, nri_ptlightregistry, true, 0)
 CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
 CVAR(Bool, nri_ptactorlightmaintenance, true, 0)

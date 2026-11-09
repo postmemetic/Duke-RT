@@ -1,15 +1,20 @@
 #pragma once
 
-#include "../scene/nri_map_motion_correspondence.h"
+#include "nri_map_motion_payload_cache.h"
 
 #include <cstdint>
-#include <map>
+#include <memory>
+#include <unordered_map>
 #include <set>
 #include <string>
+
+class NRIMapMotionReferenceHistory;
 
 class NRIMapMotionHistory
 {
 public:
+	NRIMapMotionHistory();
+	~NRIMapMotionHistory();
 	struct Stats
 	{
 		uint64_t mainTemporalSerial = 0;
@@ -44,32 +49,49 @@ public:
 	bool CommitSubmitted(uint64_t serial);
 	void DiscardStaged();
 	bool NeedsSettle(uint32_t chunkIndex) const;
-	const std::set<uint32_t>& GetSettleChunks() const { return m_settleChunks; }
-	bool HasFinalizedStage() const { return m_stageFinalized; }
-	const Stats& GetStats() const { return m_stats; }
+	const std::set<uint32_t>& GetSettleChunks() const;
+	bool HasFinalizedStage() const;
+	const Stats& GetStats() const;
 	DiagnosticRecord FindCommitted(uint64_t occurrenceId) const;
-	const char* GetLastResetReason() const { return m_lastResetReason.c_str(); }
+	const char* GetLastResetReason() const;
 
 private:
 	struct Record
 	{
-		nri_scene::PTMapTemporalSurfacePayload payload;
+		uint64_t occurrenceId = 0;
+		NRIMapMotionPayloadSnapshot snapshots[2];
+		int committedSlot = -1;
+		int stagedSlot = -1;
 		uint32_t historyAge = 0;
+		uint32_t stagedAge = 0;
 		bool valid = true;
+		bool stagedValid = true;
 		bool publishedWithMotion = false;
 	};
-
-	using RecordMap = std::map<uint64_t, Record>;
-	static bool PayloadEqual(
-		const nri_scene::PTMapTemporalSurfacePayload& a,
-		const nri_scene::PTMapTemporalSurfacePayload& b);
+	struct ChunkObservation
+	{
+		uint32_t chunkIndex = UINT32_MAX;
+		bool comparable = false;
+		bool moved = false;
+		bool publishedWithMotion = false;
+	};
+	using RecordMap = std::unordered_map<uint64_t, Record>;
 	static bool SurfaceHasMotion(const nri_scene::SurfaceRef& surface);
 	void ApplySurface(nri_scene::SurfaceRef& surface);
 	bool StageSurface(const nri_scene::SurfaceRef& surface);
+	void ClearStage(bool countDiscard);
+	void EraseRecord(Record& record);
 	void ReportAuditStorage() const;
+	void EnsureReference();
+	bool CheckReference(const char* operation);
+	void Quarantine(const char* operation);
+	bool CommitOptimized(uint64_t serial);
 
-	RecordMap m_committed;
-	RecordMap m_staged;
+	RecordMap m_records;
+	std::vector<Record*> m_committed;
+	std::vector<Record*> m_staged;
+	std::vector<ChunkObservation> m_chunkObservations;
+	NRIMapMotionPayloadSnapshot m_buildScratch;
 	std::set<uint32_t> m_settleChunks;
 	uint64_t m_mapEpoch = 0;
 	uint64_t m_stageSerial = 0;
@@ -77,8 +99,10 @@ private:
 	bool m_stageFinalized = false;
 	Stats m_stats;
 	std::string m_lastResetReason;
-	size_t m_committedCornerCapacityBytes = 0;
-	size_t m_stagedCornerCapacityBytes = 0;
+	size_t m_payloadCapacityBytes = 0;
+	size_t m_inputCapacityBytes = 0;
+	std::unique_ptr<NRIMapMotionReferenceHistory> m_reference;
+	bool m_quarantined = false;
 };
 
 bool RunNRIMapMotionHistorySelfTests(std::string* failureReason = nullptr);
