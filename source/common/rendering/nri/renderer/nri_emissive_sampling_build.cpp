@@ -39,6 +39,49 @@ namespace
 		return IsGlowDrivenEmissive(sourceFlags, emissiveMode) ? std::max(settings.glowReach, 0.0f) : 1.0f;
 	}
 
+	bool EqualEmissiveDebugRecord(const NRIEmissivePrimitiveDebugRecord& lhs, const NRIEmissivePrimitiveDebugRecord& rhs)
+	{
+		// Compare every semantic field, including exact float bits, without
+		// comparing internal or trailing object padding between bools and ints.
+#define EMISSIVE_DEBUG_EQUAL(member) if (std::memcmp(&lhs.member, &rhs.member, sizeof(lhs.member)) != 0) return false;
+		EMISSIVE_DEBUG_EQUAL(stableKey)
+		EMISSIVE_DEBUG_EQUAL(surfaceStableKey)
+		EMISSIVE_DEBUG_EQUAL(dataSource)
+		EMISSIVE_DEBUG_EQUAL(primitiveIndex)
+		EMISSIVE_DEBUG_EQUAL(primitiveCount)
+		EMISSIVE_DEBUG_EQUAL(sceneInstanceIndex)
+		EMISSIVE_DEBUG_EQUAL(occurrenceKeyLo)
+		EMISSIVE_DEBUG_EQUAL(occurrenceKeyHi)
+		EMISSIVE_DEBUG_EQUAL(occurrenceGeneration)
+		EMISSIVE_DEBUG_EQUAL(materialIndex)
+		EMISSIVE_DEBUG_EQUAL(sourceFlags)
+		EMISSIVE_DEBUG_EQUAL(sourceRuleId)
+		EMISSIVE_DEBUG_EQUAL(overrideRuleId)
+		EMISSIVE_DEBUG_EQUAL(textureId)
+		EMISSIVE_DEBUG_EQUAL(emissiveMode)
+		EMISSIVE_DEBUG_EQUAL(emissiveTextureIndex)
+		EMISSIVE_DEBUG_EQUAL(actorIndex)
+		EMISSIVE_DEBUG_EQUAL(sectorIndex)
+		EMISSIVE_DEBUG_EQUAL(center)
+		EMISSIVE_DEBUG_EQUAL(boundsRadius)
+		EMISSIVE_DEBUG_EQUAL(primitiveArea)
+		EMISSIVE_DEBUG_EQUAL(powerEstimate)
+		EMISSIVE_DEBUG_EQUAL(selectionWeight)
+		EMISSIVE_DEBUG_EQUAL(selectionPdf)
+		EMISSIVE_DEBUG_EQUAL(emissiveColor)
+		EMISSIVE_DEBUG_EQUAL(emissiveIntensity)
+		EMISSIVE_DEBUG_EQUAL(sectorResponseScale)
+		EMISSIVE_DEBUG_EQUAL(sectorReachScale)
+		EMISSIVE_DEBUG_EQUAL(materialResponseScale)
+		EMISSIVE_DEBUG_EQUAL(materialResponseEnabled)
+		EMISSIVE_DEBUG_EQUAL(colorSignalSector)
+		EMISSIVE_DEBUG_EQUAL(colorPalette)
+		EMISSIVE_DEBUG_EQUAL(colorPortalHops)
+		EMISSIVE_DEBUG_EQUAL(sectorResponseApplied)
+#undef EMISSIVE_DEBUG_EQUAL
+		return true;
+	}
+
 }
 
 
@@ -101,9 +144,7 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 		bool debugEqual = outDebugRecords.size() == referenceDebug.size();
 		for (size_t i = 0; debugEqual && i < outDebugRecords.size(); ++i)
 		{
-			// Debug records end in bools; exclude trailing struct padding.
-			debugEqual = std::memcmp(&outDebugRecords[i], &referenceDebug[i],
-				offsetof(NRIEmissivePrimitiveDebugRecord, sectorResponseApplied) + sizeof(bool)) == 0;
+			debugEqual = EqualEmissiveDebugRecord(outDebugRecords[i], referenceDebug[i]);
 		}
 		const bool equal = std::memcmp(&outHeader, &referenceHeader, sizeof(outHeader)) == 0 &&
 			equalBytes(outPrimitives, referencePrimitives) && equalBytes(outCdf, referenceCdf) &&
