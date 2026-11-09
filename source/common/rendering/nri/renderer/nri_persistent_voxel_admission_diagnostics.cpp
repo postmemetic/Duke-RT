@@ -256,9 +256,19 @@ void NRIVoxelAdmissionDiagnosticScope::Visit(uint64_t key)
     auto found = state->pairs.find(key);
     if (found != state->pairs.end()) found->second.visitedPump = pump;
 }
-void NRIVoxelAdmissionDiagnosticScope::Transition(uint64_t pair, const char* event)
+void NRIVoxelAdmissionDiagnosticScope::Transition(uint64_t key, const char* event)
 {
-    if (state) Observe(owner, *state, pair, frame, event);
+    if (!state) return;
+    DiagnosticWork overhead;
+    const auto found = owner.admissionQueue.find(key);
+    if (found == owner.admissionQueue.end()) return;
+    auto* pair = Pair(*state, found->second);
+    if (!pair) return;
+    // Pre-sort readiness transitions belong to this pump, but have no current
+    // candidate rank. Never carry the previous pump/rank into their evidence.
+    pair->pump = pump;
+    pair->position = UINT32_MAX;
+    Observe(owner, *state, key, frame, event);
 }
 void NRIVoxelAdmissionDiagnosticScope::Attempt()
 {
