@@ -1,4 +1,5 @@
 #include "nri_map_builder.h"
+#include "nri_map_mutation_inputs.h"
 #include "nri_fluid_surface_normals.h"
 #include "perf_audit.h"
 
@@ -1218,9 +1219,19 @@ namespace
 		}
 	}
 
-	bool CaptureChunkMutationBaselineInternal(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline)
+	bool CaptureChunkMutationBaselineInternal(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline, bool retainCapacity)
 	{
-		outBaseline = {};
+		if (retainCapacity)
+		{
+			auto walls = std::move(outBaseline.walls);
+			auto sectionIndices = std::move(outBaseline.sectionIndices);
+			outBaseline = {};
+			outBaseline.walls = std::move(walls);
+			outBaseline.sectionIndices = std::move(sectionIndices);
+			outBaseline.walls.clear();
+			outBaseline.sectionIndices.clear();
+		}
+		else outBaseline = {};
 		if (chunk.kind != PTMapChunkKind::Sector || chunk.sectorIndex < 0 || (unsigned)chunk.sectorIndex >= sector.Size())
 		{
 			return false;
@@ -1262,6 +1273,17 @@ namespace
 		}
 
 		return true;
+	}
+
+	PTMapMutationLiveFlags CaptureMutationLiveFlags(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline)
+	{
+		PTMapMutationLiveFlags flags;
+		const auto& sec = sector[(unsigned)chunk.sectorIndex];
+		flags.sectorDirty = sec.dirty != 0;
+		flags.dragged = (sec.exflags & SECTOREX_DRAGGED) != 0;
+		for (int sectionIndex : baseline.sectionIndices)
+			if ((unsigned)sectionIndex < sections.Size() && sections[sectionIndex].dirty != 0) ++flags.sectionDirtyCount;
+		return flags;
 	}
 
 	bool AnalyzeChunkMutationInternal(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis)
@@ -1497,7 +1519,7 @@ bool BuildLiveMapChunkSceneView(const PTMapChunk& chunk, SceneView& outView, PTM
 	return true;
 }
 
-uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
+static uint64_t ComputeMapChunkGeometrySignatureOriginal(const PTMapChunk& chunk)
 {
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsSignatureNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsSignatureCalls);
@@ -1573,17 +1595,27 @@ uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 	return hash;
 }
 
+uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
+{
+	if (auto* inputs = PTMapMutationInputScope::Current()) return inputs->Signature(chunk, ComputeMapChunkGeometrySignatureOriginal);
+	return ComputeMapChunkGeometrySignatureOriginal(chunk);
+}
+
 bool CaptureMapChunkMutationBaseline(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline)
 {
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsBaselineCaptureNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsBaselineCaptures);
-	return CaptureChunkMutationBaselineInternal(chunk, outBaseline);
+	if (auto* inputs = PTMapMutationInputScope::Current()) return inputs->Capture(chunk, outBaseline, CaptureChunkMutationBaselineInternal);
+	return CaptureChunkMutationBaselineInternal(chunk, outBaseline, false);
 }
 
 bool AnalyzeMapChunkMutation(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis)
 {
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsAnalysisNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsAnalysisCalls);
+	if (auto* inputs = PTMapMutationInputScope::Current())
+		return inputs->Analyze(chunk, baseline, outAnalysis, CaptureChunkMutationBaselineInternal,
+			AnalyzeChunkMutationInternal, CaptureMutationLiveFlags);
 	if (!AnalyzeChunkMutationInternal(chunk, baseline, outAnalysis))
 	{
 		return false;

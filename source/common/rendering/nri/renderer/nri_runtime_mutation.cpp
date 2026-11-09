@@ -1023,6 +1023,8 @@ void NRIRuntimeMutationSystem::NoteResidentAtlasGrow()
 
 void NRIRuntimeMutationSystem::ResetCacheAndFrame()
 {
+	inputSnapshots.Reset();
+	viewInputs.Reset();
 	discovery.Reset();
 	cache.chunks.clear();
 	lastFrame = {};
@@ -1030,6 +1032,8 @@ void NRIRuntimeMutationSystem::ResetCacheAndFrame()
 
 void NRIRuntimeMutationSystem::ResetCacheForStaticSceneBuild(uint32_t chunkCount)
 {
+	inputSnapshots.Reset();
+	viewInputs.Reset();
 	discovery.Reset();
 	cache.chunks.clear();
 	cache.chunks.resize(chunkCount);
