@@ -1538,10 +1538,12 @@ bool NRIRenderer::EnsureSceneTextures(
 	// later pending-texture transparency and every subsequent failure return.
 	NRIStaticFilterMaterialPublication filterPublication(mStaticMapScene.filterCandidateCache,
 		&outGpuMaterials == &mStaticMapScene.gpuMaterials ? &outGpuMaterials : nullptr);
-	if (useUniformPolicyRanges)
+	if (useUniformPolicyRanges || (bool)nri_ptmaterialpolicycache)
 	{
 		PerfAuditScope auditProduct(PerfAuditMetric::SceneTexturesMaterialProductNs);
-		BuildSceneMaterialPolicyProduct(*gpuMaterialSource, mSceneMaterialFrameCache.UniformDefaultRanges(), outGpuMaterials);
+		static const std::vector<nri_scene::MaterialRowRange> noUniformRanges;
+		BuildSceneMaterialPolicyProduct(*gpuMaterialSource, useUniformPolicyRanges ?
+			mSceneMaterialFrameCache.UniformDefaultRanges() : noUniformRanges, outGpuMaterials);
 	}
 	else
 	{

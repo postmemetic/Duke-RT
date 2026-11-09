@@ -34,13 +34,13 @@ public:
 	using TransformReference = void (*)(void*, std::vector<nri_scene::MaterialData>&);
 
 	// Uniform ranges must be published by an owner proving equal clean rows AND
-	// policy metadata. The current policy is evaluated afresh on every call.
+	// policy metadata. The callback proves all current policy inputs on every call.
 	NRIMaterialProductPatchResult BuildTransformed(
 		const std::vector<nri_scene::MaterialData>& base,
 		const std::vector<nri_scene::MaterialRowRange>& uniformRanges,
 		std::vector<nri_scene::MaterialData>& output,
 		void* context, TransformRow transformRow, TransformReference transformReference,
-		bool validate);
+		bool validate, bool retainOutput = false);
 
 	NRIMaterialProductPatchResult Refresh(
 		const std::vector<nri_scene::MaterialData>& base,

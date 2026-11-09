@@ -970,6 +970,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_map_mover_shadow.cpp
 	common/rendering/nri/renderer/nri_map_mover_shadow_state.cpp
 	common/rendering/nri/renderer/nri_material_policy.cpp
+	common/rendering/nri/renderer/nri_material_policy_snapshot.cpp
 	common/rendering/nri/renderer/nri_material_warmup.cpp
 	common/rendering/nri/renderer/nri_nrd.cpp
 	common/rendering/nri/renderer/nri_actor_workload_mask_policy.cpp

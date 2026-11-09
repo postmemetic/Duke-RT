@@ -22,11 +22,17 @@ namespace
 		float glowBlend;
 		float fullbrightBoost;
 		const ResolvedFluidOverlaySet* fluids = nullptr;
+		NRIMaterialPolicySnapshot* snapshot = nullptr;
 	};
 
 	void TransformRow(void* opaque, size_t index, nri_scene::MaterialData& row)
 	{
 		const auto& context = *static_cast<MaterialPolicyContext*>(opaque);
+		if (context.snapshot != nullptr)
+		{
+			context.snapshot->Transform(index, index < context.source.lightMetadata.size() ? &context.source.lightMetadata[index] : nullptr, row);
+			return;
+		}
 		if (context.fluids != nullptr) row.fluidBindingIndex = UINT32_MAX;
 		if (index >= context.source.lightMetadata.size()) return;
 		const auto& metadata = context.source.lightMetadata[index];
@@ -45,6 +51,31 @@ namespace
 			nri_material_policy::ApplyActorShadowMaterialOverrides(*context.actors, context.fullbrightBoost, context.source, rows);
 		if (context.fluids != nullptr)
 			nri_scene::ApplyFluidMaterialBindings(*context.fluids, context.source, rows);
+	}
+
+	void BeginPolicy(MaterialPolicyContext& context, NRIMaterialPolicySnapshot& owner)
+	{
+		if (!(bool)nri_ptmaterialpolicycache || owner.Quarantined()) return;
+		owner.Begin(context.lights, context.overlays, context.actors, context.fluids, context.source.materials.size(),
+			{ (float)nri_ptglowscale, (float)nri_ptglowfalloff, context.glowBlend, context.fullbrightBoost });
+		context.snapshot = &owner;
+	}
+
+	void FinishPolicy(MaterialPolicyContext& context, const NRIMaterialProductPatchResult& result, const char* stage)
+	{
+		if (context.snapshot == nullptr) return;
+		const bool hadHits = context.snapshot->Finish();
+		if ((bool)nri_ptmaterialpolicyvalidate && result.validationChecked)
+		{
+			PerfAuditAdd(PerfAuditMetric::MaterialPolicyValidationChecks);
+			if (hadHits) PerfAuditAdd(PerfAuditMetric::MaterialPolicyHitValidationChecks);
+		}
+		if (result.validationMismatch)
+		{
+			PerfAuditAdd(PerfAuditMetric::MaterialPolicyValidationMismatches);
+			context.snapshot->Quarantine();
+			Printf("NRI PT material policy: stage=%s mismatch=1 action=reference-fallback-quarantine\n", stage);
+		}
 	}
 
 	void AuditMaterialProduct(const NRIMaterialProductPatchResult& result)
@@ -74,8 +105,11 @@ void NRIRenderer::BuildSceneMaterialPolicyProduct(
 		std::clamp((float)nri_ptfullbrightboost, 0.50f, 8.00f),
 		&GetResolvedFluidOverlaySet()
 	};
+	BeginPolicy(context, mPrelightMaterialPolicy);
 	const auto result = mCombinedMaterialProduct.BuildTransformed(source.materials,
-		uniformRanges, output, &context, TransformRow, TransformReference, (bool)nri_ptmaterialrangesvalidate);
+		uniformRanges, output, &context, TransformRow, TransformReference,
+		(bool)nri_ptmaterialrangesvalidate || (bool)nri_ptmaterialpolicyvalidate, context.snapshot != nullptr);
+	FinishPolicy(context, result, "prelight");
 	AuditMaterialProduct(result);
 	PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialRowsCopied, result.copiedRows);
 	PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialBytesCopied, result.copiedRows * sizeof(nri_scene::MaterialData));
@@ -105,11 +139,13 @@ NRIMaterialProductPatchResult NRIRenderer::RefreshCombinedMaterialProduct(
 		std::clamp((float)nri_ptglowblend, 0.0f, 3.0f),
 		std::clamp((float)nri_ptfullbrightboost, 0.50f, 8.00f)
 	};
+	BeginPolicy(context, mPostlightMaterialPolicy);
 	const auto result = mCombinedMaterialProduct.Refresh(
 		source.materials, staticCount, persistentCount, deferredIndices,
 		combined, persistent, dynamic, &context, TransformRow, TransformReference,
-		(bool)nri_ptmaterialpatch, (bool)nri_ptmaterialpatchvalidate,
-		uniformRanges, (bool)nri_ptmaterialrangesvalidate);
+		(bool)nri_ptmaterialpatch, (bool)nri_ptmaterialpatchvalidate || (bool)nri_ptmaterialpolicyvalidate,
+		uniformRanges, (bool)nri_ptmaterialrangesvalidate || (bool)nri_ptmaterialpolicyvalidate);
+	FinishPolicy(context, result, "postlight");
 	if (result.valid && (bool)nri_ptmaterialrangesvalidate)
 		ValidateVoxelMaterialSharingProduct(source, combined, staticCount, true, &deferredIndices);
 	AuditMaterialProduct(result);

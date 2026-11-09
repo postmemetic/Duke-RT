@@ -8,7 +8,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 	const std::vector<nri_scene::MaterialRowRange>& uniformRanges,
 	std::vector<nri_scene::MaterialData>& output,
 	void* context, TransformRow transformRow, TransformReference transformReference,
-	bool validate)
+	bool validate, bool retainOutput)
 {
 	NRIMaterialProductPatchResult result;
 	result.valid = true;
@@ -21,7 +21,9 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 		result.evaluatedRows = result.copiedRows = base.size();
 		return result;
 	}
+	const bool compareOutput = retainOutput && output.size() == base.size();
 	output.resize(base.size());
+	bool precedingChanged = false;
 	size_t rangeIndex = 0;
 	for (size_t index = 0; index < base.size();)
 	{
@@ -34,10 +36,23 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 		auto row = base[index];
 		transformRow(context, index, row);
 		++result.evaluatedRows;
-		std::fill_n(output.begin() + index, count, row);
-		result.copiedRows += count;
+		if (!compareOutput)
+		{
+			std::fill_n(output.begin() + index, count, row);
+			result.copiedRows += count;
+		}
+		else for (size_t target = index; target < index + count; ++target)
+		{
+			if (EqualRows(&row, &output[target], 1)) { precedingChanged = false; continue; }
+			output[target] = row;
+			++result.copiedRows;
+			if (!precedingChanged) ++result.dirtyRanges;
+			precedingChanged = true;
+		}
 		index += count;
 	}
+	result.changedRows = result.copiedRows;
+	result.changed = result.copiedRows != 0;
 	if (validate)
 	{
 		result.validationChecked = true;
@@ -49,6 +64,9 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 			result.fullRebuild = true;
 			mQuarantined = true;
 			output = mReference;
+			result.copiedRows += base.size();
+			result.changedRows = base.size();
+			result.changed = true;
 		}
 	}
 	return result;

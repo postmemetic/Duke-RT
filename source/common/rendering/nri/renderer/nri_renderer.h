@@ -41,6 +41,7 @@
 #include "nri_surface_probe.h"
 #include "nri_material_policy.h"
 #include "nri_scene_material_product.h"
+#include "nri_material_policy_snapshot.h"
 #include "nri_static_scene.h"
 #include "nri_static_scene_diagnostics.h"
 #include "nri_static_scene_geometry_upload.h"
@@ -2893,6 +2894,8 @@ private:
 	std::vector<nri_scene::MaterialData> mSelectPersistentVoxelGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectCombinedGpuMaterialScratch;
 	NRISceneMaterialProduct mCombinedMaterialProduct;
+	NRIMaterialPolicySnapshot mPrelightMaterialPolicy;
+	NRIMaterialPolicySnapshot mPostlightMaterialPolicy;
 	std::vector<uint32_t> mSelectDeferredTextureMaterialIndexScratch;
 	nri_scene::GeometryData mSelectLocalPlayerReflectionGeometryScratch;
 	nri_scene::GeometryData mSelectOverlayGeometryScratch;

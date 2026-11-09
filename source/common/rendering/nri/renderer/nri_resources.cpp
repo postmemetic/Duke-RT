@@ -198,6 +198,8 @@ void NRIRenderer::DestroyCachedTextures()
 	mSceneTextures.ClearCachedTextures(mFrameBuffer);
 	mSceneTextures.SlotTable().Reset();
 	mSceneMaterialFrameCache.Reset();
+	mPrelightMaterialPolicy.Reset();
+	mPostlightMaterialPolicy.Reset();
 	mSceneTextureFrameCache.Reset();
 	std::fill(mSceneTextureSetHashValid.begin(), mSceneTextureSetHashValid.end(), 0);
 }
