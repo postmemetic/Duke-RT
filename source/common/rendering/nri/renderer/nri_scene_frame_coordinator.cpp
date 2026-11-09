@@ -624,6 +624,7 @@ void NRIRenderer::ApplyCommittedMapMotion(nri_scene::SceneView& sceneView)
 
 bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
 {
+	PerfAuditScope stageScope(PerfAuditMetric::MapMotionStageNs);
 	if (!mMapWorld.valid || !mStaticMapScene.valid)
 	{
 		return false;

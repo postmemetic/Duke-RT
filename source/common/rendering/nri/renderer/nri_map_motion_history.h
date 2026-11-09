@@ -66,6 +66,7 @@ private:
 	static bool SurfaceHasMotion(const nri_scene::SurfaceRef& surface);
 	void ApplySurface(nri_scene::SurfaceRef& surface);
 	bool StageSurface(const nri_scene::SurfaceRef& surface);
+	void ReportAuditStorage() const;
 
 	RecordMap m_committed;
 	RecordMap m_staged;
@@ -76,6 +77,8 @@ private:
 	bool m_stageFinalized = false;
 	Stats m_stats;
 	std::string m_lastResetReason;
+	size_t m_committedCornerCapacityBytes = 0;
+	size_t m_stagedCornerCapacityBytes = 0;
 };
 
 bool RunNRIMapMotionHistorySelfTests(std::string* failureReason = nullptr);

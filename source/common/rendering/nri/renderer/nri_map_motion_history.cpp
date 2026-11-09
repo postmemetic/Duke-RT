@@ -1,4 +1,5 @@
 #include "nri_map_motion_history.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 #include <cmath>
@@ -93,6 +94,8 @@ bool NRIMapMotionHistory::SurfaceHasMotion(const nri_scene::SurfaceRef& surface)
 
 void NRIMapMotionHistory::Reset(const char* reason)
 {
+	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
+	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_committed.size() + m_staged.size());
 	m_committed.clear();
 	m_staged.clear();
 	m_settleChunks.clear();
@@ -102,6 +105,21 @@ void NRIMapMotionHistory::Reset(const char* reason)
 	m_stageFinalized = false;
 	m_stats = {};
 	m_lastResetReason = reason != nullptr ? reason : "unspecified";
+	m_committedCornerCapacityBytes = 0;
+	m_stagedCornerCapacityBytes = 0;
+	ReportAuditStorage();
+}
+
+void NRIMapMotionHistory::ReportAuditStorage() const
+{
+	if (!PerfAuditActive()) return;
+	PerfAuditSet(PerfAuditMetric::MapMotionCommittedRecords, m_committed.size());
+	PerfAuditSet(PerfAuditMetric::MapMotionStagedRecords, m_staged.size());
+	// Value and vector storage only: allocator headers/tree links are excluded.
+	PerfAuditSet(PerfAuditMetric::MapMotionRecordValueBytes,
+		(m_committed.size() + m_staged.size()) * sizeof(RecordMap::value_type));
+	PerfAuditSet(PerfAuditMetric::MapMotionPayloadCapacityBytes,
+		m_committedCornerCapacityBytes + m_stagedCornerCapacityBytes);
 }
 
 void NRIMapMotionHistory::BeginMapEpoch(uint64_t mapEpoch)
@@ -147,6 +165,7 @@ void NRIMapMotionHistory::ApplySurface(nri_scene::SurfaceRef& surface)
 
 void NRIMapMotionHistory::ApplyCommitted(nri_scene::SceneView& sceneView, uint64_t mapEpoch)
 {
+	PerfAuditScope applyScope(PerfAuditMetric::MapMotionApplyNs);
 	BeginMapEpoch(mapEpoch);
 	ForEachSurface(sceneView, [&](nri_scene::SurfaceRef& surface) { ApplySurface(surface); });
 }
@@ -154,7 +173,12 @@ void NRIMapMotionHistory::ApplyCommitted(nri_scene::SceneView& sceneView, uint64
 void NRIMapMotionHistory::BeginStage(uint64_t proposedSerial, uint64_t mapEpoch)
 {
 	BeginMapEpoch(mapEpoch);
-	m_staged.clear();
+	{
+		PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
+		PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_staged.size());
+		m_staged.clear();
+	}
+	m_stagedCornerCapacityBytes = 0;
 	m_stageSerial = proposedSerial;
 	m_stageOpen = true;
 	m_stageFinalized = false;
@@ -169,7 +193,15 @@ bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 	}
 	nri_scene::PTMapTemporalSurfacePayload payload;
 	nri_scene::MotionValidityReason reason;
-	if (!nri_scene::BuildMapTemporalSurfacePayload(surface, payload, reason))
+	bool payloadValid = false;
+	{
+		PerfAuditScope payloadScope(PerfAuditMetric::MapMotionPayloadBuildNs);
+		PerfAuditAdd(PerfAuditMetric::MapMotionPayloadBuilds);
+		PerfAuditAdd(PerfAuditMetric::MapMotionInputVertices, surface.vertices.size());
+		payloadValid = nri_scene::BuildMapTemporalSurfacePayload(surface, payload, reason);
+		PerfAuditAdd(PerfAuditMetric::MapMotionBuiltCorners, payload.corners.size());
+	}
+	if (!payloadValid)
 	{
 		return false;
 	}
@@ -190,7 +222,9 @@ bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 	record.publishedWithMotion = SurfaceHasMotion(surface);
 	const auto committed = m_committed.find(record.payload.occurrenceId);
 	record.historyAge = committed != m_committed.end() ? committed->second.historyAge + 1u : 1u;
+	m_stagedCornerCapacityBytes += record.payload.corners.capacity() * sizeof(nri_scene::PTMapTemporalCorner);
 	m_staged.emplace(record.payload.occurrenceId, std::move(record));
+	PerfAuditAdd(PerfAuditMetric::MapMotionRecordInsertions);
 	return true;
 }
 
@@ -212,10 +246,12 @@ bool NRIMapMotionHistory::StagePublishedView(const nri_scene::SceneView& sceneVi
 void NRIMapMotionHistory::FinalizeStage()
 {
 	if (m_stageOpen) m_stageFinalized = true;
+	ReportAuditStorage();
 }
 
 bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
 {
+	PerfAuditScope commitScope(PerfAuditMetric::MapMotionCommitNs);
 	if (!m_stageOpen || !m_stageFinalized || serial != m_stageSerial)
 	{
 		DiscardStaged();
@@ -254,7 +290,13 @@ bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
 			m_settleChunks.erase(chunkIndex);
 		}
 	}
-	m_committed = std::move(m_staged);
+	{
+		PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
+		PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_committed.size());
+		m_committed = std::move(m_staged);
+	}
+	m_committedCornerCapacityBytes = m_stagedCornerCapacityBytes;
+	m_stagedCornerCapacityBytes = 0;
 	m_stageOpen = false;
 	m_stageFinalized = false;
 	m_stageSerial = 0;
@@ -263,17 +305,22 @@ bool NRIMapMotionHistory::CommitSubmitted(uint64_t serial)
 	m_stats.stagedSurfaceCount = 0;
 	m_stats.settleChunkCount = (uint32_t)m_settleChunks.size();
 	m_stats.commitCount++;
+	ReportAuditStorage();
 	return true;
 }
 
 void NRIMapMotionHistory::DiscardStaged()
 {
+	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
 	if (m_stageOpen) m_stats.discardCount++;
+	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_staged.size());
 	m_staged.clear();
+	m_stagedCornerCapacityBytes = 0;
 	m_stageSerial = 0;
 	m_stageOpen = false;
 	m_stageFinalized = false;
 	m_stats.stagedSurfaceCount = 0;
+	ReportAuditStorage();
 }
 
 bool NRIMapMotionHistory::NeedsSettle(uint32_t chunkIndex) const

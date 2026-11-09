@@ -5,6 +5,7 @@
 #include "../framegen/nri_framegen.h"
 #include "nri_acceleration.h"
 #include "nri_diagnostic_names.h"
+#include "nri_emissive_tail_audit.h"
 #include "nri_frame_resources.h"
 #include "nri_filter_candidate_policy.h"
 #include "nri_material_policy.h"
@@ -130,11 +131,37 @@ namespace
 		return true;
 	}
 
+	struct StaticFilterAudit
+	{
+		PerfAuditScope timer{ PerfAuditMetric::StaticFilterNs };
+		bool enabled = PerfAuditActive();
+		uint64_t instances = 0, staticInstances = 0, directHits = 0;
+		uint64_t registryFallbackEntries = 0, chunkFallbackEntries = 0;
+		uint64_t invalidSpans = 0, hiddenDetermined = 0, primitiveRows = 0;
+		uint64_t invalidMaterials = 0, forced = 0;
+		~StaticFilterAudit()
+		{
+			if (!enabled) return;
+			PerfAuditAdd(PerfAuditMetric::StaticFilterCalls);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterInstances, instances);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterStaticInstances, staticInstances);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterRegistryDirectHits, directHits);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterRegistryFallbackEntries, registryFallbackEntries);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterChunkFallbackEntries, chunkFallbackEntries);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterEmptyOrInvalidSpans, invalidSpans);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterHiddenDeterminedInstances, hiddenDetermined);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterPrimitiveRowsVisited, primitiveRows);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterInvalidMaterialRows, invalidMaterials);
+			PerfAuditAdd(PerfAuditMetric::StaticFilterForcedInstances, forced);
+		}
+	};
+
 	static uint32_t ResolveStaticFilterPrimitiveCount(
 		const StaticMapSceneCache& staticScene,
 		const ResidentMapChunkRegistry& registry,
 		uint32_t chunkIndex,
-		uint32_t primitiveOffset)
+		uint32_t primitiveOffset,
+		StaticFilterAudit& audit)
 	{
 		if (registry.valid && chunkIndex < registry.entries.size())
 		{
@@ -142,6 +169,7 @@ namespace
 			if (entry.valid && entry.chunkIndex == chunkIndex &&
 				entry.primitiveOffset == primitiveOffset)
 			{
+				if (audit.enabled) ++audit.directHits;
 				return entry.primitiveCount;
 			}
 		}
@@ -149,6 +177,7 @@ namespace
 		{
 			for (const ResidentMapChunkRegistry::Entry& entry : registry.entries)
 			{
+				if (audit.enabled) ++audit.registryFallbackEntries;
 				if (entry.valid && entry.chunkIndex == chunkIndex &&
 					entry.primitiveOffset == primitiveOffset)
 				{
@@ -158,6 +187,7 @@ namespace
 		}
 		for (const StaticMapSceneCache::ChunkCache& chunk : staticScene.chunks)
 		{
+			if (audit.enabled) ++audit.chunkFallbackEntries;
 			if (chunk.active && chunk.chunkIndex == chunkIndex &&
 				chunk.primitiveOffset == primitiveOffset)
 			{
@@ -174,6 +204,8 @@ namespace
 		std::vector<nri::TopLevelInstance>& instances,
 		const std::vector<SceneInstanceData>& sceneInstances)
 	{
+		StaticFilterAudit audit;
+		if (audit.enabled) audit.instances = sceneInstances.size();
 		if (!(bool)nri_ptfilterquery || instances.size() != sceneInstances.size())
 		{
 			return;
@@ -186,14 +218,17 @@ namespace
 			{
 				continue;
 			}
+			if (audit.enabled) ++audit.staticInstances;
 			const uint32_t primitiveCount = ResolveStaticFilterPrimitiveCount(
 				staticScene,
 				registry,
 				sceneInstance.metadata0,
-				sceneInstance.primitiveBase);
+				sceneInstance.primitiveBase,
+				audit);
 			if (primitiveCount == 0u ||
 				(uint64_t)sceneInstance.primitiveBase + primitiveCount > staticScene.geometry.primitives.size())
 			{
+				if (audit.enabled) ++audit.invalidSpans;
 				continue;
 			}
 
@@ -204,12 +239,15 @@ namespace
 			bool requiresCandidateTraversal =
 				(enabledPolicyMask & NRIFilterCandidatePolicy_Visibility) != 0u &&
 				(bool)nri_ptvisiblechunkgate && !chunkVisible;
+			if (audit.enabled && requiresCandidateTraversal) ++audit.hiddenDetermined;
 			for (uint32_t localPrimitive = 0u; localPrimitive < primitiveCount; ++localPrimitive)
 			{
+				if (audit.enabled) ++audit.primitiveRows;
 				const nri_scene::PrimitiveData& primitive =
 					staticScene.geometry.primitives[sceneInstance.primitiveBase + localPrimitive];
 				if (primitive.materialIndex >= staticScene.gpuMaterials.size())
 				{
+					if (audit.enabled) ++audit.invalidMaterials;
 					continue;
 				}
 				const nri_scene::MaterialData& material = staticScene.gpuMaterials[primitive.materialIndex];
@@ -228,6 +266,7 @@ namespace
 			}
 			if (requiresCandidateTraversal)
 			{
+				if (audit.enabled) ++audit.forced;
 				instances[instanceIndex].flags = (nri::TopLevelInstanceBits)(
 					(uint32_t)instances[instanceIndex].flags |
 					(uint32_t)nri::TopLevelInstanceBits::FORCE_NON_OPAQUE);
@@ -1212,15 +1251,26 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			if (hasDynamicScene)
 			{
 				ScopedPtPerfTimer mergePerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeMs);
+				PerfAuditScope mergeAuditTimer(PerfAuditMetric::EmissiveTailMergeNs);
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailMergeOperations);
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailLiveMaterialRows, dynamicMaterialBridge.materials.size());
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailCacheMaterialRows, persistentDynamicCache.materialBridge.materials.size());
 				{
 					ScopedPtPerfTimer copyPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeCopyMs);
+					PerfAuditScope copyAuditTimer(PerfAuditMetric::EmissiveTailViewCopyNs);
 					mergedDynamicSceneView = dynamicSceneView;
 				}
+				NRIAuditEmissiveTailViewCopy(dynamicSceneView);
 				const SceneLightSystem::PersistentDynamicMergeStats mergeStats = [&]()
 				{
 					ScopedPtPerfTimer appendPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeAppendMs);
+					PerfAuditScope appendAuditTimer(PerfAuditMetric::EmissiveTailDedupAndAppendNs);
 					return mSceneLights.MergePersistentDynamicEmissiveCacheIntoSceneView(mergedDynamicSceneView);
 				}();
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailLiveSurfaces, mergeStats.LiveSurfaceCount());
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailCacheSurfaces, mergeStats.CacheSurfaceCount());
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailAppendedSurfaces, mergeStats.AppendedSurfaceCount());
+				PerfAuditAdd(PerfAuditMetric::EmissiveTailDuplicateSurfaces, mergeStats.DuplicateSurfaceCount());
 				mLastPerfShellTraceStats.dynamicMergeLiveSurfaceCount = mergeStats.LiveSurfaceCount();
 				mLastPerfShellTraceStats.dynamicMergePersistentCacheSurfaceCount = mergeStats.CacheSurfaceCount();
 				mLastPerfShellTraceStats.dynamicMergeAppendedPersistentSurfaceCount = mergeStats.AppendedSurfaceCount();
@@ -1231,6 +1281,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				mLastPerfShellTraceStats.dynamicMergeDeltaAppendAttempts++;
 				if (mergeStats.AppendedSurfaceCount() == 0)
 				{
+					PerfAuditAdd(PerfAuditMetric::EmissiveTailZeroTailReuses);
 					mLastPerfShellTraceStats.dynamicMergeDeltaAppendUsed++;
 				}
 				else
@@ -1238,26 +1289,32 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					mLastPerfShellTraceStats.dynamicMergeDeltaAppendFallbacks++;
 					PerfAuditAdd(PerfAuditMetric::EmissiveMergeRebuilds);
 					PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
+					PerfAuditAdd(PerfAuditMetric::EmissiveTailFullBuilds);
 					mLastPerfShellTraceStats.dynamicMergeDeltaAppendFallbackNonZeroSurfaces++;
 					{
 						ScopedPtPerfTimer statsPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeStatsMs);
+						PerfAuditScope statsAuditTimer(PerfAuditMetric::EmissiveTailStatsNs);
 						RebuildSceneViewStats(mergedDynamicSceneView);
 					}
 					{
 						Clocker clock(NriPTGeometryBuild);
 						ScopedPtPerfTimer geometryPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeGeometryMs);
+						PerfAuditScope geometryAuditTimer(PerfAuditMetric::EmissiveTailGeometryBuildNs);
 						ScopedPtPerfTimer legacyGeometryPerfTimer(mLastPerfShellTraceStats.geometryBuildMergedDynamicMs);
 						nri_scene::BuildGeometry(mergedDynamicSceneView, mergedDynamicGeometry, nullptr, true);
 					}
 					{
 						ScopedPtPerfTimer portalPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergePortalAssignMs);
+						PerfAuditScope portalAuditTimer(PerfAuditMetric::EmissiveTailPortalAssignNs);
 						AssignGeometryPortalIndices(mMapWorld, mergedDynamicGeometry);
 					}
 					{
 						Clocker clock(NriPTMaterialBuild);
 						ScopedPtPerfTimer materialPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeMaterialMs);
+						PerfAuditScope materialAuditTimer(PerfAuditMetric::EmissiveTailMaterialBuildNs);
 						BuildMaterialsWithActorOverrides(mergedDynamicSceneView, mergedDynamicMaterialBridge, "dynamic_with_persistent_emissive");
 					}
+					NRIAuditEmissiveTailBuildProduct(mergedDynamicGeometry, mergedDynamicMaterialBridge);
 
 					if (!mergedDynamicGeometry.primitives.empty())
 					{
