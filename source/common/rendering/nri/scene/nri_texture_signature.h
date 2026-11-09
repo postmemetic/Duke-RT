@@ -80,4 +80,10 @@ bool TryBuildAverageColorTextureSignature(FGameTexture* texture, TextureSignatur
 // fallback paths.
 bool IsTexturePersistentSignatureEligible(FTexture* texture);
 bool IsTexturePersistentSignatureEligible(FGameTexture* texture);
+
+// Identical eligibility policy for a pointer just returned by TexMan in the
+// current synchronous operation. Caller guarantees its current ownership and
+// lifetime; retained/untrusted pointers must use the guarded overload above.
+// Avoids the guarded resolver's platform pointer probes, not mutability checks.
+bool IsCurrentTextureManagerTexturePersistentSignatureEligible(FGameTexture* texture);
 }

@@ -32,7 +32,10 @@ struct Facts
 		if (texture == nullptr) return true;
 		Add(texture->isValid());
 		if (!texture->isValid()) return true;
-		if (!IsTexturePersistentSignatureEligible(texture)) return false;
+		// This pointer is freshly resolved by TexMan above and already used by
+		// the live producer. Preserve all wrapper/base mutability checks without
+		// re-probing owned object/vtable pages for every repeated wall binding.
+		if (!IsCurrentTextureManagerTexturePersistentSignatureEligible(texture)) return false;
 		const double width = texture->GetDisplayWidth(), height = texture->GetDisplayHeight();
 		if (!std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0) return false;
 		Add(width); Add(height); Add(texture->GetDisplayLeftOffset()); Add(texture->GetDisplayTopOffset());
