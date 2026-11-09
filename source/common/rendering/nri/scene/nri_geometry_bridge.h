@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_scene_bridge.h"
+#include "nri_scene_product_layout.h"
 
 #include <vector>
 
@@ -69,5 +70,6 @@ struct GeometryBuildTraceStats
 };
 
 void ClearGeometryRetainingCapacity(GeometryData& geometry);
-void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats = nullptr, bool retainOutputCapacity = false);
+void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats = nullptr,
+	bool retainOutputCapacity = false, GeometryProductLayout* layout = nullptr);
 }

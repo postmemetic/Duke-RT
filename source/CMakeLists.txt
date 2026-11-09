@@ -938,6 +938,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_dynamic_scene_status.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas_diagnostics.cpp
+	common/rendering/nri/renderer/nri_emissive_tail_build.cpp
+	common/rendering/nri/renderer/nri_emissive_tail_composition.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_build.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_geometry.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_distribution.cpp

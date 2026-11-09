@@ -522,3 +522,28 @@ PERF_AUDIT_METRIC(StaticFilterValidationMismatches, counter)
 PERF_AUDIT_METRIC(StaticFilterValidationPrimitiveRows, counter)
 PERF_AUDIT_METRIC(StaticFilterQuarantines, counter)
 PERF_AUDIT_METRIC(StaticFilterQuarantined, gauge)
+
+// Composition is current-operation only. Unsupported fallback is not an oracle
+// mismatch; reference timings are excluded from the normal merge owner scope.
+PERF_AUDIT_METRIC(EmissiveTailCompositions, counter)
+PERF_AUDIT_METRIC(EmissiveTailCompositionNs, counter)
+PERF_AUDIT_METRIC(EmissiveTailTailMaterialRowsBuilt, counter)
+PERF_AUDIT_METRIC(EmissiveTailLiveMaterialRowsReused, counter)
+PERF_AUDIT_METRIC(EmissiveTailUnsupportedFallbacks, counter)
+PERF_AUDIT_METRIC(EmissiveTailValidationChecks, counter)
+PERF_AUDIT_METRIC(EmissiveTailNonzeroValidationChecks, counter)
+PERF_AUDIT_METRIC(EmissiveTailValidationMismatches, counter)
+PERF_AUDIT_METRIC(EmissiveTailQuarantines, counter)
+PERF_AUDIT_METRIC(EmissiveTailValidationNs, counter)
+
+// Completed-operation current owner capacities (including zero-tail operations).
+PERF_AUDIT_METRIC(EmissiveTailCapacityRendererFrame, gauge)
+PERF_AUDIT_METRIC(EmissiveTailCapacityPublications, counter)
+PERF_AUDIT_METRIC(EmissiveTailStagingGeometryCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveTailStagingMaterialCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveTailComposedGeometryCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveTailComposedMaterialCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveTailRemapCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveTailLookupKeyCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveTailTextureLookupBuckets, gauge)
+PERF_AUDIT_METRIC(EmissiveTailTextureLookupEntries, gauge)

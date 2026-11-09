@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "nri_scene_product_layout.h"
 #include "nri_material_palette.h"
 #include "../../../engine/perf_audit.h"
 #include "nri_sector_color_policy.h"
@@ -1060,7 +1061,7 @@ void AppendMaterialBridge(
 	}
 }
 
-void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials)
+void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials, MaterialProductLayout* layout)
 {
 	ClearMaterialBridgeRetainingCapacity(outMaterials);
 	const auto paletteStart = std::chrono::steady_clock::now();
@@ -1073,20 +1074,42 @@ void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials
 
 	std::unordered_map<uint64_t, uint32_t> textureLookup;
 	const auto materialRowsStart = std::chrono::steady_clock::now();
+	if (layout != nullptr) layout->Clear();
+	const auto endGroup = [&](size_t index)
+	{
+		if (layout == nullptr) return;
+		auto& group = layout->groups[index];
+		group.materials.count = outMaterials.materials.size() - group.materials.first;
+		group.textures.count = outMaterials.textures.size() - group.textures.first;
+		if (index + 1 < layout->groups.size())
+		{
+			layout->groups[index + 1].materials.first = outMaterials.materials.size();
+			layout->groups[index + 1].textures.first = outMaterials.textures.size();
+		}
+	};
 
 	for (const SurfaceRef& wall : sceneView.opaqueWalls)
 	{
 		AppendSurfaceMaterial(wall, textureLookup, outMaterials);
 	}
+	endGroup(0);
 
 	for (const SurfaceRef& flat : sceneView.opaqueFlats)
 	{
 		AppendSurfaceMaterial(flat, textureLookup, outMaterials);
 	}
+	endGroup(1);
 
 	for (const SurfaceRef& sprite : sceneView.opaqueSprites)
 	{
 		AppendSurfaceMaterial(sprite, textureLookup, outMaterials);
+	}
+	endGroup(2);
+	if (layout != nullptr)
+	{
+		layout->textureLookupKeys.resize(outMaterials.textures.size());
+		for (const auto& entry : textureLookup) layout->textureLookupKeys[entry.second] = entry.first;
+		layout->valid = true;
 	}
 	outMaterials.buildStats.materialRowsMs = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - materialRowsStart).count();

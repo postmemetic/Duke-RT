@@ -5,7 +5,6 @@
 #include "../framegen/nri_framegen.h"
 #include "nri_acceleration.h"
 #include "nri_diagnostic_names.h"
-#include "nri_emissive_tail_audit.h"
 #include "nri_frame_resources.h"
 #include "nri_filter_candidate_policy.h"
 #include "nri_material_policy.h"
@@ -576,6 +575,9 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	NRIRuntimeMutationFrameOutput& runtimeMutationFrame = frame.runtimeMutationFrame;
 	nri_scene::GeometryData& runtimeSpaceLinkGeometry = frame.runtimeSpaceLinkGeometry;
 	nri_scene::GeometryData& dynamicGeometry = frame.dynamicGeometry;
+	nri_scene::GeometryProductLayout dynamicGeometryLayout;
+	auto& dynamicMaterialLayout = frame.dynamicMaterialLayout;
+	const bool collectDynamicProductLayout = (bool)nri_ptemissivetailappend;
 	nri_scene::GeometryData& mergedDynamicGeometry = frame.mergedDynamicGeometry;
 	nri_scene::GeometryData& actorFilteredDynamicGeometry = frame.actorFilteredDynamicGeometry;
 	nri_scene::GeometryData& debugSphereGeometry = frame.debugSphereGeometry;
@@ -910,7 +912,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			{
 				Clocker clock(NriPTGeometryBuild);
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.geometryBuildDynamicLiveMs);
-				nri_scene::BuildGeometry(dynamicSceneView, dynamicGeometry, nullptr, true);
+				nri_scene::BuildGeometry(dynamicSceneView, dynamicGeometry, nullptr, true,
+					collectDynamicProductLayout ? &dynamicGeometryLayout : nullptr);
 				AssignGeometryPortalIndices(mMapWorld, dynamicGeometry);
 			}
 			mLastPerfShellTraceStats.geometryBuildDynamicLivePrimitives += (uint32_t)dynamicGeometry.primitives.size();
@@ -919,7 +922,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			{
 				{
 					Clocker clock(NriPTMaterialBuild);
-					BuildMaterialsWithActorOverrides(dynamicSceneView, dynamicMaterialBridge, "dynamic_live");
+					BuildMaterialsWithActorOverrides(dynamicSceneView, dynamicMaterialBridge, "dynamic_live",
+						collectDynamicProductLayout ? &dynamicMaterialLayout : nullptr);
 				}
 			}
 
@@ -1108,78 +1112,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			usingPersistentDynamicEmissiveCache = true;
 			if (hasDynamicScene)
 			{
-				ScopedPtPerfTimer mergePerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeMs);
-				PerfAuditScope mergeAuditTimer(PerfAuditMetric::EmissiveTailMergeNs);
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailMergeOperations);
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailLiveMaterialRows, dynamicMaterialBridge.materials.size());
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailCacheMaterialRows, persistentDynamicCache.materialBridge.materials.size());
+				if (BuildRetainedDynamicEmissiveProduct(frame, dynamicGeometryLayout, dynamicMaterialLayout, RebuildSceneViewStats))
 				{
-					ScopedPtPerfTimer copyPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeCopyMs);
-					PerfAuditScope copyAuditTimer(PerfAuditMetric::EmissiveTailViewCopyNs);
-					mergedDynamicSceneView = dynamicSceneView;
-				}
-				NRIAuditEmissiveTailViewCopy(dynamicSceneView);
-				const SceneLightSystem::PersistentDynamicMergeStats mergeStats = [&]()
-				{
-					ScopedPtPerfTimer appendPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeAppendMs);
-					PerfAuditScope appendAuditTimer(PerfAuditMetric::EmissiveTailDedupAndAppendNs);
-					return mSceneLights.MergePersistentDynamicEmissiveCacheIntoSceneView(mergedDynamicSceneView);
-				}();
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailLiveSurfaces, mergeStats.LiveSurfaceCount());
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailCacheSurfaces, mergeStats.CacheSurfaceCount());
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailAppendedSurfaces, mergeStats.AppendedSurfaceCount());
-				PerfAuditAdd(PerfAuditMetric::EmissiveTailDuplicateSurfaces, mergeStats.DuplicateSurfaceCount());
-				mLastPerfShellTraceStats.dynamicMergeLiveSurfaceCount = mergeStats.LiveSurfaceCount();
-				mLastPerfShellTraceStats.dynamicMergePersistentCacheSurfaceCount = mergeStats.CacheSurfaceCount();
-				mLastPerfShellTraceStats.dynamicMergeAppendedPersistentSurfaceCount = mergeStats.AppendedSurfaceCount();
-				mLastPerfShellTraceStats.dynamicMergeDuplicatePersistentSurfaceCount = mergeStats.DuplicateSurfaceCount();
-				mLastPerfShellTraceStats.dynamicMergeAppendedPersistentPrimitiveCount = persistentDynamicCache.primitiveCount;
-				mLastPerfShellTraceStats.dynamicMergeAppendedPersistentMaterialCount = persistentDynamicCache.materialCount;
-
-				mLastPerfShellTraceStats.dynamicMergeDeltaAppendAttempts++;
-				if (mergeStats.AppendedSurfaceCount() == 0)
-				{
-					PerfAuditAdd(PerfAuditMetric::EmissiveTailZeroTailReuses);
-					mLastPerfShellTraceStats.dynamicMergeDeltaAppendUsed++;
-				}
-				else
-				{
-					mLastPerfShellTraceStats.dynamicMergeDeltaAppendFallbacks++;
-					PerfAuditAdd(PerfAuditMetric::EmissiveMergeRebuilds);
-					PerfAuditScope auditTimer(PerfAuditMetric::EmissiveRebuildNs);
-					PerfAuditAdd(PerfAuditMetric::EmissiveTailFullBuilds);
-					mLastPerfShellTraceStats.dynamicMergeDeltaAppendFallbackNonZeroSurfaces++;
-					{
-						ScopedPtPerfTimer statsPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeStatsMs);
-						PerfAuditScope statsAuditTimer(PerfAuditMetric::EmissiveTailStatsNs);
-						RebuildSceneViewStats(mergedDynamicSceneView);
-					}
-					{
-						Clocker clock(NriPTGeometryBuild);
-						ScopedPtPerfTimer geometryPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeGeometryMs);
-						PerfAuditScope geometryAuditTimer(PerfAuditMetric::EmissiveTailGeometryBuildNs);
-						ScopedPtPerfTimer legacyGeometryPerfTimer(mLastPerfShellTraceStats.geometryBuildMergedDynamicMs);
-						nri_scene::BuildGeometry(mergedDynamicSceneView, mergedDynamicGeometry, nullptr, true);
-					}
-					{
-						ScopedPtPerfTimer portalPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergePortalAssignMs);
-						PerfAuditScope portalAuditTimer(PerfAuditMetric::EmissiveTailPortalAssignNs);
-						AssignGeometryPortalIndices(mMapWorld, mergedDynamicGeometry);
-					}
-					{
-						Clocker clock(NriPTMaterialBuild);
-						ScopedPtPerfTimer materialPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeMaterialMs);
-						PerfAuditScope materialAuditTimer(PerfAuditMetric::EmissiveTailMaterialBuildNs);
-						BuildMaterialsWithActorOverrides(mergedDynamicSceneView, mergedDynamicMaterialBridge, "dynamic_with_persistent_emissive");
-					}
-					NRIAuditEmissiveTailBuildProduct(mergedDynamicGeometry, mergedDynamicMaterialBridge);
-
-					if (!mergedDynamicGeometry.primitives.empty())
-					{
-						activeDynamicSceneView = &mergedDynamicSceneView;
-						activeDynamicGeometry = &mergedDynamicGeometry;
-						activeDynamicMaterials = &mergedDynamicMaterialBridge;
-					}
+					activeDynamicSceneView = &mergedDynamicSceneView;
+					activeDynamicGeometry = &mergedDynamicGeometry;
+					activeDynamicMaterials = &mergedDynamicMaterialBridge;
 				}
 			}
 			else

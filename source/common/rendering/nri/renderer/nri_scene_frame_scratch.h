@@ -10,6 +10,8 @@
 
 inline void ResetRenderSceneFrameRetainingCapacity(RenderSceneFrameBuildResult& frame)
 {
+	frame.emissiveTailScratch.Clear();
+	frame.dynamicMaterialLayout.Clear();
 	nri_scene::ClearSceneViewRetainingCapacity(frame.capturedSceneView);
 	nri_scene::ClearSceneViewRetainingCapacity(frame.dynamicSceneView);
 	nri_scene::ClearSceneViewRetainingCapacity(frame.localPlayerReflectionSceneView);
@@ -100,7 +102,7 @@ class NRISceneFrameScratchTrace
 {
 	struct Capacities
 	{
-		std::array<size_t, 81> elements = {};
+		std::array<size_t, 95> elements = {};
 		uint64_t bytes = 0;
 		size_t count = 0;
 		template<class T> void Add(const std::vector<T>& values)
@@ -193,6 +195,20 @@ class NRISceneFrameScratchTrace
 		result.Add(frame.runtimeMutationFrame.materialBridge.lightMetadata);
 		result.Add(frame.runtimeMutationFrame.materialBridge.textures);
 		result.Add(frame.uploadDomainSpans);
+		result.Add(frame.emissiveTailScratch.view.opaqueWalls);
+		result.Add(frame.emissiveTailScratch.view.opaqueFlats);
+		result.Add(frame.emissiveTailScratch.view.opaqueSprites);
+		result.Add(frame.emissiveTailScratch.geometry.vertices);
+		result.Add(frame.emissiveTailScratch.geometry.indices);
+		result.Add(frame.emissiveTailScratch.geometry.primitives);
+		result.Add(frame.emissiveTailScratch.geometry.primitiveProvenance);
+		result.Add(frame.emissiveTailScratch.materials.materials);
+		result.Add(frame.emissiveTailScratch.materials.lightMetadata);
+		result.Add(frame.emissiveTailScratch.materials.textures);
+		result.Add(frame.emissiveTailScratch.liveTextureRemap);
+		result.Add(frame.emissiveTailScratch.tailTextureRemap);
+		result.Add(frame.emissiveTailScratch.materialLayout.textureLookupKeys);
+		result.Add(frame.dynamicMaterialLayout.textureLookupKeys);
 		return result;
 	}
 public:

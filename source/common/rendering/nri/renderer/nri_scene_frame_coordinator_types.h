@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_runtime_mutation.h"
+#include "nri_emissive_tail_composition.h"
 #include "nri_scene_upload_identity.h"
 
 #include "../scene/nri_geometry_bridge.h"
@@ -80,6 +81,8 @@ struct RenderSceneFrameBuildInputs
 
 struct RenderSceneFrameBuildResult
 {
+	NRIEmissiveTailScratch emissiveTailScratch;
+	nri_scene::MaterialProductLayout dynamicMaterialLayout;
 	nri_scene::SceneView capturedSceneView;
 	nri_scene::SceneView dynamicSceneView;
 	nri_scene::SceneView localPlayerReflectionSceneView;

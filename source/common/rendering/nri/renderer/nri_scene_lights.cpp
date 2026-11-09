@@ -2450,6 +2450,71 @@ SceneLightSystem::PersistentDynamicMergeStats SceneLightSystem::MergePersistentD
 	return stats;
 }
 
+SceneLightSystem::PersistentDynamicMergeStats SceneLightSystem::CollectPersistentDynamicEmissiveTail(const nri_scene::SceneView& liveView,
+	nri_scene::SceneView& outTailView) const
+{
+	// Keep the established identity, first-wins dedup and retained selection.
+	// Only absent retained surfaces are copied; live products stay borrowed.
+	outTailView.opaqueWalls.clear(); outTailView.opaqueFlats.clear(); outTailView.opaqueSprites.clear();
+	outTailView.drawInfo = liveView.drawInfo;
+	outTailView.primitiveFlags = liveView.primitiveFlags;
+	outTailView.sky = liveView.sky;
+	Copy3f(liveView.skyColor, outTailView.skyColor);
+	Copy3f(liveView.groundColor, outTailView.groundColor);
+	outTailView.stats = {};
+	PersistentDynamicMergeStats stats = {};
+	stats.liveWallSurfaceCount = (uint32_t)liveView.opaqueWalls.size();
+	stats.liveFlatSurfaceCount = (uint32_t)liveView.opaqueFlats.size();
+	stats.liveSpriteSurfaceCount = (uint32_t)liveView.opaqueSprites.size();
+	if (!mPersistentDynamicEmissiveCache.valid)
+	{
+		return stats;
+	}
+	stats.cacheWallSurfaceCount = (uint32_t)mPersistentDynamicEmissiveCache.sceneView.opaqueWalls.size();
+	stats.cacheFlatSurfaceCount = (uint32_t)mPersistentDynamicEmissiveCache.sceneView.opaqueFlats.size();
+	stats.cacheSpriteSurfaceCount = (uint32_t)mPersistentDynamicEmissiveCache.sceneView.opaqueSprites.size();
+
+	std::unordered_set<uint64_t> seenSurfaceKeys;
+	seenSurfaceKeys.reserve(
+		liveView.opaqueWalls.size() +
+		liveView.opaqueFlats.size() +
+		liveView.opaqueSprites.size() +
+		mPersistentDynamicEmissiveCache.sceneView.opaqueWalls.size() +
+		mPersistentDynamicEmissiveCache.sceneView.opaqueFlats.size() +
+		mPersistentDynamicEmissiveCache.sceneView.opaqueSprites.size());
+	for (const auto& surface : liveView.opaqueWalls)
+	{
+		seenSurfaceKeys.insert(BuildPersistentEmissiveSurfaceIdentityKey(surface));
+	}
+	for (const auto& surface : liveView.opaqueFlats)
+	{
+		seenSurfaceKeys.insert(BuildPersistentEmissiveSurfaceIdentityKey(surface));
+	}
+	for (const auto& surface : liveView.opaqueSprites)
+	{
+		seenSurfaceKeys.insert(BuildPersistentEmissiveSurfaceIdentityKey(surface));
+	}
+	AppendUniquePersistentEmissiveSurfaces(
+		mPersistentDynamicEmissiveCache.sceneView.opaqueWalls,
+		outTailView.opaqueWalls,
+		seenSurfaceKeys,
+		&stats.appendedWallSurfaceCount,
+		&stats.duplicateWallSurfaceCount);
+	AppendUniquePersistentEmissiveSurfaces(
+		mPersistentDynamicEmissiveCache.sceneView.opaqueFlats,
+		outTailView.opaqueFlats,
+		seenSurfaceKeys,
+		&stats.appendedFlatSurfaceCount,
+		&stats.duplicateFlatSurfaceCount);
+	AppendUniquePersistentEmissiveSurfaces(
+		mPersistentDynamicEmissiveCache.sceneView.opaqueSprites,
+		outTailView.opaqueSprites,
+		seenSurfaceKeys,
+		&stats.appendedSpriteSurfaceCount,
+		&stats.duplicateSpriteSurfaceCount);
+	return stats;
+}
+
 bool SceneLightSystem::RebuildPersistentDynamicEmissiveCache(
 	const nri_scene::SceneView& sceneView,
 	const nri_scene::MaterialBridgeData& materials,

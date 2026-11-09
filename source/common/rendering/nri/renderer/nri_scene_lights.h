@@ -1157,6 +1157,8 @@ public:
 	PersistentDynamicSurfaceStats GatherPersistentDynamicEmissiveSurfaceStats() const;
 	void UpdatePersistentDynamicEmissiveHighWaterStats(const PersistentDynamicSurfaceStats& currentStats);
 	PersistentDynamicMergeStats MergePersistentDynamicEmissiveCacheIntoSceneView(nri_scene::SceneView& inOutSceneView) const;
+	PersistentDynamicMergeStats CollectPersistentDynamicEmissiveTail(const nri_scene::SceneView& liveView,
+		nri_scene::SceneView& outTailView) const;
 	const PersistentDynamicEmissiveCache& GetPersistentDynamicEmissiveCache() const { return mPersistentDynamicEmissiveCache; }
 	const PersistentDynamicEmissiveHighWaterStats& GetPersistentDynamicEmissiveHighWaterStats() const { return mPersistentDynamicEmissiveHighWaterStats; }
 	const ActorSpriteDebugStats& GetActorSpriteDebugStats() const { return mActorSpriteDebugStats; }

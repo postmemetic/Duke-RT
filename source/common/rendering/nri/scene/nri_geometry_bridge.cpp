@@ -402,7 +402,8 @@ void ClearGeometryRetainingCapacity(GeometryData& geometry)
 	geometry.primitiveProvenance.clear();
 }
 
-void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats, bool retainOutputCapacity)
+void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats,
+	bool retainOutputCapacity, GeometryProductLayout* layout)
 {
 	if (retainOutputCapacity)
 	{
@@ -419,6 +420,26 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 	const uint32_t scenePrimitiveFlags = sceneView.primitiveFlags;
 
 	uint32_t materialIndex = 0;
+	if (layout != nullptr) *layout = {};
+	const auto beginGroup = [&](size_t index)
+	{
+		if (layout == nullptr) return;
+		auto& group = layout->groups[index];
+		group.vertices.first = outGeometry.vertices.size();
+		group.indices.first = outGeometry.indices.size();
+		group.primitives.first = outGeometry.primitives.size();
+		group.materials.first = materialIndex;
+	};
+	const auto endGroup = [&](size_t index)
+	{
+		if (layout == nullptr) return;
+		auto& group = layout->groups[index];
+		group.vertices.count = outGeometry.vertices.size() - group.vertices.first;
+		group.indices.count = outGeometry.indices.size() - group.indices.first;
+		group.primitives.count = outGeometry.primitives.size() - group.primitives.first;
+		group.materials.count = materialIndex - group.materials.first;
+	};
+	beginGroup(0);
 	{
 		const auto phaseStart = traceStats != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
 		for (const SurfaceRef& wall : sceneView.opaqueWalls)
@@ -465,6 +486,8 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 
 	{
 		const auto phaseStart = traceStats != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
+		endGroup(0);
+		beginGroup(1);
 		for (const SurfaceRef& flat : sceneView.opaqueFlats)
 		{
 			if (traceStats != nullptr)
@@ -511,6 +534,8 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 
 	{
 		const auto phaseStart = traceStats != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
+		endGroup(1);
+		beginGroup(2);
 		for (const SurfaceRef& sprite : sceneView.opaqueSprites)
 		{
 			if (traceStats != nullptr)
@@ -565,6 +590,8 @@ void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, Geomet
 			traceStats->spriteMs += DurationMs(phaseStart, std::chrono::steady_clock::now());
 		}
 	}
+	endGroup(2);
+	if (layout != nullptr) layout->valid = true;
 	if (traceStats != nullptr)
 	{
 		traceStats->outputVertexCount = (uint32_t)outGeometry.vertices.size();

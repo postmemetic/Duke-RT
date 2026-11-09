@@ -347,7 +347,8 @@ struct MaterialBridgeData
 	MaterialBridgeBuildStats buildStats;
 };
 
-void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials);
+struct MaterialProductLayout;
+void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials, MaterialProductLayout* layout = nullptr);
 uint64_t EstimateMaterialBridgeBytes(const MaterialBridgeData& materials);
 void ClearMaterialBridgeRetainingCapacity(MaterialBridgeData& materials);
 void AppendMaterialBridge(const MaterialBridgeData& source, MaterialBridgeData& destination);

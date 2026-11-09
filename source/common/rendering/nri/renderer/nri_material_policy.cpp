@@ -546,7 +546,8 @@ void NRIRenderer::ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridge
 	nri_material_policy::ApplyEmissiveMaterialOverrides(mSceneLights, GetResolvedLightOverlaySet(), GetGlowmapVisibleBlendScale(), materials, inOutGpuMaterials);
 }
 
-void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials, const char* traceLabel)
+void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials,
+	const char* traceLabel, nri_scene::MaterialProductLayout* layout)
 {
 	mLastPerfShellTraceStats.materialBuildCalls++;
 	const bool tracePerf = nri_runtime_mutation::ShouldTracePtPerf() || PerfAuditActive();
@@ -715,14 +716,14 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 	if (tracePerf)
 	{
 		const auto start = std::chrono::steady_clock::now();
-		nri_scene::BuildMaterials(sceneView, outMaterials);
+		nri_scene::BuildMaterials(sceneView, outMaterials, layout);
 		const double elapsedMs = DurationMs(start, std::chrono::steady_clock::now());
 		mLastPerfShellTraceStats.materialBuildMs += elapsedMs;
 		materialTraceEntry.materialBuildMs += elapsedMs;
 	}
 	else
 	{
-		nri_scene::BuildMaterials(sceneView, outMaterials);
+		nri_scene::BuildMaterials(sceneView, outMaterials, layout);
 	}
 	if (actorOverridesForBuild != nullptr)
 	{

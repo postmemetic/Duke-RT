@@ -2669,7 +2669,12 @@ private:
 	void ResetMuzzleFlashOverlayState(const char* reason);
 	void ResetPersistentDynamicEmissiveCache();
 	SceneLightSystem::PersistentDynamicEmissiveCacheBuildServices BuildPersistentDynamicEmissiveCacheServices();
-	void BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials, const char* traceLabel = nullptr);
+	bool BuildRetainedDynamicEmissiveProduct(RenderSceneFrameBuildResult& frame,
+		const nri_scene::GeometryProductLayout& liveGeometryLayout,
+		const nri_scene::MaterialProductLayout& liveMaterialLayout,
+		void (*rebuildViewStats)(nri_scene::SceneView&));
+	void BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& outMaterials,
+		const char* traceLabel = nullptr, nri_scene::MaterialProductLayout* layout = nullptr);
 	bool ResolveActorMaterialPresentationPolicy(
 		const nri_scene::SurfaceRef& surface,
 		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
