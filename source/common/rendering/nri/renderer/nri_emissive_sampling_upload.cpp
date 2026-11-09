@@ -118,10 +118,21 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 {
 	ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.emissiveUpdateMs);
 	PerfAuditScope auditUpdate(PerfAuditMetric::EmissiveSamplingUpdateNs);
+	// Hashing and payload construction are synchronous renderer work. No game,
+	// script or editor callbacks may mutate sector/policy state within this scope.
+	auto hueCache = mSceneLights.BeginEmissiveSamplingHueCache((bool)nri_ptemissivecache, (bool)nri_ptemissivecachevalidate);
 	SceneLightSystem::EmissiveSamplingUploadStats emissiveStats = {};
 	NRIEmissiveSamplingAudit audit(mSceneLights, emissiveStats, mEmissiveSamplingUploadScratch, mFrameIndex);
-	const uint64_t payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming());
-	const uint64_t sectorResponsePayloadHash = mSceneLights.BuildEmissiveSectorResponsePayloadHash();
+	uint64_t payloadHash;
+	{
+		PerfAuditScope hashScope(PerfAuditMetric::EmissiveSamplingPayloadHashNs);
+		payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming());
+	}
+	uint64_t sectorResponsePayloadHash;
+	{
+		PerfAuditScope hashScope(PerfAuditMetric::EmissiveSamplingSectorHashNs);
+		sectorResponsePayloadHash = mSceneLights.BuildEmissiveSectorResponsePayloadHash();
+	}
 	const bool sectorResponseChanged =
 		mEmissiveSectorResponsePayloadCacheValid &&
 		mEmissiveSectorResponsePayloadHash != sectorResponsePayloadHash;

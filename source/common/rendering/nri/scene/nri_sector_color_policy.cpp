@@ -1,4 +1,5 @@
 #include "nri_sector_color_policy.h"
+#include "nri_sector_emission_hue_cache.h"
 #include "lightoverlay.h"
 #include "gamefuncs.h"
 #include "c_cvars.h"
@@ -110,7 +111,7 @@ uint32_t ResolveSectorRenderPalette(uint32_t palette, SurfaceSourceType source, 
 	return mapSurface && TransfersSectorPalette(sectorIndex, (int)palette) ? 0u : palette;
 }
 
-SectorEmissionHue ResolveSectorEmissionHue(int sectorIndex, bool neighbors)
+static SectorEmissionHue ResolveSectorEmissionHueUncached(int sectorIndex, bool neighbors)
 {
 	if (!nri_ptsectorcolor || sectorIndex < 0 || (unsigned)sectorIndex >= sector.Size()) return {};
 	const auto* overrideRule = SectorOverride(sectorIndex);
@@ -151,6 +152,11 @@ SectorEmissionHue ResolveSectorEmissionHue(int sectorIndex, bool neighbors)
 		frontier.swap(next);
 	}
 	return {};
+}
+
+SectorEmissionHue ResolveSectorEmissionHue(int sectorIndex, bool neighbors)
+{
+	return ResolveCachedSectorEmissionHue(sectorIndex, neighbors, ResolveSectorEmissionHueUncached);
 }
 
 int FindSectorColorAnchor(const float renderPosition[3])

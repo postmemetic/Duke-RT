@@ -161,6 +161,9 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	EmissiveSamplingUploadStats* outStats,
 	bool useGeometryCache)
 {
+	// Full reference construction resolves engine state independently of the
+	// operation cache surrounding the production hash/build sequence.
+	nri_scene::ScopedSectorEmissionHueCacheBypass hueReferenceBypass(!useGeometryCache);
 	EmissiveSamplingUploadStats localStats = {};
 	outHeader = {};
 	outHeader.dominantIndex = UINT32_MAX;

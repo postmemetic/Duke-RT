@@ -2118,6 +2118,7 @@ void SceneLightSystem::Reset()
 {
 	mEmissiveSamplingDistribution.Reset();
 	mEmissiveGeometryCache.Reset();
+	mEmissiveSamplingHueCache.Reset();
 	mAnalyticLights = {};
 	mEmissiveSurfaces = {};
 	mSectorLighting = {};
@@ -2146,6 +2147,7 @@ void SceneLightSystem::ResetLevelState()
 {
 	mEmissiveSamplingDistribution.Reset();
 	mEmissiveGeometryCache.Reset();
+	mEmissiveSamplingHueCache.Reset();
 	mAnalyticLights.manualLights.clear();
 	mAnalyticLights.transientLights.clear();
 	mAnalyticLights.activeLights.clear();

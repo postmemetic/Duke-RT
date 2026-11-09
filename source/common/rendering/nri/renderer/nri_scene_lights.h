@@ -2,6 +2,7 @@
 
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_sector_color_policy.h"
+#include "../scene/nri_sector_emission_hue_cache.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_world.h"
 #include "../scene/nri_scene_bridge.h"
@@ -1073,6 +1074,10 @@ public:
 		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
 		EmissiveSamplingUploadStats* outStats = nullptr);
 	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming = false);
+	nri_scene::ScopedSectorEmissionHueCache BeginEmissiveSamplingHueCache(bool enabled, bool validate)
+	{
+		return nri_scene::ScopedSectorEmissionHueCache(mEmissiveSamplingHueCache, mSectorLighting.sectors.size(), enabled, validate);
+	}
 	const NRIEmissiveGeometryCacheStats& GetEmissiveGeometryCacheStats() const { return mEmissiveGeometryCache.Stats(); }
 	uint64_t GetEmissiveGeometryCacheCapacityBytes() const { return mEmissiveGeometryCache.CapacityBytes(); }
 	uint64_t GetEmissiveGeometrySnapshotCapacityBytes() const { return mEmissiveGeometryCache.SnapshotCapacityBytes(); }
@@ -1254,6 +1259,7 @@ private:
 		bool useGeometryCache);
 	NRIEmissiveSamplingDistribution mEmissiveSamplingDistribution;
 	NRIEmissiveGeometryCache mEmissiveGeometryCache;
+	nri_scene::SectorEmissionHueCache mEmissiveSamplingHueCache;
 	std::vector<EmissiveSamplingBuiltCandidate> mEmissiveSamplingCandidates;
 	std::vector<NRIEmissiveSamplingDistributionCandidate> mEmissiveDistributionCandidates;
 	std::vector<NRIEmissiveSamplingDistributionEntry> mEmissiveDistributionEntries;
