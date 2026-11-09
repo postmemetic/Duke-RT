@@ -161,6 +161,12 @@ void NRIRenderer::PrintDynamicSceneStatus() const
 			entry.overrideBuildCalls,
 			entry.overrideBuildMs,
 			entry.materialBuildMs);
+		if (entry.textureAttributionCalls != entry.calls)
+		{
+			Printf("NRI PT material textures: label=%s availability=not-collected coverage=%u/%u; enable perf_looptraceframes or an audit census\n",
+				GetMaterialBuildTraceSlotName((MaterialBuildTraceSlot)index), entry.textureAttributionCalls, entry.calls);
+			continue;
+		}
 		Printf("NRI PT material textures: label=%s materials=%u actor_materials=%u textures=%u base=%u glow=%u normal=%u metallic=%u roughness=%u emissive=%u\n",
 			GetMaterialBuildTraceSlotName((MaterialBuildTraceSlot)index),
 			entry.materialCount,

@@ -198,6 +198,7 @@ public:
 
 	struct MaterialBuildTraceEntry
 	{
+		uint32_t textureAttributionCalls = 0;
 		uint32_t calls = 0;
 		uint32_t overrideBuildCalls = 0;
 		uint32_t actorOverlayRuleMapBuilds = 0;
@@ -2975,6 +2976,7 @@ private:
 	NRIVoxelRepresentationPolicy mVoxelRepresentationPolicy;
 	StateCommitDomainGenerations mLastStateCommitDomainGenerations = {};
 	bool mHasLastStateCommitDomainGenerations = false;
+	std::vector<uint8_t> mMaterialTextureAttributionScratch;
 	nri_material_policy::ActorMaterialOverrideCache mActorMaterialOverrideCache = {};
 	nri_material_policy::ActorOverlayMaterialRuleCache mActorOverlayMaterialRuleCache = {};
 	DescriptorCoherencyDebugStats mDescriptorCoherencyDebugStats = {};

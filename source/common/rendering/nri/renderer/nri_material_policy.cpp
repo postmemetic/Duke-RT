@@ -229,58 +229,38 @@ namespace
 	MaterialTextureAttributionCounts GatherMaterialTextureAttribution(
 		const std::vector<nri_scene::MaterialData>& materials,
 		const std::vector<nri_scene::MaterialLightingMetadata>& lightMetadata,
-		size_t textureCount)
+		size_t textureCount, std::vector<uint8_t>& scratch)
 	{
 		MaterialTextureAttributionCounts counts = {};
 		counts.materialCount = (uint32_t)materials.size();
 		counts.textureCount = (uint32_t)textureCount;
 
-		std::unordered_set<uint32_t> baseTextures;
-		std::unordered_set<uint32_t> glowTextures;
-		std::unordered_set<uint32_t> normalTextures;
-		std::unordered_set<uint32_t> metallicTextures;
-		std::unordered_set<uint32_t> roughnessTextures;
-		std::unordered_set<uint32_t> emissiveTextures;
-		baseTextures.reserve(materials.size());
-		glowTextures.reserve(lightMetadata.size());
-		normalTextures.reserve(materials.size());
-		metallicTextures.reserve(materials.size());
-		roughnessTextures.reserve(materials.size());
-		emissiveTextures.reserve(materials.size());
-
-		const auto addTextureIndex = [textureCount](std::unordered_set<uint32_t>& destination, uint32_t textureIndex)
+		// One dense byte records all six channels for each bridge-local texture.
+		scratch.assign(textureCount, 0);
+		const auto addTextureIndex = [&scratch, textureCount](uint32_t textureIndex,
+			uint8_t bit, uint32_t& count)
 		{
-			if (textureIndex != UINT32_MAX && (size_t)textureIndex < textureCount)
+			if (textureIndex != UINT32_MAX && textureIndex < textureCount && (scratch[textureIndex] & bit) == 0)
 			{
-				destination.insert(textureIndex);
+				scratch[textureIndex] |= bit;
+				++count;
 			}
 		};
-
-		for (uint32_t materialIndex = 0; materialIndex < (uint32_t)materials.size(); ++materialIndex)
+		for (size_t materialIndex = 0; materialIndex < materials.size(); ++materialIndex)
 		{
 			const auto& material = materials[materialIndex];
-			addTextureIndex(baseTextures, material.textureIndex);
-			addTextureIndex(normalTextures, material.normalTextureIndex);
-			addTextureIndex(metallicTextures, material.metallicTextureIndex);
-			addTextureIndex(roughnessTextures, material.roughnessTextureIndex);
-			addTextureIndex(emissiveTextures, material.emissiveTextureIndex);
+			addTextureIndex(material.textureIndex, 1, counts.baseTextureCount);
+			addTextureIndex(material.normalTextureIndex, 2, counts.normalTextureCount);
+			addTextureIndex(material.metallicTextureIndex, 4, counts.metallicTextureCount);
+			addTextureIndex(material.roughnessTextureIndex, 8, counts.roughnessTextureCount);
+			addTextureIndex(material.emissiveTextureIndex, 16, counts.emissiveTextureCount);
 			if (materialIndex < lightMetadata.size())
 			{
 				const auto& metadata = lightMetadata[materialIndex];
-				addTextureIndex(glowTextures, metadata.glowmapTextureIndex);
-				if (metadata.actorIndex >= 0)
-				{
-					counts.actorMaterialCount++;
-				}
+				addTextureIndex(metadata.glowmapTextureIndex, 32, counts.glowTextureCount);
+				if (metadata.actorIndex >= 0) ++counts.actorMaterialCount;
 			}
 		}
-
-		counts.baseTextureCount = (uint32_t)baseTextures.size();
-		counts.glowTextureCount = (uint32_t)glowTextures.size();
-		counts.normalTextureCount = (uint32_t)normalTextures.size();
-		counts.metallicTextureCount = (uint32_t)metallicTextures.size();
-		counts.roughnessTextureCount = (uint32_t)roughnessTextures.size();
-		counts.emissiveTextureCount = (uint32_t)emissiveTextures.size();
 		return counts;
 	}
 
@@ -428,6 +408,7 @@ namespace
 		cache.resolvedGeneration = resolved.resolvedGeneration;
 		cache.actorRuleCount = actorRuleCount;
 		cache.totalRuleCount = 0;
+		cache.mergedOverridesValid = false;
 		cache.rules.clear();
 		if (actorRuleCount > 0)
 		{
@@ -665,27 +646,26 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 				materialTraceEntry.actorOverlaySkippedNonSpriteSurfaces += stampStats.skippedNonSpriteSurfaces;
 				materialTraceEntry.actorOverlaySkippedNoActorSurfaces += stampStats.skippedNoActorSurfaces;
 			}
-			for (const auto& entry : *actorOverlayRules)
+			PerfAuditScope mergeTimer(PerfAuditMetric::MaterialOverrideMergeNs);
+			const nri_material_policy::ActorMaterialOverrideMap* merged = nullptr;
+			bool built = true;
+			if (useActorRuleFrameCaches)
 			{
-				uint32_t overrideBits = nri_material_policy::ActorMaterialOverride_None;
-				for (const auto& rule : entry.second)
-				{
-					overrideBits |= rule.overrideBits;
-				}
-
-				if (overrideBits != nri_material_policy::ActorMaterialOverride_None)
-				{
-					if (actorOverridesForBuild != nullptr && mergedActorOverridesForBuild.empty())
-					{
-						mergedActorOverridesForBuild = *actorOverridesForBuild;
-					}
-					mergedActorOverridesForBuild[entry.first].bits |= overrideBits;
-				}
+				merged = &nri_material_policy::GetMergedActorMaterialOverrides(actorOverridesForBuild,
+					actorOverridesForBuild != nullptr ? mActorMaterialOverrideCache.revision : 0,
+					mActorOverlayMaterialRuleCache, built);
 			}
-			if (!mergedActorOverridesForBuild.empty())
+			else
 			{
-				actorOverridesForBuild = &mergedActorOverridesForBuild;
+				nri_material_policy::MergeActorMaterialOverrides(actorOverridesForBuild,
+					*actorOverlayRules, mergedActorOverridesForBuild);
+				merged = &mergedActorOverridesForBuild;
 			}
+			if (PerfAuditActive())
+			{
+				PerfAuditAdd(built ? PerfAuditMetric::MaterialOverrideMergeBuilds : PerfAuditMetric::MaterialOverrideMergeReuses);
+			}
+			if (!merged->empty()) actorOverridesForBuild = merged;
 		}
 	}
 
@@ -699,7 +679,8 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 	if (actorOverridesForBuild != nullptr)
 	{
 		const auto fullbrightFlagStart = std::chrono::steady_clock::now();
-		savedFlags.reserve(sceneView.opaqueWalls.size() + sceneView.opaqueFlats.size() + sceneView.opaqueSprites.size());
+		// A reserve hint only: sprite-flagged surfaces in other lists still grow safely.
+		savedFlags.reserve(sceneView.opaqueSprites.size());
 		auto applyFullbrightSurfaceFlags = [actorOverridesForBuild, &savedFlags](auto& surfaces)
 		{
 			for (auto& surface : surfaces)
@@ -756,9 +737,24 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 			*saved.flags = saved.value;
 		}
 	}
-	AccumulateMaterialTextureAttribution(
-		materialTraceEntry,
-		GatherMaterialTextureAttribution(outMaterials.materials, outMaterials.lightMetadata, outMaterials.textures.size()));
+	// Per-row texture census is needed for explicit trace/status data, not for
+	// ordinary timing. Audit census frames already have a separate population.
+	if (nri_runtime_mutation::ShouldTracePtPerf() || PerfAuditCensusRequested())
+	{
+		PerfAuditScope censusTimer(PerfAuditMetric::MaterialTextureCensusNs);
+		AccumulateMaterialTextureAttribution(materialTraceEntry,
+			GatherMaterialTextureAttribution(outMaterials.materials, outMaterials.lightMetadata,
+				outMaterials.textures.size(), mMaterialTextureAttributionScratch));
+		++materialTraceEntry.textureAttributionCalls;
+		if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::MaterialTextureCensusCalls);
+	}
+	else if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::MaterialTextureCensusSkipped);
+	if (PerfAuditActive())
+	{
+		PerfAuditSet(PerfAuditMetric::MaterialTextureCensusScratchBytes, mMaterialTextureAttributionScratch.capacity());
+		PerfAuditSet(PerfAuditMetric::MaterialOverrideMergedEntries, mActorOverlayMaterialRuleCache.mergedOverrides.size());
+		PerfAuditSet(PerfAuditMetric::MaterialOverrideMergedBuckets, mActorOverlayMaterialRuleCache.mergedOverrides.bucket_count());
+	}
 	nri_scene::ApplyFluidMaterialBindings(GetResolvedFluidOverlaySet(), outMaterials);
 	TraceActorSpriteMaterialAssignments(sceneView, outMaterials, traceLabel);
 }
@@ -1085,6 +1081,7 @@ const nri_material_policy::ActorMaterialOverrideMap& nri_material_policy::GetAct
 	cache.frameIndex = frameIndex;
 	cache.resolvedGeneration = resolved.resolvedGeneration;
 	cache.hasFullbrightOverrides = hasFullbrightOverrides;
+	if (++cache.revision == 0) ++cache.revision;
 	cache.overrides.clear();
 	if (hasActorRules)
 	{

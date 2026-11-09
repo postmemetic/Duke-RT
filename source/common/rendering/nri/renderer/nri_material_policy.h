@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_scene_lights.h"
+#include "nri_actor_material_override_cache.h"
 #include "../scene/nri_material_bridge.h"
 
 #include <cstdint>
@@ -11,57 +12,6 @@ struct ResolvedLightOverlaySet;
 
 namespace nri_material_policy
 {
-	enum ActorMaterialOverrideBits : uint32_t
-	{
-		ActorMaterialOverride_None = 0,
-		ActorMaterialOverride_NoShadowReceive = 1u << 0,
-		ActorMaterialOverride_NoShadowCast = 1u << 1,
-		ActorMaterialOverride_Fullbright = 1u << 2,
-		ActorMaterialOverride_SmokeForeground = 1u << 3,
-	};
-
-	struct ActorMaterialOverrideState
-	{
-		uint32_t bits = ActorMaterialOverride_None;
-		uint32_t emissiveStableFrames = 0;
-
-		bool Empty() const
-		{
-			return bits == ActorMaterialOverride_None && emissiveStableFrames == 0;
-		}
-	};
-
-	using ActorMaterialOverrideMap = std::unordered_map<int32_t, ActorMaterialOverrideState>;
-
-	struct ActorOverlayMaterialRule
-	{
-		uint32_t ruleId = 0;
-		bool hasTileFilter = false;
-		uint32_t tileFilter = 0;
-		uint32_t overrideBits = ActorMaterialOverride_None;
-	};
-
-	using ActorOverlayMaterialRuleMap = std::unordered_map<int32_t, std::vector<ActorOverlayMaterialRule>>;
-
-	struct ActorMaterialOverrideCache
-	{
-		bool valid = false;
-		uint32_t frameIndex = UINT32_MAX;
-		uint32_t resolvedGeneration = 0;
-		bool hasFullbrightOverrides = false;
-		ActorMaterialOverrideMap overrides;
-	};
-
-	struct ActorOverlayMaterialRuleCache
-	{
-		bool valid = false;
-		uint32_t frameIndex = UINT32_MAX;
-		uint32_t resolvedGeneration = 0;
-		uint32_t actorRuleCount = 0;
-		uint32_t totalRuleCount = 0;
-		ActorOverlayMaterialRuleMap rules;
-	};
-
 	// The actor-dependent inputs which can change the material bridge result for
 	// one sprite surface. This intentionally contains no actor identity so callers
 	// can compare equivalent presentations owned by different actors.

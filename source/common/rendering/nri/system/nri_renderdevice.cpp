@@ -6950,7 +6950,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			}
 
 			Printf(
-				"PERF pt material detail NRI: frame=%llu label=%s calls=%u override_builds=%u actor_rule_map_builds=%u actor_rule_cache_hits=%u actor_rule_cache_misses=%u actor_rules=%u actor_rule_stamped=%u actor_rule_skip_non_sprite=%u actor_rule_skip_no_actor=%u fullbright_flagged=%u materials=%u actor_materials=%u textures=%u base=%u glow=%u normal=%u metallic=%u roughness=%u emissive=%u override_ms=%.3f actor_rule_ms=%.3f stamp_ms=%.3f fullbright_flag_ms=%.3f material_ms=%.3f override_apply_ms=%.3f\n",
+				"PERF pt material detail NRI: frame=%llu label=%s calls=%u override_builds=%u actor_rule_map_builds=%u actor_rule_cache_hits=%u actor_rule_cache_misses=%u actor_rules=%u actor_rule_stamped=%u actor_rule_skip_non_sprite=%u actor_rule_skip_no_actor=%u fullbright_flagged=%u texture_census_calls=%u materials=%u actor_materials=%u textures=%u base=%u glow=%u normal=%u metallic=%u roughness=%u emissive=%u override_ms=%.3f actor_rule_ms=%.3f stamp_ms=%.3f fullbright_flag_ms=%.3f material_ms=%.3f override_apply_ms=%.3f\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 				NRIRenderer::GetMaterialBuildTraceSlotName((NRIRenderer::MaterialBuildTraceSlot)index),
 				entry.calls,
@@ -6963,6 +6963,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				entry.actorOverlaySkippedNonSpriteSurfaces,
 				entry.actorOverlaySkippedNoActorSurfaces,
 				entry.fullbrightFlaggedSurfaces,
+				entry.textureAttributionCalls,
 				entry.materialCount,
 				entry.actorMaterialCount,
 				entry.textureCount,
