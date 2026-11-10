@@ -58,9 +58,16 @@ struct NRISceneFrameScratchReset
 {
 	explicit NRISceneFrameScratchReset(RenderSceneFrameBuildResult& value) : frame(value)
 	{
+		PerfAuditScope audit(PerfAuditMetric::SceneFrameResetBeginNs);
+		if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::SceneFrameResetBeginCalls);
 		ResetRenderSceneFrameRetainingCapacity(frame);
 	}
-	~NRISceneFrameScratchReset() { ResetRenderSceneFrameRetainingCapacity(frame); }
+	~NRISceneFrameScratchReset()
+	{
+		PerfAuditScope audit(PerfAuditMetric::SceneFrameResetEndNs);
+		if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::SceneFrameResetEndCalls);
+		ResetRenderSceneFrameRetainingCapacity(frame);
+	}
 	RenderSceneFrameBuildResult& frame;
 };
 

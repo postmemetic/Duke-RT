@@ -10,6 +10,56 @@
 
 namespace
 {
+	// Fine-grained clocks are restricted to audit census frames. Their totals
+	// describe sampled stages, not every PT frame, and include clock overhead.
+	// The frame coordinator completes one main-thread stage synchronously.
+	struct MapMotionStageCensus
+	{
+		const NRIMapMotionHistory* owner = nullptr;
+		uint64_t views = 0, surfaces = 0, eligibleSurfaces = 0, vertices = 0;
+		uint64_t lookupCalls = 0, snapshotChecks = 0, snapshotMatches = 0;
+		uint64_t comparedBytes = 0, payloadBuilds = 0, duplicateChecks = 0, motionChecks = 0;
+		uint64_t viewNs = 0, lookupNs = 0, matchNs = 0, payloadNs = 0, duplicateNs = 0, motionNs = 0;
+	};
+	thread_local MapMotionStageCensus sStageCensus;
+
+	class MapMotionCensusScope
+	{
+		uint64_t* mTotal;
+		uint64_t mStart;
+	public:
+		MapMotionCensusScope(MapMotionStageCensus* census, uint64_t MapMotionStageCensus::* member)
+			: mTotal(census ? &(census->*member) : nullptr), mStart(census ? PerfAuditClockNs() : 0) {}
+		~MapMotionCensusScope() { if (mTotal) *mTotal += PerfAuditClockNs() - mStart; }
+	};
+
+	void PublishStageCensus(const NRIMapMotionHistory* owner)
+	{
+		if (sStageCensus.owner != owner) return;
+		const auto& sample = sStageCensus;
+		PerfAuditAdd(PerfAuditMetric::MapMotionCensusStages);
+#define REPORT_MOTION_CENSUS(metric, field) PerfAuditAdd(PerfAuditMetric::MapMotionCensus##metric, sample.field)
+		REPORT_MOTION_CENSUS(Views, views);
+		REPORT_MOTION_CENSUS(Surfaces, surfaces);
+		REPORT_MOTION_CENSUS(EligibleSurfaces, eligibleSurfaces);
+		REPORT_MOTION_CENSUS(Vertices, vertices);
+		REPORT_MOTION_CENSUS(LookupCalls, lookupCalls);
+		REPORT_MOTION_CENSUS(SnapshotChecks, snapshotChecks);
+		REPORT_MOTION_CENSUS(SnapshotMatches, snapshotMatches);
+		REPORT_MOTION_CENSUS(ComparedBytes, comparedBytes);
+		REPORT_MOTION_CENSUS(PayloadBuilds, payloadBuilds);
+		REPORT_MOTION_CENSUS(DuplicateChecks, duplicateChecks);
+		REPORT_MOTION_CENSUS(MotionChecks, motionChecks);
+		REPORT_MOTION_CENSUS(ViewNs, viewNs);
+		REPORT_MOTION_CENSUS(LookupNs, lookupNs);
+		REPORT_MOTION_CENSUS(MatchNs, matchNs);
+		REPORT_MOTION_CENSUS(PayloadNs, payloadNs);
+		REPORT_MOTION_CENSUS(DuplicateNs, duplicateNs);
+		REPORT_MOTION_CENSUS(MotionNs, motionNs);
+#undef REPORT_MOTION_CENSUS
+		sStageCensus.owner = nullptr;
+	}
+
 	template <typename View, typename Callback>
 	void ForEachSurface(View& view, const Callback& callback)
 	{
@@ -100,6 +150,7 @@ bool NRIMapMotionHistory::SurfaceHasMotion(const nri_scene::SurfaceRef& surface)
 
 void NRIMapMotionHistory::Reset(const char* reason)
 {
+	if (sStageCensus.owner == this) sStageCensus.owner = nullptr;
 	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
 	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_records.size());
 	RecordMap{}.swap(m_records);
@@ -214,6 +265,7 @@ void NRIMapMotionHistory::EraseRecord(Record& record)
 
 void NRIMapMotionHistory::ClearStage(bool countDiscard)
 {
+	if (sStageCensus.owner == this) sStageCensus.owner = nullptr;
 	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
 	if (countDiscard && m_stageOpen) m_stats.discardCount++;
 	for (Record* record : m_staged)
@@ -242,17 +294,30 @@ void NRIMapMotionHistory::BeginStage(uint64_t proposedSerial, uint64_t mapEpoch)
 	m_stageSerial = proposedSerial;
 	m_stageOpen = true;
 	m_stageFinalized = false;
+	if (PerfAuditCensusRequested())
+	{
+		sStageCensus = {};
+		sStageCensus.owner = this;
+	}
 }
 
 bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 {
+	MapMotionStageCensus* census = sStageCensus.owner == this ? &sStageCensus : nullptr;
+	if (census) { ++census->surfaces; census->vertices += surface.vertices.size(); }
 	if (!surface.temporal.identityValid) return true;
-	const auto found = m_records.find(surface.temporal.occurrenceId);
-	Record* record = found != m_records.end() ? &found->second : nullptr;
+	if (census) { ++census->eligibleSurfaces; ++census->lookupCalls; }
+	Record* record;
+	{
+		MapMotionCensusScope sample(census, &MapMotionStageCensus::lookupNs);
+		const auto found = m_records.find(surface.temporal.occurrenceId);
+		record = found != m_records.end() ? &found->second : nullptr;
+	}
 	int candidateSlot = -1;
 	uint64_t comparedBytes = 0;
 	if (record != nullptr)
 	{
+		MapMotionCensusScope sample(census, &MapMotionStageCensus::matchNs);
 		// The current proposal is most useful for duplicate publications, then
 		// the committed payload, then the bounded spare (e.g. recurring motion).
 		const int candidates[] = { record->stagedSlot, record->committedSlot, 0, 1 };
@@ -261,12 +326,20 @@ bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 		{
 			if (slot < 0 || (tested & (1u << slot))) continue;
 			tested |= 1u << slot;
+			if (census) ++census->snapshotChecks;
 			if (record->snapshots[slot].Matches(surface, comparedBytes)) { candidateSlot = slot; break; }
 		}
+	}
+	if (census)
+	{
+		census->comparedBytes += comparedBytes;
+		census->snapshotMatches += candidateSlot >= 0 ? 1 : 0;
 	}
 	PerfAuditAdd(PerfAuditMetric::MapMotionSnapshotComparedBytes, comparedBytes);
 	if (candidateSlot < 0)
 	{
+		MapMotionCensusScope sample(census, &MapMotionStageCensus::payloadNs);
+		if (census) ++census->payloadBuilds;
 		PerfAuditScope payloadScope(PerfAuditMetric::MapMotionPayloadBuildNs);
 		PerfAuditAdd(PerfAuditMetric::MapMotionPayloadBuilds);
 		PerfAuditAdd(PerfAuditMetric::MapMotionInputVertices, surface.vertices.size());
@@ -277,15 +350,27 @@ bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 	}
 	else PerfAuditAdd(PerfAuditMetric::MapMotionPayloadReuses);
 	const auto& candidate = candidateSlot >= 0 ? record->snapshots[candidateSlot].payload : m_buildScratch.payload;
+	const auto hasMotion = [&]()
+	{
+		MapMotionCensusScope sample(census, &MapMotionStageCensus::motionNs);
+		if (census) ++census->motionChecks;
+		return SurfaceHasMotion(surface);
+	};
 	if (record != nullptr && record->stagedSlot >= 0)
 	{
-		if (!NRIMapMotionPayloadEqual(record->snapshots[record->stagedSlot].payload, candidate))
+		bool duplicateEqual;
+		{
+			MapMotionCensusScope sample(census, &MapMotionStageCensus::duplicateNs);
+			if (census) ++census->duplicateChecks;
+			duplicateEqual = NRIMapMotionPayloadEqual(record->snapshots[record->stagedSlot].payload, candidate);
+		}
+		if (!duplicateEqual)
 		{
 			record->stagedValid = false;
 			m_stats.duplicatePublicationCount++;
 			return false;
 		}
-		record->publishedWithMotion |= SurfaceHasMotion(surface);
+		record->publishedWithMotion |= hasMotion();
 		return true;
 	}
 	if (record == nullptr)
@@ -309,7 +394,7 @@ bool NRIMapMotionHistory::StageSurface(const nri_scene::SurfaceRef& surface)
 	record->stagedSlot = candidateSlot;
 	record->stagedAge = record->committedSlot >= 0 ? record->historyAge + 1u : 1u;
 	record->stagedValid = true;
-	record->publishedWithMotion = SurfaceHasMotion(surface);
+	record->publishedWithMotion = hasMotion();
 	m_staged.push_back(record);
 	return true;
 }
@@ -326,7 +411,12 @@ bool NRIMapMotionHistory::StagePublishedView(const nri_scene::SceneView& sceneVi
 	if (m_quarantined) return referenceValid;
 	bool valid = m_stageOpen;
 	if (m_stageOpen)
+	{
+		MapMotionStageCensus* census = sStageCensus.owner == this ? &sStageCensus : nullptr;
+		MapMotionCensusScope sample(census, &MapMotionStageCensus::viewNs);
+		if (census) ++census->views;
 		ForEachSurface(sceneView, [&](const nri_scene::SurfaceRef& surface) { valid &= StageSurface(surface); });
+	}
 	m_stats.stagedSurfaceCount = (uint32_t)m_staged.size();
 	if (m_reference)
 	{
@@ -342,6 +432,7 @@ void NRIMapMotionHistory::FinalizeStage()
 	if (m_reference) m_reference->FinalizeStage();
 	if (m_quarantined) return;
 	if (m_stageOpen) m_stageFinalized = true;
+	PublishStageCensus(this);
 	ReportAuditStorage();
 	CheckReference("finalize");
 }

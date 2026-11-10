@@ -1,11 +1,13 @@
 #pragma once
 
 #include "nri_scene_bridge.h"
+#include "nri_scene_view_audit.h"
 
 namespace nri_scene
 {
 inline void ClearSceneViewRetainingCapacity(SceneView& view)
 {
+	SceneViewClearAudit audit(view);
 	// Default construction resets every scalar, borrowed pointer and sky field.
 	// Swap only the owned vector storage back before publishing the empty view.
 	SceneView empty;

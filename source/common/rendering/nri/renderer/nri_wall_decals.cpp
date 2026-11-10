@@ -1,4 +1,5 @@
 #include "nri_wall_decals.h"
+#include "nri_wall_decal_audit.h"
 
 #include "nri_renderer.h"
 #include "../scene/nri_hash.h"
@@ -14,6 +15,8 @@ namespace
 {
 uint64_t BuildMaterialSignature(const std::vector<nri_scene::WallDecalCapture>& captures, bool& persistent)
 {
+	PerfAuditScope audit(PerfAuditMetric::WallDecalMaterialSignatureNs);
+	if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::WallDecalMaterialSignatureRows, captures.size());
 	uint64_t signature = nri_scene::NRIHashFnv1a64OffsetBasis;
 	const uint64_t count = captures.size();
 	nri_scene::Fnv1a64Append(signature, &count, sizeof(count));
@@ -45,6 +48,7 @@ uint64_t BuildMaterialSignature(const std::vector<nri_scene::WallDecalCapture>& 
 
 void NRIWallDecals::Reset()
 {
+	if (PerfAuditActive()) LastNRIWallDecalAuditPublication() = {};
 	mHeaders.clear();
 	mRecords.clear();
 	mCaptureScratch.clear();
@@ -60,12 +64,22 @@ void NRIWallDecals::Reset()
 
 void NRIWallDecals::Capture(HWDrawInfo& drawInfo)
 {
-	nri_scene::CaptureWallDecals(drawInfo, mCaptureScratch);
+	PerfAuditScope auditCapture(PerfAuditMetric::WallDecalCaptureNs);
+	static thread_local NRIWallDecalAuditCall previousCapture;
+	const bool audit = NoteNRIWallDecalAuditCall(this, previousCapture,
+		PerfAuditMetric::WallDecalCaptureCalls, PerfAuditMetric::WallDecalCaptureRepeatedCalls);
+	{
+		PerfAuditScope auditExtract(PerfAuditMetric::WallDecalExtractNs);
+		nri_scene::CaptureWallDecals(drawInfo, mCaptureScratch);
+	}
+	if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalCaptureRows, mCaptureScratch.size());
 	bool persistent = false;
 	const uint64_t signature = BuildMaterialSignature(mCaptureScratch, persistent);
 	mMaterialChanged = !persistent || signature != mMaterialSignature;
 	if (mMaterialChanged)
 	{
+		PerfAuditScope auditBuild(PerfAuditMetric::WallDecalMaterialRebuildNs);
+		if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalMaterialRebuilds);
 		nri_scene::ClearSceneViewRetainingCapacity(mMaterialScene);
 		mMaterialScene.opaqueWalls.reserve(mCaptureScratch.size());
 		for (const auto& capture : mCaptureScratch)
@@ -88,7 +102,9 @@ void NRIWallDecals::Capture(HWDrawInfo& drawInfo)
 		// retire removed keys and invalidate a former decal descriptor template.
 		mNeedsTextureResolve = true;
 	}
+	else if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalMaterialReuseCalls);
 
+	PerfAuditScope auditReconcile(PerfAuditMetric::WallDecalReconcileNs);
 	mHeaders.assign(wall.Size(), {});
 	mRecords.clear();
 	mRecordMaterialIndices.clear();
@@ -111,6 +127,15 @@ void NRIWallDecals::Capture(HWDrawInfo& drawInfo)
 		mRecords.push_back(projection);
 		mRecordMaterialIndices.push_back((uint32_t)index);
 	}
+	if (audit)
+	{
+		PerfAuditAdd(PerfAuditMetric::WallDecalHeaderRows, mHeaders.size());
+		PerfAuditAdd(PerfAuditMetric::WallDecalRecordRows, mRecords.size());
+		PerfAuditSet(PerfAuditMetric::WallDecalCaptureScratchCapacityBytes, mCaptureScratch.capacity() * sizeof(nri_scene::WallDecalCapture));
+		PerfAuditSet(PerfAuditMetric::WallDecalProjectionCapacityBytes,
+			mHeaders.capacity() * sizeof(nri_scene::WallDecalHeaderGpuData) + mRecords.capacity() * sizeof(nri_scene::WallDecalGpuData) +
+			mRecordMaterialIndices.capacity() * sizeof(uint32_t));
+	}
 }
 
 void NRIWallDecals::AppendTextureKeys(std::vector<uint64_t>& keys) const
@@ -125,7 +150,16 @@ void NRIWallDecals::AppendTextureKeys(std::vector<uint64_t>& keys) const
 bool NRIWallDecals::ResolveTextureDescriptors(NRIRenderer& renderer,
 	std::vector<nri::Descriptor*>& descriptors, bool stableSlots, uint32_t legacyTextureCount)
 {
-	if (renderer.mFrameBuffer == nullptr) return false;
+	PerfAuditScope auditResolve(PerfAuditMetric::WallDecalTextureResolveNs);
+	static thread_local NRIWallDecalAuditCall previousResolve;
+	const bool audit = NoteNRIWallDecalAuditCall(this, previousResolve,
+		PerfAuditMetric::WallDecalTextureResolveCalls, PerfAuditMetric::WallDecalTextureResolveRepeatedCalls);
+	if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalTextureResolveInputRows, mBaseTextureIndices.size());
+	if (renderer.mFrameBuffer == nullptr)
+	{
+		if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalTextureResolveFailures);
+		return false;
+	}
 	// Resolve every time the shared table is assembled: legacy offsets and
 	// stable-slot generations can change even when the source art is unchanged.
 	std::fill(mResolvedTextureIndices.begin(), mResolvedTextureIndices.end(), UINT32_MAX);
@@ -148,6 +182,7 @@ bool NRIWallDecals::ResolveTextureDescriptors(NRIRenderer& renderer,
 				NRISceneTextureMissPolicy::Synchronous, resolved))
 			{
 				mNeedsTextureResolve = true;
+				if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalTextureResolveFailures);
 				return false;
 			}
 			// A missing view or active-canvas self reference keeps the marking
@@ -169,5 +204,6 @@ bool NRIWallDecals::ResolveTextureDescriptors(NRIRenderer& renderer,
 			? mResolvedTextureIndices[textureIndex] : UINT32_MAX;
 	}
 	mNeedsTextureResolve = false;
+	if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalTextureResolveRecordRows, mRecords.size());
 	return true;
 }

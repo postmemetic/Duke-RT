@@ -6843,6 +6843,7 @@ SceneDebugStats CollectDebugStats(HWDrawInfo& di)
 
 bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCaptureMode voxelCaptureMode)
 {
+	SceneViewCaptureAudit audit(outView, PerfAuditMetric::SceneCaptureDynamicNs, PerfAuditMetric::SceneCaptureDynamicCalls);
 	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
 	gDynamicCapturePerfStats.calls++;
@@ -6965,6 +6966,7 @@ ActorSpriteSceneCaptureResult CaptureActorSpriteScene(
 	bool residentVoxelReady,
 	SceneView& outView)
 {
+	SceneViewCaptureAudit audit(outView, PerfAuditMetric::SceneCaptureActorSpriteNs, PerfAuditMetric::SceneCaptureActorSpriteCalls);
 	ActorSpriteSceneCaptureResult result = {};
 	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
@@ -7011,6 +7013,7 @@ ActorSpriteSceneCaptureResult CaptureActorVoxelSprite(
 	bool residentVoxelReady,
 	SceneView& outView)
 {
+	SceneViewCaptureAudit audit(outView, PerfAuditMetric::SceneCaptureActorVoxelNs, PerfAuditMetric::SceneCaptureActorVoxelCalls);
 	ActorSpriteSceneCaptureResult result = {};
 	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
@@ -7135,6 +7138,7 @@ void SetPersistentVoxelActorStartupTransientMode(bool active, const char* reason
 
 bool BuildPersistentVoxelCacheSceneView(SceneView& outView)
 {
+	SceneViewCaptureAudit audit(outView, PerfAuditMetric::SceneCapturePersistentVoxelNs, PerfAuditMetric::SceneCapturePersistentVoxelCalls);
 	ClearSceneViewRetainingCapacity(outView);
 	std::vector<PersistentVoxelCacheEntryView> entries;
 	if (!BuildPersistentVoxelCacheEntries(entries))
@@ -7956,6 +7960,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 
 bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 {
+	SceneViewCaptureAudit audit(outView, PerfAuditMetric::SceneCaptureFullNs, PerfAuditMetric::SceneCaptureFullCalls);
 	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
 	const bool rootVoxelCacheFrame = BeginVoxelActorCacheFrame();
