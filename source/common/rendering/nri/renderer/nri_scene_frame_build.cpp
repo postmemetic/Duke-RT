@@ -601,7 +601,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	capturedGpuMaterials.clear();
 	dynamicGpuMaterials.clear();
 	persistentVoxelGpuMaterials.clear();
-	combinedGpuMaterials.clear();
+	// Retain the last output only as a comparison target. The material product
+	// recomputes current policy from clean input before any successful selection.
+	// Failed/alternate views never make these rows authoritative for the next call.
+	if (!(bool)nri_ptmaterialpolicycache) combinedGpuMaterials.clear();
 	deferredTextureMaterialIndices.clear();
 	nri_scene::ClearGeometryRetainingCapacity(mSelectLocalPlayerReflectionGeometryScratch);
 	nri_scene::ClearGeometryRetainingCapacity(actorFilteredDynamicGeometry);

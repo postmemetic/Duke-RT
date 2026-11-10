@@ -672,3 +672,9 @@ PERF_AUDIT_METRIC(MaterialPolicyIdentityEntries, gauge)
 PERF_AUDIT_METRIC(MaterialPolicyIdentityBuckets, gauge)
 PERF_AUDIT_METRIC(MaterialPolicyCompiledStorageEstimateBytes, gauge)
 PERF_AUDIT_METRIC(MaterialPolicyIdentityStorageEstimateBytes, gauge)
+
+// Scalar policy rows are fresh; hits are current-operation selector matches.
+PERF_AUDIT_METRIC(MaterialPolicyTransformedRows, counter)
+PERF_AUDIT_METRIC(MaterialPolicySelectorHits, counter)
+PERF_AUDIT_METRIC(MaterialPolicyOutputRowsReused, counter)
+PERF_AUDIT_METRIC(MaterialPolicyOutputHitValidationChecks, counter)

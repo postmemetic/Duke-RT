@@ -8,7 +8,6 @@
 #include "perf_audit.h"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstring>
 #include <string>
@@ -104,42 +103,8 @@ namespace
 			(metadata.materialFlags & (MaterialFlag_Sprite | MaterialFlag_Mirror | MaterialFlag_Sky | MaterialFlag_Portal | MaterialFlag_PlainMirror)) == 0;
 	}
 
-	// Every word is initialized and compared by representation. Padding in the
-	// much larger source metadata is deliberately absent; unrelated metadata is
-	// not a dependency of this transformation.
-	struct RowKey
-	{
-		MaterialData base;
-		std::array<uint32_t, 32> policy = {};
-		bool operator==(const RowKey& rhs) const
-		{
-			return std::memcmp(&base, &rhs.base, sizeof(base)) == 0 && policy == rhs.policy;
-		}
-	};
-	struct RowEntry { RowKey input; MaterialData result; bool valid = false; };
-
-	bool MayUseGlowBlend(const MaterialLightingMetadata& metadata, const Heuristic* rule)
-	{
-		using namespace nri_scene;
-		uint32_t mode = metadata.emissiveMode != MaterialEmissiveMode_None && metadata.emissiveIntensity > 0.0f ?
-			metadata.emissiveMode : MaterialEmissiveMode_None;
-		if (rule != nullptr)
-		{
-			switch (rule->emissiveMode)
-			{
-			case MaterialEmissiveMode_UseBaseTexture: mode = MaterialEmissiveMode_UseBaseTexture; break;
-			case MaterialEmissiveMode_UseConstantColor: mode = MaterialEmissiveMode_UseConstantColor; break;
-			case MaterialEmissiveMode_UseGlowmapTexture:
-				mode = metadata.glowmapTextureIndex == UINT32_MAX ? MaterialEmissiveMode_UseConstantColor : MaterialEmissiveMode_UseGlowmapTexture;
-				break;
-			default: break;
-			}
-		}
-		return mode == MaterialEmissiveMode_UseGlowmapTexture;
-	}
-
 	void ApplyEmission(const MaterialLightingMetadata& metadata, const Heuristic* rule,
-		const NRIMaterialPolicySnapshot::Settings& settings, float blend, MaterialData& row)
+		const NRIMaterialPolicySnapshot::Settings& settings, MaterialData& row)
 	{
 		using namespace nri_scene;
 		uint32_t mode = MaterialEmissiveMode_None, index = UINT32_MAX;
@@ -188,7 +153,6 @@ namespace
 		row.emissiveMaskScale = std::max(glow ? std::clamp(settings.glowFalloff, 0.25f, 4.0f) : 1.0f, 0.0f);
 		row.emissiveMode = mode; row.emissiveTextureIndex = index;
 		if (row.materialClass != 3u) row.materialClass = 2u;
-		if (mode == MaterialEmissiveMode_UseGlowmapTexture) row.emissiveReserved = blend;
 	}
 	void ApplyActor(uint32_t bits, bool voxelPolicy, float boost, MaterialData& row)
 	{
@@ -222,8 +186,7 @@ struct NRIMaterialPolicySnapshot::Impl
 	std::unordered_map<uint32_t, FluidTexture> fluidTextures;
 	std::unordered_map<GlowIdentity, float, GlowIdentityHash> glowMatches;
 	std::unordered_map<FluidIdentity, uint32_t, FluidIdentityHash> fluidMatches;
-	std::vector<RowEntry> rows;
-	uint64_t hits = 0, misses = 0, selectorTests = 0, identityChecks = 0, normalizations = 0;
+	uint64_t transformedRows = 0, selectorHits = 0, selectorTests = 0, identityChecks = 0, normalizations = 0;
 
 	void SnapshotRules(const SceneLightSystem& lights, const ResolvedLightOverlaySet& overlays, const ResolvedFluidOverlaySet* fluidSet)
 	{
@@ -304,7 +267,7 @@ struct NRIMaterialPolicySnapshot::Impl
 		if (glowRules.empty()) return settings.glowBlend;
 		const GlowIdentity key = { metadata.textureId, metadata.baseTextureId, metadata.texture };
 		const auto found = glowMatches.find(key);
-		if (found != glowMatches.end()) return found->second;
+		if (found != glowMatches.end()) { ++selectorHits; return found->second; }
 		++identityChecks;
 		auto name = glowNames.find(metadata.texture);
 		if (name == glowNames.end())
@@ -332,7 +295,7 @@ struct NRIMaterialPolicySnapshot::Impl
 		const FluidIdentity key = { metadata.authoredTextureId, metadata.paletteIndex,
 			metadata.sourceType == nri_scene::SurfaceSourceType::MapWallBand ? FluidOverlaySurfaceClass::Wall : FluidOverlaySurfaceClass::Flat };
 		const auto found = fluidMatches.find(key);
-		if (found != fluidMatches.end()) return found->second;
+		if (found != fluidMatches.end()) { ++selectorHits; return found->second; }
 		++identityChecks;
 		auto texture = fluidTextures.find(key.texture);
 		if (texture == fluidTextures.end())
@@ -378,78 +341,52 @@ void NRIMaterialPolicySnapshot::Quarantine()
 	if (!mImpl->quarantined) { mImpl->quarantined = true; PerfAuditAdd(PerfAuditMetric::MaterialPolicyQuarantines); }
 }
 void NRIMaterialPolicySnapshot::Begin(const SceneLightSystem& lights, const ResolvedLightOverlaySet& overlays,
-	const nri_material_policy::ActorMaterialOverrideMap* actors, const ResolvedFluidOverlaySet* fluids, size_t rowCount, const Settings& settings)
+	const nri_material_policy::ActorMaterialOverrideMap* actors, const ResolvedFluidOverlaySet* fluids, const Settings& settings)
 {
 	PerfAuditScope audit(PerfAuditMetric::MaterialPolicySnapshotNs);
 	if (mImpl == nullptr) mImpl = std::make_unique<Impl>();
 	auto& state = *mImpl;
 	state.settings = settings; state.actors = actors; state.fluids = fluids != nullptr;
-	state.hits = state.misses = state.selectorTests = state.identityChecks = state.normalizations = 0;
+	state.transformedRows = state.selectorHits = state.selectorTests = state.identityChecks = state.normalizations = 0;
 	// External names/animation mappings are borrowed only for this operation.
 	state.glowNames.clear(); state.fluidTextures.clear(); state.glowMatches.clear(); state.fluidMatches.clear();
-	state.rows.resize(rowCount);
 	state.SnapshotRules(lights, overlays, fluids);
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicySettingsSnapshots);
 }
-void NRIMaterialPolicySnapshot::Transform(size_t index, const MaterialLightingMetadata* metadata, MaterialData& row)
+void NRIMaterialPolicySnapshot::Transform(const MaterialLightingMetadata* metadata, MaterialData& row)
 {
 	auto& state = *mImpl;
-	RowKey key; key.base = row;
+	++state.transformedRows;
+	if (state.fluids) row.fluidBindingIndex = UINT32_MAX;
+	if (metadata == nullptr) return;
+
 	const Heuristic* rule = nullptr;
-	float blend = 0.0f;
-	uint32_t actor = 0, binding = UINT32_MAX;
-	if (metadata != nullptr)
+	if (!state.heuristics.empty())
 	{
 		const auto found = state.heuristics.find(metadata->textureId);
 		if (found != state.heuristics.end()) rule = &found->second;
-		// The original policy only matches visible-blend selectors for a glowmap
-		// result. Other modes cannot depend on these rules or this setting.
-		blend = MayUseGlowBlend(*metadata, rule) ? state.GlowBlend(*metadata) : 0.0f;
-		binding = state.FluidBinding(*metadata);
-		if (state.actors != nullptr && metadata->actorIndex >= 0)
-		{
-			const auto foundActor = state.actors->find(metadata->actorIndex);
-			if (foundActor != state.actors->end()) actor = foundActor->second.bits;
-		}
-		size_t n = 0;
-		auto put = [&](uint32_t value) { key.policy[n++] = value; };
-		put(1); put(metadata->emissiveMode); put(Bits(metadata->emissiveIntensity));
-		for (float color : metadata->emissiveColor) put(Bits(color));
-		put(metadata->lightingFlags & (nri_scene::MaterialLightingFlag_TextureGlowing | nri_scene::MaterialLightingFlag_TextureAutoGlowing | nri_scene::MaterialLightingFlag_HasGlowmap));
-		put(metadata->textureIndex); put(metadata->glowmapTextureIndex); put(metadata->emissiveTextureIndex);
-		for (float color : metadata->averageColor) put(Bits(color));
-		for (float color : metadata->glowColor) put(Bits(color));
-		put(rule != nullptr); put(rule ? rule->emissiveMode : 0); put(rule ? Bits(rule->intensityScale) : 0);
-		for (int i = 0; i < 3; ++i) put(rule ? Bits(rule->emissiveColor[i]) : 0);
-		put(rule ? rule->hasExplicitColor : 0);
-		put(Bits(state.settings.glowScale)); put(Bits(state.settings.glowFalloff)); put(Bits(blend));
-		put(actor); put(metadata->voxelPalettePolicyApplied);
-		put((actor & nri_material_policy::ActorMaterialOverride_Fullbright) && !metadata->voxelPalettePolicyApplied ? Bits(state.settings.fullbrightBoost) : 0);
-		put(state.fluids); put(binding);
 	}
-	else key.policy[30] = state.fluids;
-	// Index is an address in the current clean product, not a persistent surface
-	// identity. Exact input comparison makes reorder/slot changes safe.
-	auto& entry = state.rows[index];
-	if (entry.valid && entry.input == key) { row = entry.result; ++state.hits; return; }
-	++state.misses;
-	entry.input = key;
-	if (state.fluids) row.fluidBindingIndex = UINT32_MAX;
-	if (metadata != nullptr)
+	// Scalar emission is cheaper than constructing/comparing a full dependency
+	// key and copying a retained GPU row. Reuse only the costly ordered selectors;
+	// the product owner still decides which final rows need publication.
+	ApplyEmission(*metadata, rule, state.settings, row);
+	if (row.emissiveMode == nri_scene::MaterialEmissiveMode_UseGlowmapTexture)
+		row.emissiveReserved = state.GlowBlend(*metadata);
+	if (state.actors != nullptr && metadata->actorIndex >= 0)
 	{
-		ApplyEmission(*metadata, rule, state.settings, blend, row);
-		ApplyActor(actor, metadata->voxelPalettePolicyApplied, state.settings.fullbrightBoost, row);
-		if (state.fluids) row.fluidBindingIndex = binding;
+		const auto actor = state.actors->find(metadata->actorIndex);
+		if (actor != state.actors->end())
+			ApplyActor(actor->second.bits, metadata->voxelPalettePolicyApplied, state.settings.fullbrightBoost, row);
 	}
-	entry.result = row; entry.valid = true;
+	if (state.fluids) row.fluidBindingIndex = state.FluidBinding(*metadata);
 }
 bool NRIMaterialPolicySnapshot::Finish()
 {
 	PerfAuditScope audit(PerfAuditMetric::MaterialPolicySnapshotNs);
 	if (mImpl == nullptr) return false;
 	const auto& state = *mImpl;
-	PerfAuditAdd(PerfAuditMetric::MaterialPolicyRowHits, state.hits);
-	PerfAuditAdd(PerfAuditMetric::MaterialPolicyRowMisses, state.misses);
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicyTransformedRows, state.transformedRows);
+	PerfAuditAdd(PerfAuditMetric::MaterialPolicySelectorHits, state.selectorHits);
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyCompiledSelectorTests, state.selectorTests);
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyIdentityChecks, state.identityChecks);
 	PerfAuditAdd(PerfAuditMetric::MaterialPolicyNameNormalizations, state.normalizations);
@@ -477,9 +414,9 @@ bool NRIMaterialPolicySnapshot::Finish()
 		PerfAuditSet(PerfAuditMetric::MaterialPolicyCompiledStorageEstimateBytes, compiledBytes);
 		PerfAuditSet(PerfAuditMetric::MaterialPolicyIdentityStorageEstimateBytes, identityBytes);
 	}
-	PerfAuditSet(PerfAuditMetric::MaterialPolicyRowCapacityBytes, state.rows.capacity() * sizeof(RowEntry));
+	PerfAuditSet(PerfAuditMetric::MaterialPolicyRowCapacityBytes, 0);
 	PerfAuditSet(PerfAuditMetric::MaterialPolicySnapshotCapacityBytes, state.sourceBytes.capacity() + state.scratchBytes.capacity());
 	PerfAuditSet(PerfAuditMetric::MaterialPolicyIdentityEntries, state.glowNames.size() + state.fluidTextures.size() + state.glowMatches.size() + state.fluidMatches.size());
 	PerfAuditSet(PerfAuditMetric::MaterialPolicyIdentityBuckets, state.glowNames.bucket_count() + state.fluidTextures.bucket_count() + state.glowMatches.bucket_count() + state.fluidMatches.bucket_count());
-	return state.hits != 0;
+	return state.selectorHits != 0;
 }

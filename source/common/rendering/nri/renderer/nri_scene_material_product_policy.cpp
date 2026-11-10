@@ -30,7 +30,7 @@ namespace
 		const auto& context = *static_cast<MaterialPolicyContext*>(opaque);
 		if (context.snapshot != nullptr)
 		{
-			context.snapshot->Transform(index, index < context.source.lightMetadata.size() ? &context.source.lightMetadata[index] : nullptr, row);
+			context.snapshot->Transform(index < context.source.lightMetadata.size() ? &context.source.lightMetadata[index] : nullptr, row);
 			return;
 		}
 		if (context.fluids != nullptr) row.fluidBindingIndex = UINT32_MAX;
@@ -56,7 +56,7 @@ namespace
 	void BeginPolicy(MaterialPolicyContext& context, NRIMaterialPolicySnapshot& owner)
 	{
 		if (!(bool)nri_ptmaterialpolicycache || owner.Quarantined()) return;
-		owner.Begin(context.lights, context.overlays, context.actors, context.fluids, context.source.materials.size(),
+		owner.Begin(context.lights, context.overlays, context.actors, context.fluids,
 			{ (float)nri_ptglowscale, (float)nri_ptglowfalloff, context.glowBlend, context.fullbrightBoost });
 		context.snapshot = &owner;
 	}
@@ -64,6 +64,8 @@ namespace
 	void FinishPolicy(MaterialPolicyContext& context, const NRIMaterialProductPatchResult& result, const char* stage)
 	{
 		if (context.snapshot == nullptr) return;
+		// These hits refer to reused current-operation selector matches, not
+		// retained transformed rows. The oracle still checks the complete product.
 		const bool hadHits = context.snapshot->Finish();
 		if ((bool)nri_ptmaterialpolicyvalidate && result.validationChecked)
 		{
@@ -109,6 +111,12 @@ void NRIRenderer::BuildSceneMaterialPolicyProduct(
 	const auto result = mCombinedMaterialProduct.BuildTransformed(source.materials,
 		uniformRanges, output, &context, TransformRow, TransformReference,
 		(bool)nri_ptmaterialrangesvalidate || (bool)nri_ptmaterialpolicyvalidate, context.snapshot != nullptr);
+	if (context.snapshot != nullptr && !result.fullRebuild && result.copiedRows < source.materials.size())
+	{
+		PerfAuditAdd(PerfAuditMetric::MaterialPolicyOutputRowsReused, source.materials.size() - result.copiedRows);
+		if ((bool)nri_ptmaterialpolicyvalidate && result.validationChecked)
+			PerfAuditAdd(PerfAuditMetric::MaterialPolicyOutputHitValidationChecks);
+	}
 	FinishPolicy(context, result, "prelight");
 	AuditMaterialProduct(result);
 	PerfAuditAdd(PerfAuditMetric::SceneTexturesGpuMaterialRowsCopied, result.copiedRows);
