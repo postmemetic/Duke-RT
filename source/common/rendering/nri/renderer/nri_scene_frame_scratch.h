@@ -103,6 +103,9 @@ struct NRISceneFrameScratch
 	// nested call. Dispatch and completion consume each lease synchronously.
 	NRIRetainedScratch<RenderSceneFrameBuildResult> views[2];
 	NRIStagedChunkScratch stagedChunks;
+	// Borrowed only during synchronous motion evaluation; cleared before return.
+	std::vector<const nri_scene::SceneView*> motionStageViews;
+	uint64_t motionStageMapEpoch = 0;
 };
 
 class NRISceneFrameScratchTrace

@@ -1,5 +1,6 @@
 #include "nri_map_motion_history.h"
 #include "nri_map_motion_reference_history.h"
+#include "nri_map_motion_stage_batch.h"
 #include "nri_cvars.h"
 #include "perf_audit.h"
 #include "printf.h"
@@ -150,6 +151,8 @@ bool NRIMapMotionHistory::SurfaceHasMotion(const nri_scene::SurfaceRef& surface)
 
 void NRIMapMotionHistory::Reset(const char* reason)
 {
+	++m_leaseGeneration;
+	m_stageBatch.reset(); // idle workers are joined before history storage retires
 	if (sStageCensus.owner == this) sStageCensus.owner = nullptr;
 	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
 	PerfAuditAdd(PerfAuditMetric::MapMotionRetiredRecords, m_records.size());
@@ -169,6 +172,10 @@ void NRIMapMotionHistory::Reset(const char* reason)
 	m_inputCapacityBytes = 0;
 	m_reference.reset();
 	m_quarantined = false;
+	PerfAuditSet(PerfAuditMetric::MapMotionBatchCapacityBytes, 0);
+	PerfAuditSet(PerfAuditMetric::MapMotionBatchWorkers, 0);
+	PerfAuditSet(PerfAuditMetric::MapMotionBatchResidentWorkers, 0);
+	PerfAuditSet(PerfAuditMetric::MapMotionBatchWorkerLimit, 0);
 	ReportAuditStorage();
 }
 
@@ -265,6 +272,7 @@ void NRIMapMotionHistory::EraseRecord(Record& record)
 
 void NRIMapMotionHistory::ClearStage(bool countDiscard)
 {
+	++m_leaseGeneration;
 	if (sStageCensus.owner == this) sStageCensus.owner = nullptr;
 	PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);
 	if (countDiscard && m_stageOpen) m_stats.discardCount++;
@@ -278,6 +286,11 @@ void NRIMapMotionHistory::ClearStage(bool countDiscard)
 	m_stageOpen = false;
 	m_stageFinalized = false;
 	m_stats.stagedSurfaceCount = 0;
+}
+
+void NRIMapMotionHistory::DisableStageCensus()
+{
+	if (sStageCensus.owner == this) sStageCensus.owner = nullptr;
 }
 
 void NRIMapMotionHistory::BeginStage(uint64_t proposedSerial, uint64_t mapEpoch)

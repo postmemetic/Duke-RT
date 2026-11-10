@@ -960,6 +960,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_map_chunk_status.cpp
 	common/rendering/nri/renderer/nri_map_movers.cpp
 	common/rendering/nri/renderer/nri_map_motion_history.cpp
+	common/rendering/nri/renderer/nri_map_motion_stage_batch.cpp
 	common/rendering/nri/renderer/nri_map_motion_payload_cache.cpp
 	common/rendering/nri/renderer/nri_map_motion_reference_history.cpp
 	common/rendering/nri/renderer/nri_map_material_only_route.cpp

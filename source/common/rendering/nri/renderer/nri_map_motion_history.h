@@ -9,6 +9,7 @@
 #include <string>
 
 class NRIMapMotionReferenceHistory;
+class NRIMapMotionStageBatch;
 
 class NRIMapMotionHistory
 {
@@ -45,6 +46,8 @@ public:
 	void ApplyCommitted(nri_scene::SceneView& sceneView, uint64_t mapEpoch);
 	void BeginStage(uint64_t proposedSerial, uint64_t mapEpoch);
 	bool StagePublishedView(const nri_scene::SceneView& sceneView);
+	// Synchronous immutable lease: no input/history mutation until this returns.
+	bool StagePublishedBatch(const std::vector<const nri_scene::SceneView*>& views, int workers);
 	void FinalizeStage();
 	bool CommitSubmitted(uint64_t serial);
 	void DiscardStaged();
@@ -56,6 +59,7 @@ public:
 	const char* GetLastResetReason() const;
 
 private:
+	friend class NRIMapMotionStageBatch;
 	struct Record
 	{
 		uint64_t occurrenceId = 0;
@@ -86,6 +90,7 @@ private:
 	bool CheckReference(const char* operation);
 	void Quarantine(const char* operation);
 	bool CommitOptimized(uint64_t serial);
+	void DisableStageCensus();
 
 	RecordMap m_records;
 	std::vector<Record*> m_committed;
@@ -102,6 +107,8 @@ private:
 	size_t m_payloadCapacityBytes = 0;
 	size_t m_inputCapacityBytes = 0;
 	std::unique_ptr<NRIMapMotionReferenceHistory> m_reference;
+	std::unique_ptr<NRIMapMotionStageBatch> m_stageBatch;
+	uint64_t m_leaseGeneration = 0;
 	bool m_quarantined = false;
 };
 
