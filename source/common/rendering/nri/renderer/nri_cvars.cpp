@@ -135,8 +135,9 @@ CVAR(Bool, nri_ptemissivetailvalidate, false, 0)
 CVAR(Bool, nri_ptpalettesnapshot, true, 0)
 CVAR(Bool, nri_ptpalettesnapshotvalidate, false, 0)
 CVAR(Bool, nri_ptmapmotionvalidate, false, 0)
-// -1 original serial; 0 serial batch; 1/2 workers plus main. Pilot defaults serial.
-CVAR(Int, nri_ptmapmotionworkers, 0, 0)
+// Session-only: -1 original serial; 0 serial batch; 1/2 workers plus main.
+// The batch owner limits concurrency and keeps small workloads serial.
+CVAR(Int, nri_ptmapmotionworkers, 2, 0)
 // Independent original decal signatures and padded upload bytes; session-only.
 CVAR(Bool, nri_ptdecalreusevalidate, false, 0)
 CVAR(Bool, nri_ptlightregistry, true, 0)
