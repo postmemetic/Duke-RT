@@ -135,6 +135,8 @@ CVAR(Bool, nri_ptemissivetailvalidate, false, 0)
 CVAR(Bool, nri_ptpalettesnapshot, true, 0)
 CVAR(Bool, nri_ptpalettesnapshotvalidate, false, 0)
 CVAR(Bool, nri_ptmapmotionvalidate, false, 0)
+// Independent original decal signatures and padded upload bytes; session-only.
+CVAR(Bool, nri_ptdecalreusevalidate, false, 0)
 CVAR(Bool, nri_ptlightregistry, true, 0)
 CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
 CVAR(Bool, nri_ptactorlightmaintenance, true, 0)

@@ -7,6 +7,7 @@
 #include "c_cvars.h"
 
 #include <algorithm>
+#include <cstring>
 
 bool NRISceneUploadManager::UpdateWallDecalBuffers(
 	NRIRenderer& renderer, bool* ioWaitedForWrites, bool allowSceneDataRing)
@@ -58,18 +59,53 @@ bool NRISceneUploadManager::UpdateWallDecalBuffers(
 	// map's larger wall domain. Clear its tail so an empty/smaller capture cannot
 	// accidentally reuse old decal ranges through shader GetDimensions().
 	const uint64_t headerStorageSize = GetNRIGrownBufferSize(headerBuffer.size, headerSize, sizeof(emptyHeader));
-	std::vector<nri_scene::WallDecalHeaderGpuData> paddedHeaders;
+	std::vector<nri_scene::WallDecalHeaderGpuData> referenceHeaders;
 	if (headerStorageSize > headerSize)
 	{
 		PerfAuditScope auditPadding(PerfAuditMetric::WallDecalHeaderPaddingNs);
-		paddedHeaders.resize(headerStorageSize / sizeof(emptyHeader));
-		std::copy(headers.begin(), headers.end(), paddedHeaders.begin());
-		headerData = paddedHeaders.data();
+		auto& padding = renderer.mWallDecals.HeaderPadding();
+		const uint64_t previousCapacity = padding.CapacityBytes();
+		uint64_t allocatedBytes = 0;
+		if (!padding.Quarantined())
+		{
+			const auto& padded = padding.Prepare(headers, headerStorageSize / sizeof(emptyHeader));
+			headerData = padded.data();
+			allocatedBytes = padding.CapacityBytes() > previousCapacity ? padding.CapacityBytes() : 0;
+			if ((bool)nri_ptdecalreusevalidate)
+			{
+				// Independent original padding path, deliberately allocating a fresh
+				// zero-filled vector before copying the current live prefix.
+				referenceHeaders.resize(headerStorageSize / sizeof(emptyHeader));
+				std::copy(headers.begin(), headers.end(), referenceHeaders.begin());
+				PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingValidationChecks);
+				if (allocatedBytes == 0) PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingHitValidationChecks);
+				if (std::memcmp(headerData, referenceHeaders.data(), (size_t)headerStorageSize) != 0)
+				{
+					PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingValidationMismatches);
+					PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingQuarantines);
+					padding.Quarantine();
+					headerData = referenceHeaders.data();
+					Printf("NRI PT wall decal reuse: padding_mismatch=1 action=reference-fallback-quarantine\n");
+				}
+			}
+		}
+		else
+		{
+			referenceHeaders.resize(headerStorageSize / sizeof(emptyHeader));
+			std::copy(headers.begin(), headers.end(), referenceHeaders.begin());
+			headerData = referenceHeaders.data();
+			allocatedBytes = referenceHeaders.capacity() * sizeof(emptyHeader);
+		}
 		if (audit)
 		{
-			PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingAllocations);
-			PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingAllocatedBytes, paddedHeaders.capacity() * sizeof(emptyHeader));
+			if (allocatedBytes != 0)
+			{
+				PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingAllocations);
+				PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingAllocatedBytes, allocatedBytes);
+			}
+			else PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingReuseCalls);
 			PerfAuditAdd(PerfAuditMetric::WallDecalHeaderPaddingTailBytes, headerStorageSize - headerSize);
+			PerfAuditSet(PerfAuditMetric::WallDecalHeaderPaddingCapacityBytes, padding.CapacityBytes());
 		}
 	}
 

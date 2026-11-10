@@ -1,5 +1,7 @@
 #include "nri_wall_decals.h"
 #include "nri_wall_decal_audit.h"
+#include "nri_wall_decal_signature_cache.h"
+#include "nri_cvars.h"
 
 #include "nri_renderer.h"
 #include "../scene/nri_hash.h"
@@ -13,10 +15,8 @@
 
 namespace
 {
-uint64_t BuildMaterialSignature(const std::vector<nri_scene::WallDecalCapture>& captures, bool& persistent)
+uint64_t BuildMaterialSignatureReference(const std::vector<nri_scene::WallDecalCapture>& captures, bool& persistent)
 {
-	PerfAuditScope audit(PerfAuditMetric::WallDecalMaterialSignatureNs);
-	if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::WallDecalMaterialSignatureRows, captures.size());
 	uint64_t signature = nri_scene::NRIHashFnv1a64OffsetBasis;
 	const uint64_t count = captures.size();
 	nri_scene::Fnv1a64Append(signature, &count, sizeof(count));
@@ -44,11 +44,71 @@ uint64_t BuildMaterialSignature(const std::vector<nri_scene::WallDecalCapture>& 
 	}
 	return signature != 0 ? signature : 1;
 }
+
+uint64_t BuildMaterialSignature(const std::vector<nri_scene::WallDecalCapture>& captures, bool& persistent, bool& quarantined)
+{
+	PerfAuditScope audit(PerfAuditMetric::WallDecalMaterialSignatureNs);
+	if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::WallDecalMaterialSignatureRows, captures.size());
+	if (quarantined) return BuildMaterialSignatureReference(captures, persistent);
+	NRIWallDecalSignatureCache cache;
+	uint64_t signature = nri_scene::NRIHashFnv1a64OffsetBasis;
+	const uint64_t count = captures.size();
+	nri_scene::Fnv1a64Append(signature, &count, sizeof(count));
+	persistent = true;
+	for (const auto& capture : captures)
+	{
+		const auto& material = capture.source.material;
+		nri_scene::TextureSignatureRequest request = {};
+		request.contentKind = (material.flags & nri_scene::MaterialFlag_Indexed) != 0
+			? nri_scene::TextureSignatureContentKind::Indexed
+			: nri_scene::TextureSignatureContentKind::ProcessedBGRA;
+		nri_scene::TextureSignature textureSignature = {};
+		if (!cache.Resolve(material.texture, request, textureSignature, nri_scene::TryBuildTextureSignature) ||
+			!textureSignature.valid || !textureSignature.persistentEligible)
+		{
+			persistent = false;
+		}
+		const uintptr_t texture = (uintptr_t)material.texture;
+		nri_scene::Fnv1a64Append(signature, &texture, sizeof(texture));
+		nri_scene::Fnv1a64Append(signature, &textureSignature.key, sizeof(textureSignature.key));
+		nri_scene::Fnv1a64Append(signature, &material.palette, sizeof(material.palette));
+		nri_scene::Fnv1a64Append(signature, &material.shade, sizeof(material.shade));
+		nri_scene::Fnv1a64Append(signature, &material.alpha, sizeof(material.alpha));
+		nri_scene::Fnv1a64Append(signature, &material.flags, sizeof(material.flags));
+	}
+	if (PerfAuditActive())
+	{
+		PerfAuditAdd(PerfAuditMetric::WallDecalSignatureRawCalls, cache.rawCalls);
+		PerfAuditAdd(PerfAuditMetric::WallDecalSignatureHits, cache.hits);
+		PerfAuditAdd(PerfAuditMetric::WallDecalSignatureSaturated, cache.saturated);
+	}
+	signature = signature != 0 ? signature : 1;
+	if ((bool)nri_ptdecalreusevalidate)
+	{
+		bool referencePersistent;
+		const uint64_t reference = BuildMaterialSignatureReference(captures, referencePersistent);
+		PerfAuditAdd(PerfAuditMetric::WallDecalSignatureValidationChecks);
+		if (cache.hits != 0) PerfAuditAdd(PerfAuditMetric::WallDecalSignatureHitValidationChecks);
+		if (signature != reference || persistent != referencePersistent)
+		{
+			PerfAuditAdd(PerfAuditMetric::WallDecalSignatureValidationMismatches);
+			PerfAuditAdd(PerfAuditMetric::WallDecalSignatureQuarantines);
+			quarantined = true;
+			persistent = referencePersistent;
+			Printf("NRI PT wall decal reuse: signature_mismatch=1 action=reference-fallback-quarantine\n");
+			return reference;
+		}
+	}
+	return signature;
+}
 }
 
 void NRIWallDecals::Reset()
 {
 	if (PerfAuditActive()) LastNRIWallDecalAuditPublication() = {};
+	mHeaderPadding.Reset();
+	mSignatureCacheQuarantined = false;
+	if (PerfAuditActive()) PerfAuditSet(PerfAuditMetric::WallDecalHeaderPaddingCapacityBytes, 0);
 	mHeaders.clear();
 	mRecords.clear();
 	mCaptureScratch.clear();
@@ -74,7 +134,7 @@ void NRIWallDecals::Capture(HWDrawInfo& drawInfo)
 	}
 	if (audit) PerfAuditAdd(PerfAuditMetric::WallDecalCaptureRows, mCaptureScratch.size());
 	bool persistent = false;
-	const uint64_t signature = BuildMaterialSignature(mCaptureScratch, persistent);
+	const uint64_t signature = BuildMaterialSignature(mCaptureScratch, persistent, mSignatureCacheQuarantined);
 	mMaterialChanged = !persistent || signature != mMaterialSignature;
 	if (mMaterialChanged)
 	{

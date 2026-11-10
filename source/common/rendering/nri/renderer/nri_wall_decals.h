@@ -4,6 +4,7 @@
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_scene_bridge.h"
 #include "../scene/nri_wall_decals.h"
+#include "nri_wall_decal_header_padding.h"
 
 #include <vector>
 
@@ -24,6 +25,7 @@ public:
 	const std::vector<nri_scene::WallDecalGpuData>& Records() const { return mRecords; }
 	bool MaterialChanged() const { return mMaterialChanged; }
 	bool NeedsTextureResolve() const { return mNeedsTextureResolve; }
+	NRIWallDecalHeaderPadding& HeaderPadding() { return mHeaderPadding; }
 
 private:
 	std::vector<nri_scene::WallDecalHeaderGpuData> mHeaders;
@@ -34,6 +36,8 @@ private:
 	std::vector<uint32_t> mBaseTextureIndices;
 	std::vector<uint32_t> mResolvedTextureIndices;
 	std::vector<uint32_t> mRecordMaterialIndices;
+	NRIWallDecalHeaderPadding mHeaderPadding;
+	bool mSignatureCacheQuarantined = false;
 	uint64_t mMaterialSignature = 0;
 	bool mMaterialChanged = false;
 	bool mNeedsTextureResolve = false;
