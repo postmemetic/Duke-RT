@@ -30,9 +30,6 @@ namespace
 
 bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeometry, nri_scene::MaterialBridgeData& outMaterials, bool* outResidentStaticSceneChanged)
 {
-	nri_scene::PTMapMutationInputScope mutationInputs(mRuntimeMutation.inputSnapshots, mMapWorld.chunks.size(),
-		(bool)nri_ptmutationinputs, (bool)nri_ptmutationinputsvalidate);
-	if (nri_ptmutationinputnoop && !mutationInputs.IsNested()) mRuntimeMutation.viewInputs.Begin(mMapWorld.buildSerial, mMapWorld.chunks.size());
 	nri_scene::ClearGeometryRetainingCapacity(outGeometry);
 	nri_scene::ClearMaterialBridgeRetainingCapacity(outMaterials);
 	if (outResidentStaticSceneChanged != nullptr)
@@ -2056,32 +2053,6 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		bool attemptedResidentComparableLiveChunkView = false;
 		bool haveResidentComparableLiveChunkView = false;
 		nri_scene::SceneView residentComparableLiveChunkView;
-		nri_scene::PTMapChunkViewInputs nestedNoopInputs;
-		auto& materialNoopInputs = mutationInputs.IsNested() ? nestedNoopInputs : mRuntimeMutation.viewInputs.Scratch();
-		materialNoopInputs.valid = false;
-		bool reusedMaterialNoopRawView = false;
-		const auto finishPreparedLiveChunkView = [&]()
-		{
-			const bool exclusiveMaterialOnlyReplacement =
-				materialOnlyReplacement &&
-				RequiresExclusiveRuntimeMutationMaterialOnlyReasonMask(normalizedReasonMask);
-			const bool blindSpotReplacementNudged = replacement.blindSpot && replacement.dragged;
-			if (blindSpotReplacementNudged)
-			{
-				NudgeBlindSpotReplacementFlats(liveChunkView);
-			}
-			else if (nri_ptceilingnudge)
-			{
-				NudgeMapCeilingSections(liveChunkView, (float)nri_ptceilingnudgedistance);
-			}
-			if (materialOnlyReplacement && !exclusiveMaterialOnlyReplacement)
-			{
-				FilterMaterialOnlyReplacementSceneView(liveChunkView, normalizedReasonMask);
-			}
-			ApplyCommittedMapMotion(liveChunkView);
-
-			havePreparedLiveChunkView = true;
-		};
 		const auto prepareLiveChunkView = [&]() -> bool
 		{
 			if (havePreparedLiveChunkView)
@@ -2109,8 +2080,25 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				(int)nri_ptmapmovershadow);
 
 			nri_scene::BuildMapChunkSceneView(liveWorld, liveWorld.chunks[0], liveChunkView);
-			mRuntimeMutation.viewInputs.Observe(mapChunk, materialNoopInputs, liveChunkView, liveStats);
-			finishPreparedLiveChunkView();
+			const bool exclusiveMaterialOnlyReplacement =
+				materialOnlyReplacement &&
+				RequiresExclusiveRuntimeMutationMaterialOnlyReasonMask(normalizedReasonMask);
+			const bool blindSpotReplacementNudged = replacement.blindSpot && replacement.dragged;
+			if (blindSpotReplacementNudged)
+			{
+				NudgeBlindSpotReplacementFlats(liveChunkView);
+			}
+			else if (nri_ptceilingnudge)
+			{
+				NudgeMapCeilingSections(liveChunkView, (float)nri_ptceilingnudgedistance);
+			}
+			if (materialOnlyReplacement && !exclusiveMaterialOnlyReplacement)
+			{
+				FilterMaterialOnlyReplacementSceneView(liveChunkView, normalizedReasonMask);
+			}
+			ApplyCommittedMapMotion(liveChunkView);
+
+			havePreparedLiveChunkView = true;
 			return true;
 		};
 		const auto tryResolveResidentChunkState =
@@ -3337,16 +3325,6 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					useOverlayReplacementState &&
 					analyzedReplacementDelta &&
 					replacementRefreshReasonMask != nri_scene::PTMapChunkMutationReason_None;
-				// Only reuse a last certified raw producer result. Current motion and
-				// synchronization predicates still run below; changed publication must
-				// reconstruct liveWorld before entering the existing material route.
-				if (nri_ptmutationinputnoop && !mutationInputs.IsNested() && !havePreparedLiveChunkView &&
-					!forceReplacementMaterialRefresh && (int)nri_ptmapmovershadow == 0 && !tracePtPerf)
-				{
-					reusedMaterialNoopRawView = mRuntimeMutation.viewInputs.TryReuse(
-						mapChunk, materialNoopInputs, liveChunkView, liveStats, (bool)nri_ptmutationinputsvalidate);
-					if (reusedMaterialNoopRawView) finishPreparedLiveChunkView();
-				}
 				if (!prepareLiveChunkView())
 				{
 					return false;
@@ -3401,7 +3379,6 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				if (suppressedAnimatedResidentAlreadySynchronized ||
 					unsuppressedAnimatedResidentAlreadySynchronized)
 				{
-					if (reusedMaterialNoopRawView) PerfAuditAdd(PerfAuditMetric::MutationInputsNoopAcceptedReuses);
 					return true;
 				}
 				if (!forceReplacementMaterialRefresh &&
@@ -3409,17 +3386,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					!requiresMaterialUvRefresh &&
 					liveAnimatedMaterialSignature == replacement.animatedMaterialSignature)
 				{
-					if (reusedMaterialNoopRawView) PerfAuditAdd(PerfAuditMetric::MutationInputsNoopAcceptedReuses);
 					return true;
-				}
-
-				if (reusedMaterialNoopRawView)
-				{
-					PerfAuditAdd(PerfAuditMetric::MutationInputsNoopChangedPublicationFallbacks);
-					havePreparedLiveChunkView = false;
-					attemptedResidentComparableLiveChunkView = false;
-					haveResidentComparableLiveChunkView = false;
-					if (!prepareLiveChunkView()) return false;
 				}
 
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.runtimeMutationRebuildMs);

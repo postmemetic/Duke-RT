@@ -7,8 +7,6 @@
 
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_builder.h"
-#include "../scene/nri_map_mutation_inputs.h"
-#include "nri_runtime_mutation_view_inputs.h"
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_scene_bridge.h"
 
@@ -490,8 +488,6 @@ public:
 	std::vector<RuntimeMutationResidentUploadRange> residentGeometryUploadRanges;
 	NRIRuntimeMutationWorklist worklist;
 	NRIRuntimeMutationDiscovery discovery;
-	nri_scene::PTMapMutationInputStore inputSnapshots;
-	NRIRuntimeMutationViewInputs viewInputs;
 	std::vector<uint8_t> signatureWatchlist;
 	std::vector<uint32_t> signatureWatchlistChunks;
 	uint64_t signatureWatchlistBuildSerial = 0;

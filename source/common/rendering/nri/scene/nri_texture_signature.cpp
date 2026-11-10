@@ -162,11 +162,6 @@ bool IsTexturePersistentSignatureEligible(FGameTexture* texture)
 	return IsTexturePersistentSignatureEligibleUnchecked(texture, baseTexture);
 }
 
-bool IsCurrentTextureManagerTexturePersistentSignatureEligible(FGameTexture* texture)
-{
-	return IsTexturePersistentSignatureEligibleUnchecked(texture, texture != nullptr ? texture->GetTexture() : nullptr);
-}
-
 bool CanBuildTextureSignatureFromMetadata(const TextureSignatureRequest& request)
 {
 	if ((request.flags & TextureSignatureRequestFlag_Upscale) != 0)

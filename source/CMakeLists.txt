@@ -1077,7 +1077,6 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_static_scene_geometry.cpp
 	common/rendering/nri/renderer/nri_static_scene_geometry_upload.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation.cpp
-	common/rendering/nri/renderer/nri_runtime_mutation_view_inputs.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_worklist.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_discovery.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_overlay.cpp
@@ -1134,8 +1133,6 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_map_motion_correspondence.cpp
 	common/rendering/nri/scene/nri_motion_projection.cpp
 	common/rendering/nri/scene/nri_map_builder.cpp
-	common/rendering/nri/scene/nri_map_mutation_inputs.cpp
-	common/rendering/nri/scene/nri_map_chunk_view_inputs.cpp
 	common/rendering/nri/scene/nri_map_mover_adapter.cpp
 	common/rendering/nri/scene/nri_map_mover_authored_topology.cpp
 	common/rendering/nri/scene/nri_map_mover_geometry.cpp
