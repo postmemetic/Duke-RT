@@ -132,10 +132,25 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		PerfAuditScope hashScope(PerfAuditMetric::EmissiveSamplingPayloadHashNs);
 		payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming());
 	}
-	uint64_t sectorResponsePayloadHash;
+	// This second hash feeds only the optional refresh diagnostic below. Keep
+	// the production payload identity and the separate sector trace consumer intact.
+	const bool traceSectorResponse = nri_runtime_mutation::ShouldTracePtPerf();
+	const bool collectSectorResponseHash = !(bool)nri_ptemissivediagnostichashgate || traceSectorResponse;
+	uint64_t sectorResponsePayloadHash = 0;
+	if (collectSectorResponseHash)
 	{
+		PerfAuditAdd(PerfAuditMetric::EmissiveDiagnosticHashScans);
+		PerfAuditAdd(PerfAuditMetric::EmissiveDiagnosticHashSeeds, !mEmissiveSectorResponsePayloadCacheValid);
 		PerfAuditScope hashScope(PerfAuditMetric::EmissiveSamplingSectorHashNs);
 		sectorResponsePayloadHash = mSceneLights.BuildEmissiveSectorResponsePayloadHash();
+	}
+	else
+	{
+		PerfAuditAdd(PerfAuditMetric::EmissiveDiagnosticHashSkips);
+		// Re-enabling tracing must seed from the current response, not compare with
+		// an old value observed before the untraced interval (including failed updates).
+		mEmissiveSectorResponsePayloadCacheValid = false;
+		mEmissiveSectorResponsePayloadHash = 0;
 	}
 	const bool sectorResponseChanged =
 		mEmissiveSectorResponsePayloadCacheValid &&
@@ -377,7 +392,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 			mEmissiveSamplingPayloadCacheValid = false;
 			mEmissiveSamplingPayloadHash = 0;
 		}
-		mEmissiveSectorResponsePayloadCacheValid = true;
+		mEmissiveSectorResponsePayloadCacheValid = collectSectorResponseHash;
 		mEmissiveSectorResponsePayloadHash = sectorResponsePayloadHash;
 		emitStabilityTrace(0);
 		emitCacheTrace(true);
@@ -567,7 +582,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 			(unsigned long long)emissiveStats.outputPersistentVoxelPrimitivesRepresented,
 			emissiveStats.skippedPersistentVoxelSurfaces);
 	}
-	if (sectorResponseChanged && nri_runtime_mutation::ShouldTracePtPerf())
+	if (sectorResponseChanged && traceSectorResponse)
 	{
 		const auto& sectorRegistry = mSceneLights.GetSectorLighting();
 		Printf("NRI PT emissive sampling refresh: frame=%u reason=sector-response-change primitives=%u total_power=%.3f dominant_primitive=%u dominant_tile=%u sector_response_hash=0x%016llx->0x%016llx response=boost:%u dim:%u neutral:%u\n",
@@ -584,7 +599,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	}
 	mEmissiveSamplingPayloadCacheValid = frameSlot == nullptr;
 	mEmissiveSamplingPayloadHash = frameSlot == nullptr ? payloadHash : 0;
-	mEmissiveSectorResponsePayloadCacheValid = true;
+	mEmissiveSectorResponsePayloadCacheValid = collectSectorResponseHash;
 	mEmissiveSectorResponsePayloadHash = sectorResponsePayloadHash;
 	audit.completed = true;
 	return true;

@@ -1059,3 +1059,8 @@ PERF_AUDIT_METRIC(MaterialColorHitValidationChecks, counter)
 PERF_AUDIT_METRIC(MaterialColorValidationMismatches, counter)
 PERF_AUDIT_METRIC(MaterialColorQuarantines, counter)
 PERF_AUDIT_METRIC(MaterialColorNestedInvalidations, counter)
+
+// Focused CPU follow-up owner diagnostics.
+PERF_AUDIT_METRIC(EmissiveDiagnosticHashScans, counter)
+PERF_AUDIT_METRIC(EmissiveDiagnosticHashSkips, counter)
+PERF_AUDIT_METRIC(EmissiveDiagnosticHashSeeds, counter)
