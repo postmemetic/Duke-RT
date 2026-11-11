@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-CVAR(Bool, nri_ptmaterialcolorreuse, false, 0)
+CVAR(Bool, nri_ptmaterialcolorreuse, true, 0)
 CVAR(Bool, nri_ptmaterialcolorvalidate, false, 0)
 
 namespace nri_scene

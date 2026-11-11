@@ -995,7 +995,7 @@ CVAR(Bool, nri_ptmutationbaselinevalidate, false, 0)
 
 // Nonrecovering discovery observation. Keep separate from the repairing validator.
 CVAR(Bool, nri_ptmutationworklistobserve, false, 0)
-CVAR(Bool, nri_ptfluidsignaturereuse, false, 0)
+CVAR(Bool, nri_ptfluidsignaturereuse, true, 0)
 CVAR(Bool, nri_ptfluidsignaturevalidate, false, 0)
 
 CUSTOM_CVAR(Int, nri_ptmutationworklistvalidate, 0, 0)
@@ -1716,7 +1716,7 @@ CVAR(Bool, nri_ptstaticfiltercache, true, 0)
 CVAR(Bool, nri_ptstaticfiltervalidate, false, 0)
 // Independent original CPU texture-slot and complete clean-product oracle.
 CVAR(Bool, nri_pttextureresolvevalidate, false, 0)
-CVAR(Bool, nri_ptresidentprefixreuse, false, 0)
+CVAR(Bool, nri_ptresidentprefixreuse, true, 0)
 // Whole-occurrence workload certificates are independently benchmarkable.
 // Enabled by default with session-only rollback; optional smoke consumers
 // can withhold bits when they cannot certify a workload.
