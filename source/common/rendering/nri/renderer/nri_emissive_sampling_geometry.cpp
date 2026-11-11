@@ -1,5 +1,6 @@
 #include "nri_emissive_sampling_geometry.h"
 #include "nri_cpu_detail_audit.h"
+#include "nri_cvars.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_hash.h"
 
@@ -127,7 +128,11 @@ void NRIEmissiveGeometryCache::BeginUpdate(bool collectTiming)
 	mStats = {};
 	mCollectTiming = collectTiming;
 	for (const auto& state : mDomains)
+	{
 		mStats.quarantinedDomains += state.quarantined ? 1u : 0u;
+		mStats.factResetReuseQuarantines += state.factResetQuarantined ? 1u : 0u;
+		mStats.factResetReuseStampCapacityBytes += state.primitiveStamps.capacity() * sizeof(uint32_t);
+	}
 }
 
 uint64_t NRIEmissiveGeometryCache::PublishTransientIdentity()
@@ -220,6 +225,7 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 	const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 	const double previousHashMs = mStats.validationHashMs;
 	auto& state = mDomains[(size_t)domain];
+	state.validateFacts = validate;
 	// Keep existing certified static/retained producer identities. Transient
 	// producers get exact sampling-only identities independent of their stamps.
 	const bool transientContent = domain == NRIEmissiveGeometryDomain::Captured ||
@@ -276,20 +282,48 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 	const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 	auto& state = mDomains[(size_t)domain];
 	const auto oldPrimitiveCapacity = state.primitives.capacity();
+	const auto oldStampCapacity = state.primitiveStamps.capacity();
+	const size_t rows = geometry != nullptr ? geometry->primitives.size() : 0;
+	const bool reuseReset = (bool)nri_ptemissivefactresetreuse && !state.factResetQuarantined;
+	const bool modeChanged = reuseReset != state.factResetReuse;
 	if (state.cachedPrimitiveIdentity != state.primitiveIdentity ||
-		state.primitives.size() != (geometry != nullptr ? geometry->primitives.size() : 0))
+		state.primitives.size() != rows || modeChanged)
 	{
 		NRICpuDetailAuditScope resetScope(PerfAuditMetric::EmissiveSamplingFactResetNs);
+		const size_t previousRows = state.primitives.size();
+		const size_t initializedRows = reuseReset ? rows - std::min(rows, previousRows) : rows;
 		if (PerfAuditCpuDetailActive())
 		{
-			const size_t rows = geometry != nullptr ? geometry->primitives.size() : 0;
-			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingFactResetRows, rows);
-			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingFactResetBytes, rows * sizeof(NRIEmissivePrimitiveGeometry));
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingFactResetRows, initializedRows);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingFactResetBytes, initializedRows * sizeof(NRIEmissivePrimitiveGeometry));
 		}
-		state.primitives.clear();
-		state.primitives.resize(geometry != nullptr ? geometry->primitives.size() : 0);
+		if (reuseReset)
+		{
+			mStats.factResetReuseStampRowsWritten += rows - std::min(rows, state.primitiveStamps.size());
+			state.primitiveStamps.resize(rows);
+			AdvancePrimitiveGeneration(state);
+			state.primitives.resize(rows);
+			++mStats.factResetReuseInvalidations;
+			mStats.factResetReuseSkippedRows += std::min(rows, previousRows);
+		}
+		else
+		{
+			state.primitives.clear();
+			state.primitives.resize(rows);
+			state.primitiveStamps.clear();
+			state.primitiveGeneration = 0;
+		}
+		state.factResetReuse = reuseReset;
+		mStats.factResetReuseModeResets += modeChanged ? 1u : 0u;
 		state.cachedPrimitiveIdentity = state.primitiveIdentity;
 		++mStats.primitiveInvalidations;
+	}
+	if (state.primitiveStamps.capacity() > oldStampCapacity)
+	{
+		const auto growthBytes = (state.primitiveStamps.capacity() - oldStampCapacity) * sizeof(uint32_t);
+		++mStats.capacityGrowths;
+		mStats.capacityGrowthBytes += growthBytes;
+		mStats.factResetReuseStampCapacityBytes += growthBytes;
 	}
 	if (state.primitives.capacity() > oldPrimitiveCapacity)
 	{
@@ -331,14 +365,34 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 	return state.ranges;
 }
 
+void NRIEmissiveGeometryCache::AdvancePrimitiveGeneration(DomainState& state)
+{
+	if (++state.primitiveGeneration == 0)
+	{
+		// A wrapped generation must never match a fact from an earlier cycle.
+		std::fill(state.primitiveStamps.begin(), state.primitiveStamps.end(), 0u);
+		mStats.factResetReuseStampRowsWritten += state.primitiveStamps.size();
+		++mStats.factResetReuseWraps;
+		state.primitiveGeneration = 1;
+	}
+}
+
 const NRIEmissivePrimitiveGeometry& NRIEmissiveGeometryCache::Primitive(
 	NRIEmissiveGeometryDomain domain, const nri_scene::GeometryData& geometry, uint32_t primitiveIndex)
 {
-	auto& primitive = mDomains[(size_t)domain].primitives[primitiveIndex];
-	if (!primitive.valid)
+	auto& state = mDomains[(size_t)domain];
+	auto& primitive = state.primitives[primitiveIndex];
+	const bool current = state.factResetReuse ?
+		state.primitiveStamps[primitiveIndex] == state.primitiveGeneration : primitive.valid;
+	if (!current)
 	{
 		const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 		primitive = BuildPrimitive(geometry, primitiveIndex);
+		if (state.factResetReuse)
+		{
+			state.primitiveStamps[primitiveIndex] = state.primitiveGeneration;
+			++mStats.factResetReuseStampRowsWritten;
+		}
 		mStats.primitiveBuilds++;
 		if (mCollectTiming)
 		{
@@ -347,7 +401,33 @@ const NRIEmissivePrimitiveGeometry& NRIEmissiveGeometryCache::Primitive(
 			mStats.primitiveFactMs += elapsed;
 		}
 	}
-	else mStats.primitiveReuses++;
+	else
+	{
+		++mStats.primitiveReuses;
+		if (state.factResetReuse && state.validateFacts)
+		{
+			const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
+			const auto reference = BuildPrimitive(geometry, primitiveIndex);
+			++mStats.factResetReuseValidationChecks;
+			const bool equal = primitive.valid == reference.valid &&
+				std::memcmp(&primitive.area, &reference.area, sizeof(primitive.area)) == 0 &&
+				std::memcmp(primitive.center, reference.center, sizeof(primitive.center)) == 0 &&
+				std::memcmp(&primitive.radius, &reference.radius, sizeof(primitive.radius)) == 0;
+			if (!equal)
+			{
+				++mStats.factResetReuseValidationMismatches;
+				if (!state.factResetQuarantined) ++mStats.factResetReuseQuarantines;
+				state.factResetQuarantined = true;
+				// Invalidate every other fact now, before another Primitive call.
+				// The next Ranges call switches this domain to the original reset path.
+				AdvancePrimitiveGeneration(state);
+				primitive = reference;
+				state.primitiveStamps[primitiveIndex] = state.primitiveGeneration;
+				++mStats.factResetReuseStampRowsWritten;
+			}
+			if (mCollectTiming) mStats.factResetReuseValidationMs += ElapsedMs(start);
+		}
+	}
 	return primitive;
 }
 
@@ -356,7 +436,8 @@ uint64_t NRIEmissiveGeometryCache::CapacityBytes() const
 	uint64_t bytes = SnapshotCapacityBytes();
 	for (const auto& state : mDomains)
 		bytes += state.ranges.capacity() * sizeof(NRIEmissiveMaterialPrimitiveRange) +
-			state.primitives.capacity() * sizeof(NRIEmissivePrimitiveGeometry);
+			state.primitives.capacity() * sizeof(NRIEmissivePrimitiveGeometry) +
+			state.primitiveStamps.capacity() * sizeof(uint32_t);
 	return bytes;
 }
 

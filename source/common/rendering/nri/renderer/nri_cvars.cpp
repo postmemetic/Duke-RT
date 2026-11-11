@@ -1969,3 +1969,5 @@ CVAR(Int, nri_ptactoroverlaylighttrace, 0, 0)
 
 CVAR(Bool, nri_ptatlasallocationreuse, false, 0)
 CVAR(Bool, nri_ptatlasallocationvalidate, false, 0)
+
+CVAR(Bool, nri_ptemissivefactresetreuse, false, 0)

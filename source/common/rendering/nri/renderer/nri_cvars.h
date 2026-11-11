@@ -528,3 +528,5 @@ EXTERN_CVAR(String, nri_api)
 
 EXTERN_CVAR(Bool, nri_ptatlasallocationreuse)
 EXTERN_CVAR(Bool, nri_ptatlasallocationvalidate)
+
+EXTERN_CVAR(Bool, nri_ptemissivefactresetreuse)

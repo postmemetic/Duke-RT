@@ -58,6 +58,16 @@ public:
 		EMISSIVE_AUDIT(DistributionTopologyReuses, mStats.distributionTopologyReuses);
 		EMISSIVE_AUDIT(DistributionComparedCandidates, mStats.distributionComparedCandidates);
 #undef EMISSIVE_AUDIT
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseInvalidations, cache.factResetReuseInvalidations);
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseModeResets, cache.factResetReuseModeResets);
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseWraps, cache.factResetReuseWraps);
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseSkippedRows, cache.factResetReuseSkippedRows);
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseStampRowsWritten, cache.factResetReuseStampRowsWritten);
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseValidationChecks, cache.factResetReuseValidationChecks);
+		PerfAuditAdd(PerfAuditMetric::EmissiveFactResetReuseValidationMismatches, cache.factResetReuseValidationMismatches);
+		PerfAuditSet(PerfAuditMetric::EmissiveFactResetReuseQuarantines, cache.factResetReuseQuarantines);
+		PerfAuditSet(PerfAuditMetric::EmissiveFactResetReuseStampCapacityBytes, cache.factResetReuseStampCapacityBytes);
+		time(PerfAuditMetric::EmissiveFactResetReuseValidationNs, cache.factResetReuseValidationMs);
 		PerfAuditSet(PerfAuditMetric::EmissiveSamplingSnapshotCapacityBytes, mLights.GetEmissiveGeometrySnapshotCapacityBytes());
 		PerfAuditSet(PerfAuditMetric::EmissiveSamplingGeometryCapacityBytes, mLights.GetEmissiveGeometryCacheCapacityBytes());
 		PerfAuditSet(PerfAuditMetric::EmissiveSamplingUploadCapacityBytes, mScratch.CapacityBytes());

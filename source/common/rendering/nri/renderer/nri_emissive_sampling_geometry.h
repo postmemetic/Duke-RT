@@ -61,6 +61,16 @@ struct NRIEmissiveGeometryCacheStats
 	uint32_t snapshotHits = 0;
 	uint32_t snapshotPositionOnlyChanges = 0;
 	uint32_t primitiveInvalidations = 0;
+	uint32_t factResetReuseInvalidations = 0;
+	uint32_t factResetReuseModeResets = 0;
+	uint32_t factResetReuseWraps = 0;
+	uint64_t factResetReuseSkippedRows = 0;
+	uint64_t factResetReuseStampRowsWritten = 0;
+	uint64_t factResetReuseStampCapacityBytes = 0;
+	uint32_t factResetReuseValidationChecks = 0;
+	uint32_t factResetReuseValidationMismatches = 0;
+	uint32_t factResetReuseQuarantines = 0;
+	double factResetReuseValidationMs = 0.0;
 };
 
 // Geometry facts only. Active lights and sector/material responses remain
@@ -120,8 +130,16 @@ private:
 		std::vector<SamplingPrimitive> topology;
 		std::vector<NRIEmissiveMaterialPrimitiveRange> ranges;
 		std::vector<NRIEmissivePrimitiveGeometry> primitives;
+		// A generation is a full-domain invalidation, not a per-primitive lifetime
+		// certificate. Zero stamps are uncomputed, including after growth/reset.
+		std::vector<uint32_t> primitiveStamps;
+		uint32_t primitiveGeneration = 0;
+		bool factResetReuse = false;
+		bool validateFacts = false;
+		bool factResetQuarantined = false;
 	};
 	uint64_t ResolveSnapshot(DomainState& state, const nri_scene::GeometryData* geometry);
+	void AdvancePrimitiveGeneration(DomainState& state);
 	std::array<DomainState, (size_t)NRIEmissiveGeometryDomain::Count> mDomains = {};
 	NRIEmissiveGeometryCacheStats mStats = {};
 	bool mCollectTiming = false;
