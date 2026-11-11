@@ -49,9 +49,14 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		NRIResolveSceneMaterialBridgeTextureSlotRangeWithRemap(mTextureRemap, mResolvedMaterials, first, end, &stats);
 		mResolvedResidentTextureLimit = std::max(mResolvedResidentTextureLimit, stats.sourceIndexLimit);
 	};
+	// Prepare proves actual lookup outputs, including availability changes that
+	// do not advance MappingRevision. Build owns clean-row invalidation/patches.
+	// A global slot revision alone cannot invalidate an unchanged resident prefix.
+	const bool reusedAcrossRevision = (bool)nri_ptresidentprefixreuse && mResolvedResidentValid &&
+		mResolvedTextureSlotRevision != slotTable.MappingRevision();
 	const bool rebuildResident =
 		!mResolvedResidentValid ||
-		mResolvedTextureSlotRevision != slotTable.MappingRevision();
+		(!(bool)nri_ptresidentprefixreuse && mResolvedTextureSlotRevision != slotTable.MappingRevision());
 	if (rebuildResident)
 	{
 		// Exclusive revision categories retain the old rebuild decision. Owner
@@ -105,6 +110,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 	}
 	else
 	{
+		uint64_t rowsReused = mResidentMaterialCount;
 		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveHits);
 		mResolvedMaterials.materials.resize(mResidentMaterialCount);
 		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
@@ -114,6 +120,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		mResolvedMaterials.paletteHeight = mCombinedMaterials.paletteHeight;
 		if (mResolvedStaticPrefixDirty)
 		{
+			rowsReused -= mStaticMaterialCount;
 			std::copy_n(mCombinedMaterials.materials.begin(), mStaticMaterialCount, mResolvedMaterials.materials.begin());
 			std::copy_n(mCombinedMaterials.lightMetadata.begin(), mStaticLightMetadataCount, mResolvedMaterials.lightMetadata.begin());
 			resolveResidentRange(0u, mStaticMaterialCount);
@@ -134,6 +141,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolvePersistentPatches);
 			for (const auto range : mResolvedDirtyRows)
 			{
+				rowsReused -= range.count;
 				std::copy_n(mCombinedMaterials.materials.begin() + range.first, range.count, mResolvedMaterials.materials.begin() + range.first);
 				std::copy_n(mCombinedMaterials.lightMetadata.begin() + range.first, range.count, mResolvedMaterials.lightMetadata.begin() + range.first);
 				resolveResidentRange(range.first, range.first + range.count);
@@ -144,6 +152,12 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 					(uint64_t)range.count * (sizeof(nri_scene::MaterialData) + sizeof(nri_scene::MaterialLightingMetadata)));
 			}
 			mResolvedDirtyRows.clear();
+		}
+		mResolvedTextureSlotRevision = slotTable.MappingRevision();
+		if (reusedAcrossRevision)
+		{
+			PerfAuditAdd(PerfAuditMetric::MaterialResidentPrefixReuseChecks);
+			PerfAuditAdd(PerfAuditMetric::MaterialResidentPrefixReuseRowsReused, rowsReused);
 		}
 	}
 
@@ -161,7 +175,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 	NRIResolveSceneMaterialBridgeTextureSlotRangeWithRemap(mTextureRemap, mResolvedMaterials,
 		firstOverlayRow, (uint32_t)mResolvedMaterials.materials.size());
 	mResolvedProductValid = true;
-	ValidateResolvedTextureProduct(slotTable, false);
+	ValidateResolvedTextureProduct(slotTable, false, reusedAcrossRevision);
 	ReportResolvedTextureStorage();
 	return mResolvedMaterials;
 }
@@ -181,7 +195,7 @@ void NRISceneMaterialFrameCache::BuildResolvedTextureReference(
 }
 
 void NRISceneMaterialFrameCache::ValidateResolvedTextureProduct(
- const NRISceneTextureSlotTable& slotTable, bool productHit)
+ const NRISceneTextureSlotTable& slotTable, bool productHit, bool residentPrefixReuse)
 {
  const bool validateProduct = (bool)nri_pttextureresolvevalidate;
  if (!validateProduct && !mValidateRangeUpdates) return;
@@ -193,11 +207,17 @@ void NRISceneMaterialFrameCache::ValidateResolvedTextureProduct(
  {
   PerfAuditAdd(PerfAuditMetric::MaterialProductReuseValidationChecks);
   if (productHit) PerfAuditAdd(PerfAuditMetric::MaterialProductReuseHitValidationChecks);
+  if (residentPrefixReuse) PerfAuditAdd(PerfAuditMetric::MaterialResidentPrefixReuseValidationChecks);
  }
  if (nri_scene::MaterialBridgesExactlyEqual(mResolvedMaterials, reference)) return;
  if (mValidateRangeUpdates) PerfAuditAdd(PerfAuditMetric::MaterialRangeResolveMismatches);
  PerfAuditAdd(PerfAuditMetric::MaterialProductReuseValidationMismatches);
  PerfAuditAdd(PerfAuditMetric::MaterialProductReuseQuarantines);
+ if (residentPrefixReuse)
+ {
+  PerfAuditAdd(PerfAuditMetric::MaterialResidentPrefixReuseValidationMismatches);
+  PerfAuditAdd(PerfAuditMetric::MaterialResidentPrefixReuseQuarantines);
+ }
  Printf("NRI PT texture product validation: hit=%u mismatch=1 action=reference-until-reset\n", productHit ? 1u : 0u);
  mResolvedMaterials = std::move(reference);
  mResolvedProductValid = false;

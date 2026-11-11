@@ -41,7 +41,8 @@ public:
 private:
 	void BuildResolvedTextureReference(const NRISceneTextureSlotTable& slotTable,
 		nri_scene::MaterialBridgeData& reference) const;
-	void ValidateResolvedTextureProduct(const NRISceneTextureSlotTable& slotTable, bool productHit);
+	void ValidateResolvedTextureProduct(const NRISceneTextureSlotTable& slotTable, bool productHit,
+		bool residentPrefixReuse = false);
 	void ReportResolvedTextureStorage() const;
 	bool TryPatchPersistentMaterials(const nri_scene::MaterialBridgeData& source,
 		uint64_t generation, const nri_scene::MaterialBridgeChanges& changes,

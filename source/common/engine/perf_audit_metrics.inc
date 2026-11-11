@@ -1031,3 +1031,10 @@ PERF_AUDIT_METRIC(MutationObservationAgeFrames, counter)
 PERF_AUDIT_METRIC(MutationObservationTraceSuppressed, counter)
 PERF_AUDIT_METRIC(MutationObservationNs, counter)
 PERF_AUDIT_METRIC(MutationObservationContaminated, counter)
+
+// Focused CPU follow-up owner diagnostics.
+PERF_AUDIT_METRIC(MaterialResidentPrefixReuseChecks, counter)
+PERF_AUDIT_METRIC(MaterialResidentPrefixReuseRowsReused, counter)
+PERF_AUDIT_METRIC(MaterialResidentPrefixReuseValidationChecks, counter)
+PERF_AUDIT_METRIC(MaterialResidentPrefixReuseValidationMismatches, counter)
+PERF_AUDIT_METRIC(MaterialResidentPrefixReuseQuarantines, counter)
