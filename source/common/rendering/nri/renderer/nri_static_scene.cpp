@@ -519,15 +519,13 @@ bool NRIRenderer::RefreshStaticMapAnimatedMaterials()
 
 	NRIStaticSceneAnimatedMaterialRefreshServices services = {};
 	services.user = this;
-	services.refreshAnimatedBindingsForStaticMapChunk = [](void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk, nri_scene::SceneView& ioChunkView)
+	services.refreshAnimatedBindingsForStaticMapChunk = [](void*, nri_scene::SceneView& ioChunkView)
 	{
-		(void)user;
-		return nri_static_scene::RefreshAnimatedBindings(mapWorld, chunk, ioChunkView);
+		return nri_static_scene::RefreshAnimatedBindings(ioChunkView);
 	};
-	services.resolveAnimatedBindingsForStaticMapChunk = [](void*, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk,
-		const nri_scene::SceneView& chunkView, std::vector<FGameTexture*>& bindings)
+	services.resolveAnimatedBindingsForStaticMapChunk = [](void*, const nri_scene::SceneView& chunkView, std::vector<FGameTexture*>& bindings)
 	{
-		return nri_static_scene::ResolveAnimatedBindings(mapWorld, chunk, chunkView, bindings);
+		return nri_static_scene::ResolveAnimatedBindings(chunkView, bindings);
 	};
 	services.buildMaterialsWithActorOverrides = [](void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label)
 	{
@@ -609,9 +607,9 @@ bool NRIRenderer::EnsureStaticMapScene()
 	{
 		static_cast<NRIRenderer*>(user)->ApplyCommittedMapMotion(sceneView);
 	};
-	staticSceneCacheBuildServices.chunkHasAnimatedStaticMapSurfaceCandidates = [](void*, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk)
+	staticSceneCacheBuildServices.chunkHasAnimatedStaticMapSurfaceCandidates = [](void*, const nri_scene::SceneView& chunkView)
 	{
-		return nri_static_scene::ChunkHasAnimatedSurfaceCandidates(mapWorld, chunk);
+		return nri_static_scene::ChunkHasAnimatedSurfaceCandidates(chunkView);
 	};
 	staticSceneCacheBuildServices.geometryBuildStaticChunkMs = &mLastPerfShellTraceStats.geometryBuildStaticChunkMs;
 	staticSceneCacheBuildServices.geometryBuildStaticChunkCalls = &mLastPerfShellTraceStats.geometryBuildStaticChunkCalls;
@@ -1714,7 +1712,7 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 	chunkCache.animatedGeometrySignature = nri_runtime_mutation::ComputeAnimatedGeometrySignature(chunkSceneView);
 	chunkCache.hasAnimatedTextureCandidates =
 		services.chunkHasAnimatedStaticMapSurfaceCandidates != nullptr &&
-		services.chunkHasAnimatedStaticMapSurfaceCandidates(services.user, mapWorld, chunk);
+		services.chunkHasAnimatedStaticMapSurfaceCandidates(services.user, chunkSceneView);
 	chunkCache.animatedRefreshSuppressed = false;
 
 	outStaticScene.filterCandidateCache.InvalidateGeometry();

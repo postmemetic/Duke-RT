@@ -1,4 +1,5 @@
 #include "nri_static_scene.h"
+#include "nri_static_scene_animated_bindings.h"
 #include "nri_runtime_mutation_shared.h"
 #include "../scene/nri_scene_math.h"
 #include "../scene/nri_sector_color_policy.h"
@@ -172,13 +173,37 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 	if (input.validateMaterialPatches)
 	{
 		state.referenceCandidates.clear();
+		bool candidateAuthorityMismatch = false;
 		for (uint32_t index = 0; index < staticScene.chunks.size(); ++index)
 		{
 			const auto& chunk = staticScene.chunks[index];
-			if (chunk.active && chunk.hasAnimatedTextureCandidates) state.referenceCandidates.push_back(index);
+			if (!chunk.active) continue;
+			// Validate the producer's flag too: scanning cached flags alone cannot
+			// detect an animated band revealed after the initial map capture.
+			const bool candidate = ChunkHasAnimatedSurfaceCandidates(staticScene.lightChunkViews[index]);
+			candidateAuthorityMismatch |= candidate != chunk.hasAnimatedTextureCandidates;
+			if (candidate) state.referenceCandidates.push_back(index);
 		}
 		++stats.candidateChecks;
-		if (state.referenceCandidates != state.candidates) mismatch("candidate-membership");
+		if (candidateAuthorityMismatch || state.referenceCandidates != state.candidates)
+		{
+			mismatch(candidateAuthorityMismatch ? "candidate-authority" : "candidate-membership");
+			// The quarantined scalar path still needs correct membership. Repair
+			// it from current retained surfaces, without rebuilding map geometry.
+			state.candidates = state.referenceCandidates;
+			staticScene.animatedCandidateChunkCount = (uint32_t)state.candidates.size();
+			size_t candidateIndex = 0;
+			for (uint32_t index = 0; index < staticScene.chunks.size(); ++index)
+			{
+				const bool candidate = candidateIndex < state.candidates.size() && state.candidates[candidateIndex] == index;
+				// Inactive retained chunks may reactivate without a new payload;
+				// preserve their flag, just as normal candidate-list updates do.
+				if (staticScene.chunks[index].active)
+					staticScene.chunks[index].hasAnimatedTextureCandidates = candidate;
+				if (candidate) ++candidateIndex;
+			}
+			if (services.syncResidentRegistry != nullptr) services.syncResidentRegistry(services.user);
+		}
 	}
 	bool patchedAll = optimized && state.canonicalLayoutValid &&
 		state.canonicalMaterialGeneration == staticScene.materialGeneration &&
@@ -217,8 +242,8 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		bool cheapValid = false;
 		if (!refreshColorPolicy && optimized && services.resolveAnimatedBindingsForStaticMapChunk != nullptr)
 		{
-			cheapValid = services.resolveAnimatedBindingsForStaticMapChunk(services.user, mapWorld,
-				mapWorld.chunks[chunk.chunkIndex], retainedView, state.resolvedBindings) &&
+			cheapValid = services.resolveAnimatedBindingsForStaticMapChunk(services.user,
+				retainedView, state.resolvedBindings) &&
 				nri_runtime_mutation::ComputeAnimatedMaterialSignatureWithBindings(retainedView, state.resolvedBindings, cheapSignature);
 			++stats.signaturesChecked;
 			if (cheapValid && cheapSignature == chunk.animatedMaterialSignature && !input.validateMaterialPatches)
@@ -247,7 +272,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		else
 		{
 			if (services.refreshAnimatedBindingsForStaticMapChunk == nullptr ||
-				!services.refreshAnimatedBindingsForStaticMapChunk(services.user, mapWorld, mapWorld.chunks[chunk.chunkIndex], liveView))
+				!services.refreshAnimatedBindingsForStaticMapChunk(services.user, liveView))
 			{
 				if (input.validateMaterialPatches && cheapValid) mismatch("binding-mapping");
 				suppress(chunk, "surface-mapping-mismatch");

@@ -8,14 +8,13 @@
 #include "nri_runtime_mutation_shared.h"
 #include "nri_runtime_mutation_trace.h"
 #include "nri_static_scene_geometry.h"
+#include "nri_static_scene_animated_bindings.h"
 #include "c_cvars.h"
 #include "gamecontrol.h"
 #include "gamestate.h"
 #include "hw_sections.h"
 #include "mapinfo.h"
 #include "printf.h"
-#include "texinfo.h"
-#include "texturemanager.h"
 
 #include <array>
 #include <chrono>
@@ -33,35 +32,6 @@ namespace
 	static bool ShouldTraceResidentGeometryOrderHash()
 	{
 		return (int)perf_looptraceframes > 0;
-	}
-
-	static FTextureID ResolveAuthoredTextureIdForStaticMapSurface(const nri_scene::PTMapSurface& surface)
-	{
-		const int32_t authoredTextureId = surface.surface.material.authoredTextureId;
-		if (authoredTextureId >= 0)
-		{
-			return FSetTextureID(authoredTextureId);
-		}
-		return FNullTextureID();
-	}
-
-	static bool IsAnimatedStaticMapSurfaceCandidate(const nri_scene::PTMapSurface& surface)
-	{
-		const FTextureID textureId = ResolveAuthoredTextureIdForStaticMapSurface(surface);
-		return textureId.isValid() && GetExtInfo(textureId).picanm.type() != 0;
-	}
-
-	static bool ChunkHasAnimatedStaticMapSurfaceCandidates(const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk)
-	{
-		const uint32_t endSurface = std::min<uint32_t>(chunk.firstSurface + chunk.surfaceCount, (uint32_t)mapWorld.surfaces.size());
-		for (uint32_t surfaceIndex = chunk.firstSurface; surfaceIndex < endSurface; ++surfaceIndex)
-		{
-			if (IsAnimatedStaticMapSurfaceCandidate(mapWorld.surfaces[surfaceIndex]))
-			{
-				return true;
-			}
-		}
-		return false;
 	}
 
 	enum RuntimeResidentBlasRefitRejectBits : uint32_t
@@ -1289,7 +1259,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 		}
 		mutableChunk.animatedMaterialSignature = ComputeAnimatedMaterialSignature(residentSceneView);
 		mutableChunk.animatedGeometrySignature = ComputeAnimatedGeometrySignature(residentSceneView);
-		mutableChunk.hasAnimatedTextureCandidates = ChunkHasAnimatedStaticMapSurfaceCandidates(mMapWorld, mapChunk);
+		mutableChunk.hasAnimatedTextureCandidates = nri_static_scene::ChunkHasAnimatedSurfaceCandidates(residentSceneView);
 		mutableChunk.animatedRefreshSuppressed =
 			previousAnimatedRefreshSuppressed &&
 			(appliedStaticAnimatedReplacement ||

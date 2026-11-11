@@ -287,7 +287,7 @@ struct NRIStaticSceneCacheBuildServices
 	void (*initializeStaticChunkReplacement)(void* user, const nri_scene::PTMapChunk& chunk) = nullptr;
 	void (*buildMaterialsWithActorOverrides)(void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label) = nullptr;
 	void (*applyCommittedMapMotion)(void* user, nri_scene::SceneView& sceneView) = nullptr;
-	bool (*chunkHasAnimatedStaticMapSurfaceCandidates)(void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk) = nullptr;
+	bool (*chunkHasAnimatedStaticMapSurfaceCandidates)(void* user, const nri_scene::SceneView& chunkView) = nullptr;
 	double* geometryBuildStaticChunkMs = nullptr;
 	uint32_t* geometryBuildStaticChunkCalls = nullptr;
 	uint32_t* geometryBuildStaticChunkPrimitives = nullptr;
@@ -313,8 +313,8 @@ struct NRIStaticSceneAnimatedMaterialRefreshInput
 struct NRIStaticSceneAnimatedMaterialRefreshServices
 {
 	void* user = nullptr;
-	bool (*refreshAnimatedBindingsForStaticMapChunk)(void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk, nri_scene::SceneView& ioChunkView) = nullptr;
-	bool (*resolveAnimatedBindingsForStaticMapChunk)(void* user, const nri_scene::PTMapWorld& mapWorld, const nri_scene::PTMapChunk& chunk, const nri_scene::SceneView& chunkView, std::vector<FGameTexture*>& outBindings) = nullptr;
+	bool (*refreshAnimatedBindingsForStaticMapChunk)(void* user, nri_scene::SceneView& ioChunkView) = nullptr;
+	bool (*resolveAnimatedBindingsForStaticMapChunk)(void* user, const nri_scene::SceneView& chunkView, std::vector<FGameTexture*>& outBindings) = nullptr;
 	void (*buildMaterialsWithActorOverrides)(void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label) = nullptr;
 	bool (*ensurePaletteTexture)(void* user, const nri_scene::MaterialBridgeData& materials) = nullptr;
 	bool (*ensureSceneTextures)(void* user, const nri_scene::SceneView& sceneView, const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& gpuMaterials, bool preserveExistingSky, const char* reason) = nullptr;
