@@ -1,8 +1,11 @@
 #include "nri_scene_material_product.h"
 #include "nri_material_uniform_ranges.h"
 #include "nri_cpu_detail_audit.h"
+#include "c_cvars.h"
 
 #include <algorithm>
+
+CVAR(Bool, nri_ptmaterialsegmentreuse, false, 0)
 
 NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 	const std::vector<nri_scene::MaterialData>& base,
@@ -12,6 +15,8 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 	bool validate, bool retainOutput)
 {
 	const bool detail = PerfAuditCpuDetailActive();
+	const bool segmentReuse = (bool)nri_ptmaterialsegmentreuse;
+	const bool observeSegments = detail || validate;
 	NRIMaterialProductPatchResult result;
 	result.valid = true;
 	result.changed = true;
@@ -38,6 +43,19 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 		auto row = base[index];
 		transformRow(context, index, row);
 		++result.evaluatedRows;
+		if (segmentReuse && compareOutput && count >= NRIMaterialSegmentMinimumRows)
+		{
+			if (observeSegments) ++result.segments.attempts;
+			if (NRIEqualUniformMaterialOutput(row, output.data() + index, count,
+				observeSegments ? &result.segments : nullptr))
+			{
+				if (observeSegments) { ++result.segments.hits; result.segments.reusedRows += count; }
+				precedingChanged = false;
+				index += count;
+				continue;
+			}
+			if (observeSegments) result.segments.fallbackRows += count;
+		}
 		if (!compareOutput)
 		{
 			std::fill_n(output.begin() + index, count, row);

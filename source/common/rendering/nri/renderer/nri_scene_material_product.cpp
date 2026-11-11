@@ -1,10 +1,13 @@
 #include "nri_scene_material_product.h"
 #include "nri_material_uniform_ranges.h"
 #include "nri_cpu_detail_audit.h"
+#include "c_cvars.h"
 
 #include <algorithm>
 #include <cstring>
 #include <type_traits>
+
+EXTERN_CVAR(Bool, nri_ptmaterialsegmentreuse)
 
 static_assert(std::is_trivially_copyable<nri_scene::MaterialData>::value, "Material row byte comparison requires a plain GPU payload.");
 static_assert(sizeof(nri_scene::MaterialData) == 23 * sizeof(uint32_t), "Update exact material comparison when the shader row layout changes.");
@@ -31,6 +34,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 	bool validateEveryUpdate)
 {
 	const bool detail = PerfAuditCpuDetailActive();
+	const bool segmentReuse = (bool)nri_ptmaterialsegmentreuse && deferredIndices.empty();
 	NRIMaterialProductPatchResult result;
 	if (staticCount > base.size() || persistentCount > base.size() - staticCount)
 		return result;
@@ -109,6 +113,22 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 				}
 				candidate = uniformCandidate;
 				++result.uniformRows;
+				const auto range = (*uniformRanges)[uniformIndex];
+				if (segmentReuse && index == range.first && range.count >= NRIMaterialSegmentMinimumRows)
+				{
+					const bool observeSegments = detail || result.validationChecked;
+					if (observeSegments) ++result.segments.attempts;
+					if (NRIEqualUniformMaterialOutput(candidate, combined.data() + index, range.count,
+						observeSegments ? &result.segments : nullptr))
+					{
+						if (observeSegments) { ++result.segments.hits; result.segments.reusedRows += range.count; }
+						result.uniformRows += range.count - 1;
+						precedingChanged = false;
+						index += range.count - 1;
+						continue;
+					}
+					if (observeSegments) result.segments.fallbackRows += range.count;
+				}
 			}
 			else
 			{

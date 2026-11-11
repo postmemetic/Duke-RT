@@ -84,6 +84,19 @@ namespace
 
 	void AuditMaterialProduct(const NRIMaterialProductPatchResult& result)
 	{
+		if (result.segments.attempts != 0)
+		{
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentAttempts, result.segments.attempts);
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentHits, result.segments.hits);
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentRowsReused, result.segments.reusedRows);
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentCompareCalls, result.segments.compareCalls);
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentCompareExtentBytes, result.segments.compareExtentRows * sizeof(nri_scene::MaterialData));
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentFallbackRows, result.segments.fallbackRows);
+			if (result.validationChecked && result.segments.hits != 0)
+				PerfAuditAdd(PerfAuditMetric::MaterialSegmentHitValidationChecks);
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentValidationMismatches, result.validationMismatch);
+			PerfAuditAdd(PerfAuditMetric::MaterialSegmentQuarantines, result.validationMismatch);
+		}
 		if (PerfAuditCpuDetailActive())
 		{
 			PerfAuditAdd(PerfAuditMetric::MaterialPolicyProductTransformRows, result.evaluatedRows);

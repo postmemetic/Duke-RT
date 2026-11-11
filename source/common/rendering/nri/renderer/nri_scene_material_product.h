@@ -2,6 +2,7 @@
 
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_material_bridge_ranges.h"
+#include "nri_material_uniform_output.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,7 @@ struct NRIMaterialProductPatchResult
 	// Optional aggregate detail counts; no row clocks or atomic publication.
 	size_t outputComparedRows = 0;
 	size_t deferredRowsSkipped = 0;
+	NRIMaterialSegmentComparisonStats segments;
 };
 
 // This owner retains scratch, never material authority. Every candidate row is
