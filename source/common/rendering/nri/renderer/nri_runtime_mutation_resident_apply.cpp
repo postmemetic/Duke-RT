@@ -10,6 +10,7 @@
 #include "nri_runtime_mutation_shared.h"
 #include "nri_runtime_mutation_trace.h"
 #include "nri_static_scene_geometry.h"
+#include "nri_static_atlas_allocation.h"
 #include "nri_static_scene_animated_bindings.h"
 #include "c_cvars.h"
 #include "gamecontrol.h"
@@ -28,6 +29,7 @@ namespace
 {
  namespace followup = nri_scene::mutation_followup_audit;
 	using namespace nri_runtime_mutation;
+	nri_static_atlas_allocation::ValidationState gAtlasAllocationValidation;
 }
 
 namespace
@@ -692,7 +694,15 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			sourceChunk.materialOffset = 0;
 			sourceChunk.materialCount = (uint32_t)residentMaterials.materials.size();
 
-			for (;;)
+			nri_static_atlas_allocation::RetainedPlan allocationPlan(gAtlasAllocationValidation,
+				mStaticMapChunkAtlas, mMapWorld.buildSerial, mapChunk.chunkIndex, chunkListIndex,
+				hasResidentGeometry && !recoveredFullLiveResidentChunk,
+				{ effectiveResidentVertexCount, effectiveResidentIndexCount, effectiveResidentPrimitiveCount, residentMaterialCount },
+				(bool)nri_ptatlasallocationreuse, (bool)nri_ptatlasallocationvalidate);
+
+			// Keep the original transactional allocator as fallback and independent
+			// reference. The fast path does not change any current payload decision.
+			for (; allocationPlan.NeedsOriginalPlan();)
 			{
 				{
      followup::Timer cloneTimer(followup::Counter::MutationAtlasCloneNs);
@@ -786,6 +796,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 					return false;
 				}
 			}
+			allocationPlan.Complete(mStaticMapChunkAtlas, nextAtlasState, nextAtlasChunk, keptGeometrySlices, keptMaterialSlice);
 			if (keptGeometrySlices)
 			{
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyKeepGeometrySliceCount++;
@@ -999,8 +1010,9 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 				keptMaterialSlice &&
 				!preserveResidentPrimitiveSlice;
 
-			mStaticMapChunkAtlas = std::move(nextAtlasState);
-			mStaticMapChunkAtlas.chunks[chunkListIndex] = nextAtlasChunk;
+			// Preserve the original publication boundary and full entry rewrite.
+			// Subsequent upload failures retain exactly the original committed state.
+			allocationPlan.Commit(mStaticMapChunkAtlas, nextAtlasState, nextAtlasChunk);
 			if (mStaticMapChunkAtlas.vertexCount > mStaticMapScene.geometry.vertices.size() ||
 				mStaticMapChunkAtlas.primitiveCount > mStaticMapScene.geometry.primitives.size())
 			{

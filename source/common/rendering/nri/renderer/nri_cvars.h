@@ -525,3 +525,6 @@ EXTERN_CVAR(Int, hw_lightmode)
 EXTERN_CVAR(Int, perf_looptraceframes)
 EXTERN_CVAR(Int, perf_compactframes)
 EXTERN_CVAR(String, nri_api)
+
+EXTERN_CVAR(Bool, nri_ptatlasallocationreuse)
+EXTERN_CVAR(Bool, nri_ptatlasallocationvalidate)

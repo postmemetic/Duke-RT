@@ -1966,3 +1966,6 @@ CVAR(String, nri_shadervariant, "production", 0)
 // Moved from source/common/rendering/nri/renderer/nri_scene_lights.cpp
 
 CVAR(Int, nri_ptactoroverlaylighttrace, 0, 0)
+
+CVAR(Bool, nri_ptatlasallocationreuse, false, 0)
+CVAR(Bool, nri_ptatlasallocationvalidate, false, 0)
