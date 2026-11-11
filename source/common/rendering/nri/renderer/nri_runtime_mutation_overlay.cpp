@@ -3,6 +3,7 @@
 
 #include "../scene/nri_hash.h"
 #include "../scene/nri_map_builder.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 #include "../../hwrenderer/data/hw_clock.h"
 #include "nri_render_geometry_helpers.h"
 #include "nri_runtime_mutation_shared.h"
@@ -30,6 +31,7 @@ namespace
 
 bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeometry, nri_scene::MaterialBridgeData& outMaterials, bool* outResidentStaticSceneChanged)
 {
+	nri_scene::mutation_audit::Owner mutationAuditOwner;
 	nri_scene::ClearGeometryRetainingCapacity(outGeometry);
 	nri_scene::ClearMaterialBridgeRetainingCapacity(outMaterials);
 	if (outResidentStaticSceneChanged != nullptr)
@@ -854,6 +856,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 	}
 	const auto runtimeMutationDiscoveryStart = collectRuntimeMutationTiming ?
 		std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+	nri_scene::mutation_audit::Scope discoveryAudit(nri_scene::mutation_audit::Category::Discovery);
 	NRIMapMoverRigidRouteFrameInput rigidRouteInput;
 	rigidRouteInput.movers = &mMapMovers;
 	rigidRouteInput.shadowState = &mMapMoverShadow.GetState();
@@ -1690,6 +1693,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		mRuntimeMutation.discovery.GetStats().dispatchPrepareMs = prepareMs;
 		mLastPerfShellTraceStats.runtimeMutationDiscoveryMs += prepareMs;
 	}
+	discoveryAudit.End();
 	for (uint32_t chunkIndex : runtimeMutationDispatchInputs)
 	{
 		const auto& mapChunk = mMapWorld.chunks[chunkIndex];
@@ -2060,6 +2064,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				return true;
 			}
 			PerfAuditScope inputAudit(PerfAuditMetric::MutationInputsPreparedViewNs);
+			nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Structural);
 			PerfAuditAdd(PerfAuditMetric::MutationInputsPreparedViewBuilds);
 
 			nri_scene::PTMapBuildOptions mapBuildOptions = {};
@@ -2629,6 +2634,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		};
 		const auto rebuildReplacementFromPreparedLiveChunk = [&](bool countAsStructuralRebuild) -> bool
 		{
+			nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Structural);
 			if (tryBuildCertifiedMaterialOnlyReplacement(countAsStructuralRebuild, false))
 			{
 				return true;
@@ -2763,6 +2769,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		const auto refreshReplacementMaterialsFromPreparedLiveChunk =
 			[&](bool allowAnimatedMaterialState) -> bool
 		{
+			nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Material);
 			if (tryBuildCertifiedMaterialOnlyReplacement(false, allowAnimatedMaterialState))
 			{
 				return true;
@@ -3524,7 +3531,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			const auto settleResidentNoopReplacement = [&]()
 			{
 				const nri_scene::PTMapChunkMutationBaseline appliedBaseline = replacement.replacementBaseline;
-				replacement.baseline = appliedBaseline;
+				mRuntimeMutation.PublishAppliedBaseline(replacement, appliedBaseline, RuntimeMutationBaselinePublication::ResidentNoop);
 				replacement.replacementBaseline = appliedBaseline;
 				replacement.baselineSignature = appliedBaseline.signature;
 				replacement.liveSignature = appliedBaseline.signature;

@@ -1,5 +1,6 @@
 #include "nri_renderer.h"
 #include "nri_cvars.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 
 #include "../system/nri_renderdevice.h"
 #include "c_cvars.h"
@@ -78,6 +79,7 @@ NRIRuntimeMutationSystem::ChunkDiagnosticFacts NRIRuntimeMutationSystem::BuildCh
 
 bool NRIRenderer::StageRuntimeMutationResidentGeometryUploadRanges(const std::vector<RuntimeMutationResidentUploadRange>& ranges)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	if (ranges.empty())
 	{
 		return true;
@@ -211,6 +213,7 @@ bool NRIRenderer::StageRuntimeMutationResidentGeometryUploadRanges(const std::ve
 			ScopedPtPerfTimer aggregateTimer(*state.aggregateMs);
 			ScopedPtPerfTimer stageTimer(*state.stageMs);
 			ScopedPtPerfTimer mapTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyStageMapMs);
+			nri_scene::mutation_audit::Scope api(nri_scene::mutation_audit::Category::Api);
 			mapped = mFrameBuffer->mCore.MapBuffer(*state.scratch->buffer.buffer, state.mapStart, mapSize);
 		}
 		if (mapped == nullptr)
@@ -235,6 +238,7 @@ bool NRIRenderer::StageRuntimeMutationResidentGeometryUploadRanges(const std::ve
 			ScopedPtPerfTimer aggregateTimer(*state.aggregateMs);
 			ScopedPtPerfTimer stageTimer(*state.stageMs);
 			ScopedPtPerfTimer mapTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyStageMapMs);
+			nri_scene::mutation_audit::Scope api(nri_scene::mutation_audit::Category::Api);
 			mFrameBuffer->mCore.UnmapBuffer(*state.scratch->buffer.buffer);
 		}
 	}
@@ -278,6 +282,7 @@ bool NRIRenderer::StageRuntimeMutationResidentGeometryUploadRanges(const std::ve
 
 	{
 		ScopedPtPerfTimer commandTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyStageCommandMs);
+		nri_scene::mutation_audit::Scope api(nri_scene::mutation_audit::Category::Api);
 		if (!sourceBarriers.empty())
 		{
 			nri::BarrierDesc sourceBarrierDesc = {};

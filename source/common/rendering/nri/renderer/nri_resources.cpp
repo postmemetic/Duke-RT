@@ -2,6 +2,7 @@
 #include "nri_cvars.h"
 
 #include "nri_renderer.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 #include "nri_persistent_voxel_services.h"
 #include "nri_renderer_settings.h"
 #include "nri_sky_environment.h"
@@ -109,6 +110,7 @@ uint64_t GetNRISceneUploadGrownBufferSize(uint64_t currentCapacity, uint64_t req
 
 void NRIRenderer::WaitForCommandsTracked(const char* reason)
 {
+	nri_scene::mutation_audit::Scope mutationWait(nri_scene::mutation_audit::Category::Wait);
 	if (mFrameBuffer == nullptr)
 	{
 		return;

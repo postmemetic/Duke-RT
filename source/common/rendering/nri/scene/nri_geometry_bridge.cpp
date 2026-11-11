@@ -1,4 +1,5 @@
 #include "nri_geometry_bridge.h"
+#include "nri_mutation_pipeline_audit.h"
 #include "nri_fluid_normal_math.h"
 #include "nri_voxel_material_slots.h"
 
@@ -405,6 +406,7 @@ void ClearGeometryRetainingCapacity(GeometryData& geometry)
 void BuildGeometry(const SceneView& sceneView, GeometryData& outGeometry, GeometryBuildTraceStats* traceStats,
 	bool retainOutputCapacity, GeometryProductLayout* layout)
 {
+	mutation_audit::Scope category(mutation_audit::Category::Structural);
 	if (retainOutputCapacity)
 	{
 		ClearGeometryRetainingCapacity(outGeometry);

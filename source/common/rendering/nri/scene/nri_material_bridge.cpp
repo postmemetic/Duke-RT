@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "nri_mutation_pipeline_audit.h"
 #include "nri_scene_product_layout.h"
 #include "nri_material_palette.h"
 #include "../../../engine/perf_audit.h"
@@ -990,6 +991,7 @@ void ClearMaterialBridgeRetainingCapacity(MaterialBridgeData& materials)
 
 void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials, MaterialProductLayout* layout)
 {
+	mutation_audit::Scope category(mutation_audit::Category::Material);
 	ClearMaterialBridgeRetainingCapacity(outMaterials);
 	const auto paletteStart = std::chrono::steady_clock::now();
 	const bool paletteBuilt = ResolveMaterialPalette(outMaterials);

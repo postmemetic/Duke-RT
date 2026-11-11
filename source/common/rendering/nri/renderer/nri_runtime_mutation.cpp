@@ -1,4 +1,6 @@
 #include "nri_runtime_mutation.h"
+#include "nri_cvars.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 
 #include "../scene/nri_hash.h"
 
@@ -469,6 +471,7 @@ RuntimeMutationResidentReplacementInfo NRIRuntimeMutationSystem::GetResidentRepl
 	{
 		info.baseline = &replacement->baseline;
 		info.revision = replacement->registryInputRevision;
+		info.mutableAccessRevision = replacement->registryMutableAccessRevision;
 		info.baselineSignature = replacement->baselineSignature;
 		info.liveSignature = replacement->liveSignature;
 	}
@@ -486,9 +489,43 @@ RuntimeMapMutationCache::ChunkReplacement* NRIRuntimeMutationSystem::FindReplace
 	// readers cannot enlist the full cache into per-frame reconciliation.
 	discovery.NoteTouchedChunk(chunkIndex);
 	if (chunkIndex >= cache.chunks.size()) return nullptr;
-	if (++registryInputSerial == 0) ++registryInputSerial;
-	cache.chunks[chunkIndex].registryInputRevision = registryInputSerial;
+	cache.chunks[chunkIndex].registryMutableAccessRevision = NextRegistryInputRevision();
+	if (!(bool)nri_ptmutationbaselinepublication)
+	{
+		cache.chunks[chunkIndex].registryInputRevision = cache.chunks[chunkIndex].registryMutableAccessRevision;
+		if (PerfAuditActive()) PerfAuditAdd(PerfAuditMetric::MutationBaselineMutableInvalidations);
+	}
 	return &cache.chunks[chunkIndex];
+}
+
+uint64_t NRIRuntimeMutationSystem::NextRegistryInputRevision()
+{
+	// Exhaustion stays uncertified rather than colliding with a retained stamp.
+	return registryInputSerial == UINT64_MAX ? 0 : ++registryInputSerial;
+}
+
+void NRIRuntimeMutationSystem::PublishAppliedBaseline(
+	RuntimeMapMutationCache::ChunkReplacement& replacement,
+	const nri_scene::PTMapChunkMutationBaseline& baseline,
+	RuntimeMutationBaselinePublication reason)
+{
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Publication);
+	PerfAuditScope timer(PerfAuditMetric::MutationBaselinePublishNs);
+	// Initialization captures directly into the final storage. Other callers
+	// publish an already captured current baseline, without a new engine scan.
+	if (&replacement.baseline != &baseline) replacement.baseline = baseline;
+	replacement.registryInputRevision = NextRegistryInputRevision();
+	if (!PerfAuditActive()) return;
+	PerfAuditAdd(PerfAuditMetric::MutationBaselinePublications);
+	PerfAuditAdd(PerfAuditMetric::MutationBaselinePublishedBytes,
+		baseline.walls.size() * sizeof(nri_scene::PTMapWallMutationSnapshot) +
+		baseline.sectionIndices.size() * sizeof(int32_t));
+	const PerfAuditMetric metrics[] = {
+		PerfAuditMetric::MutationBaselineInitialPublications,
+		PerfAuditMetric::MutationBaselineStartupPublications,
+		PerfAuditMetric::MutationBaselineResidentPublications,
+		PerfAuditMetric::MutationBaselineNoopPublications };
+	PerfAuditAdd(metrics[(size_t)reason]);
 }
 
 bool NRIRuntimeMutationSystem::IsReplacementActive(uint32_t chunkIndex) const
@@ -930,6 +967,7 @@ bool NRIRuntimeMutationSystem::CommitResidentSceneRefresh(
 	const RuntimeMutationResidentSceneRefreshRequest& request,
 	RuntimeMutationResidentSceneRefreshResult& outResult)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Publication);
 	outResult = {};
 	if (!request.sceneChanged)
 	{
@@ -1043,9 +1081,8 @@ void NRIRuntimeMutationSystem::InitializeStaticChunkReplacement(const nri_scene:
 	}
 
 	auto& replacement = cache.chunks[chunk.chunkIndex];
-	if (++registryInputSerial == 0) ++registryInputSerial;
-	replacement.registryInputRevision = registryInputSerial;
 	nri_scene::CaptureMapChunkMutationBaseline(chunk, replacement.baseline);
+	PublishAppliedBaseline(replacement, replacement.baseline, RuntimeMutationBaselinePublication::Initial);
 	// A neighboring wave plane can change this floor's shading normals while
 	// its own geometry/dirty bits stay unchanged. Keep fluid floors observed.
 	if (replacement.baseline.fluidNormalSignature != 0)

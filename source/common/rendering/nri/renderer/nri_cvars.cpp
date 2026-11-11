@@ -989,6 +989,8 @@ CUSTOM_CVAR(Float, nri_ptemissivelighteditnotifyrange, 2048.0f, CVAR_ARCHIVE | C
 
 // Exact full registry oracle. Session-only; never enabled by timing capture.
 CVAR(Bool, nri_ptregistryvalidate, false, 0)
+CVAR(Bool, nri_ptmutationbaselinepublication, true, 0)
+CVAR(Bool, nri_ptmutationbaselinevalidate, false, 0)
 
 CUSTOM_CVAR(Int, nri_ptmutationworklistvalidate, 0, 0)
 {

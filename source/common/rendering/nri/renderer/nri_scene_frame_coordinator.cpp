@@ -29,6 +29,7 @@
 #include "nri_voxel_compute_meshing.h"
 #include "../scene/nri_hash.h"
 #include "../scene/nri_material_palette.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 #include "../scene/nri_scene_stats.h"
 #include "../system/nri_renderdevice.h"
 #include "../../hwrenderer/data/hw_clock.h"
@@ -620,6 +621,7 @@ bool NRIRenderer::DispatchSelectedRenderScene(const RenderSceneDispatchInputs& i
 
 void NRIRenderer::ApplyCommittedMapMotion(nri_scene::SceneView& sceneView)
 {
+	nri_scene::mutation_audit::Scope motionAttribution(nri_scene::mutation_audit::Category::Temporal);
 	mMapMotionHistory.ApplyCommitted(sceneView, mMapWorld.valid ? mMapWorld.buildSerial : 0ull);
 }
 

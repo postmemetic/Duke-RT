@@ -2,6 +2,7 @@
 #include "nri_cvars.h"
 
 #include "nri_renderer.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 
 #include "nri_descriptor_sets.h"
 #include "../scene/nri_hash.h"
@@ -2316,6 +2317,7 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 
 bool NRIRenderer::EnsureResidentUploadScratchBuffer(ResidentBufferUploadScratch& scratch, ResidentUploadScratchFrame& frameScratch, uint64_t requiredSize)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	constexpr uint32_t kResidentUploadScratchStride = 16u;
 	const uint64_t alignedRequiredSize = std::max<uint64_t>(requiredSize, kResidentUploadScratchStride);
 	if (scratch.buffer.buffer != nullptr &&
@@ -2349,6 +2351,7 @@ bool NRIRenderer::EnsureResidentUploadScratchBuffer(ResidentBufferUploadScratch&
 
 bool NRIRenderer::StageResidentBufferCopyRange(NRIBufferResource& resource, uint64_t byteOffset, const void* data, uint64_t size, nri::AccessStage after, int uploadKind)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	if (resource.buffer == nullptr ||
 		data == nullptr ||
 		size == 0 ||
@@ -2385,14 +2388,15 @@ bool NRIRenderer::StageResidentBufferCopyRange(NRIBufferResource& resource, uint
 		return false;
 	}
 
-	void* mapped = mFrameBuffer->mCore.MapBuffer(*scratch->buffer.buffer, scratchOffset, size);
+	void* mapped = nri_scene::mutation_audit::ApiCall([&]() { return mFrameBuffer->mCore.MapBuffer(*scratch->buffer.buffer, scratchOffset, size); });
 	if (mapped == nullptr)
 	{
 		return false;
 	}
 
 	std::memcpy(mapped, data, (size_t)size);
-	mFrameBuffer->mCore.UnmapBuffer(*scratch->buffer.buffer);
+	nri_scene::mutation_audit::ApiCall([&]() { mFrameBuffer->mCore.UnmapBuffer(*scratch->buffer.buffer); });
+	nri_scene::mutation_audit::Scope commandAudit(nri_scene::mutation_audit::Category::Api);
 
 	if (!scratch->copySourceActive)
 	{

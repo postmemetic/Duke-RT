@@ -1,5 +1,6 @@
 #include "nri_map_builder.h"
 #include "nri_fluid_surface_normals.h"
+#include "nri_mutation_pipeline_audit.h"
 #include "perf_audit.h"
 
 #include "build.h"
@@ -1447,6 +1448,7 @@ bool BuildMapWorld(PTMapWorld& outWorld, const PTMapBuildOptions& options)
 
 bool BuildLiveMapChunkWorld(const PTMapChunk& chunk, PTMapWorld& outWorld, PTMapWorldStats* outStats, const PTMapBuildOptions& options)
 {
+	mutation_audit::Scope category(mutation_audit::Category::Structural);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsLiveWorldNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsLiveWorldBuilds);
 	outWorld = {};
@@ -1499,6 +1501,7 @@ bool BuildLiveMapChunkSceneView(const PTMapChunk& chunk, SceneView& outView, PTM
 
 uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 {
+	mutation_audit::Scope category(mutation_audit::Category::InputCheck);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsSignatureNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsSignatureCalls);
 	if (chunk.kind != PTMapChunkKind::Sector || chunk.sectorIndex < 0 || (unsigned)chunk.sectorIndex >= sector.Size())
@@ -1575,6 +1578,7 @@ uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 
 bool CaptureMapChunkMutationBaseline(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline)
 {
+	mutation_audit::Scope category(mutation_audit::Category::InputCapture);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsBaselineCaptureNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsBaselineCaptures);
 	return CaptureChunkMutationBaselineInternal(chunk, outBaseline);
@@ -1582,11 +1586,17 @@ bool CaptureMapChunkMutationBaseline(const PTMapChunk& chunk, PTMapChunkMutation
 
 bool AnalyzeMapChunkMutation(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis)
 {
+	mutation_audit::Scope category(mutation_audit::Category::InputCheck);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsAnalysisNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsAnalysisCalls);
 	if (!AnalyzeChunkMutationInternal(chunk, baseline, outAnalysis))
 	{
 		return false;
+	}
+	if (mutation_audit::current != nullptr)
+	{
+		if (outAnalysis.reasonMask != 0) ++mutation_audit::current->analysisChanged;
+		else ++mutation_audit::current->analysisUnchanged;
 	}
 
 	return true;

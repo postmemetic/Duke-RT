@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 #include "nri_cvars.h"
 
 #include "../scene/nri_hash.h"
@@ -330,6 +331,7 @@ bool NRIRenderer::RefreshResidentStaticMaterialSlices(
 	const char* reason,
 	const std::vector<uint32_t>* animatedApplyChunkListIndices)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Material);
 	static constexpr size_t ResidentAnimatedMaterialSliceCacheLimit = 4;
 
 	if (chunkListIndices.empty())
@@ -634,6 +636,7 @@ bool NRIRenderer::RefreshResidentStaticMaterialSlices(
 
 bool NRIRenderer::RebuildResidentStaticMaterialState(const char* reason)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Material);
 	const nri_scene::SceneView* preservedSkyView =
 		(mSkyEnvironment.PreservedStaticMapSky().valid && mSkyEnvironment.PreservedStaticMapSky().buildSerial == mMapWorld.buildSerial) ?
 		&mSkyEnvironment.PreservedStaticMapSky().sceneView :
@@ -668,6 +671,7 @@ bool NRIRenderer::RebuildResidentStaticMaterialState(const char* reason)
 
 bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t>& chunkListIndices)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	ScopedPtPerfTimer totalPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasMs);
 	if (chunkListIndices.empty())
 	{
@@ -834,7 +838,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 					blasDesc.flags = GetStaticMapChunkBlasBuildBits();
 					blasDesc.geometryOrInstanceNum = 1;
 					blasDesc.geometries = &geometryDesc;
-					if (mFrameBuffer->mRayTracing.CreateCommittedAccelerationStructure(*mFrameBuffer->mDevice, nri::MemoryLocation::DEVICE, 0.0f, blasDesc, chunk.accelerationStructure.accelerationStructure) != nri::Result::SUCCESS)
+					if (nri_scene::mutation_audit::ApiCall([&]() { return mFrameBuffer->mRayTracing.CreateCommittedAccelerationStructure(*mFrameBuffer->mDevice, nri::MemoryLocation::DEVICE, 0.0f, blasDesc, chunk.accelerationStructure.accelerationStructure); }) != nri::Result::SUCCESS)
 					{
 						return false;
 					}
@@ -876,6 +880,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
 				if (mResidentStaticBlasScratchBuffer.buffer != nullptr)
 				{
+					nri_scene::mutation_audit::Scope wait(nri_scene::mutation_audit::Category::Wait);
 					WaitForCommandsTracked();
 				}
 				DestroyBufferResource(mResidentStaticBlasScratchBuffer);
@@ -941,7 +946,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			build.geometryNum = 1;
 			build.scratchBuffer = mResidentStaticBlasScratchBuffer.buffer;
 			build.scratchOffset = 0;
-			mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*mFrameBuffer->mCommandBuffer, &build, 1);
+			nri_scene::mutation_audit::ApiCall([&]() { mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*mFrameBuffer->mCommandBuffer, &build, 1); });
 			NoteWorldBlasContentChanged();
 			mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasBuildCommandCount++;
 			if (chunk.fixedLayoutDeformerKey != 0)

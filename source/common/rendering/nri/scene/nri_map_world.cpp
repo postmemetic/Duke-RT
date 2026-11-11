@@ -1,4 +1,5 @@
 #include "nri_map_world.h"
+#include "nri_mutation_pipeline_audit.h"
 #include "nri_map_motion_correspondence.h"
 
 #include <algorithm>
@@ -118,6 +119,7 @@ void BuildMapSceneView(const PTMapWorld& mapWorld, SceneView& outView, const Sce
 
 void BuildMapChunkSceneView(const PTMapWorld& mapWorld, const PTMapChunk& chunk, SceneView& outView, const SceneView* preservedSkyView)
 {
+	mutation_audit::Scope category(mutation_audit::Category::Structural);
 	outView = {};
 	outView.drawInfo = nullptr;
 	outView.stats = CollectMapWorldDebugStats(mapWorld);

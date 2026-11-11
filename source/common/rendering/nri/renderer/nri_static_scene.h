@@ -620,6 +620,7 @@ private:
 	struct RegistryPayloadStamp
 	{
 		uint64_t baselineRevision = 0;
+		uint64_t mutableAccessRevision = 0;
 		uint64_t materialGeneration = 0;
 		uint64_t materialHash = 0;
 		uint32_t slot = UINT32_MAX;

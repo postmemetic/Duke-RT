@@ -245,7 +245,7 @@ void NRIRenderer::RebuildStartupMutationBaseline()
 				continue;
 			}
 
-			replacement->baseline = baseline;
+			mRuntimeMutation.PublishAppliedBaseline(*replacement, baseline, RuntimeMutationBaselinePublication::StartupCorrection);
 			replacement->replacementBaseline = baseline;
 			replacement->baselineSignature = baseline.signature;
 			replacement->liveSignature = baseline.signature;

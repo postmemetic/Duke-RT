@@ -94,6 +94,11 @@ struct RuntimeMutationResidentElementSpan
 	uint32_t elementCount = 0;
 };
 
+enum class RuntimeMutationBaselinePublication : uint8_t
+{
+	Initial, StartupCorrection, ResidentApply, ResidentNoop
+};
+
 struct RuntimeMapMutationCache
 {
 	struct ChunkReplacement
@@ -110,9 +115,11 @@ struct RuntimeMapMutationCache
 
 		nri_scene::PTMapChunkMutationBaseline baseline;
 		nri_scene::PTMapChunkMutationBaseline replacementBaseline;
-		// Conservative publication stamp: mutable access invalidates a borrowed
-		// registry snapshot even when only baseline section membership changes.
+		// Applied-baseline publication stamp. The legacy feature-off path also
+		// invalidates on mutable access; discovery membership is separate.
 		uint64_t registryInputRevision = 0;
+		// Diagnostic counterfactual: mutable access used to force a baseline copy.
+		uint64_t registryMutableAccessRevision = 0;
 		uint64_t baselineSignature = 0;
 		uint64_t liveSignature = 0;
 		uint64_t exactGeometrySignature = 0;
@@ -245,6 +252,7 @@ struct RuntimeMutationResidentReplacementInfo
 	uint64_t revision = 0;
 	uint64_t baselineSignature = 0;
 	uint64_t liveSignature = 0;
+	uint64_t mutableAccessRevision = 0;
 };
 
 struct NRIRuntimeMutationResidentApplyServices
@@ -388,6 +396,9 @@ public:
 	RuntimeMutationResidentReplacementInfo GetResidentReplacementInfo(uint32_t chunkListIndex) const;
 	const RuntimeMapMutationCache::ChunkReplacement* FindReplacement(uint32_t chunkIndex) const;
 	RuntimeMapMutationCache::ChunkReplacement* FindReplacementForUpdate(uint32_t chunkIndex);
+	void PublishAppliedBaseline(RuntimeMapMutationCache::ChunkReplacement& replacement,
+		const nri_scene::PTMapChunkMutationBaseline& baseline, RuntimeMutationBaselinePublication reason);
+	uint64_t NextRegistryInputRevision();
 	bool IsReplacementActive(uint32_t chunkIndex) const;
 	bool IsReplacementActiveAndValid(uint32_t chunkIndex) const;
 	uint32_t AppendSceneLightRecords(SceneLightSystem& sceneLights) const;

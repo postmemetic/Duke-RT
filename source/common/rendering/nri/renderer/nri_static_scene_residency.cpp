@@ -1,6 +1,8 @@
 #include "nri_static_scene.h"
 
 #include "nri_runtime_mutation.h"
+#include "nri_cvars.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 #include "perf_audit.h"
 #include "printf.h"
 
@@ -93,6 +95,7 @@ ResidentMapChunkRegistry BuildFullRegistry(const NRIStaticSceneRegistrySyncInput
 		const auto replacement = GetReplacement(input, (uint32_t)chunkListIndex);
 		if (replacement.baseline != nullptr)
 		{
+			PerfAuditScope copyTimer(PerfAuditMetric::MutationRegistryBaselineCopyNs);
 			entry.appliedBaseline = *replacement.baseline;
 			entry.baselineSignature = replacement.baselineSignature;
 			entry.liveSignature = replacement.liveSignature != 0 ? replacement.liveSignature : replacement.baselineSignature;
@@ -265,6 +268,7 @@ void NRIStaticSceneResidency::ResetResidentMapChunkRegistry()
 
 void NRIStaticSceneResidency::SyncResidentMapChunkRegistryFromStaticScene(const NRIStaticSceneRegistrySyncInput& input)
 {
+	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::Publication);
 	RegistryAudit audit;
 	if (audit.enabled)
 	{
@@ -295,6 +299,7 @@ void NRIStaticSceneResidency::SyncResidentMapChunkRegistryFromStaticScene(const 
 		{
 			auto& stamp = mRegistryPayloadStamps[i];
 			stamp.baselineRevision = GetReplacement(input, i).revision;
+			stamp.mutableAccessRevision = GetReplacement(input, i).mutableAccessRevision;
 			const auto& entry = registry.entries[i];
 			stamp.slot = entry.staticSceneChunkListIndex;
 			if (entry.active && stamp.slot < scene.chunks.size() && input.hashResidentMaterialPayload != nullptr)
@@ -333,6 +338,7 @@ void NRIStaticSceneResidency::SyncResidentMapChunkRegistryFromStaticScene(const 
 		registry.animatedRefreshSuppressedChunkCount += chunk.animatedRefreshSuppressed;
 	}
 	const bool atlasMatches = atlas.valid && atlas.buildSerial == scene.buildSerial && atlas.chunks.size() == scene.chunks.size();
+	uint64_t avoidedCopies = 0;
 	for (uint32_t i = 0; i < world.chunks.size(); ++i)
 	{
 		auto& old = registry.entries[i];
@@ -346,14 +352,22 @@ void NRIStaticSceneResidency::SyncResidentMapChunkRegistryFromStaticScene(const 
 		{
 			if (replacement.revision == 0 || stamp.baselineRevision != replacement.revision)
 			{
+				PerfAuditScope copyTimer(PerfAuditMetric::MutationRegistryBaselineCopyNs);
 				next.appliedBaseline = *replacement.baseline;
 				audit.Copy(*replacement.baseline);
+			}
+			else if ((bool)nri_ptmutationbaselinepublication &&
+				replacement.mutableAccessRevision != 0 &&
+				stamp.mutableAccessRevision != replacement.mutableAccessRevision)
+			{
+				++avoidedCopies;
 			}
 			next.baselineSignature = replacement.baselineSignature;
 			next.liveSignature = replacement.liveSignature != 0 ? replacement.liveSignature : replacement.baselineSignature;
 		}
 		else next.appliedBaseline = {};
 		stamp.baselineRevision = replacement.revision;
+		stamp.mutableAccessRevision = replacement.mutableAccessRevision;
 		const uint32_t slot = mRegistryPreferredSlots[i];
 		bool materialSourceUnchanged = true;
 		if (slot < scene.chunks.size())
@@ -416,13 +430,24 @@ void NRIStaticSceneResidency::SyncResidentMapChunkRegistryFromStaticScene(const 
 		else ++audit.refreshed;
 		old = std::move(next);
 	}
-	if (input.validate)
+	if (audit.enabled) PerfAuditAdd(PerfAuditMetric::MutationBaselineCopiesAvoided, avoidedCopies);
+	if (input.validate || (bool)nri_ptmutationbaselinevalidate)
 	{
 		ResidentMapChunkRegistry reference = BuildFullRegistry(input, nullptr);
 		if (audit.enabled) PerfAuditAdd(PerfAuditMetric::StaticRegistryValidationChecks);
+		if (audit.enabled && (bool)nri_ptmutationbaselinevalidate)
+		{
+			PerfAuditAdd(PerfAuditMetric::MutationBaselineValidationChecks);
+			PerfAuditAdd(PerfAuditMetric::MutationBaselineReuseValidationChecks, avoidedCopies);
+		}
 		if (!SameRegistryPayload(registry, reference))
 		{
 			if (audit.enabled) PerfAuditAdd(PerfAuditMetric::StaticRegistryValidationMismatches);
+			if (audit.enabled && (bool)nri_ptmutationbaselinevalidate)
+			{
+				PerfAuditAdd(PerfAuditMetric::MutationBaselineValidationMismatches);
+				PerfAuditAdd(PerfAuditMetric::MutationBaselineQuarantines);
+			}
 			Printf("NRI PT static registry validation: mismatch=1 quarantine=1 build=%llu content=%llu\n",
 				(unsigned long long)world.buildSerial, (unsigned long long)scene.contentBuildSerial);
 			registry = std::move(reference);

@@ -3,6 +3,7 @@
 
 #include "../scene/nri_hash.h"
 #include "../scene/nri_map_builder.h"
+#include "../scene/nri_mutation_pipeline_audit.h"
 #include "../../hwrenderer/data/hw_clock.h"
 #include "nri_render_geometry_helpers.h"
 #include "nri_runtime_mutation_shared.h"
@@ -107,6 +108,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 	RuntimeMapMutationCache::ChunkReplacement& replacement,
 	RuntimeMutationResidentApplyResult& outResult)
 {
+	nri_scene::mutation_audit::Scope mutationAudit(nri_scene::mutation_audit::Category::ResidentCpu);
 	outResult = {};
 	ScopedPtPerfTimer residentApplyPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyMs);
 	mLastPerfShellTraceStats.runtimeMutationResidentApplyCount++;
@@ -303,6 +305,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 		{
 			Clocker clock(NriPTMaterialBuild);
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyMaterialBuildMs);
+			nri_scene::mutation_audit::Scope materialAudit(nri_scene::mutation_audit::Category::Material);
 			BuildMaterialsWithActorOverrides(residentSceneView, residentMaterials, "resident_runtime_mutation_chunk");
 		}
 		{
@@ -447,6 +450,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 		{
 			Clocker clock(NriPTMaterialBuild);
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyMaterialBuildMs);
+			nri_scene::mutation_audit::Scope materialAudit(nri_scene::mutation_audit::Category::Material);
 			BuildMaterialsWithActorOverrides(fullLiveSceneView, fullLiveMaterials, "resident_runtime_mutation_chunk_recover");
 		}
 		{
@@ -1285,7 +1289,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 				nri_scene::PTMapChunkMutationReason_SectionDirty)) != 0);
 	}
 
-	replacement.baseline = appliedBaseline;
+	mRuntimeMutation.PublishAppliedBaseline(replacement, appliedBaseline, RuntimeMutationBaselinePublication::ResidentApply);
 	replacement.replacementBaseline = appliedBaseline;
 	replacement.baselineSignature = appliedBaseline.signature;
 	replacement.liveSignature = appliedBaseline.signature;
