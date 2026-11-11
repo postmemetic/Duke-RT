@@ -112,6 +112,7 @@ SectorEmissionHue ScopedSectorEmissionHueCache::Resolve(int sectorIndex, bool ne
 		{
 			++mStats.validationChecks;
 			const auto epochBefore = mEpoch;
+			ScopedSectorEmissionHueCacheBypass referenceBypass(true);
 			const auto reference = resolveRaw();
 			// A nested operation can invalidate the parent while resolving raw.
 			if (mEpoch != epochBefore) return finish(reference);
@@ -157,4 +158,5 @@ SectorEmissionHue ResolveCachedSectorEmissionHue(int sectorIndex, bool neighbors
 {
 	return CurrentScope != nullptr ? CurrentScope->Resolve(sectorIndex, neighbors, raw) : raw(sectorIndex, neighbors);
 }
+bool IsSectorEmissionHueCacheBypassed() { return BypassDepth != 0; }
 }

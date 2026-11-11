@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_scene_surface_types.h"
+#include <cstddef>
 
 namespace nri_scene
 {
@@ -17,6 +18,9 @@ struct SectorEmissionHue
 };
 
 SectorEmissionHue ResolveSectorEmissionHue(int sectorIndex, bool neighbors = true);
+// Independent live-state oracle; neither operation nor retained hue caches.
+SectorEmissionHue ResolveSectorEmissionHueReference(int sectorIndex, bool neighbors = true);
+bool IsSectorHuePortalOpenReference(int sectorIndex, size_t wallIndex);
 bool TransfersSectorPalette(int sectorIndex, int palette);
 uint64_t SectorColorMaterialPolicySignature();
 uint32_t ResolveSectorRenderPalette(uint32_t palette, SurfaceSourceType source, int sectorIndex, uint32_t flags);

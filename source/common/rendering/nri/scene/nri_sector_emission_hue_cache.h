@@ -79,4 +79,5 @@ private:
 };
 
 SectorEmissionHue ResolveCachedSectorEmissionHue(int sectorIndex, bool neighbors, SectorEmissionHueResolver raw);
+bool IsSectorEmissionHueCacheBypassed();
 }

@@ -1156,6 +1156,8 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
 	common/rendering/nri/scene/nri_sector_color_policy.cpp
 	common/rendering/nri/scene/nri_sector_emission_hue_cache.cpp
+	common/rendering/nri/scene/nri_sector_hue_product.cpp
+	common/rendering/nri/scene/nri_sector_hue_source.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
 	common/rendering/nri/scene/nri_material_palette.cpp
 	common/rendering/nri/scene/nri_material_bridge_ranges.cpp

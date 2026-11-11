@@ -1,6 +1,9 @@
 #include "nri_scene_upload.h"
 #include "nri_cvars.h"
 
+EXTERN_CVAR(Int, nri_ptsectorhueproduct)
+EXTERN_CVAR(Bool, nri_ptsectorhueproductvalidate)
+
 #include "nri_descriptor_sets.h"
 #include "nri_emissive_sampling_upload_policy.h"
 #include "nri_emissive_sampling_audit.h"
@@ -121,6 +124,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	// Hashing and payload construction are synchronous renderer work. No game,
 	// script or editor callbacks may mutate sector/policy state within this scope.
 	auto hueCache = mSceneLights.BeginEmissiveSamplingHueCache((bool)nri_ptemissivecache, (bool)nri_ptemissivecachevalidate);
+	auto hueProduct = mSceneLights.BeginEmissiveSamplingHueProduct((int)nri_ptsectorhueproduct, (bool)nri_ptsectorhueproductvalidate);
 	SceneLightSystem::EmissiveSamplingUploadStats emissiveStats = {};
 	NRIEmissiveSamplingAudit audit(mSceneLights, emissiveStats, mEmissiveSamplingUploadScratch, mFrameIndex);
 	uint64_t payloadHash;

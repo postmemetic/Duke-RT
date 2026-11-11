@@ -1,5 +1,6 @@
 #include "nri_sector_color_policy.h"
 #include "nri_sector_emission_hue_cache.h"
+#include "nri_sector_hue_product.h"
 #include "lightoverlay.h"
 #include "gamefuncs.h"
 #include "c_cvars.h"
@@ -154,9 +155,24 @@ static SectorEmissionHue ResolveSectorEmissionHueUncached(int sectorIndex, bool 
 	return {};
 }
 
+SectorEmissionHue ResolveSectorEmissionHueReference(int sectorIndex, bool neighbors)
+{
+	return ResolveSectorEmissionHueUncached(sectorIndex, neighbors);
+}
+
+bool IsSectorHuePortalOpenReference(int sectorIndex, size_t wallIndex)
+{
+	return OpenColorPortal(sector[sectorIndex], wall[(unsigned)wallIndex]);
+}
+
+static SectorEmissionHue ResolveProducedSectorEmissionHue(int sectorIndex, bool neighbors)
+{
+	return ResolveSectorHueProduct(sectorIndex, neighbors, ResolveSectorEmissionHueUncached);
+}
+
 SectorEmissionHue ResolveSectorEmissionHue(int sectorIndex, bool neighbors)
 {
-	return ResolveCachedSectorEmissionHue(sectorIndex, neighbors, ResolveSectorEmissionHueUncached);
+	return ResolveCachedSectorEmissionHue(sectorIndex, neighbors, ResolveProducedSectorEmissionHue);
 }
 
 int FindSectorColorAnchor(const float renderPosition[3])
