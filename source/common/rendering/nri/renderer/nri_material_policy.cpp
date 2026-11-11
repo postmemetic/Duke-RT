@@ -1,4 +1,5 @@
 #include "nri_material_policy.h"
+#include "../scene/nri_material_color_audit.h"
 #include "nri_cvars.h"
 
 #include "nri_renderer.h"
@@ -555,6 +556,7 @@ void NRIRenderer::BuildMaterialsWithActorOverrides(nri_scene::SceneView& sceneVi
 	mLastPerfShellTraceStats.materialBuildCalls++;
 	const bool tracePerf = nri_runtime_mutation::ShouldTracePtPerf() || PerfAuditActive();
 	const MaterialBuildTraceSlot materialTraceSlot = ResolveMaterialBuildTraceSlot(traceLabel);
+	nri_scene::material_color_audit::Scope colorAudit(GetMaterialBuildTraceSlotNameInternal(materialTraceSlot));
 	auto& materialTraceEntry = mLastPerfShellTraceStats.materialBuildByLabel[GetMaterialBuildTraceSlotIndex(materialTraceSlot)];
 	materialTraceEntry.calls++;
 	const ResolvedLightOverlaySet& resolvedLightOverlays = GetResolvedLightOverlaySet();

@@ -1,3 +1,4 @@
+#include "../scene/nri_mutation_followup_audit.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 
@@ -25,6 +26,7 @@
 
 namespace
 {
+ namespace followup = nri_scene::mutation_followup_audit;
 	using namespace nri_runtime_mutation;
 }
 
@@ -692,7 +694,18 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 
 			for (;;)
 			{
-				nextAtlasState = mStaticMapChunkAtlas;
+				{
+     followup::Timer cloneTimer(followup::Counter::MutationAtlasCloneNs);
+     if (followup::current != nullptr)
+     {
+      followup::Add(followup::Counter::MutationAtlasClones);
+      followup::Add(followup::Counter::MutationAtlasCloneBytes,
+       mStaticMapChunkAtlas.chunks.size() * sizeof(StaticMapChunkAtlas::ChunkEntry) +
+       (mStaticMapChunkAtlas.freeVertexRanges.size() + mStaticMapChunkAtlas.freeIndexRanges.size() +
+        mStaticMapChunkAtlas.freePrimitiveRanges.size() + mStaticMapChunkAtlas.freeMaterialRanges.size()) * sizeof(StaticMapChunkAtlas::FreeRange));
+     }
+     nextAtlasState = mStaticMapChunkAtlas;
+    }
 				if (chunkListIndex >= nextAtlasState.chunks.size())
 				{
 					nextAtlasState.chunks.resize(chunkListIndex + 1);
@@ -707,6 +720,8 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 				const bool keepMaterialSlice =
 					hasResidentGeometry &&
 					oldAtlasChunk.materialCount == residentMaterialCount;
+
+				if (keepGeometrySlices && keepMaterialSlice) followup::Add(followup::Counter::MutationAtlasCloneBothRangesRetained);
 
 				if (hasResidentGeometry && !keepGeometrySlices)
 				{
@@ -1307,6 +1322,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 	replacement.animatedMaterialSignature = ComputeAnimatedMaterialSignature(residentSceneView);
 	replacement.surfaceCount = 0;
 	replacement.triangleCount = 0;
+	if (!appliedCertifiedResidentMaterialOnly) followup::Add(followup::Counter::MutationMaterialCacheClearResidentApply, replacement.materialStateCache.size());
 	mRuntimeMutation.ClearReplacementPayload(replacement, !appliedCertifiedResidentMaterialOnly);
 
 	mStaticSceneResidency.Registry().entries[mapChunk.chunkIndex].appliedBaseline = appliedBaseline;

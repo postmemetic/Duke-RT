@@ -18,6 +18,12 @@
 #endif
 
 std::atomic<bool> gPerfAuditActive{false};
+CVAR(Bool, perf_auditcpudetail, false, 0)
+CUSTOM_CVAR(Int, perf_auditcpuframes, 0, 0)
+{
+    if (self < 0) self = 0;
+    else if (self > 4096) self = 4096;
+}
 CUSTOM_CVAR(Int, perf_audit_interval, 30, 0)
 {
     if (self < 1) self = 1;
@@ -107,6 +113,13 @@ namespace
 
 uint64_t PerfAuditClockNs() { return I_nsTime(); }
 bool PerfAuditCensusRequested() { return PerfAuditActive() && Census; }
+bool PerfAuditCpuDetailActive() { return PerfAuditActive() && bool(perf_auditcpudetail); }
+bool PerfAuditCpuFrameRequested()
+{
+    const int interval = perf_auditcpuframes;
+    return PerfAuditActive() && interval > 0 &&
+        (FrameCount - CensusOrigin) % uint64_t(interval) == 0;
+}
 PerfAuditToken PerfAuditCurrentToken() { return PerfAuditActive() ? Token : PerfAuditToken{}; }
 
 void PerfAuditAdd(PerfAuditMetric metric, uint64_t value)

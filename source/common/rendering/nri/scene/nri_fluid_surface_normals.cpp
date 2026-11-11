@@ -1,4 +1,5 @@
 #include "nri_fluid_surface_normals.h"
+#include "nri_mutation_followup_audit.h"
 #include "nri_fluid_normal_math.h"
 #include "nri_fluid_material_binding.h"
 #include "nri_scene_surface_types.h"
@@ -13,6 +14,15 @@ namespace nri_scene
 {
 namespace
 {
+ namespace audit = mutation_followup_audit;
+ thread_local bool signatureWork = false;
+ struct SignatureWorkScope
+ {
+  bool previous = signatureWork;
+  SignatureWorkScope() { signatureWork = audit::current != nullptr; }
+  ~SignatureWorkScope() { signatureWork = previous; }
+ };
+ void CountSignatureWork(audit::Counter counter) { if (signatureWork) audit::Add(counter); }
 	constexpr size_t MaxCornerFan = 32;
 	struct Floor
 	{
@@ -25,12 +35,14 @@ namespace
 	double Height(const sectortype& sec, double x, double z)
 	{
 		double floor = 0.0;
+		CountSignatureWork(audit::Counter::FluidSignatureSlopeCalls);
 		calcSlope(&sec, x, z, nullptr, &floor);
 		return -floor;
 	}
 
 	bool ResolveFloor(int32_t index, Floor& result)
 	{
+		CountSignatureWork(audit::Counter::FluidSignatureResolveFloorCalls);
 		if (index < 0 || (unsigned)index >= sector.Size()) return false;
 		const auto& sec = sector[(unsigned)index];
 		if (sec.portalflags != 0 || (sec.floorstat & CSTAT_SECTOR_SKY) != 0 || sec.walls.Size() == 0) return false;
@@ -66,15 +78,18 @@ namespace
 
 	uint32_t CornerNormal(const Floor& root, double x, double z)
 	{
+		CountSignatureWork(audit::Counter::FluidSignatureCornerCalls);
 		std::array<Floor, MaxCornerFan> fan = {};
 		fan[0] = root;
 		size_t fanSize = 1;
 		for (size_t cursor = 0; cursor < fanSize; ++cursor)
 		{
+			CountSignatureWork(audit::Counter::FluidSignatureFanSectors);
 			const Floor current = fan[cursor];
 			const auto& sec = sector[(unsigned)current.sectorIndex];
 			for (const auto& edge : sec.walls)
 			{
+				CountSignatureWork(audit::Counter::FluidSignatureFanEdges);
 				if (!edge.twoSided() || edge.portalflags != 0 || !PointOnEdge(x, z, edge)) continue;
 				if (std::any_of(fan.begin(), fan.begin() + fanSize, [&](const Floor& floor) { return floor.sectorIndex == edge.nextsector; })) continue;
 				Floor neighbor;
@@ -86,7 +101,7 @@ namespace
 					current.normal[1] * neighbor.normal[1] + current.normal[2] * neighbor.normal[2];
 				if (!FluidFloorEdgeIsContinuous(Height(sec, a.X, a.Y), Height(sec, b.X, b.Y),
 					Height(adjacent, a.X, a.Y), Height(adjacent, b.X, b.Y), normalDot)) continue;
-				if (fanSize == MaxCornerFan) return UINT32_MAX;
+				if (fanSize == MaxCornerFan) { CountSignatureWork(audit::Counter::FluidSignatureFanOverflows); return UINT32_MAX; }
 				fan[fanSize++] = neighbor;
 			}
 		}
@@ -112,8 +127,13 @@ void BuildFluidFloorCarrierNormals(SurfaceRef& surface)
 
 uint64_t ComputeFluidFloorNormalSignature(int32_t sectorIndex)
 {
+ audit::Batch batch;
+ SignatureWorkScope work;
+ audit::Timer timer(audit::Counter::FluidSignatureNs);
+ audit::Add(audit::Counter::FluidSignatureCalls);
 	Floor floor;
 	if (!ResolveFloor(sectorIndex, floor)) return 0;
+ audit::Add(audit::Counter::FluidSignatureEligible);
 	uint64_t signature = 1469598103934665603ull;
 	for (const auto& edge : sector[(unsigned)sectorIndex].walls)
 	{

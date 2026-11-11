@@ -23,6 +23,9 @@ struct PerfAuditToken
 extern std::atomic<bool> gPerfAuditActive;
 inline bool PerfAuditActive() { return gPerfAuditActive.load(std::memory_order_relaxed); }
 bool PerfAuditCensusRequested();
+// Independent, session-only CPU diagnostics. Neither requests a heavy census.
+bool PerfAuditCpuDetailActive();
+bool PerfAuditCpuFrameRequested();
 void PerfAuditAdd(PerfAuditMetric metric, uint64_t value = 1);
 void PerfAuditSet(PerfAuditMetric metric, uint64_t value);
 uint64_t PerfAuditClockNs();

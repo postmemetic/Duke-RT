@@ -3,6 +3,7 @@
 #include "nri_resources.h"
 #include "nri_scene_lights.h"
 #include "nri_runtime_mutation_worklist.h"
+#include "nri_runtime_mutation_observation.h"
 #include "nri_runtime_mutation_discovery.h"
 
 #include "../scene/nri_geometry_bridge.h"
@@ -498,6 +499,7 @@ public:
 	RuntimeMutationCacheStats cacheHighWaterStats = {};
 	std::vector<RuntimeMutationResidentUploadRange> residentGeometryUploadRanges;
 	NRIRuntimeMutationWorklist worklist;
+	NRIRuntimeMutationObservation observation;
 	NRIRuntimeMutationDiscovery discovery;
 	std::vector<uint8_t> signatureWatchlist;
 	std::vector<uint32_t> signatureWatchlistChunks;

@@ -1282,8 +1282,13 @@ bool NRIRenderer::RenderScene(HWDrawInfo& di, int drawmode, bool portal)
 			RequestHistoryReset("multiple-main-temporal-recordings");
 		}
 		mPendingMainTemporalSerial = mMainTemporalSerial + 1u;
-		if (StagePublishedMapMotion(mPendingMainTemporalSerial) &&
-			mFluidPanHistory.StagePrepared(mPendingMainTemporalSerial))
+		bool motionReady = false;
+		{
+			ScopedPtPerfTimer stageTimer(mLastPerfShellTraceStats.mapMotionStageMs);
+			motionReady = StagePublishedMapMotion(mPendingMainTemporalSerial) &&
+				mFluidPanHistory.StagePrepared(mPendingMainTemporalSerial);
+		}
+		if (motionReady)
 		{
 			mPendingMainTemporalCommandFence = GetRecordingCommandFenceValue();
 			mPendingMainTemporalSubmission = true;

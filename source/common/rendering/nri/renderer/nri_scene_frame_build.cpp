@@ -1,6 +1,7 @@
 #include "nri_renderer.h"
 #include "nri_perf_audit.h"
 #include "nri_cvars.h"
+#include "nri_cpu_detail_audit.h"
 
 #include "../framegen/nri_framegen.h"
 #include "nri_acceleration.h"
@@ -1474,6 +1475,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				{
 					{
 						ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.sceneSelectMaterialSplitMs);
+						NRICpuDetailAuditScope splitScope(PerfAuditMetric::MaterialPolicySplitNs);
 						const size_t staticMaterialCount = mStaticMapScene.gpuMaterials.size();
 						const size_t persistentVoxelMaterialCount = mSceneMaterialFrameCache.PersistentMaterialCount();
 						if (combinedGpuMaterials.size() < staticMaterialCount + persistentVoxelMaterialCount)
@@ -1486,6 +1488,9 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 								combinedGpuMaterials.begin() + staticMaterialCount,
 								combinedGpuMaterials.begin() + staticMaterialCount + persistentVoxelMaterialCount);
 							dynamicGpuMaterials.assign(combinedGpuMaterials.begin() + staticMaterialCount + persistentVoxelMaterialCount, combinedGpuMaterials.end());
+							if (PerfAuditCpuDetailActive())
+								PerfAuditAdd(PerfAuditMetric::MaterialPolicySplitBytes,
+									(persistentVoxelGpuMaterials.size() + dynamicGpuMaterials.size()) * sizeof(nri_scene::MaterialData));
 						}
 					}
 				}
@@ -2198,6 +2203,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	{
 		const auto materialPatch = [&]()
 		{
+			ScopedPtPerfTimer shellTimer(mLastPerfShellTraceStats.postLightMaterialMs);
 			PerfAuditScope auditTimer(PerfAuditMetric::MaterialPostLightRefreshNs);
 			const nri_scene::MaterialBridgeData& refreshedMaterialSource =
 				mSceneTextureStableSlotsActive ?

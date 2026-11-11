@@ -480,6 +480,9 @@ public:
 		double traceOpaqueCommandMs = 0.0;
 		double traceOpaqueStatsCopyMs = 0.0;
 		double postFrameDiagnosticsMs = 0.0;
+		// Explicit children of the historical residual; do not add to unattributedMs.
+		double postLightMaterialMs = 0.0;
+		double mapMotionStageMs = 0.0;
 		double unattributedMs = 0.0;
 		double otherMs = 0.0;
 		double staticSceneMs = 0.0;

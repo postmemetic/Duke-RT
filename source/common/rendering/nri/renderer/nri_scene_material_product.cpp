@@ -1,5 +1,6 @@
 #include "nri_scene_material_product.h"
 #include "nri_material_uniform_ranges.h"
+#include "nri_cpu_detail_audit.h"
 
 #include <algorithm>
 #include <cstring>
@@ -29,6 +30,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 	const std::vector<nri_scene::MaterialRowRange>* uniformRanges,
 	bool validateEveryUpdate)
 {
+	const bool detail = PerfAuditCpuDetailActive();
 	NRIMaterialProductPatchResult result;
 	if (staticCount > base.size() || persistentCount > base.size() - staticCount)
 		return result;
@@ -91,6 +93,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 			if (mDeferredMarks[index] == mMarkGeneration)
 			{
 				precedingChanged = false;
+				result.deferredRowsSkipped += detail;
 				continue;
 			}
 			nri_scene::MaterialData candidate;
@@ -113,6 +116,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::Refresh(
 				transformRow(context, index, candidate);
 				++result.evaluatedRows;
 			}
+			result.outputComparedRows += detail;
 			if (EqualRows(&candidate, &combined[index], 1))
 			{
 				precedingChanged = false;

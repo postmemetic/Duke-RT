@@ -1,3 +1,4 @@
+#include "../scene/nri_mutation_followup_audit.h"
 #include "nri_renderer.h"
 #include "../scene/nri_mutation_pipeline_audit.h"
 #include "nri_cvars.h"
@@ -16,6 +17,7 @@
 
 namespace
 {
+ namespace followup = nri_scene::mutation_followup_audit;
     static bool ShouldTraceResidentStaticPerf()
     {
         const bool perfLoopTraceActive = (int)perf_looptraceframes > 0;
@@ -740,6 +742,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			{
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasReuseCount++;
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasUpdateCount++;
+				followup::Add(followup::Counter::MutationResidentBlasUpdates);
 				uint64_t scratchSize = chunk.residentBlasUpdateScratchSize;
 				if (scratchSize != 0)
 				{
@@ -750,6 +753,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 					ScopedPtPerfTimer scratchPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasScratchMs);
 					mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchCacheMissCount++;
 					mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchQueryCount++;
+					followup::Add(followup::Counter::MutationResidentBlasScratchQueries);
 					scratchSize = mFrameBuffer->mRayTracing.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
 					chunk.residentBlasUpdateScratchSize = scratchSize;
 				}
@@ -758,6 +762,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			else
 			{
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasRecreateCount++;
+				followup::Add(followup::Counter::MutationResidentBlasRecreates);
 				uint32_t fallbackMask = 0;
 				if (!hadAccelerationStructure)
 				{
@@ -858,6 +863,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 					ScopedPtPerfTimer scratchPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasScratchMs);
 					mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchCacheMissCount++;
 					mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchQueryCount++;
+					followup::Add(followup::Counter::MutationResidentBlasScratchQueries);
 					const uint64_t scratchSize =
 						mFrameBuffer->mRayTracing.GetAccelerationStructureBuildScratchBufferSize(*chunk.accelerationStructure.accelerationStructure);
 					chunk.residentBlasScratchSizeCacheKey = chunk.accelerationStructure.accelerationStructure;
@@ -878,6 +884,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			if (mResidentStaticBlasScratchBuffer.buffer == nullptr || mResidentStaticBlasScratchBuffer.size < maxScratchSize)
 			{
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
+				followup::Add(followup::Counter::MutationResidentBlasScratchGrowths);
 				if (mResidentStaticBlasScratchBuffer.buffer != nullptr)
 				{
 					nri_scene::mutation_audit::Scope wait(nri_scene::mutation_audit::Category::Wait);
@@ -917,6 +924,8 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			nri::BarrierDesc barrierDesc = {};
 			barrierDesc.buffers = beforeUpdateBarriers.data();
 			barrierDesc.bufferNum = (uint32_t)beforeUpdateBarriers.size();
+			followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
+			followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, barrierDesc.bufferNum);
 			mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, barrierDesc);
 		}
 		blasBarriers.reserve(activeChunkListIndices.size());
@@ -949,6 +958,7 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			nri_scene::mutation_audit::ApiCall([&]() { mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*mFrameBuffer->mCommandBuffer, &build, 1); });
 			NoteWorldBlasContentChanged();
 			mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasBuildCommandCount++;
+			followup::Add(followup::Counter::MutationResidentBlasBuildCommands);
 			if (chunk.fixedLayoutDeformerKey != 0)
 			{
 				mSE29FloorDeformerRoute.NotePartialUpload(
@@ -983,6 +993,8 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 				nri::BarrierDesc scratchBarrierDesc = {};
 				scratchBarrierDesc.buffers = &scratchBarrier;
 				scratchBarrierDesc.bufferNum = 1;
+				followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
+				followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, scratchBarrierDesc.bufferNum);
 				mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, scratchBarrierDesc);
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchBarrierCount++;
 			}
@@ -1003,6 +1015,8 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			nri::BarrierDesc barrierDesc = {};
 			barrierDesc.buffers = blasBarriers.data();
 			barrierDesc.bufferNum = (uint32_t)blasBarriers.size();
+			followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
+			followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, barrierDesc.bufferNum);
 			mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, barrierDesc);
 		}
 	}

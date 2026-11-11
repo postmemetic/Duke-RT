@@ -1,5 +1,6 @@
 #include "nri_scene_material_product.h"
 #include "nri_material_uniform_ranges.h"
+#include "nri_cpu_detail_audit.h"
 
 #include <algorithm>
 
@@ -10,6 +11,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 	void* context, TransformRow transformRow, TransformReference transformReference,
 	bool validate, bool retainOutput)
 {
+	const bool detail = PerfAuditCpuDetailActive();
 	NRIMaterialProductPatchResult result;
 	result.valid = true;
 	result.changed = true;
@@ -43,6 +45,7 @@ NRIMaterialProductPatchResult NRISceneMaterialProduct::BuildTransformed(
 		}
 		else for (size_t target = index; target < index + count; ++target)
 		{
+			result.outputComparedRows += detail;
 			if (EqualRows(&row, &output[target], 1)) { precedingChanged = false; continue; }
 			output[target] = row;
 			++result.copiedRows;

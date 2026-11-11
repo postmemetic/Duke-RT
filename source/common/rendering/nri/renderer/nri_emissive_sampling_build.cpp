@@ -1,5 +1,6 @@
 #include "nri_scene_lights.h"
 #include "nri_cvars.h"
+#include "nri_cpu_detail_audit.h"
 #include "nri_diagnostic_names.h"
 #include "../scene/nri_hash.h"
 #include "printf.h"
@@ -205,6 +206,8 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	// Full reference construction resolves engine state independently of the
 	// operation cache surrounding the production hash/build sequence.
 	nri_scene::ScopedSectorEmissionHueCacheBypass hueReferenceBypass(!useGeometryCache);
+	const bool detail = useGeometryCache && PerfAuditCpuDetailActive();
+	uint64_t responseLookupRequests = 0;
 	EmissiveSamplingUploadStats localStats = {};
 	outHeader = {};
 	outHeader.dominantIndex = UINT32_MAX;
@@ -257,7 +260,11 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	auto& candidates = mEmissiveSamplingCandidates;
 	candidates.clear();
 	auto& materialResponseLookup = mEmissiveMaterialResponseLookup;
-	materialResponseLookup.clear();
+	if (detail) PerfAuditAdd(PerfAuditMetric::EmissiveSamplingResponseNodesCleared, materialResponseLookup.size());
+	{
+		NRICpuDetailAuditScope clearScope(PerfAuditMetric::EmissiveSamplingResponseClearNs, useGeometryCache);
+		materialResponseLookup.clear();
+	}
 	const auto& activeSurfaces = mEmissiveSurfaces.activeSurfaces;
 	candidates.reserve(activeSurfaces.size());
 
@@ -363,6 +370,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 
 			if (materialResponseEligible || hue.Active())
 			{
+				responseLookupRequests += detail;
 				const uint64_t responseKey = ((uint64_t)dataSource << 32u) | primitiveIndex;
 				if (materialResponseLookup.find(responseKey) == materialResponseLookup.end())
 				{
@@ -514,7 +522,9 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	auto& distributionEntries = mEmissiveDistributionEntries;
 	distributionEntries.clear();
 	NRIEmissiveSamplingDistributionStats distributionStats = {};
-	mEmissiveSamplingDistribution.Build(
+	{
+		NRICpuDetailAuditScope distributionScope(PerfAuditMetric::EmissiveSamplingDistributionNs, useGeometryCache);
+		mEmissiveSamplingDistribution.Build(
 		distributionCandidates,
 		mFrameSerial,
 		NriMaxEmissivePrimitives,
@@ -522,6 +532,19 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		outCdf,
 		&distributionStats,
 		useGeometryCache);
+	}
+	if (detail)
+	{
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingResponseLookupRequests, responseLookupRequests);
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingResponseNodesInserted, materialResponseLookup.size());
+		PerfAuditSet(PerfAuditMetric::EmissiveSamplingResponseBuckets, materialResponseLookup.bucket_count());
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingCandidateRows, candidates.size());
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingCandidateCopyExtentBytes, candidates.size() * sizeof(EmissiveSamplingBuiltCandidate));
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionOutputRows, distributionEntries.size());
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionBoundGrowths, distributionStats.boundGrowthCount);
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionCappedRows, distributionStats.cappedCount);
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionDuplicateRows, distributionStats.duplicateCount);
+	}
 	localStats.buildCapacityGrowths = distributionStats.scratchCapacityGrowths;
 	localStats.buildCapacityGrowthBytes = distributionStats.scratchCapacityGrowthBytes;
 	localStats.proposalBoundGrowthCount = distributionStats.boundGrowthCount;

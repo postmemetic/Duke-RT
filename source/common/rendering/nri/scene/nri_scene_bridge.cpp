@@ -1,4 +1,5 @@
 #include "nri_scene_bridge.h"
+#include "nri_material_color_audit.h"
 #include "nri_voxel_publication_diagnostic_status.h"
 #include "nri_cpu_perf_audit.h"
 #include "nri_voxel_actor_publication.h"
@@ -943,6 +944,7 @@ namespace
 
 	bool TryGetAverageTextureColorRecursive(FGameTexture* texture, float* outColor, int depth)
 	{
+		material_color_audit::Add(material_color_audit::Counter::RecursiveCalls);
 		if (ShouldTraceSkyPerf())
 		{
 			gSkyPerfStats.averageColorRecursiveCalls++;
@@ -977,15 +979,20 @@ namespace
 		bool cachedSuccess = false;
 		if (hasPersistentSignature && TryLoadPersistentAverageColor(persistentSignature, outColor, cachedSuccess))
 		{
+			material_color_audit::Add(material_color_audit::Counter::PersistentHits);
+			if (cachedSuccess) material_color_audit::Eligible(texture, persistentSignature);
 			return cachedSuccess;
 		}
 
 		if (TryLoadFrameLocalAverageColor(baseTexture, outColor, cachedSuccess))
 		{
+			material_color_audit::Add(material_color_audit::Counter::FrameHits);
+			if (cachedSuccess) material_color_audit::Eligible(texture, persistentSignature);
 			return cachedSuccess;
 		}
 
 		float computedColor[3] = {};
+		material_color_audit::Add(material_color_audit::Counter::Computations);
 		if (TryComputeAverageColorFromBaseTexture(baseTexture, computedColor))
 		{
 			StoreFrameLocalAverageColor(baseTexture, true, computedColor);
@@ -994,6 +1001,7 @@ namespace
 				StorePersistentAverageColor(persistentSignature, true, computedColor);
 			}
 			Copy3(computedColor, outColor);
+			material_color_audit::Eligible(texture, persistentSignature);
 			return true;
 		}
 
@@ -6743,7 +6751,7 @@ void Copy3(const float* source, float* destination)
 	destination[2] = source[2];
 }
 
-bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
+static bool TryGetAverageTextureColorGuarded(FGameTexture* texture, float* outColor)
 {
 #ifdef _WIN32
 	__try
@@ -6757,6 +6765,14 @@ bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
 	return false;
 	}
 #endif
+}
+
+bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
+{
+	material_color_audit::AverageCall audit;
+	const bool success = TryGetAverageTextureColorGuarded(texture, outColor);
+	material_color_audit::Add(success ? material_color_audit::Counter::Successes : material_color_audit::Counter::Failures);
+	return success;
 }
 
 MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags, int32_t authoredTextureId)

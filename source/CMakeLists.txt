@@ -922,6 +922,7 @@ set (VULKAN_SOURCES
 set (NRI_SOURCES
 	common/rendering/nri/system/nri_renderdevice.cpp
 	common/rendering/nri/system/nri_perf_capture.cpp
+	common/rendering/nri/system/nri_cpu_frame_capture.cpp
 	common/rendering/nri/system/nri_gpu_timing.cpp
 	common/rendering/nri/system/nri_hwbuffer.cpp
 	common/rendering/nri/system/nri_hwtexture.cpp

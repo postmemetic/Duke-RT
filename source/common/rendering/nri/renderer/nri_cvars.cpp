@@ -993,6 +993,9 @@ CVAR(Bool, nri_ptregistryvalidate, false, 0)
 CVAR(Bool, nri_ptmutationbaselinepublication, true, 0)
 CVAR(Bool, nri_ptmutationbaselinevalidate, false, 0)
 
+// Nonrecovering discovery observation. Keep separate from the repairing validator.
+CVAR(Bool, nri_ptmutationworklistobserve, false, 0)
+
 CUSTOM_CVAR(Int, nri_ptmutationworklistvalidate, 0, 0)
 {
 	if (self < 0)

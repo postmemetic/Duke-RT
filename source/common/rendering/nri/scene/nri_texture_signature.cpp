@@ -1,4 +1,5 @@
 #include "nri_texture_signature.h"
+#include "nri_material_color_audit.h"
 
 #include "nri_hash.h"
 #include "nri_scene_texture_utils.h"
@@ -236,6 +237,7 @@ bool TryBuildSkyboxTextureSignature(FGameTexture* texture, const TextureSignatur
 
 bool TryBuildTextureSignature(FGameTexture* texture, const TextureSignatureRequest& request, TextureSignature& outSignature)
 {
+	material_color_audit::Signature();
 	if (!IsUsableGameTexturePointer(texture))
 	{
 		outSignature = {};
@@ -247,6 +249,7 @@ bool TryBuildTextureSignature(FGameTexture* texture, const TextureSignatureReque
 
 bool TryBuildAverageColorTextureSignature(FGameTexture* texture, TextureSignature& outSignature)
 {
+	material_color_audit::Signature();
 	if (!IsUsableGameTexturePointer(texture))
 	{
 		outSignature = {};

@@ -1,3 +1,4 @@
+#include "../scene/nri_mutation_followup_audit.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 #include "../scene/nri_mutation_pipeline_audit.h"
@@ -12,6 +13,7 @@
 
 namespace
 {
+ namespace followup = nri_scene::mutation_followup_audit;
     static bool ShouldCollectRuntimeMutationPerfTiming()
     {
         const bool perfLoopTraceActive = (int)perf_looptraceframes > 0;
@@ -79,6 +81,7 @@ NRIRuntimeMutationSystem::ChunkDiagnosticFacts NRIRuntimeMutationSystem::BuildCh
 
 bool NRIRenderer::StageRuntimeMutationResidentGeometryUploadRanges(const std::vector<RuntimeMutationResidentUploadRange>& ranges)
 {
+ followup::Add(followup::Counter::MutationResidentGeometryUploadRanges, ranges.size());
 	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	if (ranges.empty())
 	{

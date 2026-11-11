@@ -22,6 +22,9 @@ struct NRIMaterialProductPatchResult
 	size_t dirtyRanges = 0;
 	size_t preservedRows = 0;
 	size_t uniformRows = 0;
+	// Optional aggregate detail counts; no row clocks or atomic publication.
+	size_t outputComparedRows = 0;
+	size_t deferredRowsSkipped = 0;
 };
 
 // This owner retains scratch, never material authority. Every candidate row is

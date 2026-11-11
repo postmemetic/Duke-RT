@@ -1,4 +1,5 @@
 #include "nri_emissive_sampling_geometry.h"
+#include "nri_cpu_detail_audit.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_hash.h"
 
@@ -278,6 +279,13 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 	if (state.cachedPrimitiveIdentity != state.primitiveIdentity ||
 		state.primitives.size() != (geometry != nullptr ? geometry->primitives.size() : 0))
 	{
+		NRICpuDetailAuditScope resetScope(PerfAuditMetric::EmissiveSamplingFactResetNs);
+		if (PerfAuditCpuDetailActive())
+		{
+			const size_t rows = geometry != nullptr ? geometry->primitives.size() : 0;
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingFactResetRows, rows);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingFactResetBytes, rows * sizeof(NRIEmissivePrimitiveGeometry));
+		}
 		state.primitives.clear();
 		state.primitives.resize(geometry != nullptr ? geometry->primitives.size() : 0);
 		state.cachedPrimitiveIdentity = state.primitiveIdentity;
@@ -295,7 +303,16 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 		return state.ranges;
 	}
 	const auto oldRangeCapacity = state.ranges.capacity();
-	BuildRanges(geometry, state.ranges);
+	{
+		NRICpuDetailAuditScope rangeScope(PerfAuditMetric::EmissiveSamplingRangeBuildNs);
+		BuildRanges(geometry, state.ranges);
+	}
+	if (PerfAuditCpuDetailActive())
+	{
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingRangeRowsInitialized, state.ranges.size());
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingRangePrimitiveVisits,
+			geometry != nullptr ? geometry->primitives.size() * 2u : 0);
+	}
 	if (state.ranges.capacity() > oldRangeCapacity)
 	{
 		mStats.capacityGrowths++;
@@ -323,7 +340,12 @@ const NRIEmissivePrimitiveGeometry& NRIEmissiveGeometryCache::Primitive(
 		const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 		primitive = BuildPrimitive(geometry, primitiveIndex);
 		mStats.primitiveBuilds++;
-		if (mCollectTiming) mStats.topologyMs += ElapsedMs(start);
+		if (mCollectTiming)
+		{
+			const double elapsed = ElapsedMs(start);
+			mStats.topologyMs += elapsed;
+			mStats.primitiveFactMs += elapsed;
+		}
 	}
 	else mStats.primitiveReuses++;
 	return primitive;

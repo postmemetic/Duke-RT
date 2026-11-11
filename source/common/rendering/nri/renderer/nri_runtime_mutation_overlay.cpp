@@ -1,3 +1,4 @@
+#include "../scene/nri_mutation_followup_audit.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 
@@ -24,6 +25,7 @@
 
 namespace
 {
+ namespace followup = nri_scene::mutation_followup_audit;
 	using namespace nri_runtime_mutation;
 }
 
@@ -32,6 +34,7 @@ namespace
 bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeometry, nri_scene::MaterialBridgeData& outMaterials, bool* outResidentStaticSceneChanged)
 {
 	nri_scene::mutation_audit::Owner mutationAuditOwner;
+ followup::Batch followupBatch;
 	nri_scene::ClearGeometryRetainingCapacity(outGeometry);
 	nri_scene::ClearMaterialBridgeRetainingCapacity(outMaterials);
 	if (outResidentStaticSceneChanged != nullptr)
@@ -1694,6 +1697,47 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		mLastPerfShellTraceStats.runtimeMutationDiscoveryMs += prepareMs;
 	}
 	discoveryAudit.End();
+ // Read before any per-chunk processing consumes dirty flags or publishes a
+ // new baseline. This observer never expands dispatch or repairs discovery.
+ if ((bool)nri_ptmutationworklistobserve && !worklistValidation.enabled)
+ {
+  mRuntimeMutation.observation.Observe(mMapWorld.buildSerial, mMapWorld.chunks.size(), mFrameIndex,
+   [&](uint32_t chunkIndex)
+   {
+    NRIRuntimeMutationObservation::Sample sample;
+    const auto& chunk = mMapWorld.chunks[chunkIndex];
+    const auto* replacement = mRuntimeMutation.FindReplacement(chunkIndex);
+    if (replacement == nullptr || mMapMoverRigidRoute.ShouldBypassExactChunk(chunk.chunkIndex)) return sample;
+    sample.eligible = true;
+    nri_scene::PTMapChunkMutationAnalysis analysis;
+    sample.valid = nri_scene::AnalyzeMapChunkMutation(chunk, replacement->baseline, analysis);
+    sample.chunk = chunk.chunkIndex; sample.sector = chunk.sectorIndex;
+    sample.source = mRuntimeMutation.GetWorklistCandidateSourceMask(chunkIndex);
+    const bool settle = mMapMotionHistory.NeedsSettle(chunk.chunkIndex);
+    sample.selected = !runtimeMutationWorklistEnabled || sample.source != 0 || settle;
+    sample.visible = IsChunkMarkedVisible(mCurrentVisibleChunkWords, chunk.chunkIndex);
+    sample.active = replacement->active; sample.residentValid = replacement->valid;
+    sample.residentAuthoritative = replacement->residentAuthoritative;
+    sample.signature = analysis.signature; sample.baselineSignature = replacement->baselineSignature;
+    sample.rawReason = sample.reason = analysis.reasonMask;
+    sample.signatureChanged = analysis.signatureChanged;
+    sample.sectorDirty = analysis.sectorDirty; sample.sectionDirty = analysis.sectionDirtyCount; sample.dragged = analysis.dragged;
+    const uint32_t noise = nri_scene::PTMapChunkMutationReason_SectorDirty |
+     nri_scene::PTMapChunkMutationReason_SectionDirty | nri_scene::PTMapChunkMutationReason_Dragged;
+    if (replacement->residentAuthoritative && !analysis.signatureChanged &&
+     analysis.signature == replacement->baselineSignature && (sample.reason & ~noise) == 0)
+     sample.reason = nri_scene::PTMapChunkMutationReason_None;
+    if (settle) sample.reason |= nri_scene::PTMapChunkMutationReason_SectionDirty;
+    return sample;
+   });
+ }
+ else
+ {
+  mRuntimeMutation.observation.Reset();
+  // Mixed modes are not valid discovery evidence: the older validator repairs
+  // candidate discovery before this point. Expose the conflict and do not scan.
+  if ((bool)nri_ptmutationworklistobserve) PerfAuditAdd(PerfAuditMetric::MutationObservationContaminated);
+ }
 	for (uint32_t chunkIndex : runtimeMutationDispatchInputs)
 	{
 		const auto& mapChunk = mMapWorld.chunks[chunkIndex];
@@ -1792,6 +1836,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			replacement.animationOnlyRefreshed = false;
 			replacement.animatedMaterialSignature = 0;
 			mRuntimeMutation.TraceChunk(mapChunk, replacement, ShouldEmitTemporalTraceLogs(), (int)nri_ptmutationtracechunk, (int)nri_ptmutationtracesector);
+			if (replacement.residentAuthoritative && !replacement.materialStateCache.empty()) followup::Add(followup::Counter::MutationMaterialCacheClearInvalidAnalysis, replacement.materialStateCache.size());
 			mRuntimeMutation.ClearReplacementPayload(replacement, replacement.residentAuthoritative);
 			continue;
 		}
@@ -1826,6 +1871,9 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			normalizedReasonMask |= nri_scene::PTMapChunkMutationReason_SectionDirty;
 			normalizedSectionDirtyCount = std::max(normalizedSectionDirtyCount, 1u);
 		}
+		followup::Add(normalizedReasonMask != 0 ? followup::Counter::MutationNormalizedChanged : followup::Counter::MutationNormalizedUnchanged);
+		if (analysis.reasonMask != 0 && normalizedReasonMask == 0) followup::Add(followup::Counter::MutationNormalizedDirtyNoiseRemoved);
+		if (motionSettleRequested) followup::Add(followup::Counter::MutationNormalizedSettleRequests);
 		replacement.reasonMask = normalizedReasonMask;
 		replacement.sectionDirtyCount = normalizedSectionDirtyCount;
 		replacement.sectorDirty = normalizedSectorDirty;
@@ -2012,6 +2060,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			chunkTraceAction = RuntimeMutationTraceAction::None;
 			mRuntimeMutation.TraceChunk(mapChunk, replacement, ShouldEmitTemporalTraceLogs(), (int)nri_ptmutationtracechunk, (int)nri_ptmutationtracesector);
 			emitChunkTrace();
+			if (!replacement.materialStateCache.empty()) followup::Add(followup::Counter::MutationMaterialCacheClearUnchanged, replacement.materialStateCache.size());
 			mRuntimeMutation.ClearReplacementPayload(replacement, true);
 			continue;
 		}
@@ -2330,10 +2379,12 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					cache.erase(cache.begin() + (ptrdiff_t)index);
 					cache.insert(cache.begin(), std::move(hotEntry));
 				}
+				followup::Add(followup::Counter::MutationMaterialCacheHits);
 				outMaterials = cache.front().materialBridge;
 				return true;
 			}
 
+			followup::Add(followup::Counter::MutationMaterialCacheMisses);
 			return false;
 		};
 		const auto storeCachedRuntimeMutationMaterials =
@@ -2362,6 +2413,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					continue;
 				}
 
+				followup::Add(followup::Counter::MutationMaterialCacheReplacements);
 				entry.materialBridge = materials;
 				if (index != 0)
 				{
@@ -2372,6 +2424,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				return;
 			}
 
+			followup::Add(followup::Counter::MutationMaterialCacheStores);
 			RuntimeMapMutationCache::ChunkReplacement::MaterialStateCacheEntry entry = {};
 			entry.animatedGeometrySignature = animatedGeometrySignature;
 			entry.animatedMaterialSignature = animatedMaterialSignature;
@@ -2385,6 +2438,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 			cache.insert(cache.begin(), std::move(entry));
 			if (cache.size() > kRuntimeMutationMaterialStateCacheCapacity)
 			{
+				followup::Add(followup::Counter::MutationMaterialCacheEvictions);
 				cache.pop_back();
 			}
 		};
@@ -3236,6 +3290,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					structuralGeometryOrDirty);
 				mRuntimeMutation.TraceChunk(mapChunk, replacement, ShouldEmitTemporalTraceLogs(), (int)nri_ptmutationtracechunk, (int)nri_ptmutationtracesector);
 				emitChunkTrace();
+				if (replacement.residentAuthoritative && !replacement.materialStateCache.empty()) followup::Add(followup::Counter::MutationMaterialCacheClearInvalidReplacement, replacement.materialStateCache.size());
 				mRuntimeMutation.ClearReplacementPayload(replacement, replacement.residentAuthoritative);
 				continue;
 			}
@@ -3551,6 +3606,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					residentEntry != nullptr ? residentEntry->animatedMaterialSignature : replacement.animatedMaterialSignature;
 				replacement.surfaceCount = 0;
 				replacement.triangleCount = 0;
+				if (!replacement.materialStateCache.empty()) followup::Add(followup::Counter::MutationMaterialCacheClearResidentNoop, replacement.materialStateCache.size());
 				mRuntimeMutation.ClearReplacementPayload(replacement, true);
 				if (residentEntry != nullptr)
 				{

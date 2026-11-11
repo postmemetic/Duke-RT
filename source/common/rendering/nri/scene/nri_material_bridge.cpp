@@ -1,4 +1,5 @@
 #include "nri_material_bridge.h"
+#include "nri_material_color_audit.h"
 #include "nri_mutation_pipeline_audit.h"
 #include "nri_scene_product_layout.h"
 #include "nri_material_palette.h"
@@ -482,6 +483,7 @@ namespace
 		std::unordered_map<uint64_t, uint32_t>& textureLookup,
 		MaterialBridgeData& outMaterials)
 	{
+		material_color_audit::Add(material_color_audit::Counter::TextureLookupRequests);
 		const bool paletteMipped =
 			allowPaletteMips && indexed && (materialFlags & MaterialFlag_PointSampled) == 0;
 		const bool alphaClip = (materialFlags & MaterialFlag_AlphaClip) != 0;
@@ -499,7 +501,10 @@ namespace
 		if (it == textureLookup.end())
 		{
 			const uint32_t textureIndex = (uint32_t)outMaterials.textures.size();
+			const size_t previousBuckets = material_color_audit::Current != nullptr ? textureLookup.bucket_count() : 0;
 			textureLookup.emplace(textureKey, textureIndex);
+			if (material_color_audit::Current != nullptr && textureLookup.bucket_count() != previousBuckets)
+				material_color_audit::Add(material_color_audit::Counter::TextureLookupBucketGrowths);
 			TextureUpload upload = BuildTextureUpload(texture, indexed, outMaterials.buildStats);
 			if (paletteMipped)
 			{
@@ -514,12 +519,16 @@ namespace
 
 	uint32_t EnsureTextureUploadIndex(FTexture* texture, bool indexed, std::unordered_map<uint64_t, uint32_t>& textureLookup, MaterialBridgeData& outMaterials)
 	{
+		material_color_audit::Add(material_color_audit::Counter::TextureLookupRequests);
 		const uint64_t textureKey = MakeTextureKey(texture, indexed);
 		auto it = textureLookup.find(textureKey);
 		if (it == textureLookup.end())
 		{
 			const uint32_t textureIndex = (uint32_t)outMaterials.textures.size();
+			const size_t previousBuckets = material_color_audit::Current != nullptr ? textureLookup.bucket_count() : 0;
 			textureLookup.emplace(textureKey, textureIndex);
+			if (material_color_audit::Current != nullptr && textureLookup.bucket_count() != previousBuckets)
+				material_color_audit::Add(material_color_audit::Counter::TextureLookupBucketGrowths);
 			outMaterials.textures.push_back(BuildTextureUpload(texture, indexed, outMaterials.buildStats));
 			return textureIndex;
 		}
@@ -992,6 +1001,10 @@ void ClearMaterialBridgeRetainingCapacity(MaterialBridgeData& materials)
 void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials, MaterialProductLayout* layout)
 {
 	mutation_audit::Scope category(mutation_audit::Category::Material);
+	material_color_audit::Scope colorAudit("direct", true);
+	const size_t previousMaterials = material_color_audit::Current != nullptr ? outMaterials.materials.capacity() : 0;
+	const size_t previousMetadata = material_color_audit::Current != nullptr ? outMaterials.lightMetadata.capacity() : 0;
+	const size_t previousTextures = material_color_audit::Current != nullptr ? outMaterials.textures.capacity() : 0;
 	ClearMaterialBridgeRetainingCapacity(outMaterials);
 	const auto paletteStart = std::chrono::steady_clock::now();
 	const bool paletteBuilt = ResolveMaterialPalette(outMaterials);
@@ -1039,6 +1052,17 @@ void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials
 		layout->textureLookupKeys.resize(outMaterials.textures.size());
 		for (const auto& entry : textureLookup) layout->textureLookupKeys[entry.second] = entry.first;
 		layout->valid = true;
+	}
+	if (material_color_audit::Current != nullptr)
+	{
+		using namespace material_color_audit;
+		Add(Counter::TextureLookupEntries, textureLookup.size());
+		Add(Counter::MaterialVectorGrowths, outMaterials.materials.capacity() > previousMaterials);
+		Add(Counter::MetadataVectorGrowths, outMaterials.lightMetadata.capacity() > previousMetadata);
+		Add(Counter::TextureVectorGrowths, outMaterials.textures.capacity() > previousTextures);
+		Add(Counter::CapacityGrowthBytes, (outMaterials.materials.capacity() - previousMaterials) * sizeof(MaterialData) +
+			(outMaterials.lightMetadata.capacity() - previousMetadata) * sizeof(MaterialLightingMetadata) +
+			(outMaterials.textures.capacity() - previousTextures) * sizeof(TextureUpload));
 	}
 	outMaterials.buildStats.materialRowsMs = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - materialRowsStart).count();

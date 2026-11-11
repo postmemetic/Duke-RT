@@ -1,3 +1,4 @@
+#include "../scene/nri_mutation_followup_audit.h"
 #include "nri_runtime_mutation.h"
 #include "nri_cvars.h"
 #include "../scene/nri_mutation_pipeline_audit.h"
@@ -12,6 +13,7 @@
 
 namespace
 {
+ namespace followup = nri_scene::mutation_followup_audit;
 	struct RuntimeMutationLightIdentitySurfaceKey
 	{
 		uint32_t kind = UINT32_MAX;
@@ -744,6 +746,7 @@ void NRIRuntimeMutationSystem::ClearReplacementPayload(RuntimeMapMutationCache::
 	replacement.certifiedMaterialCount = 0;
 	if (clearMaterialStateCache)
 	{
+		followup::Add(followup::Counter::MutationMaterialCacheEntriesCleared, replacement.materialStateCache.size());
 		replacement.materialStateCache.clear();
 	}
 }
@@ -1113,6 +1116,7 @@ void NRIRuntimeMutationSystem::InitializeStaticChunkReplacement(const nri_scene:
 	replacement.surfaceCount = 0;
 	replacement.triangleCount = 0;
 	replacement.residentAuthoritative = true;
+	followup::Add(followup::Counter::MutationMaterialCacheClearStartup, replacement.materialStateCache.size());
 	ClearReplacementPayload(replacement, true);
 	discovery.NoteTouchedChunk(chunk.chunkIndex);
 }
@@ -1120,6 +1124,7 @@ void NRIRuntimeMutationSystem::InitializeStaticChunkReplacement(const nri_scene:
 void NRIRuntimeMutationSystem::ResetWorklist()
 {
 	worklist.Reset();
+	observation.Reset();
 	discovery.Reset();
 	signatureWatchlist.clear();
 	signatureWatchlistChunks.clear();

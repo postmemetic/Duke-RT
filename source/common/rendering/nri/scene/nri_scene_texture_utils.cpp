@@ -1,5 +1,6 @@
 #include "texturemanager.h"
 #include "nri_scene_texture_utils.h"
+#include "nri_material_color_audit.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -14,6 +15,7 @@ namespace nri_scene
 {
 bool IsUsableGameTexturePointer(FGameTexture* texture)
 {
+	material_color_audit::Guard();
 #ifndef _WIN32
 	return TexMan.OwnsTexture(texture);
 #else

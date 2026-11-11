@@ -1,4 +1,5 @@
 #include "nri_renderdevice.h"
+#include "nri_cpu_frame_capture.h"
 
 #include "../renderer/nri_renderer.h"
 #include "perf_capture.h"
@@ -168,11 +169,13 @@ void NRIRenderDevice::CaptureCompactPerfRendererStats(bool rendered)
 {
 	const PerfCompactCaptureToken token = PerfCompactCaptureGetCurrentToken();
 	const bool audit = PerfAuditCensusRequested();
-	if ((!token && !audit) || mRenderer == nullptr) return;
+	const bool cpuFrame = PerfAuditCpuFrameRequested();
+	if ((!token && !audit && !cpuFrame) || mRenderer == nullptr) return;
 
 	const auto& shell = mRenderer->GetLastPerfShellTraceStats();
 	const auto& resource = mRenderer->GetLastPerfResourceTraceStats();
 	if (audit) CaptureAuditSceneSnapshot(shell, resource, mLastFrameBoundaryStats.frameNumber, rendered);
+	if (cpuFrame) NRICaptureCpuFrame(*mRenderer, mLastFrameBoundaryStats.frameNumber, rendered);
 	if (!token) return;
 	PerfCompactNriStats stats = {};
 	stats.frame = mLastFrameBoundaryStats.frameNumber;

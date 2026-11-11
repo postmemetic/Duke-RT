@@ -3,6 +3,7 @@
 #include "../scene/nri_material_bridge_exact.h"
 #include "../scene/nri_cpu_perf_audit.h"
 #include "nri_cvars.h"
+#include "nri_cpu_detail_audit.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -13,6 +14,7 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 	PerfAuditScope auditResolve(PerfAuditMetric::MaterialProductReuseResolveNs);
 	PerfAuditAdd(PerfAuditMetric::MaterialProductReuseRequests);
 	PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveCalls);
+	const bool detail = PerfAuditCpuDetailActive();
 	const bool sameMapping = mTextureRemap.Prepare(slotTable, mCombinedMaterials);
 	if (mResolvedProductQuarantined)
 	{
@@ -33,7 +35,9 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 	PerfAuditAdd(PerfAuditMetric::MaterialProductReuseBuilds);
 	// Lookup availability can change without MappingRevision changing. Keep
 	// the old prefix optimization only when its actual dense mapping is intact.
-	if (mTextureRemap.FirstChangedIndex() < mResolvedResidentTextureLimit ||
+	const bool ownerInvalid = !mResolvedResidentValid || mResidentLightMetadataCount != mResidentMaterialCount;
+	const bool residentMappingChanged = mTextureRemap.FirstChangedIndex() < mResolvedResidentTextureLimit;
+	if (residentMappingChanged ||
 		mResidentLightMetadataCount != mResidentMaterialCount)
 		mResolvedResidentValid = false;
 	// Preserve invalid finite-index behavior too: a resident input can resolve
@@ -50,6 +54,30 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 		mResolvedTextureSlotRevision != slotTable.MappingRevision();
 	if (rebuildResident)
 	{
+		// Exclusive revision categories retain the old rebuild decision. Owner
+		// invalidation wins over mapping classification; prefix changes win over
+		// a suffix-only or completely unchanged dense mapping.
+		const bool revisionChanged = mResolvedTextureSlotRevision != slotTable.MappingRevision();
+		const uint32_t category = ownerInvalid ? 0u : residentMappingChanged ? 1u : sameMapping ? 2u : 3u;
+		static constexpr PerfAuditMetric calls[] = { PerfAuditMetric::MaterialResidentRevisionOwnerInvalidCalls,
+			PerfAuditMetric::MaterialResidentRevisionPrefixChangedCalls, PerfAuditMetric::MaterialResidentRevisionMappingSameCalls,
+			PerfAuditMetric::MaterialResidentRevisionSuffixOnlyCalls };
+		static constexpr PerfAuditMetric rows[] = { PerfAuditMetric::MaterialResidentRevisionOwnerInvalidRows,
+			PerfAuditMetric::MaterialResidentRevisionPrefixChangedRows, PerfAuditMetric::MaterialResidentRevisionMappingSameRows,
+			PerfAuditMetric::MaterialResidentRevisionSuffixOnlyRows };
+		static constexpr PerfAuditMetric bytes[] = { PerfAuditMetric::MaterialResidentRevisionOwnerInvalidBytes,
+			PerfAuditMetric::MaterialResidentRevisionPrefixChangedBytes, PerfAuditMetric::MaterialResidentRevisionMappingSameBytes,
+			PerfAuditMetric::MaterialResidentRevisionSuffixOnlyBytes };
+		static constexpr PerfAuditMetric times[] = { PerfAuditMetric::MaterialResidentRevisionOwnerInvalidNs,
+			PerfAuditMetric::MaterialResidentRevisionPrefixChangedNs, PerfAuditMetric::MaterialResidentRevisionMappingSameNs,
+			PerfAuditMetric::MaterialResidentRevisionSuffixOnlyNs };
+		NRICpuDetailAuditScope revisionScope(times[category], revisionChanged);
+		if (detail && revisionChanged)
+		{
+			PerfAuditAdd(calls[category]);
+			PerfAuditAdd(rows[category], mResidentMaterialCount);
+			PerfAuditAdd(bytes[category], NRIAuditMaterialBridgeBytes(mCombinedMaterials));
+		}
 		if (mResolvedStaticPrefixDirty)
 			PerfAuditAdd(PerfAuditMetric::MaterialFrameStaticPrefixFallbacks);
 		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRebuilds);
@@ -58,12 +86,18 @@ const nri_scene::MaterialBridgeData& NRISceneMaterialFrameCache::ResolveTextureS
 			PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveSlotRevisionChanges);
 		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsCopied, mCombinedMaterials.materials.size());
 		NRIAuditFrameBridgeCopy(mCombinedMaterials);
-		mResolvedMaterials = mCombinedMaterials;
+		{
+			NRICpuDetailAuditScope copyScope(PerfAuditMetric::MaterialResidentFullCopyNs);
+			mResolvedMaterials = mCombinedMaterials;
+		}
 		mResolvedMaterials.materials.resize(mResidentMaterialCount);
 		mResolvedMaterials.lightMetadata.resize(mResidentLightMetadataCount);
 		PerfAuditAdd(PerfAuditMetric::MaterialFrameResolveRowsRemapped, mResolvedMaterials.materials.size());
 		mResolvedResidentTextureLimit = 0;
-		resolveResidentRange(0u, mResidentMaterialCount);
+		{
+			NRICpuDetailAuditScope remapScope(PerfAuditMetric::MaterialResidentFullRemapNs);
+			resolveResidentRange(0u, mResidentMaterialCount);
+		}
 		mResolvedResidentValid = true;
 		mResolvedTextureSlotRevision = slotTable.MappingRevision();
 		mResolvedStaticPrefixDirty = false;
