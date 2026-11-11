@@ -186,6 +186,9 @@ void NRIMapMotionHistory::ReportAuditStorage() const
 	PerfAuditSet(PerfAuditMetric::MapMotionStagedRecords, m_staged.size());
 	// Allocator/node headers and unordered-map bucket storage are not measured.
 	PerfAuditSet(PerfAuditMetric::MapMotionRecordValueBytes, m_records.size() * sizeof(RecordMap::value_type));
+	// Component of RecordValueBytes, not additional storage.
+	PerfAuditSet(PerfAuditMetric::MapMotionCertificateRecordBytes,
+		m_records.size() * 2 * sizeof(NRIMapMotionSurfaceCertificate));
 	PerfAuditSet(PerfAuditMetric::MapMotionPayloadCapacityBytes, m_payloadCapacityBytes + m_buildScratch.PayloadCapacityBytes());
 	PerfAuditSet(PerfAuditMetric::MapMotionInputCapacityBytes, m_inputCapacityBytes + m_buildScratch.InputCapacityBytes());
 	PerfAuditSet(PerfAuditMetric::MapMotionScratchCapacityBytes,

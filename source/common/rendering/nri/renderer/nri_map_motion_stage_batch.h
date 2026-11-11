@@ -25,9 +25,15 @@ private:
 	{
 		const nri_scene::SurfaceRef* surface = nullptr;
 		const NRIMapMotionHistory::Record* record = nullptr;
+		const NRIMapMotionViewCertificate* certificate = nullptr;
 		uint64_t comparedBytes = 0;
+		uint64_t validationComparedBytes = 0;
+		uint32_t ordinal = 0;
+		uint32_t certificateChecks = 0;
 		int matchedSlot = -1;
 		bool hasMotion = false;
+		bool certificateHit = false;
+		bool certificateMismatch = false;
 	};
 	struct Timings
 	{
@@ -38,7 +44,8 @@ private:
 		bool initializationFailed = false;
 	};
 	struct WorkerPool;
-	bool Gather(const NRIMapMotionHistory& history, const std::vector<const nri_scene::SceneView*>& views);
+	bool Gather(const NRIMapMotionHistory& history, const std::vector<const nri_scene::SceneView*>& views,
+		const std::vector<NRIMapMotionViewCertificate>* certificates = nullptr);
 	bool Evaluate(const NRIMapMotionHistory& history, int workers, bool collectTiming);
 	bool LeaseMatches(const NRIMapMotionHistory& history) const;
 	void EvaluateRange(const NRIMapMotionHistory& history, size_t first, size_t end);
@@ -51,4 +58,5 @@ private:
 	unsigned mWorkerLimit = 0;
 	bool mLeaseActive = false;
 	bool mWorkerInitializationFailed = false;
+	bool mValidateCertificates = false;
 };

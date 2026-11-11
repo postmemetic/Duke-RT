@@ -854,6 +854,21 @@ PERF_AUDIT_METRIC(SectorHueProductDependencyCapacityBytes, gauge)
 PERF_AUDIT_METRIC(SectorHueProductEdgeCapacityBytes, gauge)
 PERF_AUDIT_METRIC(SectorHueProductLiveBytes, gauge)
 
+// Exact retained-publication motion reuse; memory is a component where noted.
+PERF_AUDIT_METRIC(MapMotionCertificateEligibleSurfaces, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateChecks, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateHits, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateFallbackSurfaces, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateSavedCornerBytes, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateValidationChecks, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateValidationComparedBytes, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateValidationMismatches, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateQuarantines, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateRecordBytes, gauge)
+PERF_AUDIT_METRIC(MapMotionCertificateViewCapacityBytes, gauge)
+PERF_AUDIT_METRIC(MapMotionCertificateViewReserveAllocations, counter)
+PERF_AUDIT_METRIC(MapMotionCertificateViewReserveBytes, counter)
+
 // Exclusive mutation owner attribution; nested scopes replace their parent.
 PERF_AUDIT_METRIC(MutationPipelineOwnerCalls, counter)
 PERF_AUDIT_METRIC(MutationPipelineNestedCalls, counter)

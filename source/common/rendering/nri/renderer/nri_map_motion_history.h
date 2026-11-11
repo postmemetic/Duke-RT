@@ -47,7 +47,8 @@ public:
 	void BeginStage(uint64_t proposedSerial, uint64_t mapEpoch);
 	bool StagePublishedView(const nri_scene::SceneView& sceneView);
 	// Synchronous immutable lease: no input/history mutation until this returns.
-	bool StagePublishedBatch(const std::vector<const nri_scene::SceneView*>& views, int workers);
+	bool StagePublishedBatch(const std::vector<const nri_scene::SceneView*>& views, int workers,
+		const std::vector<NRIMapMotionViewCertificate>* certificates = nullptr);
 	void FinalizeStage();
 	bool CommitSubmitted(uint64_t serial);
 	void DiscardStaged();

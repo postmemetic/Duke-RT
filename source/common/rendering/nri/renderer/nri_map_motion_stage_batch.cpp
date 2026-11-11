@@ -80,7 +80,8 @@ size_t NRIMapMotionStageBatch::GrowthCapacity(size_t current, size_t required)
 }
 
 bool NRIMapMotionStageBatch::Gather(const NRIMapMotionHistory& history,
-	const std::vector<const nri_scene::SceneView*>& views)
+	const std::vector<const nri_scene::SceneView*>& views,
+	const std::vector<NRIMapMotionViewCertificate>* certificates)
 {
 	ReleaseInputs();
 	mTimings = {};
@@ -103,15 +104,31 @@ bool NRIMapMotionStageBatch::Gather(const NRIMapMotionHistory& history,
 	}
 	mResults.resize(count);
 	size_t index = 0;
-	for (const auto* view : views)
+	for (size_t viewIndex = 0; viewIndex < views.size(); ++viewIndex)
 	{
-		for (const auto& surface : view->opaqueWalls) mResults[index++] = { &surface };
-		for (const auto& surface : view->opaqueFlats) mResults[index++] = { &surface };
+		const auto* view = views[viewIndex];
+		const auto* certificate = certificates && certificates->size() == views.size() &&
+			(*certificates)[viewIndex].Valid() ? &(*certificates)[viewIndex] : nullptr;
+		uint32_t ordinal = 0;
+		const auto append = [&](const auto& surfaces)
+		{
+			for (const auto& surface : surfaces)
+			{
+				auto& result = mResults[index++];
+				result = {};
+				result.surface = &surface;
+				result.certificate = certificate;
+				result.ordinal = ordinal++;
+			}
+		};
+		append(view->opaqueWalls);
+		append(view->opaqueFlats);
 	}
 	mMapEpoch = history.m_mapEpoch;
 	mStageSerial = history.m_stageSerial;
 	mLeaseGeneration = history.m_leaseGeneration;
 	mLeaseActive = true;
+	mValidateCertificates = history.m_reference != nullptr;
 	return true;
 }
 
@@ -140,7 +157,29 @@ void NRIMapMotionStageBatch::EvaluateRange(const NRIMapMotionHistory& history, s
 		{
 			if (slot < 0 || (tested & (1u << slot))) continue;
 			tested |= 1u << slot;
-			if (record.snapshots[slot].Matches(surface, result.comparedBytes))
+			const auto& snapshot = record.snapshots[slot];
+			if (result.certificate && snapshot.valid)
+			{
+				++result.certificateChecks;
+				if (snapshot.certificate.ordinal == result.ordinal &&
+					snapshot.certificate.view.Equals(*result.certificate))
+				{
+					result.certificateHit = true;
+					result.matchedSlot = slot;
+					result.hasMotion = snapshot.certificate.hasMotion;
+					// Validation deliberately reads every original input, including
+					// motion-only previous positions and UV reactivity. No worker
+					// mutates a snapshot or emits shared audit counters.
+					if (mValidateCertificates)
+					{
+						const bool matches = snapshot.Matches(surface, result.validationComparedBytes);
+						const bool hasMotion = NRIMapMotionHistory::SurfaceHasMotion(surface);
+						result.certificateMismatch = !matches || hasMotion != result.hasMotion;
+					}
+					break;
+				}
+			}
+			if (snapshot.Matches(surface, result.comparedBytes))
 			{
 				result.matchedSlot = slot;
 				result.hasMotion = NRIMapMotionHistory::SurfaceHasMotion(surface);
@@ -226,7 +265,8 @@ size_t NRIMapMotionStageBatch::CapacityBytes() const
 	return mResults.capacity() * sizeof(Result) + (mPool ? sizeof(WorkerPool) : 0);
 }
 
-bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene::SceneView*>& views, int workers)
+bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene::SceneView*>& views, int workers,
+	const std::vector<NRIMapMotionViewCertificate>* certificates)
 {
 	PerfAuditScope batchScope(PerfAuditMetric::MapMotionBatchNs);
 	PerfAuditAdd(PerfAuditMetric::MapMotionBatchCalls);
@@ -249,7 +289,7 @@ bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene:
 	bool gathered;
 	{
 		PerfAuditScope scope(PerfAuditMetric::MapMotionBatchGatherNs);
-		gathered = batch.Gather(*this, views);
+		gathered = batch.Gather(*this, views, certificates);
 	}
 	if (!gathered)
 	{
@@ -284,6 +324,8 @@ bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene:
 	PerfAuditSet(PerfAuditMetric::MapMotionBatchWorkers, times.workers);
 	PerfAuditSet(PerfAuditMetric::MapMotionBatchResidentWorkers, batch.mPool ? batch.mPool->started : 0);
 	uint64_t compared = 0, fast = 0, fallback = 0, duplicates = 0;
+	uint64_t certificateEligible = 0, certificateChecks = 0, certificateHits = 0;
+	uint64_t certificateSavedBytes = 0, certificateValidations = 0, certificateValidationBytes = 0;
 	bool valid = true;
 	size_t index = 0;
 	{
@@ -309,6 +351,21 @@ bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene:
 				const auto& result = batch.mResults[index];
 				const auto& surface = *result.surface;
 				compared += result.comparedBytes;
+				// Fold counters into the existing ordered pass; do not add a
+				// second full result scan merely to observe cheap certificates.
+				certificateEligible += result.certificate && surface.temporal.identityValid ? 1 : 0;
+				certificateChecks += result.certificateChecks;
+				certificateValidations += result.certificateHit && batch.mValidateCertificates ? 1 : 0;
+				certificateValidationBytes += result.validationComparedBytes;
+				if (result.certificateMismatch)
+				{
+					PerfAuditAdd(PerfAuditMetric::MapMotionCertificateValidationMismatches);
+					PerfAuditAdd(PerfAuditMetric::MapMotionCertificateQuarantines);
+					Quarantine("publication-certificate");
+					viewValid = referenceValid;
+					index = end;
+					break;
+				}
 				if (!surface.temporal.identityValid) continue;
 				auto* record = const_cast<Record*>(result.record);
 				// An earlier publication may have replaced the spare snapshot.
@@ -324,6 +381,20 @@ bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene:
 				record->stagedAge = record->committedSlot >= 0 ? record->historyAge + 1u : 1u;
 				record->stagedValid = true;
 				record->publishedWithMotion = result.hasMotion;
+				if (result.certificate)
+				{
+					auto& snapshot = record->snapshots[result.matchedSlot];
+					// Owner-only publication after duplicate checks: workers may
+					// have borrowed the same record for several occurrences.
+					if (!result.certificateHit)
+						snapshot.certificate = { *result.certificate, result.ordinal, result.hasMotion };
+					if (result.certificateHit)
+					{
+						++certificateHits;
+						certificateSavedBytes += snapshot.sourceCorners.size() *
+							(sizeof(nri_scene::PTMapTemporalCorner::key) + sizeof(nri_scene::PTMapTemporalCorner::position));
+					}
+				}
 				m_staged.push_back(record);
 				++fast;
 			}
@@ -348,6 +419,13 @@ bool NRIMapMotionHistory::StagePublishedBatch(const std::vector<const nri_scene:
 	PerfAuditAdd(PerfAuditMetric::MapMotionBatchFastSurfaces, fast);
 	PerfAuditAdd(PerfAuditMetric::MapMotionBatchFallbackSurfaces, fallback);
 	PerfAuditAdd(PerfAuditMetric::MapMotionBatchDuplicateFallbacks, duplicates);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateEligibleSurfaces, certificateEligible);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateChecks, certificateChecks);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateHits, certificateHits);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateFallbackSurfaces, certificateEligible - certificateHits);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateSavedCornerBytes, certificateSavedBytes);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateValidationChecks, certificateValidations);
+	PerfAuditAdd(PerfAuditMetric::MapMotionCertificateValidationComparedBytes, certificateValidationBytes);
 	if (m_reference && !m_quarantined)
 	{
 		PerfAuditAdd(PerfAuditMetric::MapMotionBatchValidationChecks);

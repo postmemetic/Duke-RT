@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_scene_frame_coordinator_types.h"
+#include "nri_map_motion_payload_cache.h"
 #include "../scene/nri_retained_scratch.h"
 #include "../scene/nri_scene_view_scratch.h"
 #include "printf.h"
@@ -105,6 +106,7 @@ struct NRISceneFrameScratch
 	NRIStagedChunkScratch stagedChunks;
 	// Borrowed only during synchronous motion evaluation; cleared before return.
 	std::vector<const nri_scene::SceneView*> motionStageViews;
+	std::vector<NRIMapMotionViewCertificate> motionStageCertificates;
 	uint64_t motionStageMapEpoch = 0;
 };
 

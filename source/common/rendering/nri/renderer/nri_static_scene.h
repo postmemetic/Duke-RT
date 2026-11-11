@@ -7,12 +7,14 @@
 #include "nri_runtime_mutation.h"
 #include "nri_static_material_slices.h"
 #include "nri_static_filter_cache.h"
+#include "nri_map_motion_payload_cache.h"
 #include "../scene/nri_geometry_bridge.h"
 #include "../scene/nri_map_builder.h"
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_scene_bridge.h"
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 struct StaticMapChunkAtlas
@@ -204,6 +206,23 @@ struct StaticMapSceneCache
 	std::vector<ChunkCache> chunks;
 	StaticMapSegmentBlasCache segmentBlasCache;
 	uint32_t tlasInstanceCount = 0;
+
+	// Complete-view publication is the authority for motion input certificates.
+	// All position/previous-position, temporal, provenance and ordered membership
+	// writes must finish before this call. Retained readers receive const views;
+	// in-place mutation without advancing this revision is not permitted.
+	template<class View> void PublishLightChunkView(uint32_t slot, View&& view)
+	{
+		lightChunkViews[slot] = std::forward<View>(view);
+		++chunks[slot].lightGeneration;
+	}
+	NRIMapMotionViewCertificate MotionPublicationCertificate(uint32_t slot, uint32_t chunkIndex) const
+	{
+		if (!valid || !contentBuildSerial || slot >= chunks.size() || slot >= lightChunkViews.size()) return {};
+		const auto& chunk = chunks[slot];
+		if (!chunk.active || chunk.chunkIndex != chunkIndex || !chunk.lightGeneration) return {};
+		return { contentBuildSerial, chunk.lightGeneration, chunkIndex, slot };
+	}
 };
 
 struct ResidentMapChunkRegistry

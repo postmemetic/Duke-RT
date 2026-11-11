@@ -318,8 +318,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 			stats.rowsPatched += slice.materialCount;
 		}
 		else patchedAll = false;
-		staticScene.lightChunkViews[chunkListIndex] = std::move(liveView);
-		++chunk.lightGeneration;
+		staticScene.PublishLightChunkView(chunkListIndex, std::move(liveView));
 		chunk.materialBridge = std::move(liveMaterials);
 		chunk.animatedMaterialSignature = liveSignature;
 		state.changedChunks.push_back(chunkListIndex);

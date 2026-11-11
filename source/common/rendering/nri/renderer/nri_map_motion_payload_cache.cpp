@@ -72,6 +72,7 @@ bool NRIMapMotionPayloadSnapshot::Matches(const nri_scene::SurfaceRef& surface, 
 bool NRIMapMotionPayloadSnapshot::Build(const nri_scene::SurfaceRef& surface, nri_scene::MotionValidityReason& reason)
 {
 	valid = false;
+	certificate = {};
 	if (!nri_scene::BuildMapTemporalSurfacePayload(surface, payload, reason)) return false;
 	sourceCorners.resize(surface.vertices.size());
 	for (size_t i = 0; i < surface.vertices.size(); ++i)

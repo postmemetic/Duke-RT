@@ -640,17 +640,21 @@ bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
 	auto& stagedChunks = mSceneFrameScratch->stagedChunks;
 	stagedChunks.Begin(registry.entries.size());
 	auto& motionViews = mSceneFrameScratch->motionStageViews;
+	auto& certificates = mSceneFrameScratch->motionStageCertificates;
 	const int workers = std::clamp((int)nri_ptmapmotionworkers, -1, 2);
 	// Keep both the view list and the result batch bounded. Large scenes retain
 	// the original immediate serial path without changing publication membership.
 	const bool batch = workers >= 0 && mBoundSceneInstances.size() <= NRIMapMotionStageBatch::MaxSurfaces;
+	const bool certify = batch && (bool)nri_ptmapmotioncertificate;
 	const uint64_t gatherStart = batch && PerfAuditActive() ? PerfAuditClockNs() : 0;
 	if (mSceneFrameScratch->motionStageMapEpoch != mMapWorld.buildSerial)
 	{
 		std::vector<const nri_scene::SceneView*>{}.swap(motionViews);
+		std::vector<NRIMapMotionViewCertificate>{}.swap(certificates);
 		mSceneFrameScratch->motionStageMapEpoch = mMapWorld.buildSerial;
 	}
 	motionViews.clear();
+	certificates.clear();
 	// Distinct valid chunk views cannot exceed either input count. Geometric
 	// growth avoids repeated allocations as that upper bound rises gradually.
 	if (batch)
@@ -661,6 +665,12 @@ bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
 			motionViews.reserve(NRIMapMotionStageBatch::GrowthCapacity(motionViews.capacity(), required));
 			PerfAuditAdd(PerfAuditMetric::MapMotionBatchViewReserveAllocations);
 			PerfAuditAdd(PerfAuditMetric::MapMotionBatchViewReserveBytes, motionViews.capacity() * sizeof(motionViews[0]));
+		}
+		if (certify && required > certificates.capacity())
+		{
+			certificates.reserve(NRIMapMotionStageBatch::GrowthCapacity(certificates.capacity(), required));
+			PerfAuditAdd(PerfAuditMetric::MapMotionCertificateViewReserveAllocations);
+			PerfAuditAdd(PerfAuditMetric::MapMotionCertificateViewReserveBytes, certificates.capacity() * sizeof(certificates[0]));
 		}
 	}
 	for (const SceneInstanceData& instance : mBoundSceneInstances)
@@ -685,13 +695,20 @@ bool NRIRenderer::StagePublishedMapMotion(uint64_t proposedSerial)
 			continue;
 		}
 		const auto& view = mStaticMapScene.lightChunkViews[entry.staticSceneChunkListIndex];
-		if (batch) motionViews.push_back(&view);
+		if (batch)
+		{
+			motionViews.push_back(&view);
+			if (certify) certificates.push_back(mStaticMapScene.MotionPublicationCertificate(
+				entry.staticSceneChunkListIndex, entry.chunkIndex));
+		}
 		else valid &= mMapMotionHistory.StagePublishedView(view);
 	}
 	if (gatherStart) PerfAuditAdd(PerfAuditMetric::MapMotionBatchViewGatherNs, PerfAuditClockNs() - gatherStart);
-	if (batch) valid &= mMapMotionHistory.StagePublishedBatch(motionViews, workers);
+	if (batch) valid &= mMapMotionHistory.StagePublishedBatch(motionViews, workers, certify ? &certificates : nullptr);
 	motionViews.clear();
+	certificates.clear();
 	PerfAuditSet(PerfAuditMetric::MapMotionBatchViewCapacityBytes, motionViews.capacity() * sizeof(motionViews[0]));
+	PerfAuditSet(PerfAuditMetric::MapMotionCertificateViewCapacityBytes, certificates.capacity() * sizeof(certificates[0]));
 	mMapMotionHistory.FinalizeStage();
 	return valid;
 }
