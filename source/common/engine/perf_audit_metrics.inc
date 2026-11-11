@@ -1038,3 +1038,13 @@ PERF_AUDIT_METRIC(MaterialResidentPrefixReuseRowsReused, counter)
 PERF_AUDIT_METRIC(MaterialResidentPrefixReuseValidationChecks, counter)
 PERF_AUDIT_METRIC(MaterialResidentPrefixReuseValidationMismatches, counter)
 PERF_AUDIT_METRIC(MaterialResidentPrefixReuseQuarantines, counter)
+
+// Focused CPU follow-up owner diagnostics.
+PERF_AUDIT_METRIC(FluidSignatureReuseAvoidedCalls, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseAnalysisChecks, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseBaselineChecks, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseFluidChecks, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseNonfluidChecks, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseValidationMismatches, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseQuarantines, counter)
+PERF_AUDIT_METRIC(FluidSignatureReuseReferenceNs, counter)

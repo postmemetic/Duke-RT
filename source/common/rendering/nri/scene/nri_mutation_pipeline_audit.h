@@ -23,6 +23,7 @@ struct Ledger
 	Category category = Category::Other;
 	uint64_t last = 0, calls = 1, nestedCalls = 0, segments = 0;
 	uint64_t analysisChanged = 0, analysisUnchanged = 0;
+	uint64_t fluidSignatureAvoidedCalls = 0;
 	void Advance(uint64_t now)
 	{
 		ns[(size_t)category] += now - last;
@@ -72,6 +73,7 @@ public:
 		PerfAuditAdd(PerfAuditMetric::MutationPipelineOwnerCalls, mLedger.calls);
 		PerfAuditAdd(PerfAuditMetric::MutationPipelineNestedCalls, mLedger.nestedCalls);
 		PerfAuditAdd(PerfAuditMetric::MutationPipelineSegments, mLedger.segments);
+		PerfAuditAdd(PerfAuditMetric::FluidSignatureReuseAvoidedCalls, mLedger.fluidSignatureAvoidedCalls);
 		PerfAuditAdd(PerfAuditMetric::MutationPipelineAnalysisChanged, mLedger.analysisChanged);
 		PerfAuditAdd(PerfAuditMetric::MutationPipelineAnalysisUnchanged, mLedger.analysisUnchanged);
 	}

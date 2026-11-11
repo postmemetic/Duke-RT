@@ -94,7 +94,8 @@ uint64_t GetPendingLevelGeometryBuildSerial();
 bool BuildMapWorld(PTMapWorld& outWorld, const PTMapBuildOptions& options = {});
 bool BuildLiveMapChunkWorld(const PTMapChunk& chunk, PTMapWorld& outWorld, PTMapWorldStats* outStats = nullptr, const PTMapBuildOptions& options = {});
 bool BuildLiveMapChunkSceneView(const PTMapChunk& chunk, SceneView& outView, PTMapWorldStats* outStats = nullptr, const PTMapBuildOptions& options = {});
-uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk);
+// Optional subresult is valid only for this synchronous call; no retained cache.
+uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk, uint64_t* outFluidNormalSignature = nullptr);
 bool CaptureMapChunkMutationBaseline(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline);
 bool AnalyzeMapChunkMutation(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis);
 }

@@ -1,4 +1,8 @@
 #include "nri_map_builder.h"
+#include "nri_map_mutation_compare.h"
+#include "c_cvars.h"
+#include "printf.h"
+
 #include "nri_fluid_surface_normals.h"
 #include "nri_mutation_pipeline_audit.h"
 #include "perf_audit.h"
@@ -15,7 +19,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 #include <vector>
+
+EXTERN_CVAR(Bool, nri_ptfluidsignaturereuse)
+EXTERN_CVAR(Bool, nri_ptfluidsignaturevalidate)
 
 void initSkyInfo(HWDrawInfo* di, HWSkyInfo* sky, sectortype* sector, int plane);
 
@@ -25,6 +33,22 @@ namespace
 
 	uint64_t gPendingLevelGeometryBuildSerial = 0;
 	uint64_t gMapWorldTopologyRevision = 0;
+	bool gFluidSignatureReuseQuarantined = false;
+
+	void NoteFluidSignatureReuse()
+	{
+		if (mutation_audit::current != nullptr) ++mutation_audit::current->fluidSignatureAvoidedCalls;
+		else PerfAuditAdd(PerfAuditMetric::FluidSignatureReuseAvoidedCalls);
+	}
+
+	void QuarantineFluidSignatureReuse(const char* operation, const PTMapChunk& chunk)
+	{
+		PerfAuditAdd(PerfAuditMetric::FluidSignatureReuseValidationMismatches);
+		if (!gFluidSignatureReuseQuarantined) PerfAuditAdd(PerfAuditMetric::FluidSignatureReuseQuarantines);
+		gFluidSignatureReuseQuarantined = true;
+		Printf("NRI fluid signature reuse mismatch: operation=%s chunk=%u sector=%d; using original calls until level reset\n",
+			operation, chunk.chunkIndex, chunk.sectorIndex);
+	}
 
 	enum class PTWallBandKind : uint32_t
 	{
@@ -1219,7 +1243,7 @@ namespace
 		}
 	}
 
-	bool CaptureChunkMutationBaselineInternal(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline)
+	bool CaptureChunkMutationBaselineInternal(const PTMapChunk& chunk, PTMapChunkMutationBaseline& outBaseline, bool reuseFluidSignature)
 	{
 		outBaseline = {};
 		if (chunk.kind != PTMapChunkKind::Sector || chunk.sectorIndex < 0 || (unsigned)chunk.sectorIndex >= sector.Size())
@@ -1229,8 +1253,11 @@ namespace
 
 		const sectortype& sec = sector[(unsigned)chunk.sectorIndex];
 		outBaseline.sectorIndex = chunk.sectorIndex;
-		outBaseline.signature = ComputeMapChunkGeometrySignature(chunk);
-		outBaseline.fluidNormalSignature = ComputeFluidFloorNormalSignature(chunk.sectorIndex);
+		// The geometry hash already computes this exact fluid subresult. Nothing
+		// is retained past the call; the disabled/reference path keeps both calls.
+		outBaseline.signature = ComputeMapChunkGeometrySignature(chunk, reuseFluidSignature ? &outBaseline.fluidNormalSignature : nullptr);
+		if (!reuseFluidSignature) outBaseline.fluidNormalSignature = ComputeFluidFloorNormalSignature(chunk.sectorIndex);
+		else NoteFluidSignatureReuse();
 		outBaseline.floorz = sec.floorz;
 		outBaseline.ceilingz = sec.ceilingz;
 		outBaseline.floorstat = (uint16_t)sec.floorstat;
@@ -1265,7 +1292,7 @@ namespace
 		return true;
 	}
 
-	bool AnalyzeChunkMutationInternal(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis)
+	bool AnalyzeChunkMutationInternal(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis, bool reuseFluidSignature)
 	{
 		outAnalysis = {};
 		if (chunk.kind != PTMapChunkKind::Sector || chunk.sectorIndex < 0 || (unsigned)chunk.sectorIndex >= sector.Size())
@@ -1274,8 +1301,11 @@ namespace
 		}
 
 		const sectortype& sec = sector[(unsigned)chunk.sectorIndex];
-		outAnalysis.signature = ComputeMapChunkGeometrySignature(chunk);
-		if (baseline.fluidNormalSignature != ComputeFluidFloorNormalSignature(chunk.sectorIndex))
+		uint64_t fluidNormalSignature = 0;
+		outAnalysis.signature = ComputeMapChunkGeometrySignature(chunk, reuseFluidSignature ? &fluidNormalSignature : nullptr);
+		if (!reuseFluidSignature) fluidNormalSignature = ComputeFluidFloorNormalSignature(chunk.sectorIndex);
+		else NoteFluidSignatureReuse();
+		if (baseline.fluidNormalSignature != fluidNormalSignature)
 		{
 			outAnalysis.reasonMask |= PTMapChunkMutationReason_SectorGeometry;
 		}
@@ -1405,6 +1435,7 @@ namespace nri_scene
 void NotifyLevelGeometryReady()
 {
 	++gPendingLevelGeometryBuildSerial;
+	gFluidSignatureReuseQuarantined = false;
 }
 
 uint64_t GetPendingLevelGeometryBuildSerial()
@@ -1499,8 +1530,9 @@ bool BuildLiveMapChunkSceneView(const PTMapChunk& chunk, SceneView& outView, PTM
 	return true;
 }
 
-uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
+uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk, uint64_t* outFluidNormalSignature)
 {
+	if (outFluidNormalSignature != nullptr) *outFluidNormalSignature = 0;
 	mutation_audit::Scope category(mutation_audit::Category::InputCheck);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsSignatureNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsSignatureCalls);
@@ -1514,7 +1546,9 @@ uint64_t ComputeMapChunkGeometrySignature(const PTMapChunk& chunk)
 	PerfAuditAdd(PerfAuditMetric::MutationInputsSignatureWallRows, sec.walls.Size());
 	hash = HashMix(hash, chunk.chunkIndex);
 	hash = HashMix(hash, (uint64_t)(uint32_t)chunk.sectorIndex);
-	hash = HashMix(hash, ComputeFluidFloorNormalSignature(chunk.sectorIndex));
+	const uint64_t fluidNormalSignature = ComputeFluidFloorNormalSignature(chunk.sectorIndex);
+	hash = HashMix(hash, fluidNormalSignature);
+	if (outFluidNormalSignature != nullptr) *outFluidNormalSignature = fluidNormalSignature;
 	hash = HashDoubleBits(hash, sec.floorz);
 	hash = HashDoubleBits(hash, sec.ceilingz);
 	hash = HashMix(hash, (uint16_t)sec.floorstat);
@@ -1581,7 +1615,23 @@ bool CaptureMapChunkMutationBaseline(const PTMapChunk& chunk, PTMapChunkMutation
 	mutation_audit::Scope category(mutation_audit::Category::InputCapture);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsBaselineCaptureNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsBaselineCaptures);
-	return CaptureChunkMutationBaselineInternal(chunk, outBaseline);
+	const bool reuse = (bool)nri_ptfluidsignaturereuse && !gFluidSignatureReuseQuarantined;
+	bool result = CaptureChunkMutationBaselineInternal(chunk, outBaseline, reuse);
+	if (reuse && (bool)nri_ptfluidsignaturevalidate)
+	{
+		PerfAuditScope referenceTime(PerfAuditMetric::FluidSignatureReuseReferenceNs);
+		PTMapChunkMutationBaseline reference;
+		const bool referenceResult = CaptureChunkMutationBaselineInternal(chunk, reference, false);
+		PerfAuditAdd(PerfAuditMetric::FluidSignatureReuseBaselineChecks);
+		if (result) PerfAuditAdd(outBaseline.fluidNormalSignature != 0 ? PerfAuditMetric::FluidSignatureReuseFluidChecks : PerfAuditMetric::FluidSignatureReuseNonfluidChecks);
+		if (result != referenceResult || !mutation_compare::SameBaseline(outBaseline, reference))
+		{
+			QuarantineFluidSignatureReuse("capture", chunk);
+			outBaseline = std::move(reference);
+			result = referenceResult;
+		}
+	}
+	return result;
 }
 
 bool AnalyzeMapChunkMutation(const PTMapChunk& chunk, const PTMapChunkMutationBaseline& baseline, PTMapChunkMutationAnalysis& outAnalysis)
@@ -1589,10 +1639,22 @@ bool AnalyzeMapChunkMutation(const PTMapChunk& chunk, const PTMapChunkMutationBa
 	mutation_audit::Scope category(mutation_audit::Category::InputCheck);
 	PerfAuditScope audit(PerfAuditMetric::MutationInputsAnalysisNs);
 	PerfAuditAdd(PerfAuditMetric::MutationInputsAnalysisCalls);
-	if (!AnalyzeChunkMutationInternal(chunk, baseline, outAnalysis))
+	const bool reuse = (bool)nri_ptfluidsignaturereuse && !gFluidSignatureReuseQuarantined;
+	bool result = AnalyzeChunkMutationInternal(chunk, baseline, outAnalysis, reuse);
+	if (reuse && (bool)nri_ptfluidsignaturevalidate)
 	{
-		return false;
+		PerfAuditScope referenceTime(PerfAuditMetric::FluidSignatureReuseReferenceNs);
+		PTMapChunkMutationAnalysis reference;
+		const bool referenceResult = AnalyzeChunkMutationInternal(chunk, baseline, reference, false);
+		PerfAuditAdd(PerfAuditMetric::FluidSignatureReuseAnalysisChecks);
+		if (result != referenceResult || !mutation_compare::SameAnalysis(outAnalysis, reference))
+		{
+			QuarantineFluidSignatureReuse("analysis", chunk);
+			outAnalysis = reference;
+			result = referenceResult;
+		}
 	}
+	if (!result) return false;
 	if (mutation_audit::current != nullptr)
 	{
 		if (outAnalysis.reasonMask != 0) ++mutation_audit::current->analysisChanged;
