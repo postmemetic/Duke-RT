@@ -1,5 +1,6 @@
 #include "nri_material_bridge.h"
 #include "nri_material_color_audit.h"
+#include "nri_material_average_color_cache.h"
 #include "nri_mutation_pipeline_audit.h"
 #include "nri_scene_product_layout.h"
 #include "nri_material_palette.h"
@@ -1002,6 +1003,7 @@ void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials
 {
 	mutation_audit::Scope category(mutation_audit::Category::Material);
 	material_color_audit::Scope colorAudit("direct", true);
+	ScopedMaterialAverageColorCache averageColorCache;
 	const size_t previousMaterials = material_color_audit::Current != nullptr ? outMaterials.materials.capacity() : 0;
 	const size_t previousMetadata = material_color_audit::Current != nullptr ? outMaterials.lightMetadata.capacity() : 0;
 	const size_t previousTextures = material_color_audit::Current != nullptr ? outMaterials.textures.capacity() : 0;

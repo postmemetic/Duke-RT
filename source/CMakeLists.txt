@@ -1160,6 +1160,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_sector_hue_product.cpp
 	common/rendering/nri/scene/nri_sector_hue_source.cpp
 	common/rendering/nri/scene/nri_material_bridge.cpp
+	common/rendering/nri/scene/nri_material_average_color_cache.cpp
 	common/rendering/nri/scene/nri_material_palette.cpp
 	common/rendering/nri/scene/nri_material_bridge_ranges.cpp
 	common/rendering/nri/scene/nri_material_payload_semantics.cpp

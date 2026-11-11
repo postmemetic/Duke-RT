@@ -1,5 +1,6 @@
 #include "nri_scene_bridge.h"
 #include "nri_material_color_audit.h"
+#include "nri_material_average_color_cache.h"
 #include "nri_voxel_publication_diagnostic_status.h"
 #include "nri_cpu_perf_audit.h"
 #include "nri_voxel_actor_publication.h"
@@ -750,7 +751,8 @@ namespace
 		return true;
 	}
 
-	bool TryGetAverageTextureColorRecursive(FGameTexture* texture, float* outColor, int depth);
+	bool TryGetAverageTextureColorRecursive(FGameTexture* texture, float* outColor, int depth,
+		const AverageColorTextureSource* captured = nullptr, bool* eligible = nullptr);
 
 	void ApplyCachedSkyInspectionToCandidate(const CachedSkyInspection& inspection, uint32_t fallbackColor, PTSkySourceType sourceType, SkyCandidate& outCandidate)
 	{
@@ -942,39 +944,54 @@ namespace
 		outView.sky.isThreeFace = candidate.isThreeFace;
 	}
 
-	bool TryGetAverageTextureColorRecursive(FGameTexture* texture, float* outColor, int depth)
+	bool TryGetAverageTextureColorRecursive(FGameTexture* texture, float* outColor, int depth,
+		const AverageColorTextureSource* captured, bool* eligible)
 	{
 		material_color_audit::Add(material_color_audit::Counter::RecursiveCalls);
 		if (ShouldTraceSkyPerf())
 		{
 			gSkyPerfStats.averageColorRecursiveCalls++;
 		}
-		if (!IsUsableGameTexturePointer(texture) || depth > 4)
-		{
-			return false;
-		}
-
 		FTexture* baseTexture = nullptr;
-#ifdef _WIN32
-		__try
-#endif
-		{
-			baseTexture = texture->GetTexture();
-		}
-#ifdef _WIN32
-		__except (EXCEPTION_EXECUTE_HANDLER)
-		{
-			return false;
-		}
-#endif
-
-		if (baseTexture == nullptr)
-		{
-			return false;
-		}
-
 		TextureSignature persistentSignature = {};
-		const bool hasPersistentSignature = TryBuildPersistentAverageColorSignature(texture, persistentSignature);
+		bool hasPersistentSignature = false;
+		if (captured != nullptr)
+		{
+			baseTexture = captured->base;
+			persistentSignature = captured->signature;
+			hasPersistentSignature = persistentSignature.valid && persistentSignature.persistentEligible;
+		}
+		else
+		{
+			if (!IsUsableGameTexturePointer(texture) || depth > 4)
+			{
+				return false;
+			}
+
+#ifdef _WIN32
+			__try
+#endif
+			{
+				baseTexture = texture->GetTexture();
+			}
+#ifdef _WIN32
+			__except (EXCEPTION_EXECUTE_HANDLER)
+			{
+				return false;
+			}
+#endif
+
+			if (baseTexture == nullptr)
+			{
+				return false;
+			}
+
+			hasPersistentSignature = TryBuildPersistentAverageColorSignature(texture, persistentSignature);
+
+		}
+		if (eligible != nullptr)
+			*eligible = persistentSignature.valid && persistentSignature.persistentEligible && persistentSignature.metadataDerived &&
+				persistentSignature.sourceKind == TextureSignatureSourceKind::ImageBacked;
 
 		bool cachedSuccess = false;
 		if (hasPersistentSignature && TryLoadPersistentAverageColor(persistentSignature, outColor, cachedSuccess))
@@ -6751,13 +6768,19 @@ void Copy3(const float* source, float* destination)
 	destination[2] = source[2];
 }
 
-static bool TryGetAverageTextureColorGuarded(FGameTexture* texture, float* outColor)
+static bool TryGetAverageTextureColorGuarded(FGameTexture* texture, float* outColor, bool consolidate, bool& eligible)
 {
 #ifdef _WIN32
 	__try
 #endif
 	{
-		return TryGetAverageTextureColorRecursive(texture, outColor, 0);
+		eligible = false;
+		AverageColorTextureSource source;
+		if (consolidate && TryCaptureAverageColorTextureSource(texture, source) &&
+			source.signature.valid && source.signature.persistentEligible && source.signature.metadataDerived &&
+			source.signature.sourceKind == TextureSignatureSourceKind::ImageBacked)
+			return TryGetAverageTextureColorRecursive(texture, outColor, 0, &source, &eligible);
+		return TryGetAverageTextureColorRecursive(texture, outColor, 0, nullptr, &eligible);
 	}
 #ifdef _WIN32
 	__except (EXCEPTION_EXECUTE_HANDLER)
@@ -6767,10 +6790,28 @@ static bool TryGetAverageTextureColorGuarded(FGameTexture* texture, float* outCo
 #endif
 }
 
+// Keep the entire public request guarded, including copies from the operation
+// memo. A bad output pointer must retain the original failure behavior too.
+static bool TryGetAverageTextureColorCachedGuarded(FGameTexture* texture, float* outColor)
+{
+#ifdef _WIN32
+	__try
+#endif
+	{
+		return ResolveMaterialAverageColor(texture, outColor, TryGetAverageTextureColorGuarded);
+	}
+#ifdef _WIN32
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
+	}
+#endif
+}
+
 bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
 {
 	material_color_audit::AverageCall audit;
-	const bool success = TryGetAverageTextureColorGuarded(texture, outColor);
+	const bool success = TryGetAverageTextureColorCachedGuarded(texture, outColor);
 	material_color_audit::Add(success ? material_color_audit::Counter::Successes : material_color_audit::Counter::Failures);
 	return success;
 }

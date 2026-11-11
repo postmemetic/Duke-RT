@@ -131,6 +131,7 @@ namespace
 	bool TryBuildSkyboxTextureSignatureImpl(FSkyBox* skybox, const TextureSignatureRequest& request, TextureSignature& outSignature, int depth, bool includeFlipTopInKey);
 	bool TryBuildTextureSignatureImpl(FGameTexture* texture, const TextureSignatureRequest& request, TextureSignature& outSignature, int depth);
 	bool TryBuildAverageColorTextureSignatureImpl(FGameTexture* texture, TextureSignature& outSignature, int depth);
+	bool TryBuildAverageColorTextureSignatureFromBase(FGameTexture* texture, FTexture* baseTexture, TextureSignature& outSignature, int depth);
 }
 
 namespace nri_scene
@@ -257,6 +258,17 @@ bool TryBuildAverageColorTextureSignature(FGameTexture* texture, TextureSignatur
 	}
 
 	return TryBuildAverageColorTextureSignatureImpl(texture, outSignature, 0);
+}
+
+bool TryCaptureAverageColorTextureSource(FGameTexture* texture, AverageColorTextureSource& outSource)
+{
+	outSource = {};
+	material_color_audit::Signature();
+	if (!IsUsableGameTexturePointer(texture)) return false;
+	outSource.base = TryResolveBaseTextureUnchecked(texture);
+	if (outSource.base == nullptr) return false;
+	TryBuildAverageColorTextureSignatureFromBase(texture, outSource.base, outSource.signature, 0);
+	return true;
 }
 }
 
@@ -408,6 +420,11 @@ namespace
 			return false;
 		}
 
+		return TryBuildAverageColorTextureSignatureFromBase(texture, baseTexture, outSignature, depth);
+	}
+
+	bool TryBuildAverageColorTextureSignatureFromBase(FGameTexture* texture, FTexture* baseTexture, TextureSignature& outSignature, int depth)
+	{
 		TextureSignatureRequest request = {};
 		request.contentKind = TextureSignatureContentKind::ProcessedBGRA;
 		request.translation = 0;
