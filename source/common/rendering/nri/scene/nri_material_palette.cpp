@@ -5,18 +5,80 @@
 #include "palette.h"
 #include "palettecontainer.h"
 #include "printf.h"
+#include "c_cvars.h"
 
 #include <cassert>
+#include <array>
+#include <cstring>
 #include <mutex>
+
+CVAR(Bool, nri_ptpalettecompare, false, 0)
 
 namespace
 {
 	using namespace nri_scene;
 
+	// Canonical source bytes match BuildPaletteSourceSignature's input exactly:
+	// B/G/R only and identity bytes for a missing table. Pointer identity and
+	// palette alpha never certify content. Storage is bounded and shares the
+	// existing payload mutex; no new per-view or thread-local retained arrays.
+	struct PaletteSourceSnapshot
+	{
+		std::array<uint8_t, 256u * 3u> colors;
+		std::array<std::array<uint8_t, 256>, MAXPALOOKUPS> tables;
+		bool valid = false;
+		bool quarantined = false;
+
+		static const std::array<uint8_t, 256>& Identity()
+		{
+			static const auto bytes = [] { std::array<uint8_t, 256> result{};
+				for (size_t i = 0; i < result.size(); ++i) result[i] = (uint8_t)i;
+				return result; }();
+			return bytes;
+		}
+		bool MatchesLive() const
+		{
+			PerfAuditScope timer(PerfAuditMetric::MaterialPaletteCompareSourceNs);
+			uint64_t compared = 0;
+			bool same = valid;
+			for (uint32_t i = 0; same && i < 256; ++i)
+			{
+				const PalEntry color = GPalette.BaseColors[i];
+				compared += 3;
+				same = colors[i * 3] == color.b && colors[i * 3 + 1] == color.g && colors[i * 3 + 2] == color.r;
+			}
+			for (uint32_t i = 0; same && i < MAXPALOOKUPS; ++i)
+			{
+				const auto* live = lookups.getTable((int)i);
+				compared += 256;
+				same = std::memcmp(tables[i].data(), live != nullptr ? live : Identity().data(), 256) == 0;
+			}
+			PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareExtentBytes, compared);
+			return same;
+		}
+		void CaptureLive()
+		{
+			PerfAuditScope timer(PerfAuditMetric::MaterialPaletteCompareCaptureNs);
+			for (uint32_t i = 0; i < 256; ++i)
+			{
+				const PalEntry color = GPalette.BaseColors[i];
+				colors[i * 3] = color.b; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.r;
+			}
+			for (uint32_t i = 0; i < MAXPALOOKUPS; ++i)
+			{
+				const auto* live = lookups.getTable((int)i);
+				std::memcpy(tables[i].data(), live != nullptr ? live : Identity().data(), 256);
+			}
+			valid = true;
+			PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareCapturedBytes, colors.size() + sizeof(tables));
+		}
+	};
+
 	struct PaletteLookupCache
 	{
 		uint64_t sourceSignature = 0;
 		ImmutableBytePayload payload;
+		PaletteSourceSnapshot source;
 	};
 
 	PaletteLookupCache gPaletteLookupCache;
@@ -111,15 +173,57 @@ namespace
 		return true;
 	}
 
-	bool ResolveLivePalette(MaterialBridgeData& outMaterials, bool forceBuild)
+	bool ResolveLivePalette(MaterialBridgeData& outMaterials, bool forceBuild, bool validateCompare)
 	{
-		const uint64_t sourceSignature = BuildPaletteSourceSignature();
-		std::lock_guard<std::mutex> lock(gPaletteLookupCacheMutex);
+		const bool compare = (bool)nri_ptpalettecompare;
+		std::unique_lock<std::mutex> lock(gPaletteLookupCacheMutex, std::defer_lock);
+		// Retain the original off-path hash-before-lock ordering. Enabled reads
+		// and publishes the exact snapshot under the same payload-owner lock.
+		uint64_t sourceSignature = compare ? 0 : BuildPaletteSourceSignature();
+		lock.lock();
+		auto& source = gPaletteLookupCache.source;
+		if (compare && !source.quarantined && !forceBuild)
+		{
+			PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareRequests);
+			if (source.MatchesLive() && PalettePayloadMatchesLiveSamples(gPaletteLookupCache.payload))
+			{
+				bool referenceMatches = true;
+				if (validateCompare)
+				{
+					PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareHitValidationChecks);
+					// Original source identity plus complete actual returned payload;
+					// covers the first request of a new view, not only scope hits.
+					referenceMatches = BuildPaletteSourceSignature() == gPaletteLookupCache.sourceSignature &&
+						PalettePayloadMatchesLive(gPaletteLookupCache.payload);
+				}
+				if (referenceMatches)
+				{
+					outMaterials.paletteLookup = gPaletteLookupCache.payload;
+					PerfAuditAdd(PerfAuditMetric::MaterialPaletteCacheReuses);
+					PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareHits);
+					return false;
+				}
+				PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareValidationMismatches);
+				PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareQuarantines);
+				source.quarantined = true;
+				forceBuild = true;
+				Printf("NRI PT palette source comparison mismatch: rebuilding original output and disabling comparison reuse\n");
+			}
+			PerfAuditAdd(PerfAuditMetric::MaterialPaletteCompareMisses);
+		}
+		if (compare) sourceSignature = BuildPaletteSourceSignature();
+		// A fallback/build may replace the payload even while comparison is off.
+		// Never leave a source snapshot certified for a different publication.
+		source.valid = false;
 		if (!forceBuild && gPaletteLookupCache.sourceSignature == sourceSignature &&
 			PalettePayloadMatchesLiveSamples(gPaletteLookupCache.payload))
 		{
 			outMaterials.paletteLookup = gPaletteLookupCache.payload;
 			PerfAuditAdd(PerfAuditMetric::MaterialPaletteCacheReuses);
+			// A legacy hash/sample hit alone cannot certify a new exact snapshot:
+			// its payload must first match every byte of the current source.
+			if (compare && !source.quarantined && PalettePayloadMatchesLive(gPaletteLookupCache.payload))
+				source.CaptureLive();
 			return false;
 		}
 
@@ -142,8 +246,10 @@ namespace
 			}
 		}
 		const uint64_t payloadSignature = Fnv1a64(paletteLookup.data(), paletteLookup.size());
-		gPaletteLookupCache.sourceSignature = sourceSignature;
+		// Publish the signature only after immutable-payload allocation succeeds.
 		gPaletteLookupCache.payload.Assign(std::move(paletteLookup), payloadSignature);
+		gPaletteLookupCache.sourceSignature = sourceSignature;
+		if (compare && !source.quarantined) source.CaptureLive();
 		outMaterials.paletteLookup = gPaletteLookupCache.payload;
 		PerfAuditAdd(PerfAuditMetric::MaterialPalettePayloadBuilds);
 		PerfAuditAdd(PerfAuditMetric::MaterialPalettePayloadBytesBuilt, outMaterials.paletteLookup.size());
@@ -207,7 +313,7 @@ bool ResolveMaterialPalette(MaterialBridgeData& outMaterials)
 	{
 		PerfAuditAdd(PerfAuditMetric::MaterialPaletteReferenceRequests);
 	}
-	const bool built = ResolveLivePalette(outMaterials, forceBuild);
+	const bool built = ResolveLivePalette(outMaterials, forceBuild, scope != nullptr && scope->mValidate);
 	if (scope != nullptr && scope->mEnabled)
 	{
 		scope->mPayload = outMaterials.paletteLookup;
