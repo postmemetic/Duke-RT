@@ -34,7 +34,14 @@ public:
 		time(PerfAuditMetric::EmissiveSamplingIdentityNs, cache.identityMs);
 		time(PerfAuditMetric::EmissiveSamplingFullHashNs, cache.validationHashMs);
 		time(PerfAuditMetric::EmissiveSamplingTopologyNs, cache.topologyMs);
-		if (PerfAuditCpuDetailActive()) time(PerfAuditMetric::EmissiveSamplingPrimitiveFactNs, cache.primitiveFactMs);
+		if (PerfAuditCpuDetailActive())
+		{
+			time(PerfAuditMetric::EmissiveSamplingPrimitiveFactNs, cache.primitiveFactMs);
+			time(PerfAuditMetric::EmissiveSamplingStaticPrimitiveFactNs, cache.staticPrimitiveFactMs);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticPrimitiveBuilds, cache.staticPrimitiveBuilds);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticPrimitiveReuses, cache.staticPrimitiveReuses);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticPrimitiveInvalidations, cache.staticPrimitiveInvalidations);
+		}
 		time(PerfAuditMetric::EmissiveSamplingWeightsNs, mStats.weightsBuildMs);
 		time(PerfAuditMetric::EmissiveSamplingValidationNs, mStats.payloadValidationMs);
 #define EMISSIVE_AUDIT(name, value) PerfAuditAdd(PerfAuditMetric::EmissiveSampling##name, value)

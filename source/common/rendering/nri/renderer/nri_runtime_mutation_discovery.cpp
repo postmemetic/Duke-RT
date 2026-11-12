@@ -187,6 +187,7 @@ const std::vector<uint32_t>& NRIRuntimeMutationDiscovery::GatherInputs(
 	{
 		namespace audit = nri_scene::mutation_followup_audit;
 		audit::Timer timer(audit::Counter::MutationSourceNotificationNs);
+		audit::Timer gatherTimer(audit::Counter::MutationNotificationGatherNs);
 		for (uint32_t chunk : m_notifications.Gather(chunkCount, sourceNotify, sourceTrace,
 			world.buildSerial, frameIndex, (int)nri_ptmutationcausechunk,
 			(const char*)nri_ptmutationcausechunks)) AddInput(chunk);

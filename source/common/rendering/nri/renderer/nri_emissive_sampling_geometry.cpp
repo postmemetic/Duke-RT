@@ -317,6 +317,7 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 		mStats.factResetReuseModeResets += modeChanged ? 1u : 0u;
 		state.cachedPrimitiveIdentity = state.primitiveIdentity;
 		++mStats.primitiveInvalidations;
+		if (mCollectTiming) mStats.staticPrimitiveInvalidations += domain == NRIEmissiveGeometryDomain::Static;
 	}
 	if (state.primitiveStamps.capacity() > oldStampCapacity)
 	{
@@ -339,6 +340,8 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 	const auto oldRangeCapacity = state.ranges.capacity();
 	{
 		NRICpuDetailAuditScope rangeScope(PerfAuditMetric::EmissiveSamplingRangeBuildNs);
+		NRICpuDetailAuditScope staticRangeScope(PerfAuditMetric::EmissiveSamplingStaticRangeBuildNs,
+			domain == NRIEmissiveGeometryDomain::Static);
 		BuildRanges(geometry, state.ranges);
 	}
 	if (PerfAuditCpuDetailActive())
@@ -346,6 +349,12 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingRangeRowsInitialized, state.ranges.size());
 		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingRangePrimitiveVisits,
 			geometry != nullptr ? geometry->primitives.size() * 2u : 0);
+		if (domain == NRIEmissiveGeometryDomain::Static)
+		{
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticRangeBuilds);
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticRangePrimitiveVisits,
+				geometry != nullptr ? geometry->primitives.size() * 2u : 0);
+		}
 	}
 	if (state.ranges.capacity() > oldRangeCapacity)
 	{
@@ -396,14 +405,17 @@ const NRIEmissivePrimitiveGeometry& NRIEmissiveGeometryCache::Primitive(
 		mStats.primitiveBuilds++;
 		if (mCollectTiming)
 		{
+			mStats.staticPrimitiveBuilds += domain == NRIEmissiveGeometryDomain::Static;
 			const double elapsed = ElapsedMs(start);
 			mStats.topologyMs += elapsed;
 			mStats.primitiveFactMs += elapsed;
+			if (domain == NRIEmissiveGeometryDomain::Static) mStats.staticPrimitiveFactMs += elapsed;
 		}
 	}
 	else
 	{
 		++mStats.primitiveReuses;
+		if (mCollectTiming) mStats.staticPrimitiveReuses += domain == NRIEmissiveGeometryDomain::Static;
 		if (state.factResetReuse && state.validateFacts)
 		{
 			const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};

@@ -42,6 +42,10 @@ struct NRIEmissiveGeometryCacheStats
 	double topologyMs = 0.0;
 	// Reuses existing fact clocks; no additional per-primitive timing.
 	double primitiveFactMs = 0.0;
+	double staticPrimitiveFactMs = 0.0;
+	uint32_t staticPrimitiveBuilds = 0;
+	uint32_t staticPrimitiveReuses = 0;
+	uint32_t staticPrimitiveInvalidations = 0;
 	uint64_t hashedVertices = 0;
 	uint64_t hashedPrimitives = 0;
 	uint64_t staticPrimitivesScanned = 0;

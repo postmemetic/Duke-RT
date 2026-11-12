@@ -17,6 +17,12 @@ namespace nri_scene::mutation_followup_audit
 	X(MutationNormalizedChanged) X(MutationNormalizedUnchanged) X(MutationNormalizedDirtyNoiseRemoved) X(MutationNormalizedSettleRequests) \
 	X(MutationSourceNotificationNs) X(MutationSourceNotificationSources) X(MutationSourceNotificationWrites) \
 	X(MutationSourceNotificationDependencyVisits) X(MutationSourceNotificationCandidates) \
+	X(MutationNotificationDependencyNs) X(MutationNotificationGatherNs) X(MutationNotificationDependencyCalls) \
+	X(MutationNotificationDependencyUnchanged) X(MutationNotificationDependencyChanged) \
+	X(MutationNotificationAppliedEdges) X(MutationNotificationCurrentEdges) X(MutationNotificationUniqueEdges) \
+	X(MutationNotificationPreviousEdges) X(MutationNotificationReverseRowsVisited) \
+	X(MutationNotificationEdgesRemoved) X(MutationNotificationEdgesAdded) X(MutationNotificationScratchGrowths) \
+	X(MutationNotificationScratchCapacityBytes) X(MutationNotificationUnchangedScratchCapacityBytes) \
 	X(MutationMaterialCacheHits) X(MutationMaterialCacheMisses) X(MutationMaterialCacheStores) \
 	X(MutationMaterialCacheReplacements) X(MutationMaterialCacheEvictions) X(MutationMaterialCacheEntriesCleared) \
 	X(MutationMaterialCacheClearInvalidAnalysis) X(MutationMaterialCacheClearUnchanged) X(MutationMaterialCacheClearInvalidReplacement) \

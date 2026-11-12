@@ -567,13 +567,14 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	{
 		NRICpuDetailAuditScope distributionScope(PerfAuditMetric::EmissiveSamplingDistributionNs, useGeometryCache);
 		mEmissiveSamplingDistribution.Build(
-		distributionCandidates,
-		mFrameSerial,
-		NriMaxEmissivePrimitives,
-		distributionEntries,
-		outCdf,
-		&distributionStats,
-		useGeometryCache);
+			distributionCandidates,
+			mFrameSerial,
+			NriMaxEmissivePrimitives,
+			distributionEntries,
+			outCdf,
+			&distributionStats,
+			useGeometryCache,
+			detail);
 	}
 	if (detail)
 	{
@@ -586,6 +587,17 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionBoundGrowths, distributionStats.boundGrowthCount);
 		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionCappedRows, distributionStats.cappedCount);
 		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistributionDuplicateRows, distributionStats.duplicateCount);
+#define DISTRIBUTION_DETAIL(metric, field) PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDistribution##metric, distributionStats.field)
+		DISTRIBUTION_DETAIL(TopologyNs, topologyNs);
+		DISTRIBUTION_DETAIL(ProposalNs, proposalNs);
+		DISTRIBUTION_DETAIL(SelectionNs, selectionNs);
+		DISTRIBUTION_DETAIL(EmitNs, emitNs);
+		DISTRIBUTION_DETAIL(ObservedBuilds, observedBuilds);
+		DISTRIBUTION_DETAIL(SelectionReuseOpportunities, selectionReuseOpportunities);
+		DISTRIBUTION_DETAIL(ProposalRecordsInserted, proposalRecordsInserted);
+		DISTRIBUTION_DETAIL(ProposalBindingsReset, proposalBindingsReset);
+		DISTRIBUTION_DETAIL(ProposalRecordsRetired, proposalRecordsRetired);
+#undef DISTRIBUTION_DETAIL
 	}
 	localStats.buildCapacityGrowths = distributionStats.scratchCapacityGrowths;
 	localStats.buildCapacityGrowthBytes = distributionStats.scratchCapacityGrowthBytes;

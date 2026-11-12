@@ -27,6 +27,16 @@ struct NRIEmissiveSamplingDistributionEntry
 
 struct NRIEmissiveSamplingDistributionStats
 {
+	// Observational CPU detail only; these do not authorize retained output.
+	uint64_t topologyNs = 0;
+	uint64_t proposalNs = 0;
+	uint64_t selectionNs = 0;
+	uint64_t emitNs = 0;
+	uint32_t observedBuilds = 0;
+	uint32_t selectionReuseOpportunities = 0;
+	uint32_t proposalRecordsInserted = 0;
+	uint32_t proposalBindingsReset = 0;
+	uint32_t proposalRecordsRetired = 0;
 	uint32_t scratchCapacityGrowths = 0;
 	uint64_t scratchCapacityGrowthBytes = 0;
 	uint32_t inputCount = 0;
@@ -64,7 +74,8 @@ public:
 		std::vector<NRIEmissiveSamplingDistributionEntry>& outEntries,
 		std::vector<float>& outCdf,
 		NRIEmissiveSamplingDistributionStats* outStats = nullptr,
-		bool allowTopologyReuse = true);
+		bool allowTopologyReuse = true,
+		bool collectCpuDetail = false);
 
 private:
 	void AdvanceProposalRevision()
@@ -96,4 +107,8 @@ private:
 	std::vector<TopologyKey> mTopologyKeys;
 	uint32_t mTopologyDuplicateCount = 0;
 	bool mTopologyValid = false;
+	// An audit opportunity compares consecutive observed builds only. A reset,
+	// reference build or detail-off interval invalidates this observation.
+	bool mAuditPreviousBuildValid = false;
+	size_t mAuditPreviousMaxCandidateCount = 0;
 };

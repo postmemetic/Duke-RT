@@ -1,10 +1,17 @@
 #include "nri_emissive_sampling_distribution.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace
 {
+	using AuditClock = std::chrono::steady_clock;
+	uint64_t AuditElapsedNs(AuditClock::time_point start)
+	{
+		return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(AuditClock::now() - start).count();
+	}
+
 	uint64_t HashCandidateIdentity(uint64_t hash, uint64_t value)
 	{
 		return hash ^ (value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u));
@@ -19,6 +26,7 @@ void NRIEmissiveSamplingDistribution::Reset()
 	mProposalRecords.clear();
 	mTopologyValid = false;
 	mTopologyDuplicateCount = 0;
+	mAuditPreviousBuildValid = false;
 	std::vector<TopologyKey>{}.swap(mTopologyKeys);
 }
 
@@ -29,9 +37,12 @@ void NRIEmissiveSamplingDistribution::Build(
 	std::vector<NRIEmissiveSamplingDistributionEntry>& outEntries,
 	std::vector<float>& outCdf,
 	NRIEmissiveSamplingDistributionStats* outStats,
-	bool allowTopologyReuse)
+	bool allowTopologyReuse,
+	bool collectCpuDetail)
 {
 	NRIEmissiveSamplingDistributionStats stats = {};
+	const bool audit = collectCpuDetail && allowTopologyReuse;
+	const auto topologyStart = audit ? AuditClock::now() : AuditClock::time_point{};
 	bool proposalHistoryChanged = false;
 	const size_t oldCapacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
 		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity() };
@@ -155,6 +166,8 @@ void NRIEmissiveSamplingDistribution::Build(
 		mTopologyValid = allowTopologyReuse;
 	}
 
+	if (audit) stats.topologyNs = AuditElapsedNs(topologyStart);
+	const auto proposalStart = audit ? AuditClock::now() : AuditClock::time_point{};
 	auto& resolvedWeights = mResolvedWeights;
 	resolvedWeights.assign(candidates.size(), 0.0f);
 	constexpr float BoundAbsoluteTolerance = 1e-6f;
@@ -169,6 +182,7 @@ void NRIEmissiveSamplingDistribution::Build(
 		const float initialWeight = std::max(currentWeight, authoredWeight);
 		const uint64_t stableKey = resolvedStableKeys[index];
 		auto [recordIt, inserted] = mProposalRecords.emplace(stableKey, ProposalRecord{});
+		stats.proposalRecordsInserted += audit && inserted;
 		auto& record = recordIt->second;
 		if (inserted || record.bindingKey != candidate.bindingKey)
 		{
@@ -176,6 +190,7 @@ void NRIEmissiveSamplingDistribution::Build(
 			if (!inserted)
 			{
 				stats.retiredReplacedCount++;
+				stats.proposalBindingsReset += audit;
 			}
 			record.bindingKey = candidate.bindingKey;
 			record.referenceWeight = initialWeight;
@@ -216,7 +231,21 @@ void NRIEmissiveSamplingDistribution::Build(
 	}
 	if (proposalHistoryChanged) AdvanceProposalRevision();
 	stats.recordCount = (uint32_t)mProposalRecords.size();
+	if (audit)
+	{
+		stats.proposalNs = AuditElapsedNs(proposalStart);
+		stats.observedBuilds = 1;
+		stats.proposalRecordsRetired = stats.retiredMissingCount;
+		// This predicts unchanged ordered selection/PDF/CDF, not unchanged
+		// candidate payloads or permission to skip live/history bookkeeping.
+		stats.selectionReuseOpportunities = mAuditPreviousBuildValid && sameTopology &&
+			!proposalHistoryChanged && mProposalRevision != 0 &&
+			mAuditPreviousMaxCandidateCount == maxCandidateCount ? 1u : 0u;
+		mAuditPreviousMaxCandidateCount = maxCandidateCount;
+	}
+	mAuditPreviousBuildValid = audit;
 
+	const auto selectionStart = audit ? AuditClock::now() : AuditClock::time_point{};
 	if (uniqueIndices.size() > maxCandidateCount)
 	{
 		std::sort(uniqueIndices.begin(), uniqueIndices.end(), [&](size_t aIndex, size_t bIndex)
@@ -237,6 +266,8 @@ void NRIEmissiveSamplingDistribution::Build(
 		});
 	}
 
+	if (audit) stats.selectionNs = AuditElapsedNs(selectionStart);
+	const auto emitStart = audit ? AuditClock::now() : AuditClock::time_point{};
 	float totalWeight = 0.0f;
 	outEntries.reserve(uniqueIndices.size());
 	for (size_t index : uniqueIndices)
@@ -254,6 +285,7 @@ void NRIEmissiveSamplingDistribution::Build(
 	if (outEntries.empty())
 	{
 		outCdf.assign(1, 1.0f);
+		if (audit) stats.emitNs = AuditElapsedNs(emitStart);
 		recordScratchGrowth();
 		if (outStats != nullptr)
 		{
@@ -274,6 +306,7 @@ void NRIEmissiveSamplingDistribution::Build(
 		outCdf.push_back(i + 1u == outEntries.size() ? 1.0f : std::min(runningCdf, 1.0f));
 	}
 
+	if (audit) stats.emitNs = AuditElapsedNs(emitStart);
 	recordScratchGrowth();
 	if (outStats != nullptr)
 	{

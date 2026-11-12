@@ -1,6 +1,7 @@
 #include "nri_persistent_voxel_publication_services.h"
 #include "../scene/nri_hash.h"
 #include "nri_cvars.h"
+#include "nri_cpu_detail_audit.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -95,16 +96,25 @@ void NRIPersistentVoxelResidency::ResetActorPublicationConsumer()
 
 void NRIPersistentVoxelResidency::RememberPublishedActors(bool buildPending)
 {
+	NRICpuDetailAuditScope audit(PerfAuditMetric::VoxelBatchPublicationReadyNs);
+	const bool detail = PerfAuditCpuDetailActive();
+	if (detail) PerfAuditAdd(PerfAuditMetric::VoxelBatchPublicationReadyCalls);
 	publicationBatchReady = false;
 	publicationActorIndices.clear();
 	if (!actorPublication || !actorPublicationCursor.Accepted() || !batch.valid || buildPending ||
 		batch.activeActorCount != actorPublicationCursor.Entries().size()) return;
 	publicationActorIndices.reserve(batch.activeActorCount);
+	uint64_t rows = 0;
 	for (uint32_t i = 0; i < batch.actors.size(); ++i)
 	{
+		if (detail) ++rows;
 		if (batch.actors[i].active && !publicationActorIndices.emplace(batch.actors[i].identityKey, i).second)
+		{
+			if (detail) PerfAuditAdd(PerfAuditMetric::VoxelBatchPublicationReadyRows, rows);
 			return; // Duplicate identity: preserve the full path and its existing diagnostics.
+		}
 	}
+	if (detail) PerfAuditAdd(PerfAuditMetric::VoxelBatchPublicationReadyRows, rows);
 	if (publicationActorIndices.size() != actorPublicationCursor.Entries().size()) return;
 	for (const auto& entry : actorPublicationCursor.Entries())
 	{

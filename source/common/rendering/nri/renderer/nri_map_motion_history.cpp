@@ -460,6 +460,9 @@ bool NRIMapMotionHistory::CommitOptimized(uint64_t serial)
 		ClearStage(true);
 		return false;
 	}
+	const bool detail = PerfAuditCpuDetailActive();
+	const uint64_t gatherStart = detail ? PerfAuditClockNs() : 0;
+	uint64_t payloadComparisons = 0;
 	m_chunkObservations.clear();
 	for (const Record* record : m_staged)
 	{
@@ -469,14 +472,20 @@ bool NRIMapMotionHistory::CommitOptimized(uint64_t serial)
 		observation.chunkIndex = current.chunkIndex;
 		observation.publishedWithMotion = record->publishedWithMotion;
 		observation.comparable = record->committedSlot >= 0 && record->valid && record->stagedValid;
+		if (detail && observation.comparable && record->committedSlot != record->stagedSlot)
+			++payloadComparisons;
 		observation.moved = observation.comparable && record->committedSlot != record->stagedSlot &&
 			!NRIMapMotionPayloadEqual(record->snapshots[record->committedSlot].payload, current);
 		m_chunkObservations.push_back(observation);
 	}
+	const uint64_t sortStart = detail ? PerfAuditClockNs() : 0;
 	std::sort(m_chunkObservations.begin(), m_chunkObservations.end(),
 		[](const ChunkObservation& a, const ChunkObservation& b) { return a.chunkIndex < b.chunkIndex; });
+	const uint64_t reduceStart = detail ? PerfAuditClockNs() : 0;
+	uint64_t uniqueChunks = 0;
 	for (size_t first = 0; first < m_chunkObservations.size();)
 	{
+		if (detail) ++uniqueChunks;
 		ChunkObservation observation = m_chunkObservations[first++];
 		while (first < m_chunkObservations.size() && m_chunkObservations[first].chunkIndex == observation.chunkIndex)
 		{
@@ -487,6 +496,16 @@ bool NRIMapMotionHistory::CommitOptimized(uint64_t serial)
 		}
 		if (observation.moved) m_settleChunks.insert(observation.chunkIndex);
 		else if (observation.comparable && !observation.publishedWithMotion) m_settleChunks.erase(observation.chunkIndex);
+	}
+	if (detail)
+	{
+		const uint64_t reduceEnd = PerfAuditClockNs();
+		PerfAuditAdd(PerfAuditMetric::MapMotionCommitGatherNs, sortStart - gatherStart);
+		PerfAuditAdd(PerfAuditMetric::MapMotionCommitSortNs, reduceStart - sortStart);
+		PerfAuditAdd(PerfAuditMetric::MapMotionCommitReduceNs, reduceEnd - reduceStart);
+		PerfAuditAdd(PerfAuditMetric::MapMotionCommitObservations, m_chunkObservations.size());
+		PerfAuditAdd(PerfAuditMetric::MapMotionCommitUniqueChunks, uniqueChunks);
+		PerfAuditAdd(PerfAuditMetric::MapMotionCommitPayloadComparisons, payloadComparisons);
 	}
 	{
 		PerfAuditScope retireScope(PerfAuditMetric::MapMotionRetireNs);

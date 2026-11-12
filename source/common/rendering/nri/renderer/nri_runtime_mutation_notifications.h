@@ -2,6 +2,7 @@
 
 #include "nri_runtime_mutation_worklist.h"
 #include "nri_runtime_mutation_cause_trace.h"
+#include "../scene/nri_mutation_followup_audit.h"
 #include "map_mutation_notifications.h"
 
 #include <algorithm>
@@ -40,11 +41,20 @@ public:
 	void UpdateDependencies(uint32_t chunk, const nri_scene::PTMapChunkMutationBaseline& applied)
 	{
 		if (!mEnabled || chunk >= mDependencies.size()) return;
+		namespace audit = nri_scene::mutation_followup_audit;
+		audit::Timer timer(audit::Counter::MutationNotificationDependencyNs);
+		const bool observe = audit::current != nullptr;
+		audit::Add(audit::Counter::MutationNotificationDependencyCalls);
 		std::vector<uint64_t> next;
+		uint64_t scratchGrowths = 0;
 		const auto add = [&](MapMutationDomain domain, int64_t index)
 		{
 			const size_t count = domain == MapMutationDomain::Sector ? mSectorConsumers.size() : mWallConsumers.size();
-			if (index >= 0 && (uint64_t)index < count) next.push_back(Key(domain, (uint32_t)index));
+			if (index >= 0 && (uint64_t)index < count)
+			{
+				if (observe && next.size() == next.capacity()) ++scratchGrowths;
+				next.push_back(Key(domain, (uint32_t)index));
+			}
 		};
 		add(MapMutationDomain::Sector, applied.sectorIndex);
 		for (const auto& input : applied.walls)
@@ -52,6 +62,7 @@ public:
 			add(MapMutationDomain::Sector, input.nextsector);
 			add(MapMutationDomain::Wall, input.nextwall);
 		}
+		const size_t appliedEdges = observe ? next.size() : 0;
 		const int32_t owner = mSectorOwners[chunk];
 		add(MapMutationDomain::Sector, owner);
 		if ((uint32_t)owner < sector.Size())
@@ -61,16 +72,48 @@ public:
 				add(MapMutationDomain::Wall, input.nextwall);
 				add(MapMutationDomain::Sector, input.nextsector);
 			}
+		if (observe)
+		{
+			audit::Add(audit::Counter::MutationNotificationAppliedEdges, appliedEdges);
+			audit::Add(audit::Counter::MutationNotificationCurrentEdges, next.size() - appliedEdges);
+			audit::Add(audit::Counter::MutationNotificationScratchGrowths, scratchGrowths);
+			// Cumulative temporary payload capacity, not allocator or retained bytes.
+			audit::Add(audit::Counter::MutationNotificationScratchCapacityBytes, next.capacity() * sizeof(uint64_t));
+		}
 		std::sort(next.begin(), next.end()); next.erase(std::unique(next.begin(), next.end()), next.end());
 		auto& previous = mDependencies[chunk];
-		if (previous == next) return;
+		if (observe)
+		{
+			audit::Add(audit::Counter::MutationNotificationUniqueEdges, next.size());
+			audit::Add(audit::Counter::MutationNotificationPreviousEdges, previous.size());
+		}
+		if (previous == next)
+		{
+			audit::Add(audit::Counter::MutationNotificationDependencyUnchanged);
+			if (observe) audit::Add(audit::Counter::MutationNotificationUnchangedScratchCapacityBytes, next.capacity() * sizeof(uint64_t));
+			return;
+		}
+		audit::Add(audit::Counter::MutationNotificationDependencyChanged);
+		uint64_t reverseRowsVisited = 0, edgesRemoved = 0;
 		for (uint64_t key : previous)
 		{
 			auto& consumers = Consumers(key);
+			const size_t beforeCount = observe ? consumers.size() : 0;
 			consumers.erase(std::remove(consumers.begin(), consumers.end(), chunk), consumers.end());
+			if (observe)
+			{
+				reverseRowsVisited += beforeCount;
+				edgesRemoved += beforeCount - consumers.size();
+			}
 		}
 		previous = std::move(next);
 		for (uint64_t key : previous) Consumers(key).push_back(chunk);
+		if (observe)
+		{
+			audit::Add(audit::Counter::MutationNotificationReverseRowsVisited, reverseRowsVisited);
+			audit::Add(audit::Counter::MutationNotificationEdgesRemoved, edgesRemoved);
+			audit::Add(audit::Counter::MutationNotificationEdgesAdded, previous.size());
+		}
 	}
 	const std::vector<uint32_t>& Gather(uint32_t chunkCount, bool enabled, bool trace,
 		uint64_t build, uint64_t frame, int focusChunk, const char* focusList)
