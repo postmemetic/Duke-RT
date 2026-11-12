@@ -79,6 +79,17 @@ public:
 		auto& journal = GetMapMutationNotifications();
 		const auto consumed = journal.Consume(mEvents, trace ? &mChanges : nullptr);
 		journal.SetTraceEnabled(trace);
+		if (trace)
+		{
+			// Filter at the writer before its bounded detail buffer fills. Other
+			// sources still publish their complete coalesced production notices.
+			std::vector<uint32_t> sectors, walls;
+			for (uint32_t chunk = 0; chunk < mDependencies.size(); ++chunk)
+				if (nri_mutation_cause::IsFocusedChunk(mMapIds[chunk], focusChunk, focusList))
+					for (uint64_t key : mDependencies[chunk])
+						(key >> 32u ? walls : sectors).push_back((uint32_t)key);
+			journal.SetTraceSources(sectors, walls);
+		}
 		mSourceCount = mEvents.size(); mWriteCount = mDependencyVisits = 0;
 		for (const auto& event : mEvents)
 		{

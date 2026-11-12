@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -80,13 +81,31 @@ public:
 		mPositions[1].assign(wallCount, UINT32_MAX);
 		mPending.clear(); mPending.reserve((size_t)sectorCount + wallCount);
 		mChanges.clear(); mSuppressed = mRejected = 0;
+		ClearTraceSources();
 	}
 	uint64_t WorldEpoch() const { return mEpoch; }
 	uint64_t LatestSerial() const { return mSerial; }
 	void SetTraceEnabled(bool enabled)
 	{
 		mTrace = enabled;
-		if (!enabled) { mChanges.clear(); mSuppressed = 0; }
+		if (!enabled) { mChanges.clear(); mSuppressed = 0; ClearTraceSources(); }
+	}
+	// Configure after draining the previous frame. Filtering only applies to
+	// future diagnostic detail rows; source events and serials are unaffected.
+	void SetTraceSources(const std::vector<uint32_t>& sectors, const std::vector<uint32_t>& walls)
+	{
+		if (!mTrace) return;
+		mFilteredTrace = true;
+		const std::vector<uint32_t>* sources[] = { &sectors, &walls };
+		for (size_t domain = 0; domain < 2; ++domain)
+		{
+			auto& selected = mTraceSources[domain];
+			selected = *sources[domain];
+			selected.erase(std::remove_if(selected.begin(), selected.end(), [&](uint32_t index)
+				{ return index >= mPositions[domain].size(); }), selected.end());
+			std::sort(selected.begin(), selected.end());
+			selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+		}
 	}
 	MapMutationWriter ExchangeWriter(MapMutationWriter writer)
 	{
@@ -125,9 +144,15 @@ private:
 	std::vector<uint32_t> mPositions[2];
 	std::vector<MapMutationSourceEvent> mPending;
 	std::vector<MapMutationSourceChange> mChanges;
+	std::vector<uint32_t> mTraceSources[2];
 	uint64_t mEpoch = 0, mSerial = 0, mSuppressed = 0, mRejected = 0;
-	bool mTrace = false;
+	bool mTrace = false, mFilteredTrace = false;
 	MapMutationWriter mWriter = MapMutationWriter::Unknown;
+	void ClearTraceSources()
+	{
+		mFilteredTrace = false;
+		mTraceSources[0].clear(); mTraceSources[1].clear();
+	}
 	void RecordBits(MapMutationDomain domain, uint32_t index, MapMutationField field,
 		MapMutationWriter writer, MapMutationValueType type, uint64_t before, uint64_t after)
 	{
@@ -149,7 +174,8 @@ private:
 		entry.fieldMask |= uint64_t(1) << (uint32_t)field;
 		entry.writerMask |= uint64_t(1) << (uint32_t)writer;
 		entry.lastSerial = serial; ++entry.writeCount;
-		if (mTrace)
+		if (mTrace && (!mFilteredTrace || std::binary_search(mTraceSources[(size_t)domain].begin(),
+			mTraceSources[(size_t)domain].end(), index)))
 		{
 			if (mChanges.size() < 512)
 				mChanges.push_back({ domain, field, writer, type, index, PlayClock, mEpoch, serial, before, after });
