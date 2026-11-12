@@ -91,7 +91,8 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 	std::vector<float>& outCdf,
 	std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
 	std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
-	EmissiveSamplingUploadStats* outStats)
+	EmissiveSamplingUploadStats* outStats,
+	NRIEmissiveSamplingResponseScope* responseProduct)
 {
 	// Shadow construction starts from the same proposal history. It must not
 	// advance production bound growth, dark retention or stable ordering twice.
@@ -106,7 +107,7 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 	const size_t distributionCapacity = mEmissiveDistributionCandidates.capacity();
 	const size_t entryCapacity = mEmissiveDistributionEntries.capacity();
 	BuildEmissiveSamplingUploadImpl(context, outHeader, outPrimitives, outCdf,
-		outMaterialResponses, outDebugRecords, &stats, (bool)nri_ptemissivecache);
+		outMaterialResponses, outDebugRecords, &stats, (bool)nri_ptemissivecache, responseProduct);
 	const auto recordGrowth = [&](size_t before, size_t after, size_t stride)
 	{
 		if (after > before)
@@ -133,7 +134,7 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 		EmissiveSamplingUploadStats referenceStats = {};
 		std::swap(referenceDistribution, mEmissiveSamplingDistribution);
 		BuildEmissiveSamplingUploadImpl(context, referenceHeader, referencePrimitives, referenceCdf,
-			referenceResponses, referenceDebug, &referenceStats, false);
+			referenceResponses, referenceDebug, &referenceStats, false, nullptr, true);
 		std::swap(referenceDistribution, mEmissiveSamplingDistribution);
 		const auto equalBytes = [](const auto& lhs, const auto& rhs)
 		{
@@ -211,7 +212,7 @@ void SceneLightSystem::BuildEmissiveSamplingReference(
 		~RestoreDistribution() { target = std::move(saved); }
 	} restore{ mEmissiveSamplingDistribution, mEmissiveSamplingDistribution };
 	BuildEmissiveSamplingUploadImpl(context, outHeader, outPrimitives, outCdf,
-		outMaterialResponses, outDebugRecords, outStats, false);
+		outMaterialResponses, outDebugRecords, outStats, false, nullptr, true);
 }
 
 float SceneLightSystem::ResolveEmissiveReferenceProposalReachBound(
@@ -234,7 +235,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
 	std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
 	EmissiveSamplingUploadStats* outStats,
-	bool useGeometryCache)
+	bool useGeometryCache, NRIEmissiveSamplingResponseScope* responseProduct, bool reference)
 {
 	// Full reference construction resolves engine state independently of the
 	// operation cache surrounding the production hash/build sequence.
@@ -300,8 +301,11 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 	}
 	const auto& activeSurfaces = mEmissiveSurfaces.activeSurfaces;
 	candidates.reserve(activeSurfaces.size());
+	const auto* preparedResponses = useGeometryCache && !reference && responseProduct != nullptr ?
+		responseProduct->Rows(this, activeSurfaces.data(), activeSurfaces.size()) : nullptr;
+	uint64_t consumedResponses = 0, rawResponses = 0;
 
-	auto appendSurfacePrimitives = [&](const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, const nri_scene::GeometryData* geometry, const std::vector<MaterialPrimitiveRange>& ranges, uint32_t dataSource, uint32_t primitiveBase, NRIEmissiveGeometryDomain domain)
+	auto appendSurfacePrimitives = [&](const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, const nri_scene::GeometryData* geometry, const std::vector<MaterialPrimitiveRange>& ranges, uint32_t dataSource, uint32_t primitiveBase, NRIEmissiveGeometryDomain domain, const NRIEmissiveSamplingResponse* response)
 	{
 		if (geometry == nullptr || surface.materialIndex == UINT32_MAX || surface.materialIndex >= ranges.size())
 		{
@@ -319,17 +323,21 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		{
 			representativeLuminance = std::max(surface.powerEstimate / (surface.surfaceArea * surface.emissiveIntensity), 0.0f);
 		}
-		const float samplingScale = ResolveGlowSamplingScale(surface.sourceFlags, surface.emissiveMode, settings) * std::max(surface.reachScale, 0.0f);
-		const bool sectorResponseEligible = IsEmissiveSurfaceSectorResponseEligible(surface);
-		bool sectorResponseApplied = false;
-		const float sectorRawResponseScale = ResolveSectorEmissionScale(surface, sectorResponseApplied);
-		const float sectorResponseScale = sectorResponseApplied ? ResolveSectorEmissionIntensityScale(surface, sectorRawResponseScale) : 1.0f;
-		const float sectorReachScale = sectorResponseApplied ? ResolveSectorEmissionReachScale(surface, sectorRawResponseScale) : 1.0f;
+		if (response != nullptr) ++consumedResponses; else ++rawResponses;
+		const float samplingScale = response != nullptr ? response->samplingScale :
+			ResolveGlowSamplingScale(surface.sourceFlags, surface.emissiveMode, settings) * std::max(surface.reachScale, 0.0f);
+		const bool sectorResponseEligible = response != nullptr ? response->sectorEligible : IsEmissiveSurfaceSectorResponseEligible(surface);
+		bool sectorResponseApplied = response != nullptr ? response->sectorApplied : false;
+		const float sectorRawResponseScale = response != nullptr ? response->sectorRawScale : ResolveSectorEmissionScale(surface, sectorResponseApplied);
+		const float sectorResponseScale = response != nullptr ? response->sectorIntensityScale :
+			sectorResponseApplied ? ResolveSectorEmissionIntensityScale(surface, sectorRawResponseScale) : 1.0f;
+		const float sectorReachScale = response != nullptr ? response->sectorReachScale :
+			sectorResponseApplied ? ResolveSectorEmissionReachScale(surface, sectorRawResponseScale) : 1.0f;
 		bool materialResponseApplied = false;
-		const float materialResponseScale = ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
-		const auto hue = ResolveEmissiveHue(surface);
-		const bool materialResponseEligible = IsEmissiveSurfaceMaterialResponseEligible(surface);
-		const float sectorReachBound = ResolveEmissiveReferenceProposalReachBound(surface, sectorResponseEligible);
+		const float materialResponseScale = response != nullptr ? response->materialScale : ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
+		const auto hue = response != nullptr ? response->hue : ResolveEmissiveHue(surface);
+		const bool materialResponseEligible = response != nullptr ? response->materialEligible : IsEmissiveSurfaceMaterialResponseEligible(surface);
+		const float sectorReachBound = response != nullptr ? response->referenceReachBound : ResolveEmissiveReferenceProposalReachBound(surface, sectorResponseEligible);
 		uint64_t surfacePrimitiveKey = surface.stableKey;
 
 		for (uint32_t localOffset = 0; localOffset < range.count; ++localOffset)
@@ -414,23 +422,27 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 			}
 		}
 	};
-	auto appendPlacedVoxelRange = [&](const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface)
+	auto appendPlacedVoxelRange = [&](const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, const NRIEmissiveSamplingResponse* response)
 	{
 		if (surface.sceneInstanceIndex == UINT32_MAX || surface.placedPrimitiveCount == 0u)
 		{
 			localStats.skippedPersistentVoxelSurfaces++;
 			return;
 		}
-		const float samplingScale = ResolveGlowSamplingScale(surface.sourceFlags, surface.emissiveMode, settings) * std::max(surface.reachScale, 0.0f);
-		const bool sectorResponseEligible = IsEmissiveSurfaceSectorResponseEligible(surface);
-		bool sectorResponseApplied = false;
-		const float sectorRawResponseScale = ResolveSectorEmissionScale(surface, sectorResponseApplied);
-		const float sectorResponseScale = sectorResponseApplied ? ResolveSectorEmissionIntensityScale(surface, sectorRawResponseScale) : 1.0f;
-		const float sectorReachScale = sectorResponseApplied ? ResolveSectorEmissionReachScale(surface, sectorRawResponseScale) : 1.0f;
+		if (response != nullptr) ++consumedResponses; else ++rawResponses;
+		const float samplingScale = response != nullptr ? response->samplingScale :
+			ResolveGlowSamplingScale(surface.sourceFlags, surface.emissiveMode, settings) * std::max(surface.reachScale, 0.0f);
+		const bool sectorResponseEligible = response != nullptr ? response->sectorEligible : IsEmissiveSurfaceSectorResponseEligible(surface);
+		bool sectorResponseApplied = response != nullptr ? response->sectorApplied : false;
+		const float sectorRawResponseScale = response != nullptr ? response->sectorRawScale : ResolveSectorEmissionScale(surface, sectorResponseApplied);
+		const float sectorResponseScale = response != nullptr ? response->sectorIntensityScale :
+			sectorResponseApplied ? ResolveSectorEmissionIntensityScale(surface, sectorRawResponseScale) : 1.0f;
+		const float sectorReachScale = response != nullptr ? response->sectorReachScale :
+			sectorResponseApplied ? ResolveSectorEmissionReachScale(surface, sectorRawResponseScale) : 1.0f;
 		bool materialResponseApplied = false;
-		const float materialResponseScale = ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
-		const auto hue = ResolveEmissiveHue(surface);
-		const float sectorReachBound = ResolveEmissiveReferenceProposalReachBound(surface, sectorResponseEligible);
+		const float materialResponseScale = response != nullptr ? response->materialScale : ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
+		const auto hue = response != nullptr ? response->hue : ResolveEmissiveHue(surface);
+		const float sectorReachBound = response != nullptr ? response->referenceReachBound : ResolveEmissiveReferenceProposalReachBound(surface, sectorResponseEligible);
 
 		BuiltCandidate candidate = {};
 		candidate.gpu.dataSource = nri_diag::SceneDataSourcePersistentVoxel;
@@ -478,7 +490,7 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		candidate.debug.emissiveIntensity = surface.emissiveIntensity * sectorResponseScale * materialResponseScale;
 		candidate.debug.sectorResponseScale = sectorResponseScale;
 		candidate.debug.sectorReachScale = sectorReachScale;
-		candidate.debug.materialResponseEnabled = IsEmissiveSurfaceMaterialResponseEligible(surface);
+		candidate.debug.materialResponseEnabled = response != nullptr ? response->materialEligible : IsEmissiveSurfaceMaterialResponseEligible(surface);
 		candidate.debug.materialResponseScale = materialResponseScale;
 		candidate.debug.colorSignalSector = hue.sectorIndex;
 		candidate.debug.colorPalette = hue.palette;
@@ -492,38 +504,43 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		candidates.push_back(candidate);
 	};
 
-	for (const auto& surface : activeSurfaces)
+	for (size_t surfaceIndex = 0; surfaceIndex < activeSurfaces.size(); ++surfaceIndex)
 	{
+		const auto& surface = activeSurfaces[surfaceIndex];
+		const auto* response = preparedResponses != nullptr ? &preparedResponses[surfaceIndex] : nullptr;
 		switch (surface.source)
 		{
 		case SceneLightRecordSource::StaticMapScene:
 			localStats.surfaceStatic++;
-			appendSurfacePrimitives(surface, context.staticGeometry, rangesFor(NRIEmissiveGeometryDomain::Static, context.staticGeometry), nri_diag::SceneDataSourceStatic, 0u, NRIEmissiveGeometryDomain::Static);
+			appendSurfacePrimitives(surface, context.staticGeometry, rangesFor(NRIEmissiveGeometryDomain::Static, context.staticGeometry), nri_diag::SceneDataSourceStatic, 0u, NRIEmissiveGeometryDomain::Static, response);
 			break;
 		case SceneLightRecordSource::CapturedScene:
 			localStats.surfaceCaptured++;
-			appendSurfacePrimitives(surface, context.capturedGeometry, rangesFor(NRIEmissiveGeometryDomain::Captured, context.capturedGeometry), nri_diag::SceneDataSourceDynamic, 0u, NRIEmissiveGeometryDomain::Captured);
+			appendSurfacePrimitives(surface, context.capturedGeometry, rangesFor(NRIEmissiveGeometryDomain::Captured, context.capturedGeometry), nri_diag::SceneDataSourceDynamic, 0u, NRIEmissiveGeometryDomain::Captured, response);
 			break;
 		case SceneLightRecordSource::RuntimeMutationScene:
 			localStats.surfaceRuntimeMutation++;
-			appendSurfacePrimitives(surface, context.runtimeMutationGeometry, rangesFor(NRIEmissiveGeometryDomain::RuntimeMutation, context.runtimeMutationGeometry), nri_diag::SceneDataSourceDynamic, context.runtimeMutationPrimitiveBaseOffset, NRIEmissiveGeometryDomain::RuntimeMutation);
+			appendSurfacePrimitives(surface, context.runtimeMutationGeometry, rangesFor(NRIEmissiveGeometryDomain::RuntimeMutation, context.runtimeMutationGeometry), nri_diag::SceneDataSourceDynamic, context.runtimeMutationPrimitiveBaseOffset, NRIEmissiveGeometryDomain::RuntimeMutation, response);
 			break;
 		case SceneLightRecordSource::DynamicScene:
 			localStats.surfaceDynamic++;
-			appendSurfacePrimitives(surface, context.dynamicGeometry, rangesFor(NRIEmissiveGeometryDomain::Dynamic, context.dynamicGeometry), nri_diag::SceneDataSourceDynamic, context.dynamicPrimitiveBaseOffset, NRIEmissiveGeometryDomain::Dynamic);
+			appendSurfacePrimitives(surface, context.dynamicGeometry, rangesFor(NRIEmissiveGeometryDomain::Dynamic, context.dynamicGeometry), nri_diag::SceneDataSourceDynamic, context.dynamicPrimitiveBaseOffset, NRIEmissiveGeometryDomain::Dynamic, response);
 			break;
 		case SceneLightRecordSource::SurfaceLightOverlayScene:
 			localStats.surfaceLightOverlay++;
-			appendSurfacePrimitives(surface, context.surfaceLightOverlayGeometry, rangesFor(NRIEmissiveGeometryDomain::SurfaceLightOverlay, context.surfaceLightOverlayGeometry), nri_diag::SceneDataSourceDynamic, context.surfaceLightOverlayPrimitiveBaseOffset, NRIEmissiveGeometryDomain::SurfaceLightOverlay);
+			appendSurfacePrimitives(surface, context.surfaceLightOverlayGeometry, rangesFor(NRIEmissiveGeometryDomain::SurfaceLightOverlay, context.surfaceLightOverlayGeometry), nri_diag::SceneDataSourceDynamic, context.surfaceLightOverlayPrimitiveBaseOffset, NRIEmissiveGeometryDomain::SurfaceLightOverlay, response);
 			break;
 		case SceneLightRecordSource::PersistentVoxelScene:
 			localStats.surfacePersistentVoxel++;
-			appendPlacedVoxelRange(surface);
+			appendPlacedVoxelRange(surface, response);
 			break;
 		default:
 			break;
 		}
 	}
+	if (responseProduct != nullptr) responseProduct->RecordConsumed(consumedResponses);
+	if (PerfAuditActive()) PerfAuditAdd(reference ? PerfAuditMetric::EmissiveResponseProductReferenceBypassRows :
+		PerfAuditMetric::EmissiveResponseProductRawBuildRows, rawResponses);
 
 	auto& distributionCandidates = mEmissiveDistributionCandidates;
 	distributionCandidates.clear();
@@ -640,7 +657,8 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 
 }
 
-uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming)
+uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming,
+	NRIEmissiveSamplingResponseScope* responseProduct)
 {
 	mEmissiveGeometryCache.BeginUpdate(collectTiming);
 	std::array<bool, (size_t)NRIEmissiveGeometryDomain::Count> contributing = {};
@@ -684,6 +702,8 @@ uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSampli
 	hash = nri_scene::HashCombine64(hash, (uint64_t)context.surfaceLightOverlayPrimitiveBaseOffset);
 
 	const NRILightingSettings settings = CaptureSettings();
+	const bool prepareResponses = responseProduct != nullptr && responseProduct->BeginRows(
+		this, mEmissiveSurfaces.activeSurfaces.data(), mEmissiveSurfaces.activeSurfaces.size());
 	hash = nri_scene::HashCombine64(hash, (uint64_t)mEmissiveSurfaces.activeSurfaces.size());
 	for (const auto& surface : mEmissiveSurfaces.activeSurfaces)
 	{
@@ -734,12 +754,20 @@ uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSampli
 		hash = nri_scene::HashCombine64(hash, FloatBits(responseScale));
 		hash = nri_scene::HashCombine64(hash, FloatBits(intensityScale));
 		hash = nri_scene::HashCombine64(hash, FloatBits(reachScale));
-		hash = nri_scene::HashCombine64(hash, FloatBits(ResolveEmissiveReferenceProposalReachBound(surface, sectorResponseEligible)));
+		const float referenceReachBound = ResolveEmissiveReferenceProposalReachBound(surface, sectorResponseEligible);
+		hash = nri_scene::HashCombine64(hash, FloatBits(referenceReachBound));
 		bool materialResponseApplied = false;
 		const float materialScale = ResolveEmissiveMaterialResponseScale(surface, materialResponseApplied);
-		hash = nri_scene::HashCombine64(hash, IsEmissiveSurfaceMaterialResponseEligible(surface));
+		const bool materialEligible = IsEmissiveSurfaceMaterialResponseEligible(surface);
+		hash = nri_scene::HashCombine64(hash, materialEligible);
 		hash = nri_scene::HashCombine64(hash, FloatBits(materialScale));
+		if (prepareResponses)
+		{
+			responseProduct->Append({ samplingScale, responseScale, intensityScale, reachScale,
+				referenceReachBound, materialScale, hue, sectorResponseEligible, sectorResponseApplied, materialEligible });
+		}
 	}
+	if (prepareResponses) responseProduct->Complete();
 
 	return hash;
 }

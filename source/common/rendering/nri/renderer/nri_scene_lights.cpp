@@ -2121,6 +2121,7 @@ NRILightingSettings SceneLightSystem::CaptureSettings()
 
 void SceneLightSystem::Reset()
 {
+	mEmissiveResponseScratch.Reset();
 	mEmissiveSamplingDistribution.Reset();
 	mEmissiveGeometryCache.Reset();
 	mEmissiveSamplingHueCache.Reset();
@@ -2151,6 +2152,7 @@ void SceneLightSystem::Reset()
 
 void SceneLightSystem::ResetLevelState()
 {
+	mEmissiveResponseScratch.Reset();
 	mEmissiveSamplingDistribution.Reset();
 	mEmissiveGeometryCache.Reset();
 	mEmissiveSamplingHueCache.Reset();

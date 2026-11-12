@@ -10,6 +10,7 @@
 #include "nri_emissive_sampling_distribution.h"
 #include "nri_emissive_response_lookup.h"
 #include "nri_emissive_sampling_geometry.h"
+#include "nri_emissive_sampling_response.h"
 #include "nri_runtime_light_shadow_selection.h"
 #include "nri_actor_light_maintenance.h"
 #include "lightoverlay.h"
@@ -1076,7 +1077,8 @@ public:
 		std::vector<float>& outCdf,
 		std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
 		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
-		EmissiveSamplingUploadStats* outStats = nullptr);
+		EmissiveSamplingUploadStats* outStats = nullptr,
+		NRIEmissiveSamplingResponseScope* responseProduct = nullptr);
 	// Diagnostic construction from current history without publishing any history
 	// changes or consuming retained geometry/hue products.
 	void BuildEmissiveSamplingReference(
@@ -1090,7 +1092,12 @@ public:
 	uint64_t GetEmissiveSamplingProposalRevision() const { return mEmissiveSamplingDistribution.ProposalRevision(); }
 	static float ResolveEmissiveReferenceProposalReachBound(
 		const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, bool sectorResponseEligible);
-	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming = false);
+	NRIEmissiveSamplingResponseScope BeginEmissiveSamplingResponses(bool enabled)
+	{
+		return NRIEmissiveSamplingResponseScope(mEmissiveResponseScratch, enabled);
+	}
+	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming = false,
+		NRIEmissiveSamplingResponseScope* responseProduct = nullptr);
 	nri_scene::ScopedSectorEmissionHueCache BeginEmissiveSamplingHueCache(bool enabled, bool validate)
 	{
 		return nri_scene::ScopedSectorEmissionHueCache(mEmissiveSamplingHueCache, mSectorLighting.sectors.size(), enabled, validate);
@@ -1279,7 +1286,8 @@ private:
 		std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
 		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
 		EmissiveSamplingUploadStats* outStats,
-		bool useGeometryCache);
+		bool useGeometryCache, NRIEmissiveSamplingResponseScope* responseProduct = nullptr, bool reference = false);
+	NRIEmissiveSamplingResponseStorage mEmissiveResponseScratch;
 	NRIEmissiveSamplingDistribution mEmissiveSamplingDistribution;
 	NRIEmissiveGeometryCache mEmissiveGeometryCache;
 	nri_scene::SectorEmissionHueCache mEmissiveSamplingHueCache;

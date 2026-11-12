@@ -126,12 +126,14 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	// script or editor callbacks may mutate sector/policy state within this scope.
 	auto hueCache = mSceneLights.BeginEmissiveSamplingHueCache((bool)nri_ptemissivecache, (bool)nri_ptemissivecachevalidate);
 	auto hueProduct = mSceneLights.BeginEmissiveSamplingHueProduct((int)nri_ptsectorhueproduct, (bool)nri_ptsectorhueproductvalidate);
+	auto responseProduct = mSceneLights.BeginEmissiveSamplingResponses(
+		(bool)nri_ptemissiveresponseproduct && (bool)nri_ptemissivecache);
 	SceneLightSystem::EmissiveSamplingUploadStats emissiveStats = {};
 	NRIEmissiveSamplingAudit audit(mSceneLights, emissiveStats, mEmissiveSamplingUploadScratch, mFrameIndex);
 	uint64_t payloadHash;
 	{
 		PerfAuditScope hashScope(PerfAuditMetric::EmissiveSamplingPayloadHashNs);
-		payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming());
+		payloadHash = mSceneLights.BuildEmissiveSamplingPayloadHash(context, ShouldCollectSceneDataTiming(), &responseProduct);
 	}
 	// This second hash feeds only the optional refresh diagnostic below. Keep
 	// the production payload identity and the separate sector trace consumer intact.
@@ -467,7 +469,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	}
 
 	audit.built = true;
-	mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
+	mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats, &responseProduct);
 	{
 		PerfAuditScope auditPack(PerfAuditMetric::EmissiveSamplingPackNs);
 		nri_emissive_destination::Pack(mEmissiveSamplingUploadScratch);

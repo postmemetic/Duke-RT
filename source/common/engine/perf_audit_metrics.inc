@@ -395,6 +395,19 @@ PERF_AUDIT_METRIC(EmissiveSamplingDestinationUnobservedHits, counter)
 PERF_AUDIT_METRIC(EmissiveSamplingDestinationReferenceNs, counter)
 // Diagnostic-only capacity of the destination selected by the last update.
 PERF_AUDIT_METRIC(EmissiveSamplingDestinationSnapshotBytes, gauge)
+// Current-invocation scalar response preparation; counters are batched per
+// operation. Reference resolutions are separate from ordinary raw build work.
+PERF_AUDIT_METRIC(EmissiveResponseProductScopes, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductPreparedRows, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductConsumedRows, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductRawBuildRows, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductReferenceBypassRows, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductNestedFallbacks, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductInvalidFallbacks, counter)
+// Reusable scalar storage capacity; rows have no validity after scope exit.
+PERF_AUDIT_METRIC(EmissiveResponseProductCapacityBytes, gauge)
+PERF_AUDIT_METRIC(EmissiveResponseProductCapacityGrowths, counter)
+PERF_AUDIT_METRIC(EmissiveResponseProductCapacityGrowthBytes, counter)
 PERF_AUDIT_METRIC(EmissiveSamplingCompleted, counter)
 PERF_AUDIT_METRIC(EmissiveSamplingIdentityNs, counter)
 PERF_AUDIT_METRIC(EmissiveSamplingFullHashNs, counter)

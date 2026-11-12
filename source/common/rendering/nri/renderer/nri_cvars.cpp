@@ -128,6 +128,8 @@ CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 2, 0)
 CVAR(Bool, nri_ptemissivecache, true, 0)
 // Full geometry/payload shadow validation; intentionally expensive and session-only.
 CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
+// Reuse current response inputs only within one synchronous hash/build operation.
+CVAR(Bool, nri_ptemissiveresponseproduct, false, 0)
 // Session-only diagnostic pass gating; production sampling identity is unchanged.
 CVAR(Bool, nri_ptemissivediagnostichashgate, true, 0)
 // Session-only rollback and independent retained-tail full-build oracle.
