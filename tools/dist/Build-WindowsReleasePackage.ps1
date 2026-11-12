@@ -238,7 +238,8 @@ if (-not $SkipBuild) {
     foreach ($backend in @("dxbc", "dxil", "spirv")) {
         $prerequisites += Join-Path $NrdShaderHeaderDir "REFERENCE_Copy.cs.$backend.h"
     }
-    foreach ($name in @("NRI.dll", "NRD.dll", "amd_fidelityfx_dx12.dll", "amd_fidelityfx_vk.dll", "AgilitySDK\D3D12Core.dll")) {
+    # NRI and its SDK runtimes are built/staged from this checkout by CMake.
+    foreach ($name in @("NRD.dll")) {
         $prerequisites += Join-Path $NriRuntimeDir $name
     }
     foreach ($path in $prerequisites) {
@@ -324,6 +325,12 @@ foreach ($requiredFile in $requiredBuildFiles) {
     }
 }
 
+# Verify before touching package outputs, including -SkipBuild. A matching API
+# version alone cannot distinguish the required vendored NRI backend fixes.
+$nriRuntimeVerifier = Join-Path $repoRoot "cmake\VerifyNriRuntime.cmake"
+Invoke-CMake @("-DSOURCE_ROOT=$repoRoot", "-DRUNTIME_DIR=$RazeBuildDir",
+    "-DEXPECTED_CONFIGURATION=Release", "-P", $nriRuntimeVerifier)
+
 if (-not (Test-Path -LiteralPath $releaseOverlay)) {
     throw "release-overlay was not found: $releaseOverlay"
 }
@@ -376,7 +383,7 @@ if (Test-Path -LiteralPath $PackageDir) {
 }
 New-Item -ItemType Directory -Path $PackageDir -Force | Out-Null
 Write-Info "Copying release binaries and staged runtime files"
-foreach ($name in @("raze.exe", "raze.pk3", "FidelityFX-SDK-LICENSE.txt")) {
+foreach ($name in @("raze.exe", "raze.pk3", "FidelityFX-SDK-LICENSE.txt", "NRI-LICENSE.txt", "nri-runtime.json")) {
     Copy-RequiredFile (Join-Path $RazeBuildDir $name) (Join-Path $PackageDir $name)
 }
 $runtimeDlls = Get-ChildItem -LiteralPath $RazeBuildDir -File -Filter *.dll | Sort-Object Name
@@ -384,6 +391,8 @@ foreach ($runtimeDll in $runtimeDlls) {
     Copy-RequiredFile $runtimeDll.FullName (Join-Path $PackageDir $runtimeDll.Name)
 }
 Copy-OptionalDirectory (Join-Path $RazeBuildDir "AgilitySDK") (Join-Path $PackageDir "AgilitySDK")
+Invoke-CMake @("-DSOURCE_ROOT=$repoRoot", "-DRUNTIME_DIR=$PackageDir",
+    "-DEXPECTED_CONFIGURATION=Release", "-P", $nriRuntimeVerifier)
 $stagedNriDir = Join-Path $PackageDir "shaders\nri"
 New-Item -ItemType Directory -Path $stagedNriDir -Force | Out-Null
 foreach ($entry in $productionEntries) {

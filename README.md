@@ -136,7 +136,7 @@ below have not recently been revalidated for a newcomer to the repo.
 
 #### Prerequisites
 
-- Git, and CMake (at least 3.16) available in `PATH`
+- Git, and CMake 3.30 or newer available in `PATH` for Windows NRI builds
 - Win 10 probably preferred for decent Terminal, although the toolchain mostly just needs a 64-bit OS
 - Visual Studio 2022 with the “Desktop development with C++” workload (MSVC, Ninja, and the Windows 10+ SDK)
 - Internet access for submodules and [vcpkg](https://github.com/microsoft/vcpkg) bootstrap
@@ -248,6 +248,27 @@ The resulting output is:
 - `build\terminal-ninja\raze.exe`
 - `build\terminal-ninja\raze.pk3`
 
+Windows builds with the NRI renderer require CMake 3.30 or newer. Building `raze`
+also builds the vendored NRI runtime in an isolated child build and stages its
+DLLs beside the executable. This includes the backend fixes used by the renderer;
+replacing `NRI.dll` with an unrelated prebuilt DLL is not supported. The runtime
+staging check runs even when the executable does not need relinking.
+
+The first NRI build downloads the SDK dependencies pinned by the vendored NRI
+project. To reuse previously downloaded sources, configure
+`RAZE_NRI_DEPENDENCY_SOURCE_DIR` with an existing NRI `_deps` directory; only
+source directories are reused, while generated files and compilation stay in
+the new build tree. Use a trusted cache matching those pinned SDK versions.
+`RAZE_NRI_BUILD_JOBS` controls child-build parallelism.
+`RAZE_NRI_RUNTIME_DIR` continues to supply external companion libraries such as
+`NRD.dll`; it is not the source of `NRI.dll` or NRI-owned SDK runtimes.
+
+The generated `nri-runtime.json` records the source fingerprint, build settings
+and staged runtime hashes. NRI.dll also embeds its compiled source/build identity.
+Release packaging checks both against this checkout and the actual DLLs, then
+includes the receipt in the package. The existing Linux release
+workflow continues to build vendored NRI separately.
+
 The Windows CMake also stages the required audio runtime beside `raze.exe`:
 
 - `zmusiclite.dll` and the adjacent codec DLLs from the local ZMusic build
@@ -269,11 +290,11 @@ Default outputs:
 
 `Build-WindowsReleasePackage.cmd` is an equivalent entry point and forwards the same
 parameters. Both initialize the installed Visual Studio C++ environment, build
-ZMusic and the engine with production shaders, then package the result. CMake,
+ZMusic, vendored NRI and the engine with production shaders, then package the result. CMake,
 Ninja and Git must be available. Existing dependency layouts still work without a
 settings file: `build\zmusic`, `build\vcpkg`, `vcpkg_installed`,
 `libraries\NRD\_Shaders`, and the sibling `..\NRD-Sample` runtime/SDK tree.
-These dependencies must already be prepared; this command does not bootstrap them.
+The external audio/NRD/FFX header dependencies must already be prepared. NRI builds its pinned SDK dependencies as part of the engine build.
 
 For dependencies stored elsewhere, create the ignored file
 `build\windows-release.local.json`. Only specify the paths that differ on your
@@ -307,7 +328,7 @@ Release. The default ZMusic output remains `build\zmusic\build-ninja-ovl2`, even
 when its source is external. Concurrent release commands in one checkout are
 rejected while compilation or packaging is in progress.
 
-To restage or re-zip an already-built `Release` tree without rebuilding, run:
+To restage or re-zip an already-built `Release` tree without rebuilding, run the command below. `-SkipBuild` still requires current, matching NRI runtime provenance; it rejects missing or replaced DLLs and source changes made after the runtime build.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\dist\Build-WindowsReleasePackage.ps1 -SkipBuild
@@ -320,7 +341,7 @@ The staged package includes:
 - `launch-duke-rt.cmd`
 - `tools\dist\Prepare-CommercialNormals.ps1`
 - the tracked authored `release-overlay` (no imported normals, voxel models or GRP)
-- the staged FidelityFX runtime license
+- the staged NRI and FidelityFX licenses and verified `nri-runtime.json`
 
 The staged package includes `package\windows\launch-duke-rt.cmd`, `tools\dist\Prepare-CommercialNormals.ps1`, and `release-overlay`, and removes `*.pdb` files from the staged package.
 

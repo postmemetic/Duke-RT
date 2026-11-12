@@ -1600,12 +1600,11 @@ add_executable( ${PROJECT_NAME} WIN32 MACOSX_BUNDLE ${GAME_SOURCES} )
 
 if (HAVE_NRI)
 	if (WIN32)
-		# NRI normally generates this header in its own configure step, which is
-		# skipped when Raze uses prebuilt runtime DLLs. Match the staged Agility
-		# runtime (the vendored NRI default is 619) and its post-build directory.
-		set(RAZE_NRI_AGILITY_SDK_VERSION "619" CACHE STRING "Agility SDK version; must match the staged D3D12Core.dll in RAZE_NRI_RUNTIME_DIR/AgilitySDK.")
-		if (NOT RAZE_NRI_AGILITY_SDK_VERSION MATCHES "^[1-9][0-9]*$")
-			message(FATAL_ERROR "RAZE_NRI_AGILITY_SDK_VERSION must be a positive integer matching the staged Agility SDK.")
+		# These exports belong to the executable and must match the separately
+		# built NRI runtime's SDK, including when this cache predates that build.
+		set(RAZE_NRI_AGILITY_SDK_VERSION "619" CACHE STRING "Agility SDK version; must match the source-built NRI runtime's pinned SDK 619.")
+		if (NOT RAZE_NRI_AGILITY_SDK_VERSION STREQUAL "619")
+			message(FATAL_ERROR "RAZE_NRI_AGILITY_SDK_VERSION must be 619 to match the source-built NRI runtime.")
 		endif()
 		set(_raze_nri_generated_include "${CMAKE_CURRENT_BINARY_DIR}/nri")
 		string(CONCAT _raze_nri_agility_exports
@@ -2566,11 +2565,20 @@ endif()
 
 
 if( WIN32 )
+	if(HAVE_NRI)
+		include("${CMAKE_SOURCE_DIR}/cmake/RazeNriRuntime.cmake")
+	endif()
 	function( raze_stage_runtime_artifacts target_name source_dir label )
 		if( EXISTS "${source_dir}" )
 			file(GLOB _runtime_files LIST_DIRECTORIES FALSE "${source_dir}/*.dll" "${source_dir}/*.pdb")
 			if( _runtime_files )
 				foreach(_runtime_file IN LISTS _runtime_files)
+					if(HAVE_NRI)
+						raze_is_nri_owned_runtime("${_runtime_file}" _nri_owned)
+						if(_nri_owned)
+							continue()
+						endif()
+					endif()
 					add_custom_command(TARGET ${target_name} POST_BUILD
 						COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_runtime_file}" "$<TARGET_FILE_DIR:${target_name}>"
 						COMMENT "Copying ${label} ${_runtime_file}" VERBATIM)
@@ -2584,6 +2592,12 @@ if( WIN32 )
 	endfunction()
 
 	function( raze_stage_runtime_file target_name runtime_file label )
+		if(HAVE_NRI)
+			raze_is_nri_owned_runtime("${runtime_file}" _nri_owned)
+			if(_nri_owned)
+				return()
+			endif()
+		endif()
 		if( EXISTS "${runtime_file}" )
 			add_custom_command(TARGET ${target_name} POST_BUILD
 				COMMAND ${CMAKE_COMMAND} -E copy_if_different "${runtime_file}" "$<TARGET_FILE_DIR:${target_name}>"
@@ -2656,24 +2670,10 @@ if( WIN32 )
 	endif()
 
 	if( HAVE_NRI )
-		set( RAZE_NRI_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/../NRD-Sample/_Bin/Release" CACHE PATH "Directory containing NRI/NRD runtime DLLs to stage beside raze.exe." )
+		set( RAZE_NRI_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/../NRD-Sample/_Bin/Release" CACHE PATH "External NRD companion directory; NRI and its SDK runtimes are built and staged from vendored source." )
 		if( EXISTS "${RAZE_NRI_RUNTIME_DIR}" )
-			set( RAZE_NRI_RUNTIME_NAMES
-				NRI.dll
-				NRD.dll
-				amd_ags_x64.dll
-				amd_fidelityfx_dx12.dll
-				amd_fidelityfx_vk.dll
-				libxess.dll
-				nvngx_dlss.dll
-				nvngx_dlssd.dll
-			)
-			set( RAZE_NRI_REQUIRED_RUNTIME_NAMES
-				NRI.dll
-				NRD.dll
-				amd_fidelityfx_dx12.dll
-				amd_fidelityfx_vk.dll
-			)
+			set( RAZE_NRI_RUNTIME_NAMES NRD.dll )
+			set( RAZE_NRI_REQUIRED_RUNTIME_NAMES NRD.dll )
 			foreach(_runtime_name IN LISTS RAZE_NRI_RUNTIME_NAMES)
 				set(_dll "${RAZE_NRI_RUNTIME_DIR}/${_runtime_name}")
 				if( EXISTS "${_dll}" )
@@ -2681,30 +2681,11 @@ if( WIN32 )
 						COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
 						COMMENT "Copying NRI runtime dependency ${_dll}" VERBATIM)
 				elseif( _runtime_name IN_LIST RAZE_NRI_REQUIRED_RUNTIME_NAMES )
-					message(WARNING "Required NRI/FSR runtime ${_dll} is missing; the corresponding renderer feature will be unavailable.")
+					message(WARNING "Required NRD companion ${_dll} is missing; the corresponding renderer feature will be unavailable.")
 				endif()
 			endforeach()
-
-			set( RAZE_FFX_SDK_ROOT "${CMAKE_SOURCE_DIR}/../NRD-Sample/_Build/_deps/ffx-src" CACHE PATH "FidelityFX SDK 1.1.4 source root used for runtime notices." )
-			set( _raze_ffx_license "${RAZE_FFX_SDK_ROOT}/sdk/LICENSE.txt" )
-			if( EXISTS "${_raze_ffx_license}" )
-				add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_raze_ffx_license}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/FidelityFX-SDK-LICENSE.txt"
-					COMMENT "Copying FidelityFX SDK license" VERBATIM)
-			else()
-				message(WARNING "FidelityFX SDK license ${_raze_ffx_license} is missing; release packaging must provide it.")
-			endif()
-
-			set( RAZE_NRI_AGILITY_RUNTIME_DIR "${RAZE_NRI_RUNTIME_DIR}/AgilitySDK" )
-			if( EXISTS "${RAZE_NRI_AGILITY_RUNTIME_DIR}" )
-				add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${RAZE_NRI_AGILITY_RUNTIME_DIR}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/AgilitySDK"
-					COMMENT "Copying NRI AgilitySDK runtime ${RAZE_NRI_AGILITY_RUNTIME_DIR}" VERBATIM)
-			else()
-				message(STATUS "NRI AgilitySDK directory ${RAZE_NRI_AGILITY_RUNTIME_DIR} not found; D3D12 backend initialization may fail without it.")
-			endif()
 		else()
-			message(STATUS "NRI runtime dependency directory ${RAZE_NRI_RUNTIME_DIR} not found; skipping NRI DLL copy step.")
+			message(STATUS "NRD companion directory ${RAZE_NRI_RUNTIME_DIR} not found; skipping NRD DLL copy step.")
 		endif()
 	endif()
 endif()
@@ -2807,6 +2788,17 @@ else()
 		RUNTIME_OUTPUT_NAME_RELWITHDEBINFO ${PROJECT_NAME}rd
 		RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${COMPILE_OUTPUT_DIRECTORY}
 	)
+endif()
+
+if(HAVE_NRI AND WIN32)
+	# Match the output properties above without TARGET_FILE_DIR: dependency
+	# toolchains can capture old CMP0112 policies in their add_executable wrapper.
+	set(_raze_nri_runtime_output "${COMPILE_OUTPUT_DIRECTORY}")
+	get_property(_raze_nri_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+	if(_raze_nri_multi_config AND NOT COMPILE_OUTPUT_OLDSTYLE AND NOT _raze_nri_runtime_output MATCHES "\\$<")
+		string(APPEND _raze_nri_runtime_output "/$<CONFIG>")
+	endif()
+	raze_add_nri_runtime(${PROJECT_NAME} "${_raze_nri_runtime_output}")
 endif()
 
 if( MSVC )
