@@ -28,7 +28,8 @@ namespace nri_scene::mutation_followup_audit
 	X(ResidentBlasBatchBudgetFallbacks) X(ResidentBlasBatchAliasFallbacks) X(ResidentBlasBatchInvalidFallbacks) \
 	X(ResidentBlasBatchAllocationFailures) X(ResidentBlasBatchScratchGrowths) X(ResidentBlasBatchBuildCalls) \
 	X(ResidentBlasBatchScratchBarrierCalls) X(ResidentBlasBatchPlanNs) X(ResidentBlasBatchRecordNs) \
-	X(ResidentBlasBatchScratchAllocationNs)
+	X(ResidentBlasBatchScratchAllocationNs) X(ResidentBlasBatchScratchRetirements) \
+	X(ResidentBlasBatchScratchRetiredBytes) X(ResidentBlasBatchNoRetirementOwnerFallbacks)
 
 enum class Counter : size_t
 {

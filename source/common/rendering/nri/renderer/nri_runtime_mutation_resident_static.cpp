@@ -921,9 +921,21 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			else followup::Add(followup::Counter::ResidentBlasBatchCountFallbacks);
 		}
 
-		// An optional larger allocation must never destroy the valid serial
-		// scratch on failure. Wait only after the replacement exists, before
-		// destroying an old resource which earlier command buffers may use.
+		// A device-idle wait cannot complete references in an unsubmitted
+		// command buffer. Optional replacement must have the exact deferred
+		// owner used by RetireResidentBufferResource; never use its immediate
+		// destruction fallback for an existing scratch resource.
+		if (useBatch && mResidentStaticBlasScratchBuffer.buffer != nullptr &&
+			mResidentStaticBlasScratchBuffer.size < batchWork->plan.requiredBytes &&
+			!(mFrameBuffer != nullptr && mFrameBuffer->mCommandBuffer != nullptr &&
+				!mResidentUploadScratchFrames.empty()))
+		{
+			useBatch = false;
+			followup::Add(followup::Counter::ResidentBlasBatchNoRetirementOwnerFallbacks);
+		}
+		// Allocate first so optional failure preserves valid serial scratch.
+		// Successful growth retains the old buffer through frame retirement,
+		// including commands already recorded but not yet submitted.
 		if (useBatch && (mResidentStaticBlasScratchBuffer.buffer == nullptr ||
 			mResidentStaticBlasScratchBuffer.size < batchWork->plan.requiredBytes))
 		{
@@ -944,10 +956,11 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			{
 				if (mResidentStaticBlasScratchBuffer.buffer != nullptr)
 				{
-					nri_scene::mutation_audit::Scope wait(nri_scene::mutation_audit::Category::Wait);
-					WaitForCommandsTracked("resident_blas_batch_scratch_growth");
+					const uint64_t retiredBytes = mResidentStaticBlasScratchBuffer.memorySize;
+					RetireResidentBufferResource(mResidentStaticBlasScratchBuffer);
+					followup::Add(followup::Counter::ResidentBlasBatchScratchRetirements);
+					followup::Add(followup::Counter::ResidentBlasBatchScratchRetiredBytes, retiredBytes);
 				}
-				DestroyBufferResource(mResidentStaticBlasScratchBuffer);
 				mResidentStaticBlasScratchBuffer = replacementScratch;
 				replacementScratch = {};
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
