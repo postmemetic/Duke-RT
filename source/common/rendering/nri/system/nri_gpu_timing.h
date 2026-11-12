@@ -63,6 +63,7 @@ enum class NRIGpuTimingScope : uint8_t
 	SmokeReconstruction,
 	DynamicOverlayBlas,
 	StaticTangentBuild,
+	ResidentBlas,
 	Count
 };
 
@@ -110,6 +111,7 @@ private:
 		uint32_t droppedSmokeScopes = 0;
 		uint32_t droppedOverlayBlasScopes = 0;
 		uint32_t droppedStaticTangentScopes = 0;
+		uint32_t droppedResidentBlasScopes = 0;
 		uint64_t rendererFrame = 0;
 		bool pending = false;
 	};
