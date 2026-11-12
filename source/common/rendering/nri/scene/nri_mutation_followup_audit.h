@@ -21,6 +21,16 @@ namespace nri_scene::mutation_followup_audit
 	X(MutationMaterialCacheReplacements) X(MutationMaterialCacheEvictions) X(MutationMaterialCacheEntriesCleared) \
 	X(MutationMaterialCacheClearInvalidAnalysis) X(MutationMaterialCacheClearUnchanged) X(MutationMaterialCacheClearInvalidReplacement) \
 	X(MutationMaterialCacheClearResidentNoop) X(MutationMaterialCacheClearResidentApply) X(MutationMaterialCacheClearStartup) \
+	X(MutationTransactionViewCopies) X(MutationTransactionViewDescriptorBytes) X(MutationTransactionViewNs) \
+	X(MutationTransactionGeometryCopies) X(MutationTransactionGeometryBytes) X(MutationTransactionGeometryNs) \
+	X(MutationTransactionMaterialCopies) X(MutationTransactionMaterialDescriptorBytes) X(MutationTransactionMaterialNs) \
+	X(MutationTransactionBaselineCopies) X(MutationTransactionBaselineBytes) X(MutationTransactionBaselineNs) \
+	X(MutationTransactionMaterialSignatureCalls) X(MutationTransactionMaterialSignatureNs) \
+	X(MutationMaterialCacheHitCopyDescriptorBytes) X(MutationMaterialCacheHitCopyNs) \
+	X(MutationMaterialCacheStoreCopyDescriptorBytes) X(MutationMaterialCacheStoreCopyNs) \
+	X(MutationTransactionViewBorrows) X(MutationTransactionGeometryBorrows) X(MutationTransactionMaterialBorrows) \
+	X(MutationTransactionBaselineBorrows) X(MutationTransactionViewMoves) X(MutationTransactionMaterialMoves) \
+	X(MutationTransactionMaterialSignatureReuses) \
 	X(MutationAtlasClones) X(MutationAtlasCloneBytes) X(MutationAtlasCloneNs) X(MutationAtlasCloneBothRangesRetained) \
 	X(MutationResidentBlasRecreates) X(MutationResidentBlasUpdates) X(MutationResidentBlasBuildCommands) \
 	X(MutationResidentBlasScratchQueries) X(MutationResidentBlasScratchGrowths) X(MutationResidentBlasBarrierCalls) \

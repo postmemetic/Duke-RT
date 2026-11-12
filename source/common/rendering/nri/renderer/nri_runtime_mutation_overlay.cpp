@@ -1,4 +1,5 @@
 #include "../scene/nri_mutation_followup_audit.h"
+#include "../scene/nri_mutation_transaction_audit.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 
@@ -2399,7 +2400,11 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 					cache.insert(cache.begin(), std::move(hotEntry));
 				}
 				followup::Add(followup::Counter::MutationMaterialCacheHits);
-				outMaterials = cache.front().materialBridge;
+				{
+					nri_scene::mutation_transaction_audit::CopyScope copy(
+						nri_scene::mutation_transaction_audit::CopyKind::CacheHit, cache.front().materialBridge);
+					outMaterials = cache.front().materialBridge;
+				}
 				return true;
 			}
 
@@ -2433,7 +2438,11 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				}
 
 				followup::Add(followup::Counter::MutationMaterialCacheReplacements);
-				entry.materialBridge = materials;
+				{
+					nri_scene::mutation_transaction_audit::CopyScope copy(
+						nri_scene::mutation_transaction_audit::CopyKind::CacheStore, materials);
+					entry.materialBridge = materials;
+				}
 				if (index != 0)
 				{
 					auto hotEntry = std::move(entry);
@@ -2453,7 +2462,11 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				entry.canonicalMaterialStateKey = canonicalLayout->stateKey;
 				entry.canonicalMaterialStateKeys = canonicalLayout->canonicalMaterialStateKeys;
 			}
-			entry.materialBridge = materials;
+			{
+				nri_scene::mutation_transaction_audit::CopyScope copy(
+					nri_scene::mutation_transaction_audit::CopyKind::CacheStore, materials);
+				entry.materialBridge = materials;
+			}
 			cache.insert(cache.begin(), std::move(entry));
 			if (cache.size() > kRuntimeMutationMaterialStateCacheCapacity)
 			{
@@ -4045,6 +4058,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		mAllowStartupMutationRebaseline = false;
 		mPendingStartupMutationRebaseline = false;
 	}
+	mRuntimeMutation.AuditMaterialCacheStorage();
 	if (collectRuntimeMutationCacheStats)
 	{
 		const RuntimeMutationCacheStats cacheStats = mRuntimeMutation.GatherCacheStats();

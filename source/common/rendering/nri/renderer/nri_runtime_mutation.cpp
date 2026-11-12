@@ -1,5 +1,6 @@
 #include "../scene/nri_mutation_followup_audit.h"
 #include "nri_runtime_mutation.h"
+#include "../scene/nri_mutation_transaction_audit.h"
 #include "nri_cvars.h"
 #include "../scene/nri_mutation_pipeline_audit.h"
 
@@ -439,6 +440,11 @@ RuntimeMutationCacheStats NRIRuntimeMutationSystem::GatherCacheStats() const
 	}
 
 	return stats;
+}
+
+void NRIRuntimeMutationSystem::AuditMaterialCacheStorage() const
+{
+	nri_scene::mutation_transaction_audit::CensusMaterialCache(cache.chunks);
 }
 
 bool NRIRuntimeMutationSystem::IsCacheEmpty() const

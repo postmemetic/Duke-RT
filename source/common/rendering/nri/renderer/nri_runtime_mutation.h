@@ -389,6 +389,7 @@ public:
 	};
 
 	RuntimeMutationCacheStats GatherCacheStats() const;
+	void AuditMaterialCacheStorage() const;
 	static NRIRuntimeMutationResidentUploadServices BuildResidentUploadServices(NRIRenderer& renderer);
 	static NRIRuntimeMutationOverlayServices BuildOverlayServices(NRIRenderer& renderer);
 	static NRIRuntimeMutationResidentApplyServices BuildResidentApplyServices(NRIRenderer& renderer);

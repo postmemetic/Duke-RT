@@ -1,4 +1,5 @@
 #include "../scene/nri_mutation_followup_audit.h"
+#include "../scene/nri_mutation_transaction_audit.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 
@@ -28,12 +29,19 @@
 namespace
 {
  namespace followup = nri_scene::mutation_followup_audit;
+	namespace transactionAudit = nri_scene::mutation_transaction_audit;
 	using namespace nri_runtime_mutation;
 	nri_static_atlas_allocation::ValidationState gAtlasAllocationValidation;
 }
 
 namespace
 {
+	uint64_t ComputeResidentAnimatedMaterialSignature(const nri_scene::SceneView& view)
+	{
+		transactionAudit::MaterialSignatureScope audit;
+		return ComputeAnimatedMaterialSignature(view);
+	}
+
 	static bool ShouldTraceResidentGeometryOrderHash()
 	{
 		return (int)perf_looptraceframes > 0;
@@ -268,10 +276,17 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 				residentSceneView);
 		if (!mergedSectorMaterialOnlyFastPath)
 		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::View, replacement.sceneView);
 			residentSceneView = replacement.sceneView;
 		}
-		residentMaterials = replacement.materialBridge;
-		appliedBaseline = replacement.replacementBaseline;
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::Material, replacement.materialBridge);
+			residentMaterials = replacement.materialBridge;
+		}
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::Baseline, replacement.replacementBaseline);
+			appliedBaseline = replacement.replacementBaseline;
+		}
 	}
 	else if (materialOnlyReplacement && (!exclusiveMaterialOnlyReplacement || requiresMaterialUvUpload))
 	{
@@ -322,10 +337,22 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 	}
 	else
 	{
-		residentSceneView = replacement.sceneView;
-		residentGeometry = replacement.geometry;
-		residentMaterials = replacement.materialBridge;
-		appliedBaseline = replacement.replacementBaseline;
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::View, replacement.sceneView);
+			residentSceneView = replacement.sceneView;
+		}
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::Geometry, replacement.geometry);
+			residentGeometry = replacement.geometry;
+		}
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::Material, replacement.materialBridge);
+			residentMaterials = replacement.materialBridge;
+		}
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::Baseline, replacement.replacementBaseline);
+			appliedBaseline = replacement.replacementBaseline;
+		}
 	}
 	outResult.surfaceCount = CountSceneViewSurfaces(residentSceneView);
 	outResult.triangleCount = fastResidentMaterialOnlyUpdate && hasResolvedAtlasChunk ?
@@ -917,7 +944,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 				!appliedAnimationOnlyRefreshed &&
 				hasResidentChunk &&
 				keptMaterialSlice &&
-				previousAnimatedMaterialSignature == ComputeAnimatedMaterialSignature(residentSceneView);
+				previousAnimatedMaterialSignature == ComputeResidentAnimatedMaterialSignature(residentSceneView);
 			preserveResidentMaterialSlice = preserveResidentMaterialSlice || residentMaterialPayloadHashSkip;
 			preserveResidentIndexSlice =
 				!materialOnlyReplacement &&
@@ -1260,6 +1287,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 		}
 		if (!preserveResidentMaterialSlice)
 		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::Material, residentMaterials);
 			mutableChunk.materialBridge = residentMaterials;
 		}
 		mutableChunk.geometryTopologySignature = residentGeometryTopologySignature;
@@ -1288,7 +1316,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			}
 			mutableChunk.geometryPayloadHash = residentGeometryPayloadHash;
 		}
-		mutableChunk.animatedMaterialSignature = ComputeAnimatedMaterialSignature(residentSceneView);
+		mutableChunk.animatedMaterialSignature = ComputeResidentAnimatedMaterialSignature(residentSceneView);
 		mutableChunk.animatedGeometrySignature = ComputeAnimatedGeometrySignature(residentSceneView);
 		mutableChunk.hasAnimatedTextureCandidates = nri_static_scene::ChunkHasAnimatedSurfaceCandidates(residentSceneView);
 		mutableChunk.animatedRefreshSuppressed =
@@ -1296,7 +1324,10 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			(appliedStaticAnimatedReplacement ||
 			 appliedAnimationOnlyRefreshed ||
 			 mutableChunk.animatedGeometrySignature == previousAnimatedGeometrySignature);
-		mStaticMapScene.PublishLightChunkView(chunkListIndex, residentSceneView);
+		{
+			transactionAudit::CopyScope copy(transactionAudit::CopyKind::View, residentSceneView);
+			mStaticMapScene.PublishLightChunkView(chunkListIndex, residentSceneView);
+		}
 		nri_static_scene::UpdateAnimatedMaterialCandidate(mStaticMapScene, chunkListIndex);
 		outResult.staticSceneChunkListIndex = chunkListIndex;
 		outResult.materialDirty = !preserveResidentMaterialSlice;
@@ -1316,7 +1347,10 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 	}
 
 	mRuntimeMutation.PublishAppliedBaseline(replacement, appliedBaseline, RuntimeMutationBaselinePublication::ResidentApply);
-	replacement.replacementBaseline = appliedBaseline;
+	{
+		transactionAudit::CopyScope copy(transactionAudit::CopyKind::Baseline, appliedBaseline);
+		replacement.replacementBaseline = appliedBaseline;
+	}
 	replacement.baselineSignature = appliedBaseline.signature;
 	replacement.liveSignature = appliedBaseline.signature;
 	replacement.reasonMask = nri_scene::PTMapChunkMutationReason_None;
@@ -1331,13 +1365,16 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 	replacement.valid = false;
 	replacement.residentAuthoritative = true;
 	replacement.animationOnlyRefreshed = false;
-	replacement.animatedMaterialSignature = ComputeAnimatedMaterialSignature(residentSceneView);
+	replacement.animatedMaterialSignature = ComputeResidentAnimatedMaterialSignature(residentSceneView);
 	replacement.surfaceCount = 0;
 	replacement.triangleCount = 0;
 	if (!appliedCertifiedResidentMaterialOnly) followup::Add(followup::Counter::MutationMaterialCacheClearResidentApply, replacement.materialStateCache.size());
 	mRuntimeMutation.ClearReplacementPayload(replacement, !appliedCertifiedResidentMaterialOnly);
 
-	mStaticSceneResidency.Registry().entries[mapChunk.chunkIndex].appliedBaseline = appliedBaseline;
+	{
+		transactionAudit::CopyScope copy(transactionAudit::CopyKind::Baseline, appliedBaseline);
+		mStaticSceneResidency.Registry().entries[mapChunk.chunkIndex].appliedBaseline = appliedBaseline;
+	}
 	mStaticSceneResidency.Registry().entries[mapChunk.chunkIndex].baselineSignature = appliedBaseline.signature;
 	mStaticSceneResidency.Registry().entries[mapChunk.chunkIndex].liveSignature = appliedBaseline.signature;
 	mStaticSceneResidency.Registry().entries[mapChunk.chunkIndex].staticSceneChunkListIndex = chunkListIndex;
