@@ -308,6 +308,8 @@ void NRIRenderer::DestroySceneBuffers()
 	mTraceShaderStats.Destroy(BuildResourceServices());
 	DestroyBufferResource(mScratchBuffer);
 	DestroyBufferResource(mResidentStaticBlasScratchBuffer);
+	// Shutdown follows the device wait; recorded command streams will not be submitted.
+	ReleaseResidentBlasScratchAfterWaitAndDiscard();
 	DestroyBufferResource(mEmissiveTopLevelScratchBuffer);
 	for (auto& frameScratch : mResidentUploadScratchFrames)
 	{

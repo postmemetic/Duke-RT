@@ -1017,6 +1017,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_preload_coordinator.cpp
 	common/rendering/nri/renderer/nri_renderstate.cpp
 	common/rendering/nri/renderer/nri_resources.cpp
+	common/rendering/nri/renderer/nri_resident_blas_scratch.cpp
 	common/rendering/nri/renderer/nri_render_geometry_helpers.cpp
 	common/rendering/nri/renderer/nri_renderer.cpp
 	common/rendering/nri/renderer/nri_spatial_absence_frontier_index.cpp

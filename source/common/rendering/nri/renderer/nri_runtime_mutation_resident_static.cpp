@@ -677,6 +677,8 @@ bool NRIRenderer::RebuildResidentStaticMaterialState(const char* reason)
 bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t>& chunkListIndices)
 {
 	namespace batch = nri_resident_blas_batch;
+	using ScratchResult = NRIResidentBlasScratchRetirement::Result;
+	CollectResidentBlasScratch();
 	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	ScopedPtPerfTimer totalPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasMs);
 	if (chunkListIndices.empty())
@@ -921,48 +923,34 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			else followup::Add(followup::Counter::ResidentBlasBatchCountFallbacks);
 		}
 
-		// A device-idle wait cannot complete references in an unsubmitted
-		// command buffer. Optional replacement must have the exact deferred
-		// owner used by RetireResidentBufferResource; never use its immediate
-		// destruction fallback for an existing scratch resource.
-		if (useBatch && mResidentStaticBlasScratchBuffer.buffer != nullptr &&
-			mResidentStaticBlasScratchBuffer.size < batchWork->plan.requiredBytes &&
-			!(mFrameBuffer != nullptr && mFrameBuffer->mCommandBuffer != nullptr &&
-				!mResidentUploadScratchFrames.empty()))
-		{
-			useBatch = false;
-			followup::Add(followup::Counter::ResidentBlasBatchNoRetirementOwnerFallbacks);
-		}
-		// Allocate first so optional failure preserves valid serial scratch.
-		// Successful growth retains the old buffer through frame retirement,
-		// including commands already recorded but not yet submitted.
+		// Both optional batch capacity and mandatory serial capacity use the same
+		// command-fence owner. Neither device-idle nor renderer frame advancement
+		// completes references in an unsubmitted command buffer.
 		if (useBatch && (mResidentStaticBlasScratchBuffer.buffer == nullptr ||
 			mResidentStaticBlasScratchBuffer.size < batchWork->plan.requiredBytes))
 		{
 			ScopedPtPerfTimer scratchPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasScratchMs);
-			NRIBufferResource replacementScratch = {};
-			bool allocated;
+			const bool hadBuffer = mResidentStaticBlasScratchBuffer.buffer != nullptr;
+			const uint64_t retiredBytes = mResidentStaticBlasScratchBuffer.memorySize;
+			ScratchResult result;
 			{
 				followup::Timer allocationTimer(followup::Counter::ResidentBlasBatchScratchAllocationNs);
-				allocated = CreateBufferWithoutView(replacementScratch, batchWork->plan.requiredBytes, 16, nri::BufferUsageBits::SCRATCH_BUFFER);
+				result = EnsureResidentBlasScratch(batchWork->plan.requiredBytes, true);
 			}
-			if (!allocated)
+			if (result == ScratchResult::NoRecordingOwner || result == ScratchResult::AllocationFailed)
 			{
-				DestroyBufferResource(replacementScratch);
 				useBatch = false;
-				followup::Add(followup::Counter::ResidentBlasBatchAllocationFailures);
+				followup::Add(result == ScratchResult::NoRecordingOwner ?
+					followup::Counter::ResidentBlasBatchNoRetirementOwnerFallbacks :
+					followup::Counter::ResidentBlasBatchAllocationFailures);
 			}
-			else
+			else if (result == ScratchResult::Grown)
 			{
-				if (mResidentStaticBlasScratchBuffer.buffer != nullptr)
+				if (hadBuffer)
 				{
-					const uint64_t retiredBytes = mResidentStaticBlasScratchBuffer.memorySize;
-					RetireResidentBufferResource(mResidentStaticBlasScratchBuffer);
 					followup::Add(followup::Counter::ResidentBlasBatchScratchRetirements);
 					followup::Add(followup::Counter::ResidentBlasBatchScratchRetiredBytes, retiredBytes);
 				}
-				mResidentStaticBlasScratchBuffer = replacementScratch;
-				replacementScratch = {};
 				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
 				followup::Add(followup::Counter::MutationResidentBlasScratchGrowths);
 				followup::Add(followup::Counter::ResidentBlasBatchScratchGrowths);
@@ -972,18 +960,12 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			ScopedPtPerfTimer scratchPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasScratchMs);
 			if (mResidentStaticBlasScratchBuffer.buffer == nullptr || mResidentStaticBlasScratchBuffer.size < maxScratchSize)
 			{
-				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
-				followup::Add(followup::Counter::MutationResidentBlasScratchGrowths);
-				if (mResidentStaticBlasScratchBuffer.buffer != nullptr)
-				{
-					nri_scene::mutation_audit::Scope wait(nri_scene::mutation_audit::Category::Wait);
-					WaitForCommandsTracked();
-				}
-				DestroyBufferResource(mResidentStaticBlasScratchBuffer);
-				if (!CreateBufferWithoutView(mResidentStaticBlasScratchBuffer, maxScratchSize, 16, nri::BufferUsageBits::SCRATCH_BUFFER))
+				if (EnsureResidentBlasScratch(maxScratchSize, false) != ScratchResult::Grown)
 				{
 					return false;
 				}
+				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
+				followup::Add(followup::Counter::MutationResidentBlasScratchGrowths);
 			}
 		}
 		if (PerfAuditCpuDetailActive() || validateBatch)

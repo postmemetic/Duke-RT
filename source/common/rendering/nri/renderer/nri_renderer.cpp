@@ -1890,6 +1890,8 @@ void NRIRenderer::Shutdown()
 void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 {
 	WaitForCommandsTracked("level-unload");
+	// Device level-unload has also reset the shell and discarded recordings.
+	ReleaseResidentBlasScratchAfterWaitAndDiscard();
 	RequestHistoryReset("level-unload", true, true);
 	ResetSmoke("level-unload");
 

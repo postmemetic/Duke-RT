@@ -17,6 +17,7 @@
 #include "nri_pipeline_state.h"
 #include "nri_renderer_context.h"
 #include "nri_resources.h"
+#include "nri_resident_blas_scratch.h"
 #include "nri_static_tangent_integration.h"
 #include "nri_map_movers.h"
 #include "nri_map_motion_history.h"
@@ -2577,6 +2578,10 @@ private:
 		RuntimeMutationResidentApplyResult& outResult);
 	bool RebuildResidentStaticMaterialState(const char* reason);
 	bool RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t>& chunkListIndices);
+	NRIResidentBlasScratchRetirement::Result EnsureResidentBlasScratch(uint64_t requiredBytes, bool optional);
+	void CollectResidentBlasScratch();
+	void ReleaseResidentBlasScratchAfterWaitAndDiscard();
+	void ReportResidentBlasScratchMemory();
 	bool BuildRuntimeSpaceLinkOverlay(HWDrawInfo& di, nri_scene::GeometryData& outGeometry, nri_scene::MaterialBridgeData& outMaterials);
 	SceneLightSystem::RuntimeLightClusterBuildInput BuildRuntimeLightClusterInput() const;
 	void TraceEmissiveSectorResponseChange();
@@ -2886,6 +2891,7 @@ private:
 	NRIIndirectRadianceCacheTelemetrySnapshot mLastIndirectRadianceCacheTelemetry = {};
 	NRIBufferResource mScratchBuffer;
 	NRIBufferResource mResidentStaticBlasScratchBuffer;
+	NRIResidentBlasScratchRetirement mResidentBlasScratchRetirement;
 	NRIBufferResource mEmissiveTopLevelScratchBuffer;
 	SelectPrimitiveRewriteCache mSelectPrimitiveRewriteCache = {};
 	PrimitiveVisibilityIdentityCache mPrimitiveVisibilityIdentityCache = {};

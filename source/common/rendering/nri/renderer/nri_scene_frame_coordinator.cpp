@@ -501,6 +501,7 @@ bool NRIRenderer::EnsureRenderSceneFrameResources(const NRIRendererFrameContext&
 
 bool NRIRenderer::BeginRenderSceneFrame(HWDrawInfo& di, const NRIRendererFrameContext& frameContext, bool preserveHistory, const RenderSceneHistorySnapshot& history)
 {
+	CollectResidentBlasScratch();
 	ResetSceneBufferFrameStats();
 	ResetRendererSkyPerfTraceStats();
 	nri_scene::ResetAverageTextureColorCache();
