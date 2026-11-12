@@ -12,7 +12,7 @@
 #include <cstring>
 #include <mutex>
 
-CVAR(Bool, nri_ptpalettecompare, false, 0)
+CVAR(Bool, nri_ptpalettecompare, true, 0)
 
 namespace
 {
