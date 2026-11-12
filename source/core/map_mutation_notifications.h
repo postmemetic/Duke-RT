@@ -24,7 +24,7 @@ enum class MapMutationWriter : uint8_t
 	Unknown, SectorSetFloorZ, SectorSetCeilingZ, SectorAddFloorZ, SectorAddCeilingZ,
 	SectorFloorSlope, SectorCeilingSlope, SectorPan, WallPan, WallTexture,
 	WallOverTexture, WallMove, InterpolationApply, InterpolationRestore,
-	DukeCycler, DukeSE04, SectorTexture, DukeAnimateVertex, DukeSE03, DukeSE08, DukeGlass,
+	DukeCycler, DukeSE04, SectorTexture, DukeAnimateVertex, DukeSE03, DukeSE08, DukeGlass, DukeSE12,
 };
 enum class MapMutationValueType : uint8_t { Integer, Float, Double };
 
@@ -44,7 +44,7 @@ inline const char* MapMutationWriterName(MapMutationWriter writer)
 		"unknown", "sector-set-floorz", "sector-set-ceilingz", "sector-add-floorz", "sector-add-ceilingz",
 		"sector-floor-slope", "sector-ceiling-slope", "sector-pan", "wall-pan", "wall-texture",
 		"wall-overtexture", "wall-move", "interpolation-apply", "interpolation-restore",
-		"duke-cycler", "duke-se04", "sector-texture", "duke-animate-vertex", "duke-se03", "duke-se08", "duke-glass"
+		"duke-cycler", "duke-se04", "sector-texture", "duke-animate-vertex", "duke-se03", "duke-se08", "duke-glass", "duke-se12"
 	};
 	return (size_t)writer < sizeof(names) / sizeof(*names) ? names[(size_t)writer] : "unknown";
 }

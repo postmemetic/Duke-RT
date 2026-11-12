@@ -2657,22 +2657,35 @@ void handle_se11(DDukeActor *actor)
 
 void handle_se12(DDukeActor *actor, int planeonly)
 {
+	MapMutationWriterScope mutationWriter(MapMutationWriter::DukeSE12);
 	auto sc = actor->sector();
 	if (actor->counter == 3 || actor->temp_data[3] == 1) //Lights going off
 	{
+		const auto previousFloorPal = sc->floorpal;
+		const auto previousCeilingPal = sc->ceilingpal;
 		sc->floorpal = 0;
 		sc->ceilingpal = 0;
+		NotifyMapSectorMutation(sc, MapMutationField::FloorPalette, MapMutationWriter::DukeSE12, previousFloorPal, sc->floorpal);
+		NotifyMapSectorMutation(sc, MapMutationField::CeilingPalette, MapMutationWriter::DukeSE12, previousCeilingPal, sc->ceilingpal);
 
 		for (auto& wal : sc->walls)
 		{
 			if (wal.hitag != 1)
 			{
+				const auto previousShade = wal.shade;
+				const auto previousPal = wal.pal;
 				wal.shade = actor->temp_data[1];
 				wal.pal = 0;
+				NotifyMapWallMutation(&wal, MapMutationField::WallShade, MapMutationWriter::DukeSE12, previousShade, wal.shade);
+				NotifyMapWallMutation(&wal, MapMutationField::WallPalette, MapMutationWriter::DukeSE12, previousPal, wal.pal);
 			}
 		}
+		const auto previousFloorShade = sc->floorshade;
+		const auto previousCeilingShade = sc->ceilingshade;
 		sc->floorshade = actor->temp_data[1];
 		sc->ceilingshade = actor->temp_data[2];
+		NotifyMapSectorMutation(sc, MapMutationField::FloorShade, MapMutationWriter::DukeSE12, previousFloorShade, sc->floorshade);
+		NotifyMapSectorMutation(sc, MapMutationField::CeilingShade, MapMutationWriter::DukeSE12, previousCeilingShade, sc->ceilingshade);
 		actor->counter = 0;
 
 		DukeSectIterator it(sc);
@@ -2704,18 +2717,30 @@ void handle_se12(DDukeActor *actor, int planeonly)
 		int compshade = planeonly == 2 ? sc->ceilingshade : sc->floorshade;
 		if (compshade > actor->spr.shade)
 		{
+			const auto previousFloorPal = sc->floorpal;
+			const auto previousCeilingPal = sc->ceilingpal;
+			const auto previousFloorShade = sc->floorshade;
+			const auto previousCeilingShade = sc->ceilingshade;
 			if (planeonly != 2) sc->floorpal = actor->spr.pal;
 			if (planeonly != 1) sc->ceilingpal = actor->spr.pal;
 
 			if (planeonly != 2) sc->floorshade -= 2;
 			if (planeonly != 1) sc->ceilingshade -= 2;
+			NotifyMapSectorMutation(sc, MapMutationField::FloorPalette, MapMutationWriter::DukeSE12, previousFloorPal, sc->floorpal);
+			NotifyMapSectorMutation(sc, MapMutationField::CeilingPalette, MapMutationWriter::DukeSE12, previousCeilingPal, sc->ceilingpal);
+			NotifyMapSectorMutation(sc, MapMutationField::FloorShade, MapMutationWriter::DukeSE12, previousFloorShade, sc->floorshade);
+			NotifyMapSectorMutation(sc, MapMutationField::CeilingShade, MapMutationWriter::DukeSE12, previousCeilingShade, sc->ceilingshade);
 
 			for (auto& wal : sc->walls)
 			{
 				if (wal.hitag != 1)
 				{
+					const auto previousShade = wal.shade;
+					const auto previousPal = wal.pal;
 					wal.pal = actor->spr.pal;
 					wal.shade -= 2;
+					NotifyMapWallMutation(&wal, MapMutationField::WallPalette, MapMutationWriter::DukeSE12, previousPal, wal.pal);
+					NotifyMapWallMutation(&wal, MapMutationField::WallShade, MapMutationWriter::DukeSE12, previousShade, wal.shade);
 				}
 			}
 		}
