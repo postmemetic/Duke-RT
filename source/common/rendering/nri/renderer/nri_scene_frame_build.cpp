@@ -2402,6 +2402,50 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	}
 
 	TraceRuntimeLinkEvents(di);
+	if ((int)nri_ptmutationcausetrace > 0 && (bool)nri_ptmutationworklistobserve &&
+		(int)nri_ptmutationworklistvalidate == 0 && !preserveHistory)
+	{
+		NRIRuntimeMutationPublicationTrace::Context context;
+		context.epoch = mRuntimeMutation.causeTrace.Epoch();
+		context.build = mMapWorld.buildSerial;
+		context.frame = mFrameIndex;
+		context.tick = (uint64_t)PlayClock;
+		context.simulation = inputs.simulationGeneration;
+		context.presentation = inputs.presentationGeneration;
+		context.focusChunk = (int)nri_ptmutationcausechunk;
+		context.focusList = (const char*)nri_ptmutationcausechunks;
+		context.frameSlot = GetCurrentQueuedFrameIndex();
+		context.selectedStatic = mUsedStaticMapSceneLastFrame;
+		context.visibleWords = &mCurrentVisibleChunkWords;
+		context.vertexBufferHash = mStaticVertexBuffer.payloadHash;
+		context.primitiveBufferHash = mStaticPrimitiveBuffer.payloadHash;
+		context.materialBufferHash = mStaticMaterialBuffer.payloadHash;
+		mRuntimeMutation.publicationTrace.TraceSelected(context, mMapWorld, mStaticMapScene, mStaticMapChunkAtlas,
+			mStaticSceneResidency.Registry(), mBoundSceneInstances, GetCurrentWorldTlasFrameSlot(),
+			runtimeSpaceLinkGeometry, runtimeMutationFrame.geometry, activeDynamicGeometry,
+			[&](uint32_t index)
+			{
+				NRIRuntimeMutationPublicationTrace::Replacement result;
+				if (const auto* replacement = mRuntimeMutation.FindReplacement(index))
+				{
+					result.baseline = replacement->baselineSignature;
+					result.preparedBaseline = replacement->replacementBaseline.signature;
+					result.revision = replacement->registryInputRevision;
+					result.source = mRuntimeMutation.GetWorklistCandidateSourceMask(index);
+					result.reason = replacement->reasonMask;
+					result.active = replacement->active;
+					result.valid = replacement->valid;
+					result.authoritative = replacement->residentAuthoritative;
+					result.materialDeferred = replacement->deferredMaterialRefresh;
+					result.structuralDeferred = replacement->deferredStructuralRebuild;
+					result.materialDeferredFrame = replacement->deferredMaterialFrame;
+					result.structuralDeferredFrame = replacement->deferredStructuralFrame;
+				}
+				return result;
+			});
+	}
+	else if ((int)nri_ptmutationcausetrace <= 0)
+		mRuntimeMutation.publicationTrace.Reset();
 	LogBridgeStats(activeStats);
 	if (activeStats.unsupportedModelDrawItems > 0)
 	{

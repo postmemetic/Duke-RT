@@ -1697,6 +1697,10 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		mLastPerfShellTraceStats.runtimeMutationDiscoveryMs += prepareMs;
 	}
 	discoveryAudit.End();
+ mRuntimeMutation.causeTrace.BeginFrame(mMapWorld.buildSerial, mFrameIndex, (uint64_t)PlayClock,
+  (uint32_t)mMapWorld.chunks.size(), (int)nri_ptmutationcausetrace > 0 &&
+  (bool)nri_ptmutationworklistobserve && !worklistValidation.enabled, (int)nri_ptmutationcausechunk,
+  (const char*)nri_ptmutationcausechunks);
  // Read before any per-chunk processing consumes dirty flags or publishes a
  // new baseline. This observer never expands dispatch or repairs discovery.
  if ((bool)nri_ptmutationworklistobserve && !worklistValidation.enabled)
@@ -1728,6 +1732,18 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
      analysis.signature == replacement->baselineSignature && (sample.reason & ~noise) == 0)
      sample.reason = nri_scene::PTMapChunkMutationReason_None;
     if (settle) sample.reason |= nri_scene::PTMapChunkMutationReason_SectionDirty;
+    if ((int)nri_ptmutationcausetrace > 0 && sample.valid)
+    {
+     nri_mutation_cause::CauseTrace::Context context;
+     context.sourceMask = sample.source; context.selected = sample.selected;
+     context.visible = sample.visible; context.active = sample.active;
+     context.replacementValid = sample.residentValid; context.residentAuthoritative = sample.residentAuthoritative;
+     context.watched = mRuntimeMutation.IsSignatureWatchlistSeeded(chunkIndex);
+     context.registryRevision = replacement->registryInputRevision;
+     if (chunk.chunkIndex < mStaticSceneResidency.Registry().entries.size())
+      context.visibleValidationRemaining = mStaticSceneResidency.Registry().entries[chunk.chunkIndex].visibleValidationFramesRemaining;
+     mRuntimeMutation.causeTrace.Observe(chunk, replacement->baseline, analysis, context);
+    }
     return sample;
    });
  }
@@ -1738,6 +1754,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
   // candidate discovery before this point. Expose the conflict and do not scan.
   if ((bool)nri_ptmutationworklistobserve) PerfAuditAdd(PerfAuditMetric::MutationObservationContaminated);
  }
+ mRuntimeMutation.causeTrace.EndFrame();
 	for (uint32_t chunkIndex : runtimeMutationDispatchInputs)
 	{
 		const auto& mapChunk = mMapWorld.chunks[chunkIndex];
@@ -4096,6 +4113,15 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		refreshRequest.animatedMaterialChunkListIndices = &animatedResidentApplyMaterialChunkListIndices;
 		refreshRequest.geometryChunkListIndices = &residentGeometryChunkListIndices;
 		RuntimeMutationResidentSceneRefreshResult refreshResult = {};
+		const bool causeTraceEnabled = (int)nri_ptmutationcausetrace > 0 &&
+			(bool)nri_ptmutationworklistobserve && (int)nri_ptmutationworklistvalidate == 0;
+		const uint64_t causeTraceEpoch = mRuntimeMutation.causeTrace.Epoch();
+		const uint64_t causeTraceBuild = mMapWorld.buildSerial;
+		const auto causeCommitChunks = causeTraceEnabled ?
+			NRIRuntimeMutationPublicationTrace::CaptureCommitChunks(mStaticMapScene,
+				residentMaterialChunkListIndices, residentGeometryChunkListIndices, (int)nri_ptmutationcausechunk,
+				(const char*)nri_ptmutationcausechunks) :
+			std::vector<NRIRuntimeMutationPublicationTrace::CommitChunk>{};
 		const auto runtimeMutationCommitStart = collectRuntimeMutationTiming ?
 			std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 		const bool committed = mRuntimeMutation.CommitResidentSceneRefresh(
@@ -4103,6 +4129,9 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 				NRIRuntimeMutationSystem::BuildResidentSceneRefreshServices(*this),
 				refreshRequest,
 				refreshResult);
+		if (causeTraceEnabled)
+			NRIRuntimeMutationPublicationTrace::TraceCommit(causeTraceEpoch, causeTraceBuild, mFrameIndex,
+				(uint64_t)PlayClock, causeCommitChunks, committed, refreshResult.failureReason);
 		if (collectRuntimeMutationTiming)
 		{
 			mLastPerfShellTraceStats.runtimeMutationCommitMs += std::chrono::duration<double, std::milli>(

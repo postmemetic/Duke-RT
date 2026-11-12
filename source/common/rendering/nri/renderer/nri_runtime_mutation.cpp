@@ -1125,6 +1125,8 @@ void NRIRuntimeMutationSystem::ResetWorklist()
 {
 	worklist.Reset();
 	observation.Reset();
+	causeTrace.Reset();
+	publicationTrace.Reset();
 	discovery.Reset();
 	signatureWatchlist.clear();
 	signatureWatchlistChunks.clear();
