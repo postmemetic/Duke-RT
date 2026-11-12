@@ -53,6 +53,9 @@ class NRIEmissiveSamplingDistribution
 {
 public:
 	void Reset();
+	// Zero permanently withholds reuse certification after counter wrap. Frame
+	// bookkeeping does not change this output-affecting proposal identity.
+	uint64_t ProposalRevision() const { return mProposalRevision; }
 	uint64_t TopologyCapacityBytes() const { return mTopologyKeys.capacity() * sizeof(TopologyKey); }
 	void Build(
 		const std::vector<NRIEmissiveSamplingDistributionCandidate>& candidates,
@@ -64,6 +67,11 @@ public:
 		bool allowTopologyReuse = true);
 
 private:
+	void AdvanceProposalRevision()
+	{
+		if (mProposalRevision != 0) ++mProposalRevision;
+	}
+	uint64_t mProposalRevision = 1;
 	struct ProposalRecord
 	{
 		uint64_t bindingKey = 0;

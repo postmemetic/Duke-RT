@@ -2033,6 +2033,8 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mBoundEmissiveDominantDataSource = 0;
 	mEmissiveSamplingPayloadCacheValid = false;
 	mEmissiveSamplingPayloadHash = 0;
+	mEmissiveSamplingProposalRevision = 0;
+	mEmissiveSamplingValidation.Reset();
 	mEmissiveStabilityTraceValid = false;
 	mEmissiveStabilityTopologyEpoch = 0;
 	mEmissiveStabilityDistributionEpoch = 0;

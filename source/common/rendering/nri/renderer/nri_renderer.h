@@ -3183,6 +3183,8 @@ private:
 	NRIEmissiveSamplingUploadScratch mEmissiveSamplingUploadScratch;
 	bool mEmissiveSamplingPayloadCacheValid = false;
 	uint64_t mEmissiveSamplingPayloadHash = 0;
+	uint64_t mEmissiveSamplingProposalRevision = 0;
+	nri_emissive_destination::Snapshot mEmissiveSamplingValidation;
 	bool mEmissiveStabilityTraceValid = false;
 	uint64_t mEmissiveStabilityTopologyEpoch = 0;
 	uint64_t mEmissiveStabilityDistributionEpoch = 0;

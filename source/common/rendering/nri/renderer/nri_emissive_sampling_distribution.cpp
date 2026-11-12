@@ -13,6 +13,9 @@ namespace
 
 void NRIEmissiveSamplingDistribution::Reset()
 {
+	// Do not reuse an earlier destination identity after reset, even when the
+	// old record set was empty. A wrapped (zero) revision stays uncertified.
+	AdvanceProposalRevision();
 	mProposalRecords.clear();
 	mTopologyValid = false;
 	mTopologyDuplicateCount = 0;
@@ -29,6 +32,7 @@ void NRIEmissiveSamplingDistribution::Build(
 	bool allowTopologyReuse)
 {
 	NRIEmissiveSamplingDistributionStats stats = {};
+	bool proposalHistoryChanged = false;
 	const size_t oldCapacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
 		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity() };
 	const auto recordScratchGrowth = [&]()
@@ -136,6 +140,7 @@ void NRIEmissiveSamplingDistribution::Build(
 			if (!std::binary_search(liveKeys.begin(), liveKeys.end(), it->first))
 			{
 				stats.retiredMissingCount++;
+				proposalHistoryChanged = true;
 				it = mProposalRecords.erase(it);
 			}
 			else
@@ -167,6 +172,7 @@ void NRIEmissiveSamplingDistribution::Build(
 		auto& record = recordIt->second;
 		if (inserted || record.bindingKey != candidate.bindingKey)
 		{
+			proposalHistoryChanged = true;
 			if (!inserted)
 			{
 				stats.retiredReplacedCount++;
@@ -182,6 +188,7 @@ void NRIEmissiveSamplingDistribution::Build(
 			const float growthTolerance = BoundAbsoluteTolerance + record.referenceWeight * BoundRelativeTolerance;
 			if (requestedWeight > record.referenceWeight + growthTolerance)
 			{
+				proposalHistoryChanged = true;
 				stats.boundGrowthCount++;
 				stats.lastBoundGrowthStableKey = stableKey;
 				stats.lastBoundGrowthOldWeight = record.referenceWeight;
@@ -207,6 +214,7 @@ void NRIEmissiveSamplingDistribution::Build(
 		}
 		resolvedWeights[index] = record.referenceWeight;
 	}
+	if (proposalHistoryChanged) AdvanceProposalRevision();
 	stats.recordCount = (uint32_t)mProposalRecords.size();
 
 	if (uniqueIndices.size() > maxCandidateCount)

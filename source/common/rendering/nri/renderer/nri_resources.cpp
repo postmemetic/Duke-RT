@@ -386,6 +386,8 @@ void NRIRenderer::DestroySceneBuffers()
 	mBoundEmissiveDominantDataSource = 0;
 	mEmissiveSamplingPayloadCacheValid = false;
 	mEmissiveSamplingPayloadHash = 0;
+	mEmissiveSamplingProposalRevision = 0;
+	mEmissiveSamplingValidation.Reset();
 	mEmissiveSectorResponsePayloadCacheValid = false;
 	mEmissiveSectorResponsePayloadHash = 0;
 	mSceneLights.ResetEmissiveSectorResponseCaches();

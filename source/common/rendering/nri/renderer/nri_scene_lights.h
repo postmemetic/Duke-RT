@@ -261,6 +261,9 @@ struct NRIEmissivePrimitiveDebugRecord
 	bool sectorResponseApplied = false;
 };
 
+bool NRIEqualEmissiveDebugRecord(const NRIEmissivePrimitiveDebugRecord& lhs,
+	const NRIEmissivePrimitiveDebugRecord& rhs);
+
 // CPU outputs are consumed synchronously by UpdateEmissiveSamplingBuffers;
 // GPU writes still use the existing queued-frame resource slots.
 struct NRIEmissiveSamplingUploadScratch
@@ -1074,6 +1077,19 @@ public:
 		std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
 		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
 		EmissiveSamplingUploadStats* outStats = nullptr);
+	// Diagnostic construction from current history without publishing any history
+	// changes or consuming retained geometry/hue products.
+	void BuildEmissiveSamplingReference(
+		const EmissiveSamplingBuildContext& context,
+		NRIEmissivePrimitiveHeaderGpuData& outHeader,
+		std::vector<NRIEmissivePrimitiveGpuData>& outPrimitives,
+		std::vector<float>& outCdf,
+		std::vector<NRIEmissiveMaterialResponseGpuData>& outMaterialResponses,
+		std::vector<NRIEmissivePrimitiveDebugRecord>& outDebugRecords,
+		EmissiveSamplingUploadStats* outStats = nullptr);
+	uint64_t GetEmissiveSamplingProposalRevision() const { return mEmissiveSamplingDistribution.ProposalRevision(); }
+	static float ResolveEmissiveReferenceProposalReachBound(
+		const EmissiveSurfaceRegistry::EmissiveSurfaceRecord& surface, bool sectorResponseEligible);
 	uint64_t BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context, bool collectTiming = false);
 	nri_scene::ScopedSectorEmissionHueCache BeginEmissiveSamplingHueCache(bool enabled, bool validate)
 	{

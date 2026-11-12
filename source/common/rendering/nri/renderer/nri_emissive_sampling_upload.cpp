@@ -7,6 +7,7 @@ EXTERN_CVAR(Bool, nri_ptsectorhueproductvalidate)
 #include "nri_descriptor_sets.h"
 #include "nri_emissive_sampling_upload_policy.h"
 #include "nri_emissive_sampling_audit.h"
+#include "nri_emissive_sampling_destination.h"
 #include "nri_renderer.h"
 #include "nri_runtime_mutation_trace.h"
 #include "nri_scene_lights.h"
@@ -180,10 +181,24 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		frameSlot != nullptr ? frameSlot->emissivePrimitiveCdfStats : mEmissivePrimitiveCdfBufferStats;
 	SceneBufferDebugStats& emissiveMaterialResponseStats =
 		frameSlot != nullptr ? frameSlot->emissiveMaterialResponseStats : mEmissiveMaterialResponseBufferStats;
+	bool& destinationPublished = frameSlot != nullptr ? frameSlot->emissiveSamplingPayloadValid : mEmissiveSamplingPayloadCacheValid;
+	uint64_t& destinationProposalRevision = frameSlot != nullptr ? frameSlot->emissiveSamplingProposalRevision : mEmissiveSamplingProposalRevision;
+	auto& destinationValidation = frameSlot != nullptr ? frameSlot->emissiveSamplingValidation : mEmissiveSamplingValidation;
+	const uint64_t proposalBefore = mSceneLights.GetEmissiveSamplingProposalRevision();
+	const bool validateDestination = (bool)nri_ptemissivecachevalidate;
+	if (!validateDestination && (destinationValidation.valid || destinationValidation.CapacityBytes() != 0))
+		destinationValidation.Reset();
 	bool destinationCacheValid =
 		frameSlot != nullptr ?
 			frameSlot->emissiveSamplingPayloadValid && frameSlot->emissiveSamplingPayloadHash == payloadHash :
 			mEmissiveSamplingPayloadCacheValid && mEmissiveSamplingPayloadHash == payloadHash;
+	if (destinationCacheValid && (proposalBefore == 0 || destinationProposalRevision != proposalBefore))
+	{
+		PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDestinationProposalInvalidations);
+		destinationCacheValid = false;
+	}
+	const nri_emissive_destination::Resources selectedResources = { &emissivePrimitiveHeaderBuffer,
+		&emissivePrimitiveBuffer, &emissivePrimitiveCdfBuffer, &emissiveMaterialResponseBuffer };
 	const uint64_t uploadCapacityBefore = mEmissiveSamplingUploadScratch.CapacityBytes();
 	auto& emissiveHeader = mEmissiveSamplingUploadScratch.header;
 	auto& emissivePrimitives = mEmissiveSamplingUploadScratch.primitives;
@@ -197,15 +212,53 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	emissiveCdf.clear();
 	emissiveMaterialResponses.clear();
 	emissiveDebugRecords.clear();
-	const bool buildForValidation = stabilityTraceEnabled || (bool)nri_ptemissivecachevalidate;
-	if (buildForValidation)
+	NRIEmissiveSamplingUploadScratch destinationReference;
+	SceneLightSystem::EmissiveSamplingUploadStats referenceStats = {};
+	if (validateDestination || (stabilityTraceEnabled && destinationCacheValid))
 	{
-		audit.built = true;
-		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
+		PerfAuditScope referenceScope(PerfAuditMetric::EmissiveSamplingDestinationReferenceNs);
+		// Reference construction starts at this call's original history and restores
+		// it completely. A destination hit never advances production history.
+		mSceneLights.BuildEmissiveSamplingReference(context, destinationReference.header, destinationReference.primitives,
+			destinationReference.cdf, destinationReference.materialResponses, destinationReference.debugRecords, &referenceStats);
+		if (validateDestination) nri_emissive_destination::Pack(destinationReference);
 	}
 
-	if (emissiveStats.payloadValidationMismatches != 0)
-		destinationCacheValid = false;
+	const auto validateSelectedDestination = [&](bool reused)
+	{
+		if (!validateDestination) return true;
+		const bool checked = destinationValidation.valid;
+		if (checked)
+		{
+			PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDestinationValidationChecks);
+			if (reused)
+			{
+				PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDestinationHitValidationChecks);
+				PerfAuditAdd(frameSlot != nullptr ? PerfAuditMetric::EmissiveSamplingDestinationFrameSlotHitChecks :
+					PerfAuditMetric::EmissiveSamplingDestinationSharedHitChecks);
+			}
+		}
+		else if (reused) PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDestinationUnobservedHits);
+		const nri_emissive_destination::Metadata actual = { mBoundEmissivePrimitiveCount, mBoundEmissiveDominantPrimitive,
+			mBoundEmissiveDominantTile, mBoundEmissiveDominantFlags, mBoundEmissiveDominantDataSource,
+			mBoundEmissiveTotalPower, mBoundEmissiveDominantPower };
+		const bool mismatch = checked && (!destinationValidation.Matches(destinationReference, selectedResources) ||
+			!nri_emissive_destination::EqualMetadata(actual, nri_emissive_destination::ExpectedMetadata(destinationReference)) ||
+			!nri_emissive_destination::EqualDebug(mBoundEmissivePrimitiveRecords, destinationReference.debugRecords));
+		if (mismatch) PerfAuditAdd(PerfAuditMetric::EmissiveSamplingDestinationMismatches);
+		PerfAuditSet(PerfAuditMetric::EmissiveSamplingDestinationSnapshotBytes, destinationValidation.CapacityBytes());
+		const uint64_t referenceHash = nri_emissive_destination::PayloadHash(destinationReference.header,
+			destinationReference.shaderPrimitives, destinationReference.cdf, destinationReference.materialResponses);
+		Printf("NRI PT emissive destination validation: frame=%u destination=%s slot=%u reused=%u checked=%u mismatches=%u source_hash=0x%016llx proposal_before=%llu proposal_after=%llu reference_bound_growths=%u last_growth_old=%.9g last_growth_new=%.9g actual_hash=0x%016llx reference_hash=0x%016llx actual_count=%u reference_count=%u snapshot_bytes=%llu action=%s\n",
+			mFrameIndex, frameSlot != nullptr ? "frame-slot" : "shared", frameSlot != nullptr ? GetCurrentQueuedFrameIndex() : UINT32_MAX,
+			reused ? 1u : 0u, checked ? 1u : 0u, mismatch ? 1u : 0u, (unsigned long long)payloadHash,
+			(unsigned long long)proposalBefore, (unsigned long long)mSceneLights.GetEmissiveSamplingProposalRevision(),
+			referenceStats.proposalBoundGrowthCount, referenceStats.lastProposalBoundGrowthOldWeight, referenceStats.lastProposalBoundGrowthNewWeight,
+			(unsigned long long)(checked ? destinationValidation.PayloadHash() : 0), (unsigned long long)referenceHash,
+			mBoundEmissivePrimitiveCount, destinationReference.header.activeCount,
+			(unsigned long long)destinationValidation.CapacityBytes(), mismatch ? "reject" : checked ? "pass" : "unobserved");
+		return !mismatch;
+	};
 
 	const auto emitCacheTrace = [&](bool destinationReused)
 	{
@@ -377,8 +430,6 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		emissivePrimitiveCdfBuffer.shaderView != nullptr &&
 		emissiveMaterialResponseBuffer.shaderView != nullptr)
 	{
-		commitEmissiveDescriptors();
-		audit.reused = true;
 		if (frameSlot != nullptr)
 		{
 			mBoundEmissivePrimitiveCount = frameSlot->emissivePrimitiveCount;
@@ -392,24 +443,34 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 			mEmissiveSamplingPayloadCacheValid = false;
 			mEmissiveSamplingPayloadHash = 0;
 		}
+		if (!validateSelectedDestination(true))
+		{
+			destinationPublished = false;
+			destinationValidation.Reset();
+			return false;
+		}
+		commitEmissiveDescriptors();
+		audit.reused = true;
+		PerfAuditAdd(frameSlot != nullptr ? PerfAuditMetric::EmissiveSamplingDestinationFrameSlotHits :
+			PerfAuditMetric::EmissiveSamplingDestinationSharedHits);
 		mEmissiveSectorResponsePayloadCacheValid = collectSectorResponseHash;
 		mEmissiveSectorResponsePayloadHash = sectorResponsePayloadHash;
+		if (stabilityTraceEnabled)
+		{
+			mEmissiveSamplingUploadScratch = destinationReference;
+			emissiveStats = referenceStats;
+		}
 		emitStabilityTrace(0);
 		emitCacheTrace(true);
 		audit.completed = true;
 		return true;
 	}
 
-	if (!buildForValidation)
-	{
-		audit.built = true;
-		mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
-	}
+	audit.built = true;
+	mSceneLights.BuildEmissiveSamplingUpload(context, emissiveHeader, emissivePrimitives, emissiveCdf, emissiveMaterialResponses, emissiveDebugRecords, &emissiveStats);
 	{
 		PerfAuditScope auditPack(PerfAuditMetric::EmissiveSamplingPackNs);
-		emissiveShaderPrimitives.reserve(emissivePrimitives.size());
-		for (const NRIEmissivePrimitiveGpuData& primitive : emissivePrimitives)
-			emissiveShaderPrimitives.push_back(PackNRIEmissivePrimitiveShaderData(primitive));
+		nri_emissive_destination::Pack(mEmissiveSamplingUploadScratch);
 	}
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceStatic = emissiveStats.surfaceStatic;
 	mLastPerfShellTraceStats.emissiveSamplingSurfaceCaptured = emissiveStats.surfaceCaptured;
@@ -464,6 +525,10 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	{
 		return EnsureStructuredBuffer(resource, stats, data, size, stride, usage, after, writesQuiesced, "emissive_sampling_upload");
 	};
+	// Any subsequent partial write invalidates the old destination, even when
+	// allocation/upload fails before all four buffers are published.
+	destinationPublished = false;
+	destinationValidation.valid = false;
 
 	if (!ensureStructuredBufferBatched(
 		emissivePrimitiveHeaderBuffer,
@@ -513,6 +578,14 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		return false;
 	}
 
+	if (validateDestination) destinationValidation.Capture(mEmissiveSamplingUploadScratch, selectedResources);
+	if (frameSlot != nullptr)
+	{
+		// Bound metadata is shared across destination modes. Once it describes a
+		// slot, an earlier shared certificate cannot survive a validation failure.
+		mEmissiveSamplingPayloadCacheValid = false;
+		mEmissiveSamplingPayloadHash = 0;
+	}
 	mBoundEmissivePrimitiveCount = emissiveHeader.activeCount;
 	mBoundEmissiveTotalPower = emissiveHeader.totalPower;
 	mBoundEmissiveDominantPrimitive = emissiveHeader.dominantIndex != UINT32_MAX && emissiveHeader.dominantIndex < emissiveDebugRecords.size() ? emissiveDebugRecords[emissiveHeader.dominantIndex].primitiveIndex : UINT32_MAX;
@@ -523,6 +596,11 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	emitStabilityTrace(waitCount);
 	emitCacheTrace(false);
 	mBoundEmissivePrimitiveRecords.swap(emissiveDebugRecords);
+	if (!validateSelectedDestination(false))
+	{
+		destinationValidation.Reset();
+		return false;
+	}
 
 	commitEmissiveDescriptors();
 	const uint32_t responseMode = GetNRIEmissiveResponseHeaderMode(emissiveMaterialResponses[0].flags);
@@ -547,6 +625,9 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		frameSlot->emissiveDominantPower = mBoundEmissiveDominantPower;
 		frameSlot->emissivePrimitiveDebugRecords = mBoundEmissivePrimitiveRecords;
 	}
+	// A build may grow retained weights or retire a proposal. Certify the state
+	// that actually produced these buffers, not the revision before construction.
+	destinationProposalRevision = mSceneLights.GetEmissiveSamplingProposalRevision();
 
 	if (ShouldTraceSceneDataTiming())
 	{

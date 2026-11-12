@@ -3,6 +3,7 @@
 #include "nri_frame_resources.h"
 #include "nri_scene_data_light_slot_cache.h"
 #include "nri_scene_lights.h"
+#include "nri_emissive_sampling_destination.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -55,6 +56,8 @@ struct NRISceneDataFrameSlot
 	uint32_t tlasInstanceCount = 0;
 	uint32_t portalCount = 0;
 	uint64_t emissiveSamplingPayloadHash = 0;
+	uint64_t emissiveSamplingProposalRevision = 0;
+	nri_emissive_destination::Snapshot emissiveSamplingValidation;
 	bool emissiveSamplingPayloadValid = false;
 	uint32_t emissivePrimitiveCount = 0;
 	uint32_t emissiveDominantPrimitive = UINT32_MAX;
