@@ -1973,5 +1973,5 @@ CVAR(Bool, nri_ptatlasallocationvalidate, false, 0)
 CVAR(Bool, nri_ptemissivefactresetreuse, true, 0)
 
 // Bounded resident BLAS command recording; reference checks never submit extra builds.
-CVAR(Bool, nri_ptresidentblasbatch, false, 0)
+CVAR(Bool, nri_ptresidentblasbatch, true, 0)
 CVAR(Bool, nri_ptresidentblasbatchvalidate, false, 0)
