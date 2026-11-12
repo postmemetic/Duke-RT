@@ -22,7 +22,13 @@ namespace nri_scene::mutation_followup_audit
 	X(MutationAtlasClones) X(MutationAtlasCloneBytes) X(MutationAtlasCloneNs) X(MutationAtlasCloneBothRangesRetained) \
 	X(MutationResidentBlasRecreates) X(MutationResidentBlasUpdates) X(MutationResidentBlasBuildCommands) \
 	X(MutationResidentBlasScratchQueries) X(MutationResidentBlasScratchGrowths) X(MutationResidentBlasBarrierCalls) \
-	X(MutationResidentBlasBarrierBuffers) X(MutationResidentGeometryUploadRanges)
+	X(MutationResidentBlasBarrierBuffers) X(MutationResidentGeometryUploadRanges) \
+	X(ResidentBlasBatchCalls) X(ResidentBlasBatchJobs) X(ResidentBlasBatchBatches) X(ResidentBlasBatchBatchedJobs) \
+	X(ResidentBlasBatchSerialJobs) X(ResidentBlasBatchFallbackJobs) X(ResidentBlasBatchCountFallbacks) \
+	X(ResidentBlasBatchBudgetFallbacks) X(ResidentBlasBatchAliasFallbacks) X(ResidentBlasBatchInvalidFallbacks) \
+	X(ResidentBlasBatchAllocationFailures) X(ResidentBlasBatchScratchGrowths) X(ResidentBlasBatchBuildCalls) \
+	X(ResidentBlasBatchScratchBarrierCalls) X(ResidentBlasBatchPlanNs) X(ResidentBlasBatchRecordNs) \
+	X(ResidentBlasBatchScratchAllocationNs)
 
 enum class Counter : size_t
 {

@@ -530,3 +530,6 @@ EXTERN_CVAR(Bool, nri_ptatlasallocationreuse)
 EXTERN_CVAR(Bool, nri_ptatlasallocationvalidate)
 
 EXTERN_CVAR(Bool, nri_ptemissivefactresetreuse)
+
+EXTERN_CVAR(Bool, nri_ptresidentblasbatch)
+EXTERN_CVAR(Bool, nri_ptresidentblasbatchvalidate)

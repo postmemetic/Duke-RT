@@ -5,13 +5,16 @@
 
 #include "../scene/nri_hash.h"
 #include "nri_scene_upload.h"
+#include "nri_resident_blas_batch.h"
 #include "../system/nri_renderdevice.h"
+#include "../system/nri_gpu_timing.h"
 #include "c_cvars.h"
 #include "perf_capture.h"
 #include "perf_audit.h"
 #include "printf.h"
 
 #include <chrono>
+#include <optional>
 #include <unordered_map>
 
 
@@ -673,6 +676,7 @@ bool NRIRenderer::RebuildResidentStaticMaterialState(const char* reason)
 
 bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t>& chunkListIndices)
 {
+	namespace batch = nri_resident_blas_batch;
 	nri_scene::mutation_audit::Scope category(nri_scene::mutation_audit::Category::ResourceCpu);
 	ScopedPtPerfTimer totalPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasMs);
 	if (chunkListIndices.empty())
@@ -682,6 +686,15 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 
 	auto& activeChunkListIndices = mResidentStaticBlasActiveChunkListIndices;
 	activeChunkListIndices.clear();
+	struct BatchWork
+	{
+		std::array<batch::Job, batch::MaxJobs> jobs{};
+		batch::Plan plan;
+	};
+	std::optional<BatchWork> batchWork;
+	const bool batchRequested = nri_ptresidentblasbatch;
+	const bool validateBatch = batchRequested && nri_ptresidentblasbatchvalidate;
+	bool useBatch = false;
 	{
 		ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasSetupMs);
 		{
@@ -710,6 +723,8 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 		{
 			return true;
 		}
+		followup::Add(followup::Counter::ResidentBlasBatchCalls);
+		followup::Add(followup::Counter::ResidentBlasBatchJobs, activeChunkListIndices.size());
 
 		uint64_t maxScratchSize = 0;
 		for (uint32_t chunkListIndex : activeChunkListIndices)
@@ -879,6 +894,67 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			}
 		}
 
+		if (batchRequested)
+		{
+			followup::Timer planTimer(followup::Counter::ResidentBlasBatchPlanNs);
+			if (activeChunkListIndices.size() >= 2 && activeChunkListIndices.size() <= batch::MaxJobs)
+			{
+				batchWork.emplace();
+				for (size_t i = 0; i < activeChunkListIndices.size(); ++i)
+				{
+					const auto& chunk = mStaticMapScene.chunks[activeChunkListIndices[i]];
+					batchWork->jobs[i] = { chunk.accelerationStructure.accelerationStructure,
+						chunk.blasUpdateEligible ? chunk.accelerationStructure.accelerationStructure : nullptr,
+						chunk.blasUpdateEligible ? chunk.residentBlasUpdateScratchSize : chunk.residentBlasBuildScratchSize };
+				}
+				batchWork->plan = batch::TryPlan(batchWork->jobs.data(), activeChunkListIndices.size(),
+					mFrameBuffer->mCore.GetDeviceDesc(*mFrameBuffer->mDevice).memoryAlignment.scratchBufferOffset);
+				useBatch = batchWork->plan.Eligible();
+				if (!useBatch)
+				{
+					const auto rejection = batchWork->plan.rejection;
+					followup::Add(rejection == batch::Rejection::Budget ? followup::Counter::ResidentBlasBatchBudgetFallbacks :
+						rejection == batch::Rejection::Alias ? followup::Counter::ResidentBlasBatchAliasFallbacks :
+						followup::Counter::ResidentBlasBatchInvalidFallbacks);
+				}
+			}
+			else followup::Add(followup::Counter::ResidentBlasBatchCountFallbacks);
+		}
+
+		// An optional larger allocation must never destroy the valid serial
+		// scratch on failure. Wait only after the replacement exists, before
+		// destroying an old resource which earlier command buffers may use.
+		if (useBatch && (mResidentStaticBlasScratchBuffer.buffer == nullptr ||
+			mResidentStaticBlasScratchBuffer.size < batchWork->plan.requiredBytes))
+		{
+			ScopedPtPerfTimer scratchPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasScratchMs);
+			NRIBufferResource replacementScratch = {};
+			bool allocated;
+			{
+				followup::Timer allocationTimer(followup::Counter::ResidentBlasBatchScratchAllocationNs);
+				allocated = CreateBufferWithoutView(replacementScratch, batchWork->plan.requiredBytes, 16, nri::BufferUsageBits::SCRATCH_BUFFER);
+			}
+			if (!allocated)
+			{
+				DestroyBufferResource(replacementScratch);
+				useBatch = false;
+				followup::Add(followup::Counter::ResidentBlasBatchAllocationFailures);
+			}
+			else
+			{
+				if (mResidentStaticBlasScratchBuffer.buffer != nullptr)
+				{
+					nri_scene::mutation_audit::Scope wait(nri_scene::mutation_audit::Category::Wait);
+					WaitForCommandsTracked("resident_blas_batch_scratch_growth");
+				}
+				DestroyBufferResource(mResidentStaticBlasScratchBuffer);
+				mResidentStaticBlasScratchBuffer = replacementScratch;
+				replacementScratch = {};
+				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchGrowCount++;
+				followup::Add(followup::Counter::MutationResidentBlasScratchGrowths);
+				followup::Add(followup::Counter::ResidentBlasBatchScratchGrowths);
+			}
+		}
 		{
 			ScopedPtPerfTimer scratchPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasScratchMs);
 			if (mResidentStaticBlasScratchBuffer.buffer == nullptr || mResidentStaticBlasScratchBuffer.size < maxScratchSize)
@@ -897,14 +973,23 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 				}
 			}
 		}
+		if (PerfAuditCpuDetailActive() || validateBatch)
+		{
+			PerfAuditSet(PerfAuditMetric::ResidentBlasBatchScratchRequestedBytes,
+				batchWork && batchWork->plan.Eligible() ? batchWork->plan.requiredBytes : maxScratchSize);
+			PerfAuditSet(PerfAuditMetric::ResidentBlasBatchScratchCapacityBytes, mResidentStaticBlasScratchBuffer.size);
+			PerfAuditSet(PerfAuditMetric::ResidentBlasBatchScratchAllocatedBytes, mResidentStaticBlasScratchBuffer.memorySize);
+		}
 	}
 
 	auto& blasBarriers = mResidentStaticBlasBarriers;
 	blasBarriers.clear();
 	{
 		ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasBuildMs);
+		followup::Timer recordTimer(followup::Counter::ResidentBlasBatchRecordNs);
+		NRIScopedGpuTiming residentBlasGpuTiming(mFrameBuffer, NRIGpuTimingScope::ResidentBlas);
 		std::vector<nri::BufferBarrierDesc> beforeUpdateBarriers;
-		beforeUpdateBarriers.reserve(activeChunkListIndices.size());
+		beforeUpdateBarriers.reserve(activeChunkListIndices.size() + (useBatch ? 1u : 0u));
 		for (uint32_t chunkListIndex : activeChunkListIndices)
 		{
 			const auto& chunk = mStaticMapScene.chunks[chunkListIndex];
@@ -918,6 +1003,16 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			barrier.after = NRIResourceAccelerationStructureReadWriteAccess();
 			beforeUpdateBarriers.push_back(barrier);
 		}
+		if (useBatch)
+		{
+			// Cover scratch from a preceding serial/batched invocation, including
+			// another view in this command stream. AS-only barriers do not name it.
+			nri::BufferBarrierDesc scratchBarrier = {};
+			scratchBarrier.buffer = mResidentStaticBlasScratchBuffer.buffer;
+			scratchBarrier.before = NRIResourceAccelerationStructureScratchAccess();
+			scratchBarrier.after = NRIResourceAccelerationStructureScratchAccess();
+			beforeUpdateBarriers.push_back(scratchBarrier);
+		}
 		if (!beforeUpdateBarriers.empty())
 		{
 			ScopedPtPerfTimer barrierPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasBarrierMs);
@@ -927,15 +1022,21 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
 			followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, barrierDesc.bufferNum);
 			mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, barrierDesc);
+			if (useBatch)
+			{
+				followup::Add(followup::Counter::ResidentBlasBatchScratchBarrierCalls);
+				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchBarrierCount++;
+			}
 		}
-		blasBarriers.reserve(activeChunkListIndices.size());
-		for (size_t i = 0; i < activeChunkListIndices.size(); ++i)
+		blasBarriers.reserve(activeChunkListIndices.size() + (useBatch ? 1u : 0u));
+		const auto prepareBuild = [&](size_t i, nri::BottomLevelGeometryDesc& geometryDesc,
+			nri::BuildBottomLevelAccelerationStructureDesc& build)
 		{
 			const uint32_t chunkListIndex = activeChunkListIndices[i];
 			auto& chunk = mStaticMapScene.chunks[chunkListIndex];
 			const auto& atlasChunk = mStaticMapChunkAtlas.chunks[chunkListIndex];
 
-			nri::BottomLevelGeometryDesc geometryDesc = {};
+			geometryDesc = {};
 			geometryDesc.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
 			geometryDesc.type = nri::BottomLevelGeometryType::TRIANGLES;
 			geometryDesc.triangles.vertexBuffer = mStaticVertexBuffer.buffer;
@@ -948,14 +1049,17 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			geometryDesc.triangles.indexNum = atlasChunk.indexCount;
 			geometryDesc.triangles.indexType = nri::IndexType::UINT32;
 
-			nri::BuildBottomLevelAccelerationStructureDesc build = {};
+			build = {};
 			build.dst = chunk.accelerationStructure.accelerationStructure;
 			build.src = chunk.blasUpdateEligible ? chunk.accelerationStructure.accelerationStructure : nullptr;
 			build.geometries = &geometryDesc;
 			build.geometryNum = 1;
 			build.scratchBuffer = mResidentStaticBlasScratchBuffer.buffer;
 			build.scratchOffset = 0;
-			nri_scene::mutation_audit::ApiCall([&]() { mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*mFrameBuffer->mCommandBuffer, &build, 1); });
+		};
+		const auto noteBuilt = [&](size_t i)
+		{
+			auto& chunk = mStaticMapScene.chunks[activeChunkListIndices[i]];
 			NoteWorldBlasContentChanged();
 			mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasBuildCommandCount++;
 			followup::Add(followup::Counter::MutationResidentBlasBuildCommands);
@@ -982,23 +1086,10 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 				chunk.fixedLayoutPrimitiveBytes = 0;
 			}
 
-			if (i + 1 < activeChunkListIndices.size())
-			{
-				ScopedPtPerfTimer barrierPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasBarrierMs);
-				nri::BufferBarrierDesc scratchBarrier = {};
-				scratchBarrier.buffer = mResidentStaticBlasScratchBuffer.buffer;
-				scratchBarrier.before = NRIResourceAccelerationStructureScratchAccess();
-				scratchBarrier.after = NRIResourceAccelerationStructureScratchAccess();
-
-				nri::BarrierDesc scratchBarrierDesc = {};
-				scratchBarrierDesc.buffers = &scratchBarrier;
-				scratchBarrierDesc.bufferNum = 1;
-				followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
-				followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, scratchBarrierDesc.bufferNum);
-				mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, scratchBarrierDesc);
-				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchBarrierCount++;
-			}
-
+		};
+		const auto appendReadBarrier = [&](size_t i)
+		{
+			const auto& chunk = mStaticMapScene.chunks[activeChunkListIndices[i]];
 			{
 				ScopedPtPerfTimer barrierPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasBarrierMs);
 				nri::BufferBarrierDesc barrier = {};
@@ -1007,8 +1098,78 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 				barrier.after = NRIResourceAccelerationStructureReadAccess();
 				blasBarriers.push_back(barrier);
 			}
+		};
+		const auto emitBuilds = [&](const nri::BuildBottomLevelAccelerationStructureDesc* builds, uint32_t count)
+		{
+			nri_scene::mutation_audit::ApiCall([&]() {
+				mFrameBuffer->mRayTracing.CmdBuildBottomLevelAccelerationStructures(*mFrameBuffer->mCommandBuffer, builds, count);
+			});
+			followup::Add(followup::Counter::ResidentBlasBatchBuildCalls);
+		};
+		bool recordedBatch = false;
+		if (useBatch)
+		{
+			std::array<nri::BottomLevelGeometryDesc, batch::MaxJobs> geometries{};
+			std::array<nri::BuildBottomLevelAccelerationStructureDesc, batch::MaxJobs> builds{};
+			for (size_t i = 0; i < activeChunkListIndices.size(); ++i) prepareBuild(i, geometries[i], builds[i]);
+			if (validateBatch) PerfAuditAdd(PerfAuditMetric::ResidentBlasBatchValidationChecks);
+			recordedBatch = batch::Record(batchWork->jobs.data(), activeChunkListIndices.size(), batchWork->plan,
+				builds.data(), mResidentStaticBlasScratchBuffer.size, validateBatch, emitBuilds,
+				[&](size_t i) { noteBuilt(i); appendReadBarrier(i); });
+			if (recordedBatch)
+			{
+				followup::Add(followup::Counter::ResidentBlasBatchBatches);
+				followup::Add(followup::Counter::ResidentBlasBatchBatchedJobs, activeChunkListIndices.size());
+			}
+			else
+			{
+				PerfAuditAdd(PerfAuditMetric::ResidentBlasBatchMismatches);
+				Printf("NRI resident BLAS batch reference mismatch; recording original serial builds.\n");
+			}
+		}
+		if (!recordedBatch)
+		{
+			followup::Add(followup::Counter::ResidentBlasBatchSerialJobs, activeChunkListIndices.size());
+			if (batchRequested) followup::Add(followup::Counter::ResidentBlasBatchFallbackJobs, activeChunkListIndices.size());
+			for (size_t i = 0; i < activeChunkListIndices.size(); ++i)
+			{
+				nri::BottomLevelGeometryDesc geometryDesc = {};
+				nri::BuildBottomLevelAccelerationStructureDesc build = {};
+				prepareBuild(i, geometryDesc, build);
+				emitBuilds(&build, 1);
+				noteBuilt(i);
+				if (i + 1 < activeChunkListIndices.size())
+				{
+					ScopedPtPerfTimer barrierPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasBarrierMs);
+					nri::BufferBarrierDesc scratchBarrier = {};
+					scratchBarrier.buffer = mResidentStaticBlasScratchBuffer.buffer;
+					scratchBarrier.before = NRIResourceAccelerationStructureScratchAccess();
+					scratchBarrier.after = NRIResourceAccelerationStructureScratchAccess();
+
+					nri::BarrierDesc scratchBarrierDesc = {};
+					scratchBarrierDesc.buffers = &scratchBarrier;
+					scratchBarrierDesc.bufferNum = 1;
+					followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
+					followup::Add(followup::Counter::ResidentBlasBatchScratchBarrierCalls);
+					followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, scratchBarrierDesc.bufferNum);
+					mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, scratchBarrierDesc);
+					mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchBarrierCount++;
+				}
+
+				appendReadBarrier(i);
+			}
 		}
 
+		if (useBatch)
+		{
+			// Keep protection even when a diagnostic mismatch recorded the serial
+			// fallback, and when the next invocation toggles batching off.
+			nri::BufferBarrierDesc scratchBarrier = {};
+			scratchBarrier.buffer = mResidentStaticBlasScratchBuffer.buffer;
+			scratchBarrier.before = NRIResourceAccelerationStructureScratchAccess();
+			scratchBarrier.after = NRIResourceAccelerationStructureScratchAccess();
+			blasBarriers.push_back(scratchBarrier);
+		}
 		if (!blasBarriers.empty())
 		{
 			ScopedPtPerfTimer barrierPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyDownstreamBlasBarrierMs);
@@ -1018,6 +1179,11 @@ bool NRIRenderer::RebuildResidentStaticMapChunkBlases(const std::vector<uint32_t
 			followup::Add(followup::Counter::MutationResidentBlasBarrierCalls);
 			followup::Add(followup::Counter::MutationResidentBlasBarrierBuffers, barrierDesc.bufferNum);
 			mFrameBuffer->mCore.CmdBarrier(*mFrameBuffer->mCommandBuffer, barrierDesc);
+			if (useBatch)
+			{
+				followup::Add(followup::Counter::ResidentBlasBatchScratchBarrierCalls);
+				mLastPerfShellTraceStats.runtimeMutationResidentApplyBlasScratchBarrierCount++;
+			}
 		}
 	}
 	return true;
