@@ -70,6 +70,7 @@ enum RuntimeMutationWorklistCandidateSourceBits : uint32_t
 	RuntimeMutationWorklistCandidateSource_DeferredStructuralRebuild = 1 << 11,
 	RuntimeMutationWorklistCandidateSource_MotionSettle = 1 << 12,
 	RuntimeMutationWorklistCandidateSource_ValidationRecovery = 1 << 13,
+	RuntimeMutationWorklistCandidateSource_SourceNotification = 1 << 14,
 };
 
 const char* GetRuntimeMutationTraceActionName(RuntimeMutationTraceAction action);

@@ -2,6 +2,8 @@
 
 #include "nri_runtime_mutation.h"
 #include "hw_sections.h"
+#include "nri_cvars.h"
+#include "../scene/nri_mutation_followup_audit.h"
 
 #include <algorithm>
 
@@ -55,6 +57,7 @@ void NRIRuntimeMutationDiscovery::Reset()
 	m_budget.farStructural.clear();
 	m_budget.nearMaterial.clear();
 	m_stats = {};
+	m_notifications.Reset();
 }
 
 void NRIRuntimeMutationDiscovery::NoteTouchedChunk(uint32_t chunkIndex)
@@ -92,6 +95,11 @@ void NRIRuntimeMutationDiscovery::RefreshTouched(const NRIRuntimeMutationSystem&
 		m_materialDeferred.Set(chunkIndex, replacement->deferredMaterialRefresh);
 		m_structuralDeferred.Set(chunkIndex, replacement->deferredStructuralRebuild);
 		UpdateSectionMembership(chunkIndex, replacement->baseline.sectionIndices);
+		{
+			using namespace nri_scene::mutation_followup_audit;
+			Timer timer(Counter::MutationSourceNotificationNs);
+			m_notifications.UpdateDependencies(chunkIndex, replacement->baseline);
+		}
 		m_stats.reconciledChunks++;
 	}
 	m_touched.Clear();
@@ -136,7 +144,7 @@ const std::vector<uint32_t>& NRIRuntimeMutationDiscovery::GatherInputs(
 	const nri_scene::PTMapWorld& world,
 	const NRIRuntimeMutationSystem& mutation,
 	const std::vector<uint32_t>& visibleWords,
-	const std::set<uint32_t>& settleChunks)
+	const std::set<uint32_t>& settleChunks, uint64_t frameIndex)
 {
 	m_stats = {};
 	const uint32_t chunkCount = (uint32_t)world.chunks.size();
@@ -169,8 +177,24 @@ const std::vector<uint32_t>& NRIRuntimeMutationDiscovery::GatherInputs(
 			m_touched.Set(i, true);
 		}
 	}
+	const bool sourceNotify = (bool)nri_ptmutationsourcenotify;
+	const bool sourceTrace = (int)nri_ptmutationcausetrace > 0 && (bool)nri_ptmutationworklistobserve &&
+		(int)nri_ptmutationworklistvalidate == 0;
+	if (m_notifications.Configure(world, sourceNotify || sourceTrace))
+		for (uint32_t i = 0; i < chunkCount; ++i) m_touched.Set(i, true);
 	RefreshTouched(mutation);
 	m_inputs.BeginFrame(chunkCount);
+	{
+		namespace audit = nri_scene::mutation_followup_audit;
+		audit::Timer timer(audit::Counter::MutationSourceNotificationNs);
+		for (uint32_t chunk : m_notifications.Gather(chunkCount, sourceNotify, sourceTrace,
+			world.buildSerial, frameIndex, (int)nri_ptmutationcausechunk,
+			(const char*)nri_ptmutationcausechunks)) AddInput(chunk);
+		audit::Add(audit::Counter::MutationSourceNotificationSources, m_notifications.SourceCount());
+		audit::Add(audit::Counter::MutationSourceNotificationWrites, m_notifications.WriteCount());
+		audit::Add(audit::Counter::MutationSourceNotificationDependencyVisits, m_notifications.DependencyVisits());
+		audit::Add(audit::Counter::MutationSourceNotificationCandidates, m_notifications.CandidateCount());
+	}
 	// Initialization includes all chunks so pending startup visibility flags and
 	// any existing resident visibility state get their normal maintenance pass.
 	if (rebuild)

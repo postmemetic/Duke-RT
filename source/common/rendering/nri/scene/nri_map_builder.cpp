@@ -8,6 +8,7 @@
 #include "perf_audit.h"
 
 #include "build.h"
+#include "map_mutation_notifications.h"
 #include "gamefuncs.h"
 #include "hw_portal.h"
 #include "hw_sections.h"
@@ -1434,6 +1435,7 @@ namespace nri_scene
 {
 void NotifyLevelGeometryReady()
 {
+	GetMapMutationNotifications().Reset(sector.Size(), wall.Size());
 	++gPendingLevelGeometryBuildSerial;
 	gFluidSignatureReuseQuarantined = false;
 }

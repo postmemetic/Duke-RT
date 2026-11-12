@@ -67,21 +67,22 @@ double Get(int index, DCoreActor* actor, int type)
 void Set(int index, DCoreActor* actor, int type, double val)
 {
 	double old;
+	float oldPan;
 	switch(type)
 	{
 	case Interp_Sect_Floorz:			sector[index].setfloorz(val); break;
 	case Interp_Sect_Ceilingz:          sector[index].setceilingz(val); break;
 	case Interp_Sect_Floorheinum:       sector[index].setfloorslope((short)xs_CRoundToInt(val)); break;
 	case Interp_Sect_Ceilingheinum:     sector[index].setceilingslope((short)xs_CRoundToInt(val)); break;
-	case Interp_Sect_FloorPanX:         sector[index].floorxpan_ = float(val); break;
-	case Interp_Sect_FloorPanY:	        sector[index].floorypan_ = float(val); break;
-	case Interp_Sect_CeilingPanX:       sector[index].ceilingxpan_ = float(val); break;
-	case Interp_Sect_CeilingPanY:       sector[index].ceilingypan_ = float(val); break;
+	case Interp_Sect_FloorPanX:         oldPan = sector[index].floorxpan_; sector[index].floorxpan_ = float(val); NotifyMapSectorMutation(&sector[index], MapMutationField::FloorPanX, MapMutationWriter::SectorPan, oldPan, sector[index].floorxpan_); break;
+	case Interp_Sect_FloorPanY:	        oldPan = sector[index].floorypan_; sector[index].floorypan_ = float(val); NotifyMapSectorMutation(&sector[index], MapMutationField::FloorPanY, MapMutationWriter::SectorPan, oldPan, sector[index].floorypan_); break;
+	case Interp_Sect_CeilingPanX:       oldPan = sector[index].ceilingxpan_; sector[index].ceilingxpan_ = float(val); NotifyMapSectorMutation(&sector[index], MapMutationField::CeilingPanX, MapMutationWriter::SectorPan, oldPan, sector[index].ceilingxpan_); break;
+	case Interp_Sect_CeilingPanY:       oldPan = sector[index].ceilingypan_; sector[index].ceilingypan_ = float(val); NotifyMapSectorMutation(&sector[index], MapMutationField::CeilingPanY, MapMutationWriter::SectorPan, oldPan, sector[index].ceilingypan_); break;
 
-	case Interp_Wall_X:                 old = wall[index].pos.X; wall[index].pos.X = val; if (wall[index].pos.X != old) wall[index].moved(); break;
-	case Interp_Wall_Y:                 old = wall[index].pos.Y; wall[index].pos.Y = val; if (wall[index].pos.Y != old) wall[index].moved(); break;
-	case Interp_Wall_PanX:              wall[index].xpan_ = float(val);  break;
-	case Interp_Wall_PanY:              wall[index].ypan_ = float(val);  break;
+	case Interp_Wall_X:                 old = wall[index].pos.X; wall[index].pos.X = val; if (wall[index].pos.X != old) wall[index].moved(); NotifyMapWallMutation(&wall[index], MapMutationField::WallPosX, MapMutationWriter::WallMove, old, wall[index].pos.X); break;
+	case Interp_Wall_Y:                 old = wall[index].pos.Y; wall[index].pos.Y = val; if (wall[index].pos.Y != old) wall[index].moved(); NotifyMapWallMutation(&wall[index], MapMutationField::WallPosY, MapMutationWriter::WallMove, old, wall[index].pos.Y); break;
+	case Interp_Wall_PanX:              oldPan = wall[index].xpan_; wall[index].xpan_ = float(val); NotifyMapWallMutation(&wall[index], MapMutationField::WallPanX, MapMutationWriter::WallPan, oldPan, wall[index].xpan_); break;
+	case Interp_Wall_PanY:              oldPan = wall[index].ypan_; wall[index].ypan_ = float(val); NotifyMapWallMutation(&wall[index], MapMutationField::WallPanY, MapMutationWriter::WallPan, oldPan, wall[index].ypan_); break;
                                         
 	case Interp_Sprite_Z:               if (actor) actor->spr.pos.Z = val; break;
 	}
@@ -156,6 +157,7 @@ void UpdateInterpolations()
 void DoInterpolations(double interpfrac)
 {
 	if (!cl_interpolate) return;
+	MapMutationWriterScope mutationWriter(MapMutationWriter::InterpolationApply);
     for (unsigned i = 0; i < interpolations.Size(); i++)
     {
 		auto& interpolation = interpolations[i];
@@ -193,6 +195,7 @@ void DoInterpolations(double interpfrac)
 void RestoreInterpolations()
 {
 	if (!cl_interpolate) return;
+	MapMutationWriterScope mutationWriter(MapMutationWriter::InterpolationRestore);
 	for (unsigned i = 0; i < interpolations.Size(); i++)
     {
 		Set(interpolations[i].index, interpolations[i].actor, interpolations[i].type, interpolations[i].bak);
@@ -200,16 +203,24 @@ void RestoreInterpolations()
 		if (interpolation.type == Interp_Sect_Floorheinum)
 		{
 			auto& sec = sector[interpolation.index];
+			const auto previousSlope = sec.floorheinum;
+			const uint16_t previousStat = (uint16_t)sec.floorstat;
 			sec.floorheinum = interpolation.bakSlope;
 			if (interpolation.bakSlopeEnabled) sec.floorstat |= CSTAT_SECTOR_SLOPE;
 			else sec.floorstat &= ~CSTAT_SECTOR_SLOPE;
+			NotifyMapSectorMutation(&sec, MapMutationField::FloorSlope, MapMutationWriter::InterpolationRestore, previousSlope, sec.floorheinum);
+			NotifyMapSectorMutation(&sec, MapMutationField::FloorStat, MapMutationWriter::InterpolationRestore, previousStat, (uint16_t)sec.floorstat);
 		}
 		else if (interpolation.type == Interp_Sect_Ceilingheinum)
 		{
 			auto& sec = sector[interpolation.index];
+			const auto previousSlope = sec.ceilingheinum;
+			const uint16_t previousStat = (uint16_t)sec.ceilingstat;
 			sec.ceilingheinum = interpolation.bakSlope;
 			if (interpolation.bakSlopeEnabled) sec.ceilingstat |= CSTAT_SECTOR_SLOPE;
 			else sec.ceilingstat &= ~CSTAT_SECTOR_SLOPE;
+			NotifyMapSectorMutation(&sec, MapMutationField::CeilingSlope, MapMutationWriter::InterpolationRestore, previousSlope, sec.ceilingheinum);
+			NotifyMapSectorMutation(&sec, MapMutationField::CeilingStat, MapMutationWriter::InterpolationRestore, previousStat, (uint16_t)sec.ceilingstat);
 		}
 	}		
 }

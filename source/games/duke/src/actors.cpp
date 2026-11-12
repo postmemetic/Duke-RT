@@ -481,6 +481,7 @@ void movesector(DDukeActor* const actor, int msindex, DAngle rotation)
 
 void movecyclers(void)
 {
+	MapMutationWriterScope mutationWriter(MapMutationWriter::DukeCycler);
 	for (int q = cyclers.Size() - 1; q >= 0; q--)
 	{
 		Cycler* c = &cyclers[q];
@@ -500,14 +501,25 @@ void movecyclers(void)
 			{
 				if (wal.hitag != 1)
 				{
+					const auto previousShade = wal.shade;
 					wal.shade = j;
+					NotifyMapWallMutation(&wal, MapMutationField::WallShade, MapMutationWriter::DukeCycler, previousShade, wal.shade);
 
 					if ((wal.cstat & CSTAT_WALL_BOTTOM_SWAP) && wal.twoSided())
-						wal.nextWall()->shade = j;
+					{
+						auto* next = wal.nextWall();
+						const auto previousNextShade = next->shade;
+						next->shade = j;
+						NotifyMapWallMutation(next, MapMutationField::WallShade, MapMutationWriter::DukeCycler, previousNextShade, next->shade);
+					}
 
 				}
 			}
+			const auto previousFloorShade = sect->floorshade;
+			const auto previousCeilingShade = sect->ceilingshade;
 			sect->floorshade = sect->ceilingshade = j;
+			NotifyMapSectorMutation(sect, MapMutationField::FloorShade, MapMutationWriter::DukeCycler, previousFloorShade, sect->floorshade);
+			NotifyMapSectorMutation(sect, MapMutationField::CeilingShade, MapMutationWriter::DukeCycler, previousCeilingShade, sect->ceilingshade);
 		}
 	}
 }
@@ -2213,6 +2225,11 @@ void handle_se03(DDukeActor *actor)
 	int sh = actor->spr.hitag;
 
 	if (actor->temp_data[4] == 0) return;
+	MapMutationWriterScope mutationWriter(MapMutationWriter::DukeSE03);
+	const auto previousFloorPal = sc->floorpal;
+	const auto previousCeilingPal = sc->ceilingpal;
+	const auto previousFloorShade = sc->floorshade;
+	const auto previousCeilingShade = sc->ceilingshade;
 	double xx;
 
 	findplayer(actor, &xx);
@@ -2234,15 +2251,24 @@ void handle_se03(DDukeActor *actor)
 
 	sc->ceilingshade = actor->counter;
 	sc->floorshade = actor->counter;
+	NotifyMapSectorMutation(sc, MapMutationField::FloorPalette, MapMutationWriter::DukeSE03, previousFloorPal, sc->floorpal);
+	NotifyMapSectorMutation(sc, MapMutationField::CeilingPalette, MapMutationWriter::DukeSE03, previousCeilingPal, sc->ceilingpal);
+	NotifyMapSectorMutation(sc, MapMutationField::FloorShade, MapMutationWriter::DukeSE03, previousFloorShade, sc->floorshade);
+	NotifyMapSectorMutation(sc, MapMutationField::CeilingShade, MapMutationWriter::DukeSE03, previousCeilingShade, sc->ceilingshade);
 
 	for(auto& wal : sc->walls)
 	{
 		if (wal.hitag != 1)
 		{
+			const auto previousShade = wal.shade;
 			wal.shade = actor->counter;
+			NotifyMapWallMutation(&wal, MapMutationField::WallShade, MapMutationWriter::DukeSE03, previousShade, wal.shade);
 			if ((wal.cstat & CSTAT_WALL_BOTTOM_SWAP) && wal.twoSided())
 			{
-				wal.nextWall()->shade = wal.shade;
+				auto* next = wal.nextWall();
+				const auto previousNextShade = next->shade;
+				next->shade = wal.shade;
+				NotifyMapWallMutation(next, MapMutationField::WallShade, MapMutationWriter::DukeSE03, previousNextShade, next->shade);
 			}
 		}
 	}
@@ -2256,7 +2282,12 @@ void handle_se03(DDukeActor *actor)
 
 void handle_se04(DDukeActor *actor)
 {
+	MapMutationWriterScope mutationWriter(MapMutationWriter::DukeSE04);
 	auto sc = actor->sector();
+	const auto previousFloorPal = sc->floorpal;
+	const auto previousCeilingPal = sc->ceilingpal;
+	const auto previousFloorShade = sc->floorshade;
+	const auto previousCeilingShade = sc->ceilingshade;
 	int sh = actor->spr.hitag;
 	int j;
 
@@ -2283,17 +2314,30 @@ void handle_se04(DDukeActor *actor)
 
 	sc->floorshade = actor->temp_data[1];
 	sc->ceilingshade = actor->temp_data[1];
+	NotifyMapSectorMutation(sc, MapMutationField::FloorPalette, MapMutationWriter::DukeSE04, previousFloorPal, sc->floorpal);
+	NotifyMapSectorMutation(sc, MapMutationField::CeilingPalette, MapMutationWriter::DukeSE04, previousCeilingPal, sc->ceilingpal);
+	NotifyMapSectorMutation(sc, MapMutationField::FloorShade, MapMutationWriter::DukeSE04, previousFloorShade, sc->floorshade);
+	NotifyMapSectorMutation(sc, MapMutationField::CeilingShade, MapMutationWriter::DukeSE04, previousCeilingShade, sc->ceilingshade);
 
 	for (auto& wal : sc->walls)
 	{
+		const auto previousPal = wal.pal;
 		if (j) wal.pal = (palvals & 0xff);
 		else wal.pal = actor->spr.pal;
+		NotifyMapWallMutation(&wal, MapMutationField::WallPalette, MapMutationWriter::DukeSE04, previousPal, wal.pal);
 
 		if (wal.hitag != 1)
 		{
+			const auto previousShade = wal.shade;
 			wal.shade = actor->counter;
+			NotifyMapWallMutation(&wal, MapMutationField::WallShade, MapMutationWriter::DukeSE04, previousShade, wal.shade);
 			if ((wal.cstat & CSTAT_WALL_BOTTOM_SWAP) && wal.twoSided())
-				wal.nextWall()->shade = wal.shade;
+			{
+				auto* next = wal.nextWall();
+				const auto previousNextShade = next->shade;
+				next->shade = wal.shade;
+				NotifyMapWallMutation(next, MapMutationField::WallShade, MapMutationWriter::DukeSE04, previousNextShade, next->shade);
+			}
 		}
 	}
 
@@ -2414,6 +2458,7 @@ void handle_se05(DDukeActor* actor)
 
 void handle_se08(DDukeActor *actor, bool checkhitag1)
 {
+	MapMutationWriterScope mutationWriter(MapMutationWriter::DukeSE08);
 	// work only if its moving
 	auto sc = actor->sector();
 	int st = actor->spr.lotag;
@@ -2454,19 +2499,28 @@ void handle_se08(DDukeActor *actor, bool checkhitag1)
 				{
 					if (wal.hitag != 1)
 					{
+						const auto previousShade = wal.shade;
 						wal.shade += change;
 
 						if (wal.shade < minshade)
 							wal.shade = minshade;
 						else if (wal.shade > ac->temp_data[2])
 							wal.shade = ac->temp_data[2];
+						NotifyMapWallMutation(&wal, MapMutationField::WallShade, MapMutationWriter::DukeSE08, previousShade, wal.shade);
 
 						if (wal.twoSided())
 							if (wal.nextWall()->hitag != 1)
-								wal.nextWall()->shade = wal.shade;
+							{
+								auto* next = wal.nextWall();
+								const auto previousNextShade = next->shade;
+								next->shade = wal.shade;
+								NotifyMapWallMutation(next, MapMutationField::WallShade, MapMutationWriter::DukeSE08, previousNextShade, next->shade);
+							}
 					}
 				}
 
+				const auto previousFloorShade = sect->floorshade;
+				const auto previousCeilingShade = sect->ceilingshade;
 				sect->floorshade += change;
 				sect->ceilingshade += change;
 
@@ -2482,6 +2536,8 @@ void handle_se08(DDukeActor *actor, bool checkhitag1)
 
 				if (checkhitag1 && sect->hitag == 1)
 					sect->ceilingshade = ac->temp_data[1];
+				NotifyMapSectorMutation(sect, MapMutationField::FloorShade, MapMutationWriter::DukeSE08, previousFloorShade, sect->floorshade);
+				NotifyMapSectorMutation(sect, MapMutationField::CeilingShade, MapMutationWriter::DukeSE08, previousCeilingShade, sect->ceilingshade);
 
 			}
 		}
@@ -3642,6 +3698,9 @@ void handle_se128(DDukeActor *actor)
 {
 	auto wal = actor->temp_walls[0]; 
 	if (!wal) return; // E4L1 contains an uninitialized SE128 which would crash without this.
+	const uint16_t previousCstat = (uint16_t)wal->cstat;
+	auto* notifiedNext = wal->nextWall();
+	const uint16_t previousNextCstat = notifiedNext ? (uint16_t)notifiedNext->cstat : 0;
 
 	//if (wal->cstat | 32) // this has always been bugged, the condition can never be false.
 	{
@@ -3670,6 +3729,9 @@ void handle_se128(DDukeActor *actor)
 			nextwal->cstat &= (CSTAT_WALL_TRANSLUCENT | CSTAT_WALL_1WAY | CSTAT_WALL_XFLIP | CSTAT_WALL_ALIGN_BOTTOM | CSTAT_WALL_BOTTOM_SWAP);
 		actor->Destroy();
 	}
+	NotifyMapWallMutation(wal, MapMutationField::WallCstat, MapMutationWriter::DukeGlass, previousCstat, (uint16_t)wal->cstat);
+	if (notifiedNext)
+		NotifyMapWallMutation(notifiedNext, MapMutationField::WallCstat, MapMutationWriter::DukeGlass, previousNextCstat, (uint16_t)notifiedNext->cstat);
 }
 
 //---------------------------------------------------------------------------

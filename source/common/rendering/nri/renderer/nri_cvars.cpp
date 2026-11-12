@@ -1004,6 +1004,8 @@ CVAR(Int, nri_ptmutationcausetrace, 0, 0)
 // -1: caller-supplied list; -2: all chunks; >=0: one map chunk.
 CVAR(Int, nri_ptmutationcausechunk, -1, 0)
 CVAR(String, nri_ptmutationcausechunks, "", 0)
+// Reversible producer-notification repair; existing sweep and budgets remain.
+CVAR(Bool, nri_ptmutationsourcenotify, false, 0)
 CVAR(Bool, nri_ptfluidsignaturereuse, true, 0)
 CVAR(Bool, nri_ptfluidsignaturevalidate, false, 0)
 

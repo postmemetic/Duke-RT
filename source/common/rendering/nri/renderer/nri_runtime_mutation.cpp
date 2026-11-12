@@ -376,6 +376,10 @@ std::string GetRuntimeMutationWorklistCandidateSourceSummary(uint32_t sourceMask
 	{
 		AppendMutationReasonToken(text, "validation_recovery");
 	}
+	if ((sourceMask & RuntimeMutationWorklistCandidateSource_SourceNotification) != 0)
+	{
+		AppendMutationReasonToken(text, "source_notification");
+	}
 	if (text.empty())
 	{
 		text = "none";

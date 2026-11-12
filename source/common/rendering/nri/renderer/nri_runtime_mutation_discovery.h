@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_runtime_mutation_worklist.h"
+#include "nri_runtime_mutation_notifications.h"
 
 #include <cstdint>
 #include <set>
@@ -59,7 +60,7 @@ public:
 		const nri_scene::PTMapWorld& world,
 		const NRIRuntimeMutationSystem& mutation,
 		const std::vector<uint32_t>& visibleWords,
-		const std::set<uint32_t>& settleChunks);
+		const std::set<uint32_t>& settleChunks, uint64_t frameIndex);
 	void RefreshTouched(const NRIRuntimeMutationSystem& mutation);
 	void ValidateCurrentState(const NRIRuntimeMutationSystem& mutation, bool repair);
 	const std::vector<uint32_t>& BuildDispatchInputs(
@@ -70,6 +71,7 @@ public:
 	void SelectOldest(std::vector<BudgetCandidate>& candidates, uint32_t budget);
 	Stats& GetStats() { return m_stats; }
 	const Stats& GetStats() const { return m_stats; }
+	bool HasSourceNotification(uint32_t chunk) const { return m_notifications.Selected(chunk); }
 
 private:
 	struct CurrentSet
@@ -104,4 +106,5 @@ private:
 	BudgetScratch m_budget;
 	bool m_validateBudget = false;
 	Stats m_stats;
+	NRIRuntimeMutationNotifications m_notifications;
 };

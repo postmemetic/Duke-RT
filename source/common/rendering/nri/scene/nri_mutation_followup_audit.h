@@ -15,6 +15,8 @@ namespace nri_scene::mutation_followup_audit
 	X(FluidSignatureResolveFloorCalls) X(FluidSignatureSlopeCalls) \
 	X(FluidSignatureCornerCalls) X(FluidSignatureFanEdges) X(FluidSignatureFanSectors) X(FluidSignatureFanOverflows) \
 	X(MutationNormalizedChanged) X(MutationNormalizedUnchanged) X(MutationNormalizedDirtyNoiseRemoved) X(MutationNormalizedSettleRequests) \
+	X(MutationSourceNotificationNs) X(MutationSourceNotificationSources) X(MutationSourceNotificationWrites) \
+	X(MutationSourceNotificationDependencyVisits) X(MutationSourceNotificationCandidates) \
 	X(MutationMaterialCacheHits) X(MutationMaterialCacheMisses) X(MutationMaterialCacheStores) \
 	X(MutationMaterialCacheReplacements) X(MutationMaterialCacheEvictions) X(MutationMaterialCacheEntriesCleared) \
 	X(MutationMaterialCacheClearInvalidAnalysis) X(MutationMaterialCacheClearUnchanged) X(MutationMaterialCacheClearInvalidReplacement) \

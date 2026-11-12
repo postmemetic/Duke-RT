@@ -344,6 +344,7 @@ double getanimatevalue(int i)
 void setanimatevalue(int type, int index, double value)
 {
 	static int scratch;
+	double previous;
 	switch (type)
 	{
 	case anim_floorz:
@@ -353,14 +354,16 @@ void setanimatevalue(int type, int index, double value)
 		sector[index].setceilingz(value);
 		break;
 	case anim_vertexx:
-
+		previous = wall[index].pos.X;
 		wall[index].pos.X = value;
 		wall[index].moved();
+		NotifyMapWallMutation(&wall[index], MapMutationField::WallPosX, MapMutationWriter::DukeAnimateVertex, previous, wall[index].pos.X);
 		break;
 	case anim_vertexy:
-
+		previous = wall[index].pos.Y;
 		wall[index].pos.Y = value;
 		wall[index].moved();
+		NotifyMapWallMutation(&wall[index], MapMutationField::WallPosY, MapMutationWriter::DukeAnimateVertex, previous, wall[index].pos.Y);
 		break;
 	default:
 		assert(false);

@@ -33,6 +33,13 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "intvec.h"
 #include "dobject.h"
 #include "sectorpanmotion.h"
+#include "map_mutation_notifications.h"
+#include <type_traits>
+
+struct sectortype;
+struct walltype;
+template<class T> void NotifyMapSectorMutation(const sectortype*, MapMutationField, MapMutationWriter, T, T);
+template<class T> void NotifyMapWallMutation(const walltype*, MapMutationField, MapMutationWriter, T, T);
 
 void MarkVerticesForSector(int sector);
 
@@ -272,10 +279,10 @@ struct walltype
 
 	int xpan() const { return int(xpan_); }
 	int ypan() const { return int(ypan_); }
-	void setxpan(float add) { xpan_ = fmodf(add + 512, 256); } // +512 is for handling negative offsets
-	void setypan(float add) { ypan_ = fmodf(add + 512, 256); } // +512 is for handling negative offsets
-	void addxpan(float add) { xpan_ = fmodf(xpan_ + add + 512, 256); } // +512 is for handling negative offsets
-	void addypan(float add) { ypan_ = fmodf(ypan_ + add + 512, 256); } // +512 is for handling negative offsets
+	void setxpan(float add) { const float old = xpan_; xpan_ = fmodf(add + 512, 256); NotifyMapWallMutation(this, MapMutationField::WallPanX, MapMutationWriter::WallPan, old, xpan_); } // +512 is for handling negative offsets
+	void setypan(float add) { const float old = ypan_; ypan_ = fmodf(add + 512, 256); NotifyMapWallMutation(this, MapMutationField::WallPanY, MapMutationWriter::WallPan, old, ypan_); } // +512 is for handling negative offsets
+	void addxpan(float add) { const float old = xpan_; xpan_ = fmodf(xpan_ + add + 512, 256); NotifyMapWallMutation(this, MapMutationField::WallPanX, MapMutationWriter::WallPan, old, xpan_); } // +512 is for handling negative offsets
+	void addypan(float add) { const float old = ypan_; ypan_ = fmodf(ypan_ + add + 512, 256); NotifyMapWallMutation(this, MapMutationField::WallPanY, MapMutationWriter::WallPan, old, ypan_); } // +512 is for handling negative offsets
 	sectortype* nextSector() const;
 	sectortype* sectorp() const;
 	walltype* nextWall() const;
@@ -289,8 +296,11 @@ struct walltype
 	void calcLength();	// this is deliberately not inlined and stored in a file where it can't be found at compile time.
 	void move(const DVector2& vec)
 	{
+		const DVector2 previous = pos;
 		pos = vec;
 		moved();
+		NotifyMapWallMutation(this, MapMutationField::WallPosX, MapMutationWriter::WallMove, previous.X, pos.X);
+		NotifyMapWallMutation(this, MapMutationField::WallPosY, MapMutationWriter::WallMove, previous.Y, pos.Y);
 	}
 
 	void moved();
@@ -299,8 +309,8 @@ struct walltype
 	bool hasX() const { return _xw != nullptr; }
 	void allocX();
 
-	void setwalltexture(FTextureID tex) { walltexture = tex; }
-	void setovertexture(FTextureID tex) { overtexture = tex; }
+	void setwalltexture(FTextureID tex) { const int old = walltexture.GetIndex(); walltexture = tex; NotifyMapWallMutation(this, MapMutationField::WallTexture, MapMutationWriter::WallTexture, old, walltexture.GetIndex()); }
+	void setovertexture(FTextureID tex) { const int old = overtexture.GetIndex(); overtexture = tex; NotifyMapWallMutation(this, MapMutationField::WallOverTexture, MapMutationWriter::WallOverTexture, old, overtexture.GetIndex()); }
 };
 
 // enable for running a compile-check to ensure that renderer-critical variables are not being written to directly.
@@ -434,34 +444,46 @@ struct sectortype
 	int ceilingypan() const { return int(ceilingypan_); }
 	int floorxpan() const { return int(floorxpan_); }
 	int floorypan() const { return int(floorypan_); }
-	void setfloorxpan(float val) { panMotion.Set(SectorPanMotionState::FloorX, floorxpan_, val); }
-	void setfloorypan(float val) { panMotion.Set(SectorPanMotionState::FloorY, floorypan_, val); }
-	void setceilingxpan(float val) { panMotion.Set(SectorPanMotionState::CeilingX, ceilingxpan_, val); }
-	void setceilingypan(float val) { panMotion.Set(SectorPanMotionState::CeilingY, ceilingypan_, val); }
-	void addfloorxpan(float add) { panMotion.Add(SectorPanMotionState::FloorX, floorxpan_, add); }
-	void addfloorypan(float add) { panMotion.Add(SectorPanMotionState::FloorY, floorypan_, add); }
-	void addceilingxpan(float add) { panMotion.Add(SectorPanMotionState::CeilingX, ceilingxpan_, add); }
-	void addceilingypan(float add) { panMotion.Add(SectorPanMotionState::CeilingY, ceilingypan_, add); }
+	void setfloorxpan(float val) { const float old = floorxpan_; panMotion.Set(SectorPanMotionState::FloorX, floorxpan_, val); NotifyMapSectorMutation(this, MapMutationField::FloorPanX, MapMutationWriter::SectorPan, old, floorxpan_); }
+	void setfloorypan(float val) { const float old = floorypan_; panMotion.Set(SectorPanMotionState::FloorY, floorypan_, val); NotifyMapSectorMutation(this, MapMutationField::FloorPanY, MapMutationWriter::SectorPan, old, floorypan_); }
+	void setceilingxpan(float val) { const float old = ceilingxpan_; panMotion.Set(SectorPanMotionState::CeilingX, ceilingxpan_, val); NotifyMapSectorMutation(this, MapMutationField::CeilingPanX, MapMutationWriter::SectorPan, old, ceilingxpan_); }
+	void setceilingypan(float val) { const float old = ceilingypan_; panMotion.Set(SectorPanMotionState::CeilingY, ceilingypan_, val); NotifyMapSectorMutation(this, MapMutationField::CeilingPanY, MapMutationWriter::SectorPan, old, ceilingypan_); }
+	void addfloorxpan(float add) { const float old = floorxpan_; panMotion.Add(SectorPanMotionState::FloorX, floorxpan_, add); NotifyMapSectorMutation(this, MapMutationField::FloorPanX, MapMutationWriter::SectorPan, old, floorxpan_); }
+	void addfloorypan(float add) { const float old = floorypan_; panMotion.Add(SectorPanMotionState::FloorY, floorypan_, add); NotifyMapSectorMutation(this, MapMutationField::FloorPanY, MapMutationWriter::SectorPan, old, floorypan_); }
+	void addceilingxpan(float add) { const float old = ceilingxpan_; panMotion.Add(SectorPanMotionState::CeilingX, ceilingxpan_, add); NotifyMapSectorMutation(this, MapMutationField::CeilingPanX, MapMutationWriter::SectorPan, old, ceilingxpan_); }
+	void addceilingypan(float add) { const float old = ceilingypan_; panMotion.Add(SectorPanMotionState::CeilingY, ceilingypan_, add); NotifyMapSectorMutation(this, MapMutationField::CeilingPanY, MapMutationWriter::SectorPan, old, ceilingypan_); }
 	// Native absolute assignments sometimes intentionally do not wrap (clouds,
 	// copied sector state). Preserve their value while rebasing motion history.
-	void assignfloorxpan(float val) { panMotion.Assign(SectorPanMotionState::FloorX, floorxpan_, val); }
-	void assignfloorypan(float val) { panMotion.Assign(SectorPanMotionState::FloorY, floorypan_, val); }
-	void assignceilingxpan(float val) { panMotion.Assign(SectorPanMotionState::CeilingX, ceilingxpan_, val); }
-	void assignceilingypan(float val) { panMotion.Assign(SectorPanMotionState::CeilingY, ceilingypan_, val); }
+	void assignfloorxpan(float val) { const float old = floorxpan_; panMotion.Assign(SectorPanMotionState::FloorX, floorxpan_, val); NotifyMapSectorMutation(this, MapMutationField::FloorPanX, MapMutationWriter::SectorPan, old, floorxpan_); }
+	void assignfloorypan(float val) { const float old = floorypan_; panMotion.Assign(SectorPanMotionState::FloorY, floorypan_, val); NotifyMapSectorMutation(this, MapMutationField::FloorPanY, MapMutationWriter::SectorPan, old, floorypan_); }
+	void assignceilingxpan(float val) { const float old = ceilingxpan_; panMotion.Assign(SectorPanMotionState::CeilingX, ceilingxpan_, val); NotifyMapSectorMutation(this, MapMutationField::CeilingPanX, MapMutationWriter::SectorPan, old, ceilingxpan_); }
+	void assignceilingypan(float val) { const float old = ceilingypan_; panMotion.Assign(SectorPanMotionState::CeilingY, ceilingypan_, val); NotifyMapSectorMutation(this, MapMutationField::CeilingPanY, MapMutationWriter::SectorPan, old, ceilingypan_); }
 	SectorPanMotionSample GetPanMotion(bool ceiling) const
 	{
 		return panMotion.GetPlane(ceiling, ceiling ? ceilingxpan_ : floorxpan_, ceiling ? ceilingypan_ : floorypan_);
 	}
-	void setceilingslope(int heinum) { ceilingheinum = heinum; if (heinum) ceilingstat |= CSTAT_SECTOR_SLOPE; else ceilingstat &= ~CSTAT_SECTOR_SLOPE; }
-	void setfloorslope(int heinum) { floorheinum = heinum; if (heinum) floorstat |= CSTAT_SECTOR_SLOPE; else floorstat &= ~CSTAT_SECTOR_SLOPE; }
+	void setceilingslope(int heinum)
+	{
+		const auto old = ceilingheinum; const uint16_t oldStat = (uint16_t)ceilingstat;
+		ceilingheinum = heinum; if (heinum) ceilingstat |= CSTAT_SECTOR_SLOPE; else ceilingstat &= ~CSTAT_SECTOR_SLOPE;
+		NotifyMapSectorMutation(this, MapMutationField::CeilingSlope, MapMutationWriter::SectorCeilingSlope, old, ceilingheinum);
+		NotifyMapSectorMutation(this, MapMutationField::CeilingStat, MapMutationWriter::SectorCeilingSlope, oldStat, (uint16_t)ceilingstat);
+	}
+	void setfloorslope(int heinum)
+	{
+		const auto old = floorheinum; const uint16_t oldStat = (uint16_t)floorstat;
+		floorheinum = heinum; if (heinum) floorstat |= CSTAT_SECTOR_SLOPE; else floorstat &= ~CSTAT_SECTOR_SLOPE;
+		NotifyMapSectorMutation(this, MapMutationField::FloorSlope, MapMutationWriter::SectorFloorSlope, old, floorheinum);
+		NotifyMapSectorMutation(this, MapMutationField::FloorStat, MapMutationWriter::SectorFloorSlope, oldStat, (uint16_t)floorstat);
+	}
 	int getfloorslope() const { return floorstat & CSTAT_SECTOR_SLOPE ? floorheinum : 0; }
 	int getceilingslope() const { return ceilingstat & CSTAT_SECTOR_SLOPE ? ceilingheinum : 0; }
 
 	// always go through these to alter the textures to ensure we can keep track of these things if engine improvements need it.
-	void setfloortexture(FTextureID tex) { floortexture = tex; }
-	void setceilingtexture(FTextureID tex) { ceilingtexture = tex; }
-	void swapfloortexture(FTextureID &tex) { std::swap(floortexture, tex); }
-	void swapceilingtexture(FTextureID &tex) { std::swap(ceilingtexture, tex); }
+	void setfloortexture(FTextureID tex) { const int old = floortexture.GetIndex(); floortexture = tex; NotifyMapSectorMutation(this, MapMutationField::FloorTexture, MapMutationWriter::SectorTexture, old, floortexture.GetIndex()); }
+	void setceilingtexture(FTextureID tex) { const int old = ceilingtexture.GetIndex(); ceilingtexture = tex; NotifyMapSectorMutation(this, MapMutationField::CeilingTexture, MapMutationWriter::SectorTexture, old, ceilingtexture.GetIndex()); }
+	void swapfloortexture(FTextureID &tex) { const int old = floortexture.GetIndex(); std::swap(floortexture, tex); NotifyMapSectorMutation(this, MapMutationField::FloorTexture, MapMutationWriter::SectorTexture, old, floortexture.GetIndex()); }
+	void swapceilingtexture(FTextureID &tex) { const int old = ceilingtexture.GetIndex(); std::swap(ceilingtexture, tex); NotifyMapSectorMutation(this, MapMutationField::CeilingTexture, MapMutationWriter::SectorTexture, old, ceilingtexture.GetIndex()); }
 
 	Blood::XSECTOR& xs() const { return *_xs;  }
 	bool hasX() const { return _xs != nullptr; } // 0 is invalid!
@@ -637,6 +659,26 @@ inline void walltype::moved()
 	sectorp()->dirty = EDirty::AllDirty;
 }
 
+template<class T> inline void NotifyMapSectorMutation(const sectortype* source,
+	MapMutationField field, MapMutationWriter writer, T before, T after)
+{
+	const uint32_t index = MapMutationSourceIndex(source, sector.Data(), sector.Size());
+	if (index == UINT32_MAX) return;
+	if constexpr (std::is_integral<T>::value)
+		GetMapMutationNotifications().Record(MapMutationDomain::Sector, index, field, writer, (int64_t)before, (int64_t)after);
+	else GetMapMutationNotifications().Record(MapMutationDomain::Sector, index, field, writer, before, after);
+}
+
+template<class T> inline void NotifyMapWallMutation(const walltype* source,
+	MapMutationField field, MapMutationWriter writer, T before, T after)
+{
+	const uint32_t index = MapMutationSourceIndex(source, wall.Data(), wall.Size());
+	if (index == UINT32_MAX) return;
+	if constexpr (std::is_integral<T>::value)
+		GetMapMutationNotifications().Record(MapMutationDomain::Wall, index, field, writer, (int64_t)before, (int64_t)after);
+	else GetMapMutationNotifications().Record(MapMutationDomain::Wall, index, field, writer, before, after);
+}
+
 inline double walltype::Length()
 {
 	if ((lengthflags & 1) || (point2Wall()->lengthflags & 2))
@@ -651,23 +693,31 @@ inline double walltype::Length()
 
 inline void sectortype::setceilingz(double cc, bool temp)
 {
+	const double previous = ceilingz;
 	ceilingz = cc;
 	if (!temp) MarkVerticesForSector(sector.IndexOf(this));
+	if (!temp) NotifyMapSectorMutation(this, MapMutationField::CeilingZ, MapMutationWriter::SectorSetCeilingZ, previous, ceilingz);
 }
 inline void sectortype::setfloorz(double cc, bool temp)
 {
+	const double previous = floorz;
 	floorz = cc;
 	if (!temp) MarkVerticesForSector(sector.IndexOf(this));
+	if (!temp) NotifyMapSectorMutation(this, MapMutationField::FloorZ, MapMutationWriter::SectorSetFloorZ, previous, floorz);
 }
 inline void sectortype::addceilingz(double cc, bool temp)
 {
+	const double previous = ceilingz;
 	ceilingz += cc;
 	if (!temp) MarkVerticesForSector(sector.IndexOf(this));
+	if (!temp) NotifyMapSectorMutation(this, MapMutationField::CeilingZ, MapMutationWriter::SectorAddCeilingZ, previous, ceilingz);
 }
 inline void sectortype::addfloorz(double cc, bool temp)
 {
+	const double previous = floorz;
 	floorz += cc;
 	if (!temp) MarkVerticesForSector(sector.IndexOf(this));
+	if (!temp) NotifyMapSectorMutation(this, MapMutationField::FloorZ, MapMutationWriter::SectorAddFloorZ, previous, floorz);
 }
 
 #endif

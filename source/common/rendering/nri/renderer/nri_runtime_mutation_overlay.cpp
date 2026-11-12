@@ -926,7 +926,7 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		return false;
 	};
 	const auto& runtimeMutationDiscoveryInputs = mRuntimeMutation.discovery.GatherInputs(
-		mMapWorld, mRuntimeMutation, mCurrentVisibleChunkWords, mMapMotionHistory.GetSettleChunks());
+		mMapWorld, mRuntimeMutation, mCurrentVisibleChunkWords, mMapMotionHistory.GetSettleChunks(), mFrameIndex);
 	for (uint32_t inputListIndex : runtimeMutationDiscoveryInputs)
 	{
 		const auto& mapChunk = mMapWorld.chunks[inputListIndex];
@@ -1113,6 +1113,8 @@ bool NRIRenderer::BuildRuntimeMapMutationOverlay(nri_scene::GeometryData& outGeo
 		{
 			return 0u;
 		}
+		if (mRuntimeMutation.discovery.HasSourceNotification(candidateListIndex))
+			sourceMask |= RuntimeMutationWorklistCandidateSource_SourceNotification;
 		if (replacement->active || (replacement->valid && !replacement->residentAuthoritative))
 		{
 			sourceMask |= RuntimeMutationWorklistCandidateSource_ActiveReplacement;
