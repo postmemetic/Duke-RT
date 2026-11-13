@@ -260,8 +260,9 @@ project. To reuse previously downloaded sources, configure
 source directories are reused, while generated files and compilation stay in
 the new build tree. Use a trusted cache matching those pinned SDK versions.
 `RAZE_NRI_BUILD_JOBS` controls child-build parallelism.
-`RAZE_NRI_RUNTIME_DIR` continues to supply external companion libraries such as
-`NRD.dll`; it is not the source of `NRI.dll` or NRI-owned SDK runtimes.
+NRD is compiled into the engine; Windows builds do not need an external
+`NRD.dll`, NRI checkout, or NRD-Sample runtime directory. Generated NRD shader
+headers are still required through `RAZE_NRD_SHADER_HEADER_DIR`.
 
 The generated `nri-runtime.json` records the source fingerprint, build settings
 and staged runtime hashes. NRI.dll also embeds its compiled source/build identity.
@@ -273,6 +274,31 @@ The Windows CMake also stages the required audio runtime beside `raze.exe`:
 
 - `zmusiclite.dll` and the adjacent codec DLLs from the local ZMusic build
 - `OpenAL32.dll` from `bin\windows\runtime-deps` or the known local vcpkg locations
+
+##### Optional performance-audit shaders
+
+An optimized Windows development build can compile separate D3D12 performance
+diagnostic shaders. Enable the default-off option in an already configured build
+and explicitly request its target:
+
+```powershell
+cmake -S . -B build\terminal-ninja -DRAZE_NRI_PERF_AUDIT_SHADERS=ON
+cmake --build build\terminal-ninja --config RelWithDebInfo --target raze_nri_perf_audit_shaders
+```
+
+This requires `HAVE_NRI=ON` and produces five DXIL variants and a manifest under
+`shaders/nri/variants/perf-audit`. It works with a `PRODUCTION` base shader profile
+and does not change its shader binaries. Neither the normal game target nor the
+default build invokes this target. Select it explicitly with
+`+set nri_api d3d12 +set nri_shadervariant perf-audit`; confirm the startup log
+reports the effective audit variant, since missing variants fall back to
+production. Capture/readback remains separately opt-in through the performance
+audit controls. This target does not provide Vulkan audit shaders.
+
+Release packaging disables this build option and includes only canonical
+production shader files. Before packaging an existing diagnostic build with
+`-SkipBuild`, reconfigure with `RAZE_NRI_PERF_AUDIT_SHADERS=OFF` and rebuild the
+game target.
 
 ##### Windows release package
 
@@ -293,8 +319,10 @@ parameters. Both initialize the installed Visual Studio C++ environment, build
 ZMusic, vendored NRI and the engine with production shaders, then package the result. CMake,
 Ninja and Git must be available. Existing dependency layouts still work without a
 settings file: `build\zmusic`, `build\vcpkg`, `vcpkg_installed`,
-`libraries\NRD\_Shaders`, and the sibling `..\NRD-Sample` runtime/SDK tree.
-The external audio/NRD/FFX header dependencies must already be prepared. NRI builds its pinned SDK dependencies as part of the engine build.
+and `libraries\NRD\_Shaders`. The audio dependencies and generated NRD shader
+headers must already be prepared. NRI builds its pinned SDK dependencies as part
+of the engine build; no external FidelityFX SDK tree or NRD-Sample checkout is
+required.
 
 For dependencies stored elsewhere, create the ignored file
 `build\windows-release.local.json`. Only specify the paths that differ on your
@@ -306,20 +334,27 @@ machine, for example:
   "VcpkgRoot": "D:/dependencies/vcpkg",
   "VcpkgInstalledDir": "D:/dependencies/vcpkg_installed",
   "NrdShaderHeaderDir": "D:/dependencies/NRD/_Shaders",
-  "NriRuntimeDir": "D:/dependencies/NRD-Sample/_Bin/Release",
-  "FfxSdkRoot": "D:/dependencies/NRD-Sample/_Build/_deps/ffx-src"
+  "RuntimeDllDir": "D:/dependencies/audio-runtime",
+  "DxcExecutable": "D:/dependencies/dxc/bin/x64/dxc.exe"
 }
 ```
 
 Matching command-line parameters override local settings. `-ConfigPath` selects
 another settings file. Optional settings also include `VsDevCmd`,
-`DxcExecutable`, `CMakeExecutable`, `Jobs`, `ZMusicBuildDir`, `RazeBuildDir`,
-`PackageDir`, and `ZipPath`. Visual Studio is discovered with `vswhere` unless
-`VsDevCmd` or `RAZE_VSDEVCMD` is supplied; DXC uses the Vulkan SDK or PATH unless
-explicitly configured. Relative paths always start at this checkout, even when
+`VcVarsVersion`, `ToolchainFile`, `VcpkgOverlayPorts`, `ZMusicIncludeDir`,
+`RuntimeDllDir`, `NriDependencySourceDir`, `DxcExecutable`, `CMakeExecutable`,
+`Jobs`, `ZMusicBuildDir`, `RazeBuildDir`, `PackageDir`, and `ZipPath`.
+`VcVarsVersion` is an optional installed MSVC toolset override; it has no pinned
+default. `NriDependencySourceDir` supplies the trusted NRI SDK source cache
+described above. Legacy `NriRuntimeDir` and `FfxSdkRoot` settings are accepted but
+ignored. Visual Studio is discovered with `vswhere` unless
+`VsDevCmd` or `RAZE_VSDEVCMD` is supplied. DXC and OpenAL can be explicitly
+configured or discovered from the SDK/PATH and supported dependency directories.
+Relative paths always start at this checkout, even when
 invoked from another working directory. The launcher, normal-map preparer,
-tracked authored `release-overlay`, and `vcpkg-overlays` always come from this
-checkout. Machine settings are optional and must not be committed.
+tracked authored `release-overlay` always come from this checkout;
+`VcpkgOverlayPorts` defaults to its `vcpkg-overlays` directory. Machine settings
+are optional and must not be committed.
 
 Build directories must be separate subdirectories of this checkout's `build`;
 package/zip outputs must be below `out\release`, with the zip outside the package
@@ -337,13 +372,17 @@ powershell -ExecutionPolicy Bypass -File .\tools\dist\Build-WindowsReleasePackag
 The staged package includes:
 
 - `raze.exe` and `raze.pk3` from the `Release` build
-- staged runtime DLLs such as `zmusiclite.dll`, `OpenAL32.dll`, NRI/NRD/FFX runtimes, and codec DLLs
+- staged runtime DLLs such as `zmusiclite.dll`, `OpenAL32.dll`, NRI/FFX runtimes, and codec DLLs
 - `launch-duke-rt.cmd`
 - `tools\dist\Prepare-CommercialNormals.ps1`
 - the tracked authored `release-overlay` (no imported normals, voxel models or GRP)
 - the staged NRI and FidelityFX licenses and verified `nri-runtime.json`
 
 The staged package includes `package\windows\launch-duke-rt.cmd`, `tools\dist\Prepare-CommercialNormals.ps1`, and `release-overlay`, and removes `*.pdb` files from the staged package.
+
+The target PC also needs the Microsoft Visual C++ x64 runtime compatible with
+the build toolchain. The source-built NRI DLL uses that runtime; the package
+does not include the Visual C++ redistributable installer.
 
 `launch-duke-rt.cmd` resolves a valid `DUKE3D.GRP` once, stores the verified install root under `generated-content\state\content-preferences.json`, and passes the resolved file to Raze with `-gamegrp`. Optional World Tour normal-map import uses the same install root's `textures` folder; failure to find or convert normals does not block launch when `DUKE3D.GRP` is valid. Optional Cheello voxel staging can be controlled with `-VoxelAsk`, `-VoxelYes`, `-VoxelNo`, `-VoxelZip "path\to\voxel_duke3d.zip"`, and `-ForceVoxels`.
 

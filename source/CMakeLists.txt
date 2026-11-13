@@ -2505,6 +2505,9 @@ if (HAVE_NRI)
 		COMMENT "Writing NRI shader manifest (${RAZE_NRI_SHADER_PROFILE_RESOLVED})"
 		VERBATIM)
 	set_target_properties(raze_nri_shaders PROPERTIES FOLDER "Shaders")
+	if(RAZE_NRI_PERF_AUDIT_SHADERS)
+		include("${CMAKE_SOURCE_DIR}/cmake/NriPerfAuditShaders.cmake")
+	endif()
 	add_dependencies(${PROJECT_NAME} raze_nri_shaders)
 endif()
 
@@ -2669,25 +2672,8 @@ if( WIN32 )
 		endif()
 	endif()
 
-	if( HAVE_NRI )
-		set( RAZE_NRI_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/../NRD-Sample/_Bin/Release" CACHE PATH "External NRD companion directory; NRI and its SDK runtimes are built and staged from vendored source." )
-		if( EXISTS "${RAZE_NRI_RUNTIME_DIR}" )
-			set( RAZE_NRI_RUNTIME_NAMES NRD.dll )
-			set( RAZE_NRI_REQUIRED_RUNTIME_NAMES NRD.dll )
-			foreach(_runtime_name IN LISTS RAZE_NRI_RUNTIME_NAMES)
-				set(_dll "${RAZE_NRI_RUNTIME_DIR}/${_runtime_name}")
-				if( EXISTS "${_dll}" )
-					add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
-						COMMENT "Copying NRI runtime dependency ${_dll}" VERBATIM)
-				elseif( _runtime_name IN_LIST RAZE_NRI_REQUIRED_RUNTIME_NAMES )
-					message(WARNING "Required NRD companion ${_dll} is missing; the corresponding renderer feature will be unavailable.")
-				endif()
-			endforeach()
-		else()
-			message(STATUS "NRD companion directory ${RAZE_NRI_RUNTIME_DIR} not found; skipping NRD DLL copy step.")
-		endif()
-	endif()
+	# NRD is compiled into the engine. NRI and its SDK DLLs are staged by the
+	# source-built runtime owner; no external NRD-Sample runtime is needed.
 endif()
 
 include_directories(

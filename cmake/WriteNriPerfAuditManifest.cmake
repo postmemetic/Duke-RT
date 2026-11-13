@@ -1,0 +1,16 @@
+if(NOT DEFINED AUDIT_SHADER_DIR OR AUDIT_SHADER_DIR STREQUAL "")
+	message(FATAL_ERROR "AUDIT_SHADER_DIR is required")
+endif()
+
+set(_entries "")
+foreach(_family TraceOpaque TraceOpaqueLeanDebug TraceOpaqueTyped TraceOpaqueCache TraceOpaqueTypedCache)
+	set(_path "${_family}.cs.dxil")
+	if(NOT EXISTS "${AUDIT_SHADER_DIR}/${_path}")
+		message(FATAL_ERROR "Missing performance-audit shader: ${_path}")
+	endif()
+	file(SHA256 "${AUDIT_SHADER_DIR}/${_path}" _hash)
+	string(APPEND _entries "    {\"path\": \"${_path}\", \"sha256\": \"${_hash}\"},\n")
+endforeach()
+string(REGEX REPLACE ",\n$" "\n" _entries "${_entries}")
+file(WRITE "${AUDIT_SHADER_DIR}/perf-audit.json"
+"{\n  \"schema\": 1,\n  \"variant\": \"perf-audit\",\n  \"backend\": \"d3d12\",\n  \"diagnostics\": true,\n  \"auditOnly\": true,\n  \"entries\": [\n${_entries}  ]\n}\n")

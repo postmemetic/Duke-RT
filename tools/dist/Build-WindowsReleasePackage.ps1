@@ -1,11 +1,18 @@
 param(
     [string]$ConfigPath = "",
     [string]$VsDevCmd = "",
+    [string]$VcVarsVersion = "",
+    [string]$ToolchainFile = "",
+    [string]$VcpkgOverlayPorts = "",
     [string]$VcpkgRoot = "",
     [string]$VcpkgInstalledDir = "",
     [string]$ZMusicSourceDir = "",
     [string]$ZMusicBuildDir = "",
+    [string]$ZMusicIncludeDir = "",
+    [string]$RuntimeDllDir = "",
     [string]$NrdShaderHeaderDir = "",
+    [string]$NriDependencySourceDir = "",
+    # Accepted for compatibility with older local settings; no longer consumed.
     [string]$NriRuntimeDir = "",
     [string]$FfxSdkRoot = "",
     [string]$DxcExecutable = "",
@@ -54,6 +61,134 @@ function Ensure-WithinRoot {
     if ($candidate -ne $root -and -not $candidate.StartsWith($rootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "$Label path '$candidate' is outside root '$root'."
     }
+}
+
+function Resolve-VsDevCmd {
+    param([string]$RequestedPath)
+
+    if ($RequestedPath) {
+        $resolved = Get-FullPathSafe $repoRoot $RequestedPath
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            throw "VsDevCmd was not found: $resolved"
+        }
+        return $resolved
+    }
+
+    if ($env:RAZE_VSDEVCMD) {
+        return Resolve-VsDevCmd -RequestedPath $env:RAZE_VSDEVCMD
+    }
+
+    $vswhereCandidates = @()
+    $vswhereCommand = Get-Command vswhere.exe -ErrorAction SilentlyContinue
+    if ($vswhereCommand) {
+        $vswhereCandidates += $vswhereCommand.Source
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $vswhereCandidates += (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe")
+    }
+
+    foreach ($vswhere in @($vswhereCandidates | Select-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            continue
+        }
+        $installationPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($LASTEXITCODE -eq 0 -and $installationPath) {
+            $candidate = Join-Path (@($installationPath)[0].Trim()) "Common7\Tools\VsDevCmd.bat"
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return [System.IO.Path]::GetFullPath($candidate)
+            }
+        }
+    }
+
+    throw "Could not discover a Visual Studio installation with the x64 C++ tools. Pass -VsDevCmd or set RAZE_VSDEVCMD."
+}
+
+function Resolve-DxcExecutable {
+    param(
+        [string]$RequestedPath,
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    if ($RequestedPath) {
+        $resolved = Get-FullPathSafe $RepositoryRoot $RequestedPath
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            throw "DXC was not found: $resolved"
+        }
+        return $resolved
+    }
+
+    if ($env:RAZE_DXC_EXECUTABLE) {
+        return Resolve-DxcExecutable -RequestedPath $env:RAZE_DXC_EXECUTABLE -RepositoryRoot $RepositoryRoot
+    }
+
+    if ($env:VULKAN_SDK) {
+        foreach ($sdkSubdir in @("Bin", "Bin32")) {
+            $sdkDxc = Join-Path $env:VULKAN_SDK "$sdkSubdir\dxc.exe"
+            if (Test-Path -LiteralPath $sdkDxc -PathType Leaf) {
+                return [System.IO.Path]::GetFullPath($sdkDxc)
+            }
+        }
+    }
+
+    $dxcCommand = Get-Command dxc.exe -ErrorAction SilentlyContinue
+    if ($dxcCommand) {
+        return [System.IO.Path]::GetFullPath($dxcCommand.Source)
+    }
+
+    $candidates = @()
+    $portableRoots = Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "build") -Directory -Filter "dxc-*" -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending
+    foreach ($portableRoot in $portableRoots) {
+        $candidates += (Join-Path $portableRoot.FullName "bin\x64\dxc.exe")
+    }
+    $candidates += (Join-Path $RepositoryRoot "build\nrd-shaders\_deps\dxc-src\bin\x64\dxc.exe")
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    throw "DXC was not found. Pass -DxcExecutable, set RAZE_DXC_EXECUTABLE, or install a portable DXC under build\dxc-<version>\bin\x64."
+}
+
+function Resolve-RuntimeDllDirectory {
+    param(
+        [string]$RequestedPath,
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$InstalledDirectory
+    )
+
+    if ($RequestedPath) {
+        $resolved = Get-FullPathSafe $RepositoryRoot $RequestedPath
+        if (-not (Test-Path -LiteralPath (Join-Path $resolved "OpenAL32.dll") -PathType Leaf)) {
+            throw "Runtime DLL directory does not contain OpenAL32.dll: $resolved"
+        }
+        return $resolved
+    }
+
+    $directoryCandidates = @(
+        (Join-Path $RepositoryRoot "bin\windows\runtime-deps"),
+        (Join-Path $InstalledDirectory "x64-windows\bin"),
+        (Join-Path $RepositoryRoot "build\vcpkg\packages\openal-soft_x64-windows\bin")
+    )
+    foreach ($candidate in $directoryCandidates) {
+        if (Test-Path -LiteralPath (Join-Path $candidate "OpenAL32.dll") -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    $buildTreeDll = Get-ChildItem -Path (Join-Path $RepositoryRoot "build\vcpkg\buildtrees\openal-soft\*-rel\OpenAL32.dll") -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if ($buildTreeDll) {
+        return [System.IO.Path]::GetFullPath($buildTreeDll.DirectoryName)
+    }
+
+    throw "OpenAL32.dll was not found. Pass -RuntimeDllDir or install the dynamic x64-windows OpenAL package."
 }
 
 function Invoke-CMake {
@@ -157,9 +292,8 @@ $defaults = @{
     ZMusicBuildDir = "build\zmusic\build-ninja-ovl2"
     VcpkgRoot = "build\vcpkg"
     VcpkgInstalledDir = "vcpkg_installed"
+    VcpkgOverlayPorts = "vcpkg-overlays"
     NrdShaderHeaderDir = "libraries\NRD\_Shaders"
-    NriRuntimeDir = "..\NRD-Sample\_Bin\Release"
-    FfxSdkRoot = "..\NRD-Sample\_Build\_deps\ffx-src"
     RazeBuildDir = "build\terminal-release"
     PackageDir = "out\release\Duke-RT"
     ZipPath = "out\release\Duke-RT.zip"
@@ -168,11 +302,12 @@ $explicitConfig = [bool]$ConfigPath
 if (-not $ConfigPath) { $ConfigPath = "build\windows-release.local.json" }
 $ConfigPath = Get-FullPathSafe $repoRoot $ConfigPath
 $settings = @{}
+$settingNames = @($defaults.Keys) + @("VsDevCmd", "VcVarsVersion", "ToolchainFile", "ZMusicIncludeDir", "RuntimeDllDir", "NriDependencySourceDir", "DxcExecutable", "CMakeExecutable", "Jobs", "NriRuntimeDir", "FfxSdkRoot")
 if (Test-Path -LiteralPath $ConfigPath) {
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
     if ($null -eq $config -or $config -isnot [pscustomobject]) { throw "Expected a JSON settings object: $ConfigPath" }
     foreach ($property in $config.PSObject.Properties) {
-        if ($property.Name -notin @($defaults.Keys) + @("VsDevCmd", "DxcExecutable", "CMakeExecutable", "Jobs")) {
+        if ($property.Name -notin $settingNames) {
             throw "Unknown release setting '$($property.Name)' in $ConfigPath"
         }
         $settings[$property.Name] = $property.Value
@@ -181,7 +316,7 @@ if (Test-Path -LiteralPath $ConfigPath) {
 } elseif ($explicitConfig) {
     throw "Settings file not found: $ConfigPath"
 }
-foreach ($name in @($defaults.Keys) + @("VsDevCmd", "DxcExecutable", "CMakeExecutable", "Jobs")) {
+foreach ($name in $settingNames) {
     if (-not $PSBoundParameters.ContainsKey($name) -and $settings.ContainsKey($name)) {
         Set-Variable -Name $name -Value $settings[$name]
     }
@@ -190,9 +325,15 @@ foreach ($name in @($defaults.Keys) + @("VsDevCmd", "DxcExecutable", "CMakeExecu
         Set-Variable -Name $name -Value (Get-FullPathSafe $repoRoot (Get-Variable -Name $name -ValueOnly))
     }
 }
+if ($NriRuntimeDir -or $FfxSdkRoot) {
+    Write-Info "Ignoring legacy NriRuntimeDir/FfxSdkRoot settings: NRI builds its SDK runtimes, and NRD is compiled into the engine."
+}
+if (-not $ToolchainFile) { $ToolchainFile = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake" }
+if (-not $ZMusicIncludeDir) { $ZMusicIncludeDir = Join-Path $ZMusicSourceDir "include" }
+if ($VcVarsVersion -and $VcVarsVersion -notmatch '^[0-9.]+$') { throw "VcVarsVersion contains invalid characters: $VcVarsVersion" }
 if ($Jobs -lt 1 -or $Jobs -gt 128) { throw "Jobs must be between 1 and 128." }
 if (-not $VsDevCmd) { $VsDevCmd = $env:RAZE_VSDEVCMD }
-foreach ($name in @("VsDevCmd", "DxcExecutable", "CMakeExecutable")) {
+foreach ($name in @("VsDevCmd", "ToolchainFile", "ZMusicIncludeDir", "RuntimeDllDir", "NriDependencySourceDir", "DxcExecutable", "CMakeExecutable")) {
     $value = Get-Variable -Name $name -ValueOnly
     if ($value -and ($name -ne "CMakeExecutable" -or $value -match '[/\\]')) {
         Set-Variable -Name $name -Value (Get-FullPathSafe $repoRoot $value)
@@ -215,7 +356,7 @@ if ([IO.Path]::GetExtension($ZipPath) -ne ".zip" -or $ZipPath -eq $PackageDir -o
     throw "ZipPath must name a .zip file outside PackageDir."
 }
 if (Test-Path -LiteralPath $ZipPath -PathType Container) { throw "ZipPath names a directory: $ZipPath" }
-foreach ($inputPath in @($ZMusicSourceDir, $VcpkgRoot, $VcpkgInstalledDir, $NrdShaderHeaderDir, $NriRuntimeDir, $FfxSdkRoot, $ConfigPath, $VsDevCmd, $DxcExecutable)) {
+foreach ($inputPath in @($ZMusicSourceDir, $ZMusicIncludeDir, $ToolchainFile, $VcpkgOverlayPorts, $RuntimeDllDir, $VcpkgRoot, $VcpkgInstalledDir, $NrdShaderHeaderDir, $NriDependencySourceDir, $ConfigPath, $VsDevCmd, $DxcExecutable)) {
     Assert-ProtectedInput $inputPath
 }
 if ([IO.Path]::IsPathRooted($CMakeExecutable)) { Assert-ProtectedInput $CMakeExecutable }
@@ -232,38 +373,41 @@ try {
 Assert-CacheSource $RazeBuildDir $repoRoot
 if (-not $SkipBuild) {
     Assert-CacheSource $ZMusicBuildDir $ZMusicSourceDir
-    $toolchain = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+    $toolchain = $ToolchainFile
     $prerequisites = @($toolchain, (Join-Path $ZMusicSourceDir "CMakeLists.txt"),
-        (Join-Path $ZMusicSourceDir "include\zmusic.h"), (Join-Path $FfxSdkRoot "sdk\LICENSE.txt"))
+        (Join-Path $ZMusicIncludeDir "zmusic.h"))
     foreach ($backend in @("dxbc", "dxil", "spirv")) {
         $prerequisites += Join-Path $NrdShaderHeaderDir "REFERENCE_Copy.cs.$backend.h"
     }
     # NRI and its SDK runtimes are built/staged from this checkout by CMake.
-    foreach ($name in @("NRD.dll")) {
-        $prerequisites += Join-Path $NriRuntimeDir $name
-    }
+    # NRD implementation is compiled into the engine; only its generated headers are external.
     foreach ($path in $prerequisites) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Missing build prerequisite: $path. Set its path in $ConfigPath or pass the corresponding parameter."
         }
     }
-    if (-not $VsDevCmd) {
-        $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-        if (Test-Path -LiteralPath $vswhere) {
-            $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-            if ($installation) { $VsDevCmd = Join-Path $installation "Common7\Tools\VsDevCmd.bat" }
-        }
+    $VsDevCmd = Resolve-VsDevCmd -RequestedPath $VsDevCmd
+    $DxcExecutable = Resolve-DxcExecutable -RequestedPath $DxcExecutable -RepositoryRoot $repoRoot
+    $RuntimeDllDir = Resolve-RuntimeDllDirectory -RequestedPath $RuntimeDllDir -RepositoryRoot $repoRoot -InstalledDirectory $VcpkgInstalledDir
+    foreach ($inputPath in @($VsDevCmd, $DxcExecutable, $RuntimeDllDir)) { Assert-ProtectedInput $inputPath }
+    if (-not (Test-Path -LiteralPath $VcpkgOverlayPorts -PathType Container)) { throw "Overlay ports not found: $VcpkgOverlayPorts" }
+    $vsToolsDir = Split-Path -Parent $VsDevCmd
+    $devShellModule = Join-Path $vsToolsDir "Microsoft.VisualStudio.DevShell.dll"
+    if (-not (Test-Path -LiteralPath $devShellModule)) {
+        $devShellModule = Join-Path $vsToolsDir "vsdevshell\Microsoft.VisualStudio.DevShell.dll"
     }
-    if (-not $VsDevCmd) { throw "Visual Studio C++ tools not found. Set VsDevCmd or RAZE_VSDEVCMD." }
-    $VsDevCmd = Get-FullPathSafe $repoRoot $VsDevCmd
-    Assert-ProtectedInput $VsDevCmd
-    $devShell = Join-Path (Split-Path -Parent $VsDevCmd) "Launch-VsDevShell.ps1"
-    if (-not (Test-Path -LiteralPath $devShell)) { throw "Visual Studio developer PowerShell not found: $devShell" }
-    & $devShell -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+    if (-not (Test-Path -LiteralPath $devShellModule)) { throw "Visual Studio developer PowerShell module not found: $devShellModule" }
+    Import-Module $devShellModule -ErrorAction Stop
+    $developerArguments = "-arch=x64 -host_arch=x64"
+    if ($VcVarsVersion) { $developerArguments += " -vcvars_ver=$VcVarsVersion" }
+    Enter-VsDevShell -VsInstallPath (Get-FullPathSafe $vsToolsDir "..\..") -SkipAutomaticLocation -DevCmdArguments $developerArguments
+    Write-Info "Visual Studio environment: $VsDevCmd (toolset: $VcVarsVersion)"
+    Write-Info "DXC: $DxcExecutable"
+    Write-Info "OpenAL runtime: $RuntimeDllDir"
     if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) { throw "Visual Studio did not initialize the C++ compiler." }
     $CMakeExecutable = (Get-Command $CMakeExecutable -ErrorAction Stop).Source
     Assert-ProtectedInput $CMakeExecutable
-    $env:VCPKG_OVERLAY_PORTS = Join-Path $repoRoot "vcpkg-overlays"
+    $env:VCPKG_OVERLAY_PORTS = $VcpkgOverlayPorts
     $env:VCPKG_CMAKE_CONFIGURE_OPTIONS = "-DCMAKE_POLICY_DEFAULT_CMP0026=OLD"
     $common = @("-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_TOOLCHAIN_FILE=$toolchain",
         "-DVCPKG_INSTALLED_DIR=$VcpkgInstalledDir", "-DVCPKG_OVERLAY_PORTS=$env:VCPKG_OVERLAY_PORTS")
@@ -272,8 +416,9 @@ if (-not $SkipBuild) {
     Invoke-CMake @("--build", $ZMusicBuildDir, "--target", "zmusiclite", "--parallel", "$Jobs")
     Write-Info "Building Windows Release in $RazeBuildDir"
     $engine = @("-S", $repoRoot, "-B", $RazeBuildDir, "-DHAVE_NRI=ON", "-DRAZE_NRI_SHADER_PROFILE=PRODUCTION",
-        "-DZMUSIC_INCLUDE_DIR=$ZMusicSourceDir/include", "-DZMUSIC_LIBRARIES=$ZMusicBuildDir/source/zmusiclite.lib",
-        "-DRAZE_NRD_SHADER_HEADER_DIR=$NrdShaderHeaderDir", "-DRAZE_NRI_RUNTIME_DIR=$NriRuntimeDir", "-DRAZE_FFX_SDK_ROOT=$FfxSdkRoot")
+        "-DRAZE_NRI_PERF_AUDIT_SHADERS=OFF", "-DRAZE_NRI_DEPENDENCY_SOURCE_DIR=$NriDependencySourceDir",
+        "-DZMUSIC_INCLUDE_DIR=$ZMusicIncludeDir", "-DRAZE_RUNTIME_DLL_DIR=$RuntimeDllDir", "-DZMUSIC_LIBRARIES=$ZMusicBuildDir/source/zmusiclite.lib",
+        "-DRAZE_NRD_SHADER_HEADER_DIR=$NrdShaderHeaderDir")
     $savedVulkanSdk = $env:VULKAN_SDK
     try {
         if ($DxcExecutable) {
@@ -296,6 +441,14 @@ foreach ($buildDir in @($RazeBuildDir, $ZMusicBuildDir)) {
         }
     }
 }
+$releaseCache = Get-CMakeCache $RazeBuildDir
+if ($releaseCache.CMAKE_BUILD_TYPE -ne "Release" -or $releaseCache.RAZE_NRI_SHADER_PROFILE -notin @("AUTO", "PRODUCTION")) {
+    throw "Release packaging requires a Release cache with AUTO or PRODUCTION NRI shaders: $RazeBuildDir"
+}
+$auditShaders = [string]$releaseCache.RAZE_NRI_PERF_AUDIT_SHADERS
+if ($auditShaders -and $auditShaders -notmatch '^(0|OFF|NO|FALSE|N|IGNORE|NOTFOUND)$' -and $auditShaders -notmatch '-NOTFOUND$') {
+    throw "Release packaging requires RAZE_NRI_PERF_AUDIT_SHADERS=OFF: $RazeBuildDir"
+}
 $packageLauncher = Join-Path $repoRoot "package\windows\launch-duke-rt.cmd"
 $prepareNormals = Join-Path $repoRoot "tools\dist\Prepare-CommercialNormals.ps1"
 $releaseOverlay = Join-Path $repoRoot "release-overlay"
@@ -306,7 +459,6 @@ $requiredBuildFiles = @(
     (Join-Path $RazeBuildDir "OpenAL32.dll"),
     (Join-Path $RazeBuildDir "zmusiclite.dll"),
     (Join-Path $RazeBuildDir "NRI.dll"),
-    (Join-Path $RazeBuildDir "NRD.dll"),
     (Join-Path $RazeBuildDir "amd_fidelityfx_dx12.dll"),
     (Join-Path $RazeBuildDir "amd_fidelityfx_vk.dll"),
     (Join-Path $RazeBuildDir "AgilitySDK\D3D12Core.dll"),
@@ -346,23 +498,30 @@ foreach ($relative in $overlayFiles) {
     }
 }
 $nriManifest = Get-Content -LiteralPath $nriShaderManifestPath -Raw | ConvertFrom-Json
-if ([int]$nriManifest.schema -ne 1 -or [string]$nriManifest.resolvedProfile -ne "PRODUCTION") {
-    throw "Release packaging requires an NRI shader manifest with schema 1 and resolvedProfile PRODUCTION: $nriShaderManifestPath"
+if ([int]$nriManifest.schema -ne 1 -or [string]$nriManifest.resolvedProfile -ne "PRODUCTION" -or
+    [string]$nriManifest.defaultVariant -ne "production") {
+    throw "Release packaging requires an NRI shader manifest with schema 1, resolvedProfile PRODUCTION and defaultVariant production: $nriShaderManifestPath"
 }
 $productionEntries = @($nriManifest.entries | Where-Object { [string]$_.variant -eq "production" })
-if ($productionEntries.Count -eq 0 -or $productionEntries.Count -ne [int]$nriManifest.canonicalBlobCount) {
-    throw "Release packaging requires the declared canonical NRI shader set; manifest declares $($nriManifest.canonicalBlobCount) blobs and has $($productionEntries.Count) production entries"
+if ($productionEntries.Count -eq 0 -or $productionEntries.Count -ne [int]$nriManifest.canonicalBlobCount -or
+    $productionEntries.Count -ne @($nriManifest.entries).Count) {
+    throw "Release packaging requires only the declared canonical production shader set; manifest declares $($nriManifest.canonicalBlobCount) blobs and has $($productionEntries.Count) production entries"
 }
 $expectedStagedNri = @("nri-shaders.json")
+$seenNriShaders = @{}
 foreach ($entry in $productionEntries) {
     $relative = [string]$entry.path
     if ([string]::IsNullOrWhiteSpace($relative) -or [System.IO.Path]::IsPathRooted($relative) -or
-        $relative.Contains("..") -or $relative.Contains("/") -or $relative.Contains("\")) {
+        $relative.Contains("..") -or $relative.Contains("/") -or $relative.Contains("\") -or
+        $relative -notmatch '^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(dxil|spirv)$' -or
+        $relative -match '^audit-task-' -or $seenNriShaders.ContainsKey($relative)) {
         throw "Invalid canonical NRI shader manifest path: $relative"
     }
-    if ([string]$entry.backend -notin @("dxil", "spirv")) {
+    if ([string]$entry.backend -notin @("dxil", "spirv") -or
+        [IO.Path]::GetExtension($relative) -cne ("." + [string]$entry.backend)) {
         throw "Invalid NRI shader backend for $relative"
     }
+    $seenNriShaders[$relative] = $true
     $source = Join-Path $nriShaderDir $relative
     if (-not (Test-Path -LiteralPath $source)) {
         throw "Manifest-listed NRI shader was not found: $source"
@@ -386,7 +545,9 @@ Write-Info "Copying release binaries and staged runtime files"
 foreach ($name in @("raze.exe", "raze.pk3", "FidelityFX-SDK-LICENSE.txt", "NRI-LICENSE.txt", "nri-runtime.json")) {
     Copy-RequiredFile (Join-Path $RazeBuildDir $name) (Join-Path $PackageDir $name)
 }
-$runtimeDlls = Get-ChildItem -LiteralPath $RazeBuildDir -File -Filter *.dll | Sort-Object Name
+# Older build trees may contain a copied NRD.dll; its implementation is now in the engine.
+$runtimeDlls = Get-ChildItem -LiteralPath $RazeBuildDir -File -Filter *.dll |
+    Where-Object { $_.Name -ine "NRD.dll" } | Sort-Object Name
 foreach ($runtimeDll in $runtimeDlls) {
     Copy-RequiredFile $runtimeDll.FullName (Join-Path $PackageDir $runtimeDll.Name)
 }
@@ -430,7 +591,11 @@ $packagedRequiredFiles = @(
     (Join-Path $PackageDir "tools\dist\Prepare-CommercialNormals.ps1"),
     (Join-Path $PackageDir "release-overlay"),
     (Join-Path $PackageDir "OpenAL32.dll"),
-    (Join-Path $PackageDir "zmusiclite.dll")
+    (Join-Path $PackageDir "zmusiclite.dll"),
+    (Join-Path $PackageDir "NRI.dll"),
+    (Join-Path $PackageDir "amd_fidelityfx_dx12.dll"),
+    (Join-Path $PackageDir "amd_fidelityfx_vk.dll"),
+    (Join-Path $PackageDir "AgilitySDK\D3D12Core.dll")
 )
 
 foreach ($packagedFile in $packagedRequiredFiles) {
