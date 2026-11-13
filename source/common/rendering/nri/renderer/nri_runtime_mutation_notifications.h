@@ -2,6 +2,7 @@
 
 #include "nri_runtime_mutation_worklist.h"
 #include "nri_runtime_mutation_cause_trace.h"
+#include "nri_runtime_mutation_dependency_scratch.h"
 #include "../scene/nri_mutation_followup_audit.h"
 #include "map_mutation_notifications.h"
 
@@ -45,14 +46,14 @@ public:
 		audit::Timer timer(audit::Counter::MutationNotificationDependencyNs);
 		const bool observe = audit::current != nullptr;
 		audit::Add(audit::Counter::MutationNotificationDependencyCalls);
-		std::vector<uint64_t> next;
+		NRIRuntimeMutationDependencyScratch next;
 		uint64_t scratchGrowths = 0;
 		const auto add = [&](MapMutationDomain domain, int64_t index)
 		{
 			const size_t count = domain == MapMutationDomain::Sector ? mSectorConsumers.size() : mWallConsumers.size();
 			if (index >= 0 && (uint64_t)index < count)
 			{
-				if (observe && next.size() == next.capacity()) ++scratchGrowths;
+				if (observe && next.NeedsHeapGrowth()) ++scratchGrowths;
 				next.push_back(Key(domain, (uint32_t)index));
 			}
 		};
@@ -77,20 +78,21 @@ public:
 			audit::Add(audit::Counter::MutationNotificationAppliedEdges, appliedEdges);
 			audit::Add(audit::Counter::MutationNotificationCurrentEdges, next.size() - appliedEdges);
 			audit::Add(audit::Counter::MutationNotificationScratchGrowths, scratchGrowths);
-			// Cumulative temporary payload capacity, not allocator or retained bytes.
-			audit::Add(audit::Counter::MutationNotificationScratchCapacityBytes, next.capacity() * sizeof(uint64_t));
+			// Cumulative temporary heap payload capacity, not allocator or retained
+			// bytes. Each invocation also has a fixed 64-key inline stack buffer.
+			audit::Add(audit::Counter::MutationNotificationScratchCapacityBytes, next.HeapCapacity() * sizeof(uint64_t));
 		}
-		std::sort(next.begin(), next.end()); next.erase(std::unique(next.begin(), next.end()), next.end());
+		next.SortUnique();
 		auto& previous = mDependencies[chunk];
 		if (observe)
 		{
 			audit::Add(audit::Counter::MutationNotificationUniqueEdges, next.size());
 			audit::Add(audit::Counter::MutationNotificationPreviousEdges, previous.size());
 		}
-		if (previous == next)
+		if (next.Equals(previous))
 		{
 			audit::Add(audit::Counter::MutationNotificationDependencyUnchanged);
-			if (observe) audit::Add(audit::Counter::MutationNotificationUnchangedScratchCapacityBytes, next.capacity() * sizeof(uint64_t));
+			if (observe) audit::Add(audit::Counter::MutationNotificationUnchangedScratchCapacityBytes, next.HeapCapacity() * sizeof(uint64_t));
 			return;
 		}
 		audit::Add(audit::Counter::MutationNotificationDependencyChanged);
@@ -106,7 +108,7 @@ public:
 				edgesRemoved += beforeCount - consumers.size();
 			}
 		}
-		previous = std::move(next);
+		next.Store(previous);
 		for (uint64_t key : previous) Consumers(key).push_back(chunk);
 		if (observe)
 		{
