@@ -300,6 +300,13 @@ production shader files. Before packaging an existing diagnostic build with
 `-SkipBuild`, reconfigure with `RAZE_NRI_PERF_AUDIT_SHADERS=OFF` and rebuild the
 game target.
 
+Internal CPU optimization and reference-check controls listed in
+[`nri_cpu_config_migration.h`](source/core/nri_cpu_config_migration.h) are
+session-only. Old INI assignments are discarded so current defaults apply after
+an upgrade. Deliberate diagnostic overrides still work through console commands,
+`+set`, or `exec` files. Archived user graphics and resource-budget preferences
+are preserved.
+
 ##### Windows release package
 
 To build a stripped `Release` tree and stage a redistributable folder plus zip in one command, run:
