@@ -2348,7 +2348,6 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	{
 		emissiveSamplingContext.staticGeometryIdentity = nri_scene::HashCombine64(
 			mStaticMapScene.contentBuildSerial, mStaticMapScene.geometryGeneration);
-		emissiveSamplingContext.staticEmissiveMembershipIdentity = mStaticMapScene.emissiveMembershipRevision.Value();
 	}
 	if (emissiveSamplingContext.capturedGeometry != nullptr)
 		emissiveSamplingContext.capturedGeometryIdentity = NRIEmissiveGeometryCache::PublishTransientIdentity();

@@ -146,16 +146,7 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 		{
 			debugEqual = NRIEqualEmissiveDebugRecord(outDebugRecords[i], referenceDebug[i]);
 		}
-		const bool historyEqual = mEmissiveSamplingDistribution.ProposalHistoryEquivalent(referenceDistribution);
-		static uint64_t proposalHistoryChecks = 0;
-		static uint64_t proposalHistoryCachedAccesses = 0;
-		++proposalHistoryChecks;
-		proposalHistoryCachedAccesses += mEmissiveSamplingDistribution.LastProposalCachedAccesses();
-		if (!historyEqual || (proposalHistoryChecks & (proposalHistoryChecks - 1u)) == 0)
-			Printf("PERF pt emissive proposal history reference NRI: checks=%llu cached_accesses=%llu mismatches=%u\n",
-				(unsigned long long)proposalHistoryChecks, (unsigned long long)proposalHistoryCachedAccesses,
-				historyEqual ? 0u : 1u);
-		const bool equal = historyEqual && std::memcmp(&outHeader, &referenceHeader, sizeof(outHeader)) == 0 &&
+		const bool equal = std::memcmp(&outHeader, &referenceHeader, sizeof(outHeader)) == 0 &&
 			equalBytes(outPrimitives, referencePrimitives) && equalBytes(outCdf, referenceCdf) &&
 			equalBytes(outMaterialResponses, referenceResponses) && debugEqual;
 		stats.payloadValidationChecks = 1;
@@ -218,15 +209,8 @@ void SceneLightSystem::BuildEmissiveSamplingReference(
 	{
 		NRIEmissiveSamplingDistribution& target;
 		NRIEmissiveSamplingDistribution saved;
-		explicit RestoreDistribution(NRIEmissiveSamplingDistribution& owner)
-			: target(owner), saved(owner)
-		{
-			// Copy before swapping so the reference runs on an independent
-			// clone while the original retains its topology-owned access.
-			std::swap(saved, target);
-		}
 		~RestoreDistribution() { target = std::move(saved); }
-	} restore{ mEmissiveSamplingDistribution };
+	} restore{ mEmissiveSamplingDistribution, mEmissiveSamplingDistribution };
 	BuildEmissiveSamplingUploadImpl(context, outHeader, outPrimitives, outCdf,
 		outMaterialResponses, outDebugRecords, outStats, false, nullptr, true);
 }
@@ -613,13 +597,6 @@ void SceneLightSystem::BuildEmissiveSamplingUploadImpl(
 		DISTRIBUTION_DETAIL(ProposalRecordsInserted, proposalRecordsInserted);
 		DISTRIBUTION_DETAIL(ProposalBindingsReset, proposalBindingsReset);
 		DISTRIBUTION_DETAIL(ProposalRecordsRetired, proposalRecordsRetired);
-		DISTRIBUTION_DETAIL(TopologyMissUncertified, topologyMissUncertified);
-		DISTRIBUTION_DETAIL(TopologyMissCount, topologyMissCount);
-		DISTRIBUTION_DETAIL(TopologyMissStableKey, topologyMissStableKey);
-		DISTRIBUTION_DETAIL(TopologyMissBindingKey, topologyMissBindingKey);
-		DISTRIBUTION_DETAIL(TopologyMissTieBreakKey, topologyMissTieBreakKey);
-		DISTRIBUTION_DETAIL(ProposalLookups, proposalLookups);
-		DISTRIBUTION_DETAIL(ProposalCachedAccesses, proposalCachedAccesses);
 #undef DISTRIBUTION_DETAIL
 	}
 	localStats.buildCapacityGrowths = distributionStats.scratchCapacityGrowths;
@@ -716,9 +693,7 @@ uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSampli
 		// producer stamps must not force static sampling uploads for that domain.
 		return contributing[(size_t)domain] || !(bool)nri_ptemissivecache ?
 			mEmissiveGeometryCache.ResolveIdentity(domain, geometry,
-				(bool)nri_ptemissivecache ? identity : 0, (bool)nri_ptemissivecachevalidate,
-				(bool)nri_ptemissivecache && domain == NRIEmissiveGeometryDomain::Static ?
-					context.staticEmissiveMembershipIdentity : 0) : 0ull;
+				(bool)nri_ptemissivecache ? identity : 0, (bool)nri_ptemissivecachevalidate) : 0ull;
 	};
 	uint64_t hash = 1469598103934665603ull;
 	// Lookup policy changes the uploaded order/header even when scene content is

@@ -37,15 +37,6 @@ struct NRIEmissiveSamplingDistributionStats
 	uint32_t proposalRecordsInserted = 0;
 	uint32_t proposalBindingsReset = 0;
 	uint32_t proposalRecordsRetired = 0;
-	// Exclusive first cause of an observed topology miss. Other inputs may
-	// also differ; these counters do not claim an exhaustive edit census.
-	uint32_t topologyMissUncertified = 0;
-	uint32_t topologyMissCount = 0;
-	uint32_t topologyMissStableKey = 0;
-	uint32_t topologyMissBindingKey = 0;
-	uint32_t topologyMissTieBreakKey = 0;
-	uint32_t proposalLookups = 0;
-	uint32_t proposalCachedAccesses = 0;
 	uint32_t scratchCapacityGrowths = 0;
 	uint64_t scratchCapacityGrowthBytes = 0;
 	uint32_t inputCount = 0;
@@ -75,15 +66,7 @@ public:
 	// Zero permanently withholds reuse certification after counter wrap. Frame
 	// bookkeeping does not change this output-affecting proposal identity.
 	uint64_t ProposalRevision() const { return mProposalRevision; }
-	uint64_t TopologyCapacityBytes() const
-	{
-		return mTopologyKeys.capacity() * sizeof(TopologyKey) +
-			mProposalAccess.records.capacity() * sizeof(ProposalRecord*);
-	}
-	// Diagnostic comparison of complete output-affecting and live history;
-	// topology/access scratch is deliberately not semantic history.
-	bool ProposalHistoryEquivalent(const NRIEmissiveSamplingDistribution& other) const;
-	uint32_t LastProposalCachedAccesses() const { return mProposalAccess.cachedAccesses; }
+	uint64_t TopologyCapacityBytes() const { return mTopologyKeys.capacity() * sizeof(TopologyKey); }
 	void Build(
 		const std::vector<NRIEmissiveSamplingDistributionCandidate>& candidates,
 		uint64_t frameIndex,
@@ -110,25 +93,6 @@ private:
 	};
 
 	std::unordered_map<uint64_t, ProposalRecord> mProposalRecords;
-	struct ProposalAccess
-	{
-		std::vector<ProposalRecord*> records;
-		uint32_t cachedAccesses = 0;
-		ProposalAccess() = default;
-		// The containing owner is cloned for independent references. Copies
-		// must resolve pointers into their own copied map on the next build.
-		ProposalAccess(const ProposalAccess&) {}
-		ProposalAccess& operator=(const ProposalAccess&)
-		{
-			records.clear();
-			cachedAccesses = 0;
-			return *this;
-		}
-		// Default-allocator unordered_map moves preserve element addresses.
-		ProposalAccess(ProposalAccess&&) = default;
-		ProposalAccess& operator=(ProposalAccess&&) = default;
-	};
-	ProposalAccess mProposalAccess;
 	std::vector<size_t> mOrderedIndices;
 	std::vector<size_t> mUniqueIndices;
 	std::vector<uint64_t> mResolvedStableKeys;

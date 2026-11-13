@@ -1,7 +1,5 @@
 #pragma once
 
-#include "nri_emissive_membership_revision.h"
-
 #include "../scene/nri_map_material_layout.h"
 
 #include "nri_frame_resources.h"
@@ -185,7 +183,6 @@ struct StaticMapSceneCache
 	uint64_t buildSerial = 0;
 	uint64_t materialGeneration = 0;
 	uint64_t geometryGeneration = 0;
-	NRIEmissiveMembershipRevision emissiveMembershipRevision;
 	uint64_t contentBuildSerial = 0;
 	uint64_t lightBindingGeneration = 0;
 	uint64_t sectorColorMaterialSignature = 0;

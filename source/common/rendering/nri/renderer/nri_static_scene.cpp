@@ -1621,7 +1621,6 @@ void nri_static_scene::InitializeStaticMapSceneCacheBuild(
 	outStaticScene.lightChunkViews.clear();
 	outStaticScene.geometry = {};
 	++outStaticScene.geometryGeneration;
-	outStaticScene.emissiveMembershipRevision.PublishChange();
 	outStaticScene.materialBridge = {};
 	outStaticScene.gpuMaterials.clear();
 	outStaticScene.chunks.clear();
@@ -1719,7 +1718,6 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 	outStaticScene.filterCandidateCache.InvalidateGeometry();
 	AppendGeometry(chunkGeometry, chunkCache.materialOffset, outStaticScene.geometry);
 	++outStaticScene.geometryGeneration;
-	outStaticScene.emissiveMembershipRevision.PublishChange();
 	nri_scene::AppendMaterialBridge(chunkMaterials, outStaticScene.materialBridge);
 	chunkCache.geometryPayloadHash = nri_static_scene_geometry::HashResidentGeometryPayload(
 		mapWorld,

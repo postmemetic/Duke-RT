@@ -377,7 +377,6 @@ public:
 	{
 		const nri_scene::GeometryData* staticGeometry = nullptr;
 		uint64_t staticGeometryIdentity = 0;
-		uint64_t staticEmissiveMembershipIdentity = 0;
 		const nri_scene::GeometryData* capturedGeometry = nullptr;
 		uint64_t capturedGeometryIdentity = 0;
 		const nri_scene::GeometryData* runtimeMutationGeometry = nullptr;
