@@ -35,6 +35,7 @@
 #include <stdio.h>
 
 #include "gameconfigfile.h"
+#include "nri_cpu_config_migration.h"
 #include "c_cvars.h"
 #include "c_dispatch.h"
 #include "c_bind.h"
@@ -606,6 +607,9 @@ void FGameConfigFile::ReadCVars (uint32_t flags)
 		{
 			continue;
 		}
+		// Session-only declarations do not prevent old INI entries from loading.
+		// Skip just the reviewed CPU experiments; preserve explicit session values.
+		if (nri_config::IsSessionOnlyCpuControl(key)) continue;
 		cvar = FindCVar (key, NULL);
 		if (cvar == NULL)
 		{
@@ -618,6 +622,10 @@ void FGameConfigFile::ReadCVars (uint32_t flags)
 	while (GetValueForKey("nri_ptanalyticshadowbudget") != nullptr)
 	{
 		ClearKey("nri_ptanalyticshadowbudget");
+	}
+	for (const char* name : nri_config::SessionOnlyCpuControls)
+	{
+		while (GetValueForKey(name) != nullptr) ClearKey(name);
 	}
 }
 
