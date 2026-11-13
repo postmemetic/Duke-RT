@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 
 namespace
 {
@@ -18,11 +19,31 @@ namespace
 	}
 }
 
+bool NRIEmissiveSamplingDistribution::ProposalHistoryEquivalent(
+	const NRIEmissiveSamplingDistribution& other) const
+{
+	if (mProposalRevision != other.mProposalRevision || mProposalRecords.size() != other.mProposalRecords.size())
+		return false;
+	for (const auto& pair : mProposalRecords)
+	{
+		const auto found = other.mProposalRecords.find(pair.first);
+		if (found == other.mProposalRecords.end()) return false;
+		const auto& a = pair.second;
+		const auto& b = found->second;
+		if (a.bindingKey != b.bindingKey || a.lastActiveFrame != b.lastActiveFrame ||
+			std::memcmp(&a.referenceWeight, &b.referenceWeight, sizeof(float)) != 0 ||
+			a.authored != b.authored || a.wasDark != b.wasDark) return false;
+	}
+	return true;
+}
+
 void NRIEmissiveSamplingDistribution::Reset()
 {
 	// Do not reuse an earlier destination identity after reset, even when the
 	// old record set was empty. A wrapped (zero) revision stays uncertified.
 	AdvanceProposalRevision();
+	std::vector<ProposalRecord*>{}.swap(mProposalAccess.records);
+	mProposalAccess.cachedAccesses = 0;
 	mProposalRecords.clear();
 	mTopologyValid = false;
 	mTopologyDuplicateCount = 0;
@@ -45,13 +66,15 @@ void NRIEmissiveSamplingDistribution::Build(
 	const auto topologyStart = audit ? AuditClock::now() : AuditClock::time_point{};
 	bool proposalHistoryChanged = false;
 	const size_t oldCapacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
-		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity() };
+		mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity(),
+		mProposalAccess.records.capacity() };
 	const auto recordScratchGrowth = [&]()
 	{
 		const size_t capacities[] = { mOrderedIndices.capacity(), mUniqueIndices.capacity(),
-			mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity() };
-		const size_t strides[] = { sizeof(size_t), sizeof(size_t), sizeof(uint64_t), sizeof(uint64_t), sizeof(float), sizeof(TopologyKey) };
-		for (size_t i = 0; i < 6; ++i)
+			mResolvedStableKeys.capacity(), mLiveKeys.capacity(), mResolvedWeights.capacity(), mTopologyKeys.capacity(),
+		mProposalAccess.records.capacity() };
+		const size_t strides[] = { sizeof(size_t), sizeof(size_t), sizeof(uint64_t), sizeof(uint64_t), sizeof(float), sizeof(TopologyKey), sizeof(ProposalRecord*) };
+		for (size_t i = 0; i < 7; ++i)
 		{
 			if (capacities[i] > oldCapacities[i])
 			{
@@ -68,6 +91,11 @@ void NRIEmissiveSamplingDistribution::Build(
 	auto& uniqueIndices = mUniqueIndices;
 	auto& resolvedStableKeys = mResolvedStableKeys;
 	bool sameTopology = allowTopologyReuse && mTopologyValid && mTopologyKeys.size() == candidates.size();
+	if (audit && !sameTopology)
+	{
+		if (!mTopologyValid) stats.topologyMissUncertified = 1;
+		else stats.topologyMissCount = 1;
+	}
 	for (size_t i = 0; sameTopology && i < candidates.size(); ++i)
 	{
 		++stats.topologyComparedCandidates;
@@ -75,6 +103,12 @@ void NRIEmissiveSamplingDistribution::Build(
 		const auto& current = candidates[i];
 		sameTopology = previous.stableKey == current.stableKey &&
 			previous.bindingKey == current.bindingKey && previous.tieBreakKey == current.tieBreakKey;
+		if (audit && !sameTopology)
+		{
+			if (previous.stableKey != current.stableKey) stats.topologyMissStableKey = 1;
+			else if (previous.bindingKey != current.bindingKey) stats.topologyMissBindingKey = 1;
+			else stats.topologyMissTieBreakKey = 1;
+		}
 	}
 	if (sameTopology)
 	{
@@ -88,6 +122,9 @@ void NRIEmissiveSamplingDistribution::Build(
 	else
 	{
 		stats.topologyBuilds = 1;
+		// Topology changes can retire map nodes. Drop all borrowed addresses
+		// before any erase, then repopulate in the unchanged pre-cap order.
+		mProposalAccess.records.clear();
 		orderedIndices.resize(candidates.size());
 		for (size_t i = 0; i < candidates.size(); ++i)
 		{
@@ -170,6 +207,20 @@ void NRIEmissiveSamplingDistribution::Build(
 	const auto proposalStart = audit ? AuditClock::now() : AuditClock::time_point{};
 	auto& resolvedWeights = mResolvedWeights;
 	resolvedWeights.assign(candidates.size(), 0.0f);
+	auto& proposalAccess = mProposalAccess.records;
+	const bool reuseProposalAccess = sameTopology && proposalAccess.size() == uniqueIndices.size();
+	mProposalAccess.cachedAccesses = reuseProposalAccess ? (uint32_t)uniqueIndices.size() : 0u;
+	if (!reuseProposalAccess)
+	{
+		proposalAccess.clear();
+		if (allowTopologyReuse) proposalAccess.reserve(uniqueIndices.size());
+	}
+	if (audit)
+	{
+		stats.proposalCachedAccesses = reuseProposalAccess ? (uint32_t)uniqueIndices.size() : 0u;
+		stats.proposalLookups = reuseProposalAccess ? 0u : (uint32_t)uniqueIndices.size();
+	}
+	size_t proposalPosition = 0;
 	constexpr float BoundAbsoluteTolerance = 1e-6f;
 	constexpr float BoundRelativeTolerance = 1e-4f;
 	for (size_t index : uniqueIndices)
@@ -181,9 +232,25 @@ void NRIEmissiveSamplingDistribution::Build(
 				std::max(candidate.referenceProposalWeight, 0.0f) : 0.0f;
 		const float initialWeight = std::max(currentWeight, authoredWeight);
 		const uint64_t stableKey = resolvedStableKeys[index];
-		auto [recordIt, inserted] = mProposalRecords.emplace(stableKey, ProposalRecord{});
+		bool inserted = false;
+		ProposalRecord* recordPointer;
+		if (reuseProposalAccess)
+		{
+			recordPointer = proposalAccess[proposalPosition];
+		}
+		else
+		{
+			auto result = mProposalRecords.emplace(stableKey, ProposalRecord{});
+			inserted = result.second;
+			recordPointer = &result.first->second;
+			// Rehash/insertion preserves references to unordered-map elements.
+			// Aliased duplicate hashes deliberately retain the same node and
+			// continue to update it in the original candidate order.
+			if (allowTopologyReuse) proposalAccess.push_back(recordPointer);
+		}
+		++proposalPosition;
 		stats.proposalRecordsInserted += audit && inserted;
-		auto& record = recordIt->second;
+		auto& record = *recordPointer;
 		if (inserted || record.bindingKey != candidate.bindingKey)
 		{
 			proposalHistoryChanged = true;
