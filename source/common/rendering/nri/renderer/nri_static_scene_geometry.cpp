@@ -698,6 +698,7 @@ bool RebuildResidentStaticCpuAtlasMirror(
 	staticScene.filterCandidateCache.InvalidateGeometry();
 	staticScene.geometry = std::move(atlasGeometry);
 	++staticScene.geometryGeneration;
+	staticScene.emissiveMembershipRevision.PublishChange();
 	staticScene.gpuMaterials = std::move(atlasGpuMaterials);
 	staticScene.filterCandidateCache.PublishMaterials(staticScene.gpuMaterials);
 	return true;

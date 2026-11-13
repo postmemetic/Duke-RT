@@ -587,6 +587,7 @@ NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadResidentSceneRes
 	emissiveSamplingContext.staticGeometry = &renderer.mStaticMapScene.geometry;
 	emissiveSamplingContext.staticGeometryIdentity = nri_scene::HashCombine64(
 		renderer.mStaticMapScene.contentBuildSerial, renderer.mStaticMapScene.geometryGeneration);
+	emissiveSamplingContext.staticEmissiveMembershipIdentity = renderer.mStaticMapScene.emissiveMembershipRevision.Value();
 	const NRIPersistentVoxelOverlayStats persistentVoxelStats = renderer.mPersistentVoxels.BuildOverlayStats();
 	auto deferStandaloneEmissiveTlas = [&](const char* reason) -> StepResult
 	{

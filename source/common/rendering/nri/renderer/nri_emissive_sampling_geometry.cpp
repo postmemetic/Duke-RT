@@ -1,4 +1,5 @@
 #include "nri_emissive_sampling_geometry.h"
+#include "nri_emissive_membership_validation.h"
 #include "nri_cpu_detail_audit.h"
 #include "nri_cvars.h"
 #include "../scene/nri_geometry_bridge.h"
@@ -220,7 +221,8 @@ uint64_t NRIEmissiveGeometryCache::ResolveSnapshot(DomainState& state,
 }
 
 uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain domain,
-	const nri_scene::GeometryData* geometry, uint64_t producerIdentity, bool validate)
+	const nri_scene::GeometryData* geometry, uint64_t producerIdentity, bool validate,
+	uint64_t staticMembershipIdentity)
 {
 	const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 	const double previousHashMs = mStats.validationHashMs;
@@ -272,6 +274,12 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 		state.rangesIdentity = identity;
 		state.primitiveIdentity = identity;
 	}
+	// This identity certifies ordered primitive material membership only. Keep
+	// the complete producer identity above for facts and B1 payload validation.
+	state.rangesMembershipIdentity = domain == NRIEmissiveGeometryDomain::Static &&
+		staticMembershipIdentity != 0 && producerIdentity != 0 && !state.quarantined;
+	state.rangesUncertified = domain == NRIEmissiveGeometryDomain::Static && !state.rangesMembershipIdentity;
+	if (state.rangesMembershipIdentity) state.rangesIdentity = staticMembershipIdentity;
 	if (mCollectTiming) mStats.identityMs += ElapsedMs(start) - (mStats.validationHashMs - previousHashMs);
 	return identity;
 }
@@ -331,9 +339,21 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 		mStats.capacityGrowths++;
 		mStats.capacityGrowthBytes += (state.primitives.capacity() - oldPrimitiveCapacity) * sizeof(NRIEmissivePrimitiveGeometry);
 	}
-	if (state.topologyValid && state.topologyIdentity == state.rangesIdentity)
+	if (state.topologyValid && !state.rangesUncertified &&
+		state.topologyIdentity == state.rangesIdentity &&
+		state.topologyMembershipIdentity == state.rangesMembershipIdentity &&
+		state.topologyPrimitiveCount == rows && state.topologyPresent == (geometry != nullptr))
 	{
 		mStats.topologyReuses++;
+		if (domain == NRIEmissiveGeometryDomain::Static)
+		{
+			if (PerfAuditCpuDetailActive()) PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticRangeReuses);
+			if (state.validateFacts)
+			{
+				ValidateNRIStaticEmissiveRanges(geometry, state.ranges);
+				if (PerfAuditCpuDetailActive()) PerfAuditAdd(PerfAuditMetric::EmissiveSamplingStaticRangeValidationChecks);
+			}
+		}
 		if (mCollectTiming) mStats.topologyMs += ElapsedMs(start);
 		return state.ranges;
 	}
@@ -368,6 +388,9 @@ const std::vector<NRIEmissiveMaterialPrimitiveRange>& NRIEmissiveGeometryCache::
 		scanned += 2u * geometry->primitives.size();
 	}
 	state.topologyIdentity = state.rangesIdentity;
+	state.topologyMembershipIdentity = state.rangesMembershipIdentity;
+	state.topologyPrimitiveCount = rows;
+	state.topologyPresent = geometry != nullptr;
 	state.topologyValid = true;
 	mStats.topologyBuilds++;
 	if (mCollectTiming) mStats.topologyMs += ElapsedMs(start);
@@ -481,6 +504,14 @@ bool NRIEmissiveGeometryCache::CopyChangesSamplingGeometry(const nri_scene::Geom
 	const NRIEmissiveGeometryCopyRange& sourceRange, const nri_scene::GeometryData& destination,
 	const NRIEmissiveGeometryCopyRange& destinationRange, bool copyPrimitives)
 {
+	return ClassifyCopyChanges(source, sourceRange, destination, destinationRange, copyPrimitives).samplingGeometry;
+}
+
+NRIEmissiveGeometryCopyChanges NRIEmissiveGeometryCache::ClassifyCopyChanges(const nri_scene::GeometryData& source,
+	const NRIEmissiveGeometryCopyRange& sourceRange, const nri_scene::GeometryData& destination,
+	const NRIEmissiveGeometryCopyRange& destinationRange, bool copyPrimitives)
+{
+	NRIEmissiveGeometryCopyChanges changes;
 	const auto fits = [](uint32_t offset, uint32_t count, size_t size)
 	{
 		return offset <= size && count <= size - offset;
@@ -488,30 +519,31 @@ bool NRIEmissiveGeometryCache::CopyChangesSamplingGeometry(const nri_scene::Geom
 	if (sourceRange.vertexCount != destinationRange.vertexCount ||
 		!fits(sourceRange.vertexOffset, sourceRange.vertexCount, source.vertices.size()) ||
 		!fits(destinationRange.vertexOffset, sourceRange.vertexCount, destination.vertices.size()))
-		return true;
-	for (uint32_t i = 0; i < sourceRange.vertexCount; ++i)
+		changes.samplingGeometry = true;
+	for (uint32_t i = 0; !changes.samplingGeometry && i < sourceRange.vertexCount; ++i)
 	{
 		const auto& sourceVertex = source.vertices[sourceRange.vertexOffset + i];
 		const auto& destinationVertex = destination.vertices[destinationRange.vertexOffset + i];
 		if (std::memcmp(sourceVertex.position, destinationVertex.position, sizeof(sourceVertex.position)) != 0)
-			return true;
+			changes.samplingGeometry = true;
 	}
-	if (!copyPrimitives) return false;
+	if (!copyPrimitives) return changes;
 	if (sourceRange.primitiveCount != destinationRange.primitiveCount ||
 		!fits(sourceRange.primitiveOffset, sourceRange.primitiveCount, source.primitives.size()) ||
 		!fits(destinationRange.primitiveOffset, sourceRange.primitiveCount, destination.primitives.size()))
-		return true;
+		return { true, true };
 	for (uint32_t i = 0; i < sourceRange.primitiveCount; ++i)
 	{
 		const auto& sourcePrimitive = source.primitives[sourceRange.primitiveOffset + i];
 		const auto& destinationPrimitive = destination.primitives[destinationRange.primitiveOffset + i];
-		for (uint32_t j = 0; j < 3; ++j)
-			if (destinationPrimitive.indices[j] != destinationRange.vertexOffset + sourcePrimitive.indices[j] - sourceRange.vertexOffset)
-				return true;
+		if (!changes.samplingGeometry)
+			for (uint32_t j = 0; j < 3; ++j)
+				if (destinationPrimitive.indices[j] != destinationRange.vertexOffset + sourcePrimitive.indices[j] - sourceRange.vertexOffset)
+					changes.samplingGeometry = true;
 		if (destinationPrimitive.materialIndex != destinationRange.materialOffset + sourcePrimitive.materialIndex - sourceRange.materialOffset)
-			return true;
+			return { true, true };
 	}
-	return false;
+	return changes;
 }
 
 NRIEmissivePrimitiveGeometry NRIEmissiveGeometryCache::BuildPrimitive(

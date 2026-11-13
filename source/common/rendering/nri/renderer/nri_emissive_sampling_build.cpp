@@ -693,7 +693,9 @@ uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSampli
 		// producer stamps must not force static sampling uploads for that domain.
 		return contributing[(size_t)domain] || !(bool)nri_ptemissivecache ?
 			mEmissiveGeometryCache.ResolveIdentity(domain, geometry,
-				(bool)nri_ptemissivecache ? identity : 0, (bool)nri_ptemissivecachevalidate) : 0ull;
+				(bool)nri_ptemissivecache ? identity : 0, (bool)nri_ptemissivecachevalidate,
+				(bool)nri_ptemissivecache && domain == NRIEmissiveGeometryDomain::Static ?
+					context.staticEmissiveMembershipIdentity : 0) : 0ull;
 	};
 	uint64_t hash = 1469598103934665603ull;
 	// Lookup policy changes the uploaded order/header even when scene content is

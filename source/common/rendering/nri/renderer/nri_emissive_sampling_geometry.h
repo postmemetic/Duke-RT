@@ -35,6 +35,14 @@ struct NRIEmissivePrimitiveGeometry
 	bool valid = false;
 };
 
+struct NRIEmissiveGeometryCopyChanges
+{
+	// Preserve the existing full fact/payload invalidation, including material
+	// changes. Membership alone excludes positions and vertex connectivity.
+	bool samplingGeometry = false;
+	bool materialMembership = false;
+};
+
 struct NRIEmissiveGeometryCacheStats
 {
 	double identityMs = 0.0;
@@ -86,7 +94,8 @@ public:
 	void Reset();
 	void BeginUpdate(bool collectTiming);
 	uint64_t ResolveIdentity(NRIEmissiveGeometryDomain domain,
-		const nri_scene::GeometryData* geometry, uint64_t producerIdentity, bool validate);
+		const nri_scene::GeometryData* geometry, uint64_t producerIdentity, bool validate,
+		uint64_t staticMembershipIdentity = 0);
 	const std::vector<NRIEmissiveMaterialPrimitiveRange>& Ranges(
 		NRIEmissiveGeometryDomain domain, const nri_scene::GeometryData* geometry);
 	const NRIEmissivePrimitiveGeometry& Primitive(NRIEmissiveGeometryDomain domain,
@@ -100,6 +109,9 @@ public:
 	// Compare exactly the sampling fields written by a resident atlas copy.
 	// Motion history, UVs, normals, flags and provenance do not affect sampling.
 	static bool CopyChangesSamplingGeometry(const nri_scene::GeometryData& source,
+		const NRIEmissiveGeometryCopyRange& sourceRange, const nri_scene::GeometryData& destination,
+		const NRIEmissiveGeometryCopyRange& destinationRange, bool copyPrimitives);
+	static NRIEmissiveGeometryCopyChanges ClassifyCopyChanges(const nri_scene::GeometryData& source,
 		const NRIEmissiveGeometryCopyRange& sourceRange, const nri_scene::GeometryData& destination,
 		const NRIEmissiveGeometryCopyRange& destinationRange, bool copyPrimitives);
 	// For captured products without a reusable producer stamp. Each publication
@@ -120,6 +132,11 @@ private:
 		uint64_t primitiveIdentity = 0;
 		uint64_t cachedPrimitiveIdentity = 0;
 		uint64_t topologyIdentity = 0;
+		size_t topologyPrimitiveCount = 0;
+		bool topologyPresent = false;
+		bool rangesMembershipIdentity = false;
+		bool topologyMembershipIdentity = false;
+		bool rangesUncertified = false;
 		uint64_t validatedIdentity = 0;
 		uint64_t validatedHash = 0;
 		bool topologyValid = false;

@@ -1054,6 +1054,8 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			// Preserve the original publication boundary and full entry rewrite.
 			// Subsequent upload failures retain exactly the original committed state.
 			allocationPlan.Commit(mStaticMapChunkAtlas, nextAtlasState, nextAtlasChunk);
+			if (mStaticMapChunkAtlas.primitiveCount > mStaticMapScene.geometry.primitives.size())
+				mStaticMapScene.emissiveMembershipRevision.PublishChange();
 			if (mStaticMapChunkAtlas.vertexCount > mStaticMapScene.geometry.vertices.size() ||
 				mStaticMapChunkAtlas.primitiveCount > mStaticMapScene.geometry.primitives.size())
 			{
@@ -1077,12 +1079,15 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			!residentGeometryPayloadHashSkip)
 		{
 			{
-				if (NRIEmissiveGeometryCache::CopyChangesSamplingGeometry(residentGeometry,
+				const auto emissiveChanges = NRIEmissiveGeometryCache::ClassifyCopyChanges(residentGeometry,
 					{ sourceChunk.vertexOffset, sourceChunk.vertexCount, sourceChunk.primitiveOffset, sourceChunk.primitiveCount, sourceChunk.materialOffset },
 					mStaticMapScene.geometry,
 					{ nextAtlasChunk.vertexOffset, nextAtlasChunk.vertexCount, nextAtlasChunk.primitiveOffset, nextAtlasChunk.primitiveCount, nextAtlasChunk.materialOffset },
-					!preserveResidentPrimitiveSlice))
+					!preserveResidentPrimitiveSlice);
+				if (emissiveChanges.samplingGeometry)
 					++mStaticMapScene.geometryGeneration;
+				if (emissiveChanges.materialMembership)
+					mStaticMapScene.emissiveMembershipRevision.PublishChange();
 				ScopedPtPerfTimer detailPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyVertexIndexCopyMs);
 				if (preserveResidentIndexSlice)
 				{
