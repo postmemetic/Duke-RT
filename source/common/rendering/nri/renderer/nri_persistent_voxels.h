@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_voxel_admission_scheduler.h"
+#include "nri_persistent_voxel_actor_index.h"
 #include "nri_voxel_publication_order.h"
 
 #include "nri_persistent_voxel_admission_index.h"
@@ -102,6 +103,7 @@ struct PersistentVoxelBatch
 	nri_scene::SceneDebugStats stats;
 	nri_scene::MaterialBridgeData materialBridge;
 	std::vector<ActorEntry> actors;
+	NRIPersistentVoxelActorIndex actorIndex;
 	NRIPersistentVoxelMaterialBridge materialBridgeUpdates;
 };
 

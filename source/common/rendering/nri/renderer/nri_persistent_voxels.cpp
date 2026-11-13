@@ -1,4 +1,5 @@
 #include "nri_persistent_voxels.h"
+#include "nri_persistent_voxel_actor_index_validation.h"
 #include "nri_persistent_voxel_material_bindings.h"
 #include "nri_persistent_voxel_publication_services.h"
 #include "nri_persistent_voxel_pressure_policy.h"
@@ -107,9 +108,10 @@ namespace
 		const bool detail = PerfAuditCpuDetailActive();
 		uint64_t activeRows = 0;
 		std::unordered_set<uint64_t> keys;
-		keys.reserve(batch.actors.size());
-		for (const PersistentVoxelBatch::ActorEntry& actor : batch.actors)
+		keys.reserve(batch.actorIndex.Active().size());
+		for (uint32_t slot : batch.actorIndex.Active())
 		{
+			const auto& actor = batch.actors[slot];
 			if (actor.active && IsPersistentVoxelActorPublicationCurrent(actor) && actor.materialKeyHash != 0)
 			{
 				if (detail) ++activeRows;
@@ -119,9 +121,10 @@ namespace
 		if (detail)
 		{
 			PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialMembershipCalls);
-			PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialMembershipRows, batch.actors.size());
+			PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialMembershipRows, batch.actorIndex.Active().size());
 			PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialMembershipActiveRows, activeRows);
 		}
+		nri_voxel_actor_reference::Materials(batch, keys, IsPersistentVoxelActorPublicationCurrent);
 		return keys;
 	}
 
@@ -1492,12 +1495,16 @@ void NRIPersistentVoxelResidency::RebuildBatchMaterialBridge(PersistentVoxelBatc
 				materialSize);
 		}
 	}
+	nri_voxel_actor_reference::Bindings bindingReference(targetBatch, materialVariantResources, IsPersistentVoxelActorPublicationCurrent);
 	pendingMaterialActorRebinds = 0;
 	const bool rebindDetail = PerfAuditCpuDetailActive();
 	const uint64_t rebindStart = rebindDetail ? PerfAuditClockNs() : 0;
 	uint64_t rebindActiveRows = 0;
-	for (PersistentVoxelBatch::ActorEntry& actor : targetBatch.actors)
+	const auto& rebindSlots = targetBatch.actorIndex.MaterialBindings();
+	const size_t rebindVisitedRows = rebindSlots.size();
+	for (uint32_t slot : rebindSlots)
 	{
+		auto& actor = targetBatch.actors[slot];
 		if (!actor.active || !IsPersistentVoxelActorPublicationCurrent(actor))
 		{
 			actor.materialOffset = 0;
@@ -1526,13 +1533,15 @@ void NRIPersistentVoxelResidency::RebuildBatchMaterialBridge(PersistentVoxelBatc
 			pendingMaterialActorRebinds++;
 		}
 	}
+	targetBatch.actorIndex.FinishMaterialRebind(targetBatch.actors);
 	if (rebindDetail)
 	{
 		PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialRebindNs, PerfAuditClockNs() - rebindStart);
 		PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialRebindCalls);
-		PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialRebindRows, targetBatch.actors.size());
+		PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialRebindRows, rebindVisitedRows);
 		PerfAuditAdd(PerfAuditMetric::VoxelBatchMaterialRebindActiveRows, rebindActiveRows);
 	}
+	bindingReference.Verify(targetBatch, pendingMaterialActorRebinds);
 	std::vector<uint64_t> rebuiltTextureKeys;
 	rebuiltTextureKeys.reserve(targetBatch.materialBridge.textures.size());
 	for (const nri_scene::TextureUpload& texture : targetBatch.materialBridge.textures)
@@ -1564,8 +1573,9 @@ void NRIPersistentVoxelResidency::RecomputeBatchState(PersistentVoxelBatch& targ
 	targetBatch.indexCount = 0;
 	targetBatch.materialCount = 0;
 	targetBatch.activeActorCount = 0;
-	for (const PersistentVoxelBatch::ActorEntry& actor : targetBatch.actors)
+	for (uint32_t slot : targetBatch.actorIndex.Active())
 	{
+		const auto& actor = targetBatch.actors[slot];
 		if (actor.active && IsPersistentVoxelActorPublicationCurrent(actor))
 		{
 			targetBatch.activeActorCount++;
@@ -1573,6 +1583,7 @@ void NRIPersistentVoxelResidency::RecomputeBatchState(PersistentVoxelBatch& targ
 			targetBatch.indexCount += actor.indexCount;
 		}
 	}
+	nri_voxel_actor_reference::State(targetBatch, IsPersistentVoxelActorPublicationCurrent);
 	targetBatch.materialCount = (uint32_t)targetBatch.materialBridge.materials.size();
 	targetBatch.surfaceCount = targetBatch.activeActorCount;
 	targetBatch.stats = {};
@@ -1599,8 +1610,9 @@ void NRIPersistentVoxelResidency::RefreshActiveResourceReferences(uint32_t frame
 	std::unordered_map<uint64_t, uint32_t> nextMaterialReferences;
 	nextMeshReferences.reserve(batch.activeActorCount);
 	nextMaterialReferences.reserve(batch.activeActorCount);
-	for (const PersistentVoxelBatch::ActorEntry& actor : batch.actors)
+	for (uint32_t slot : batch.actorIndex.Active())
 	{
+		const auto& actor = batch.actors[slot];
 		if (actor.active && IsPersistentVoxelActorPublicationCurrent(actor))
 		{
 			if (detail) ++activeRows;
@@ -1617,9 +1629,10 @@ void NRIPersistentVoxelResidency::RefreshActiveResourceReferences(uint32_t frame
 	if (detail)
 	{
 		PerfAuditAdd(PerfAuditMetric::VoxelBatchResourceReferencesCalls);
-		PerfAuditAdd(PerfAuditMetric::VoxelBatchResourceReferencesRows, batch.actors.size());
+		PerfAuditAdd(PerfAuditMetric::VoxelBatchResourceReferencesRows, batch.actorIndex.Active().size());
 		PerfAuditAdd(PerfAuditMetric::VoxelBatchResourceReferencesActiveRows, activeRows);
 	}
+	nri_voxel_actor_reference::References(batch, nextMeshReferences, nextMaterialReferences, IsPersistentVoxelActorPublicationCurrent);
 	if (activeMeshReferences == nextMeshReferences &&
 		activeMaterialReferences == nextMaterialReferences)
 	{
@@ -7054,6 +7067,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		return false;
 	}
 
+	nri_voxel_actor_reference::Index(batch);
 	if (usePublication && TryApplyPublishedActors(cacheSerial, frameIndex, settings, publicationValidateThisFrame, outStats))
 	{
 		tracePublication();
@@ -7918,6 +7932,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			{
 				NRIAuditActorBridgeCopy(actor.materialBridge);
 				batch.actors.push_back(actor);
+				batch.actorIndex.Appended(actor.identityKey, (uint32_t)batch.actors.size() - 1);
 			}
 			if (voxelStatsEnabled)
 			{
@@ -8394,6 +8409,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		{
 			NRIAuditActorBridgeCopy(actor.materialBridge);
 			batch.actors.push_back(actor);
+			batch.actorIndex.Appended(actor.identityKey, (uint32_t)batch.actors.size() - 1);
 		}
 		return true;
 	};
@@ -8574,55 +8590,51 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 	{
 		const std::unordered_set<uint64_t> previousActiveMaterialKeys =
 			CollectActivePersistentVoxelMaterialKeys(batch);
+		nri_voxel_actor_reference::Setup setupReference(batch, instances);
 		const bool historyDetail = PerfAuditCpuDetailActive();
 		const uint64_t historyStart = historyDetail ? PerfAuditClockNs() : 0;
+		const uint32_t existingActorCount = (uint32_t)batch.actors.size();
 		batch.actors.reserve(batch.actors.size() + cacheEntries.size());
-		std::unordered_map<uint64_t, PersistentVoxelBatch::ActorEntry*> existingActors;
-		existingActors.reserve(batch.actors.size());
 		std::unordered_set<uint64_t> previouslyActiveActors;
-		previouslyActiveActors.reserve(batch.actors.size());
-		for (PersistentVoxelBatch::ActorEntry& actor : batch.actors)
+		previouslyActiveActors.reserve(batch.actorIndex.Active().size());
+		const size_t previousActiveRows = batch.actorIndex.Active().size();
+		for (uint32_t slot : batch.actorIndex.Active())
 		{
-			existingActors[actor.identityKey] = &actor;
-			if (actor.active)
-			{
-				previouslyActiveActors.insert(actor.identityKey);
-			}
-		}
-
-		for (PersistentVoxelBatch::ActorEntry& actor : batch.actors)
-		{
+			auto& actor = batch.actors[slot];
+			previouslyActiveActors.insert(actor.identityKey);
 			actor.active = false;
-			auto instanceIt = instances.find(actor.identityKey);
-			if (instanceIt != instances.end())
-			{
-				instanceIt->second.active = false;
-			}
 		}
+		// Instance sync above can activate an instance whose historical actor was
+		// inactive. Preserve the old all-history deactivation for those identities.
+		for (auto& pair : instances)
+			if (batch.actorIndex.Find(pair.first, existingActorCount) != NRIPersistentVoxelActorIndex::Missing)
+				pair.second.active = false;
+		batch.actorIndex.BeginUpdate();
 		if (historyDetail)
 		{
-			// Maps remain live through actor processing. Their later destruction
-			// belongs to the enclosing batch timer, not this setup-only scope.
 			PerfAuditAdd(PerfAuditMetric::VoxelBatchHistorySetupNs, PerfAuditClockNs() - historyStart);
 			PerfAuditAdd(PerfAuditMetric::VoxelBatchHistorySetupCalls);
-			PerfAuditAdd(PerfAuditMetric::VoxelBatchHistorySetupRows, batch.actors.size());
+			PerfAuditAdd(PerfAuditMetric::VoxelBatchHistorySetupRows, previousActiveRows + instances.size());
 			PerfAuditAdd(PerfAuditMetric::VoxelBatchHistorySetupActiveRows, previouslyActiveActors.size());
 		}
+		setupReference.Verify(previouslyActiveActors, instances);
 
 		uint32_t updatedActorCount = 0;
 		{
 			PersistentVoxelScopedTimer perfTimer(outStats.persistentVoxelBatchActorLoopMs);
 			for (const nri_scene::PersistentVoxelCacheEntryView& cacheEntry : cacheEntries)
 			{
-				auto found = existingActors.find(cacheEntry.identityKey);
+				const uint32_t actorSlot = batch.actorIndex.Find(cacheEntry.identityKey, existingActorCount);
+				setupReference.VerifyLookup(cacheEntry.identityKey, actorSlot);
+				if (actorSlot != NRIPersistentVoxelActorIndex::Missing) batch.actorIndex.Touched(actorSlot);
 				if (!IsPersistentVoxelCacheEntryPublicationCurrent(cacheEntry))
 				{
 					PersistentVoxelInstanceRecord& instance = instances[cacheEntry.identityKey];
 					instance.active = false;
 					instance.pending = cacheEntry.desiredPending;
-					if (found != existingActors.end())
+					if (actorSlot != NRIPersistentVoxelActorIndex::Missing)
 					{
-						PersistentVoxelBatch::ActorEntry& actor = *found->second;
+						PersistentVoxelBatch::ActorEntry& actor = batch.actors[actorSlot];
 						CopyPersistentVoxelActorAuthority(cacheEntry, actor);
 						actor.active = false;
 						actor.inWorldTlasThisFrame = false;
@@ -8634,7 +8646,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				currentInstance.active = true;
 				currentInstance.pending = false;
 				CopyPersistentVoxelInstanceAuthority(cacheEntry, currentInstance);
-				if (found == existingActors.end())
+				if (actorSlot == NRIPersistentVoxelActorIndex::Missing)
 				{
 					const bool reusableVariant = canReusePersistentVoxelVariant(cacheEntry);
 					const bool reusableMesh = reusableVariant || canReusePersistentVoxelMesh(cacheEntry);
@@ -8699,7 +8711,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 					continue;
 				}
 
-				PersistentVoxelBatch::ActorEntry& actor = *found->second;
+				PersistentVoxelBatch::ActorEntry& actor = batch.actors[actorSlot];
 				auto meshResourceIt = actor.meshResourceKey != 0 ? meshVariantResources.find(actor.meshResourceKey) : meshVariantResources.end();
 				auto materialResourceIt = actor.materialKeyHash != 0 ? materialVariantResources.find(actor.materialKeyHash) : materialVariantResources.end();
 			std::array<float, 12> expectedInstanceTransform = {};
@@ -9051,6 +9063,16 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				}
 			}
 		}
+		{
+			NRICpuDetailAuditScope membershipAudit(PerfAuditMetric::VoxelBatchMembershipFinalizeNs);
+			if (PerfAuditCpuDetailActive())
+			{
+				PerfAuditAdd(PerfAuditMetric::VoxelBatchMembershipFinalizeCalls);
+				PerfAuditAdd(PerfAuditMetric::VoxelBatchMembershipFinalizeRows, batch.actorIndex.PendingUpdateRows());
+			}
+			batch.actorIndex.FinishUpdate(batch.actors);
+		}
+		nri_voxel_actor_reference::Index(batch);
 		const std::unordered_set<uint64_t> currentActiveMaterialKeys =
 			CollectActivePersistentVoxelMaterialKeys(batch);
 		if (batchMaterialResourceGeneration != materialResourceGeneration ||
@@ -9159,6 +9181,16 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 	{
 		next.sourceSerial = 0;
 	}
+	{
+		NRICpuDetailAuditScope membershipAudit(PerfAuditMetric::VoxelBatchMembershipFinalizeNs);
+		if (PerfAuditCpuDetailActive())
+		{
+			PerfAuditAdd(PerfAuditMetric::VoxelBatchMembershipFinalizeCalls);
+			PerfAuditAdd(PerfAuditMetric::VoxelBatchMembershipFinalizeRows, next.actorIndex.PendingUpdateRows());
+		}
+		next.actorIndex.FinishUpdate(next.actors);
+	}
+	nri_voxel_actor_reference::Index(next);
 	next.rebuildCount = batch.rebuildCount + 1u;
 	{
 		PersistentVoxelScopedTimer perfTimer(outStats.persistentVoxelBatchMaterialBridgeMs);

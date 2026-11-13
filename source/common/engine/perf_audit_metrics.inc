@@ -1263,3 +1263,7 @@ PERF_AUDIT_METRIC(VoxelBatchResourceReferencesActiveRows, counter)
 PERF_AUDIT_METRIC(VoxelBatchPublicationReadyNs, counter)
 PERF_AUDIT_METRIC(VoxelBatchPublicationReadyCalls, counter)
 PERF_AUDIT_METRIC(VoxelBatchPublicationReadyRows, counter)
+
+PERF_AUDIT_METRIC(VoxelBatchMembershipFinalizeNs, counter)
+PERF_AUDIT_METRIC(VoxelBatchMembershipFinalizeCalls, counter)
+PERF_AUDIT_METRIC(VoxelBatchMembershipFinalizeRows, counter)

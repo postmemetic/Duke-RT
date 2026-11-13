@@ -303,6 +303,7 @@ CVAR(Bool, nri_voxelstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(Bool, nri_ptvoxelpublication, true, 0)
 CVAR(Int, nri_ptvoxelpublicationvalidate, 0, 0)
+CVAR(Bool, nri_ptvoxelactorindexvalidate, false, 0)
 CVAR(Bool, nri_ptmaterialpatch, true, 0)
 CVAR(Bool, nri_ptmaterialpatchvalidate, false, 0)
 CVAR(Bool, nri_ptmaterialpolicycache, true, 0)
