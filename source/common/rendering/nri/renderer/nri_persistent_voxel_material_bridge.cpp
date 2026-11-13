@@ -1,4 +1,5 @@
 #include "nri_persistent_voxel_material_bridge.h"
+#include "nri_cpu_detail_audit.h"
 #include "../scene/nri_cpu_perf_audit.h"
 
 #include <algorithm>
@@ -9,10 +10,14 @@ void NRIPersistentVoxelMaterialBridge::Update(
 	nri_scene::MaterialBridgeData& bridge, bool validate)
 {
 	using namespace nri_scene;
+	const bool detail = PerfAuditCpuDetailActive();
+	if (detail) PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeObservedCalls);
 	MaterialBridgeChanges changes;
 	changes.beforeGeneration = beforeGeneration;
 	changes.generation = generation;
 	changes.beforeRows = (uint32_t)bridge.materials.size();
+	const uint64_t namespaceStart = detail ? PerfAuditClockNs() : 0;
+	uint64_t namespaceRows = 0, texturedRows = 0, sourceTextures = 0;
 	MaterialBridgeData layout;
 	std::unordered_map<uint64_t, uint32_t> textureLookup;
 	bool aligned = true;
@@ -29,13 +34,29 @@ void NRIPersistentVoxelMaterialBridge::Update(
 			mUniformDefaultRanges.push_back({ rowEnd, resource.offset - rowEnd });
 		rowEnd = resource.offset + resource.count;
 		if (resource.bridge != nullptr)
+		{
+			if (detail)
+			{
+				namespaceRows += resource.bridge->materials.size();
+				texturedRows += resource.bridge->textures.empty() ? 0 : resource.bridge->materials.size();
+				sourceTextures += resource.bridge->textures.size();
+			}
 			CollectMaterialBridgeTextureLayout(*resource.bridge, layout, textureLookup);
+		}
 	}
 	bool sameNamespace = bridge.textures.size() == layout.textures.size() &&
 		bridge.paletteWidth == layout.paletteWidth && bridge.paletteHeight == layout.paletteHeight &&
 		bridge.paletteLookup == layout.paletteLookup;
 	for (size_t index = 0; sameNamespace && index < layout.textures.size(); ++index)
 		sameNamespace = bridge.textures[index].key == layout.textures[index].key;
+	if (detail)
+	{
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceNs, PerfAuditClockNs() - namespaceStart);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceResources, resources.size());
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceMaterialRows, namespaceRows);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceTexturedRows, texturedRows);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceSourceTextures, sourceTextures);
+	}
 	const bool incremental = mValid && !mQuarantined && aligned && sameNamespace &&
 		mChanges.generation == beforeGeneration && mChanges.afterRows == bridge.materials.size() &&
 		bridge.lightMetadata.size() == bridge.materials.size();
@@ -80,39 +101,55 @@ void NRIPersistentVoxelMaterialBridge::Update(
 			changes.rows.push_back({oldRows, rowEnd - oldRows});
 			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsInitialized, rowEnd - oldRows);
 		}
-		std::unordered_map<uint64_t, const NRIVoxelMaterialBridgeResourceView*> current;
-		std::unordered_map<uint64_t, const ResourceState*> previous;
-		for (const auto& resource : resources) current.emplace(resource.key, &resource);
-		for (const auto& state : mResources)
+		const uint64_t matchingStart = detail ? PerfAuditClockNs() : 0;
+		uint64_t matchingPrepared = 0;
 		{
-			previous.emplace(state.key, &state);
-			const auto found = current.find(state.key);
-			if (found != current.end() && found->second->offset == state.offset && found->second->count == state.count)
-				continue;
-			if (state.offset >= rowEnd) continue;
-			const uint32_t clearCount = std::min(state.count, rowEnd - state.offset);
-			std::fill_n(bridge.materials.begin() + state.offset, clearCount, MaterialData{});
-			std::fill_n(bridge.lightMetadata.begin() + state.offset, clearCount, MaterialLightingMetadata{});
-			changes.rows.push_back({state.offset, clearCount});
-			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsInitialized, clearCount);
+			std::unordered_map<uint64_t, const NRIVoxelMaterialBridgeResourceView*> current;
+			std::unordered_map<uint64_t, const ResourceState*> previous;
+			for (const auto& resource : resources) current.emplace(resource.key, &resource);
+			const uint64_t prepared = detail ? PerfAuditClockNs() - matchingStart : 0;
+			if (detail) PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeMatchPrepareNs, prepared);
+			for (const auto& state : mResources)
+			{
+				previous.emplace(state.key, &state);
+				const auto found = current.find(state.key);
+				if (found != current.end() && found->second->offset == state.offset && found->second->count == state.count)
+					continue;
+				if (state.offset >= rowEnd) continue;
+				const uint32_t clearCount = std::min(state.count, rowEnd - state.offset);
+				std::fill_n(bridge.materials.begin() + state.offset, clearCount, MaterialData{});
+				std::fill_n(bridge.lightMetadata.begin() + state.offset, clearCount, MaterialLightingMetadata{});
+				changes.rows.push_back({state.offset, clearCount});
+				PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsInitialized, clearCount);
+			}
+			for (const auto& resource : resources)
+			{
+				const auto found = previous.find(resource.key);
+				const bool unchanged = found != previous.end() && !resource.dirty &&
+					found->second->offset == resource.offset && found->second->count == resource.count &&
+					found->second->slotGeneration == resource.slotGeneration &&
+					found->second->contentRevision == resource.contentRevision;
+				if (unchanged) continue;
+				CopyMaterialBridgeRowRange(*resource.bridge, {0u, resource.count}, bridge, resource.offset, textureLookup);
+				changes.rows.push_back({resource.offset, resource.count});
+				PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsCopied, resource.count);
+				PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeBytesCopied,
+					(uint64_t)resource.count * (sizeof(MaterialData) + sizeof(MaterialLightingMetadata)));
+			}
+			if (detail) PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeMatchLegacyNodes, current.size() + previous.size());
+			matchingPrepared = prepared;
 		}
-		for (const auto& resource : resources)
+		if (detail)
 		{
-			const auto found = previous.find(resource.key);
-			const bool unchanged = found != previous.end() && !resource.dirty &&
-				found->second->offset == resource.offset && found->second->count == resource.count &&
-				found->second->slotGeneration == resource.slotGeneration &&
-				found->second->contentRevision == resource.contentRevision;
-			if (unchanged) continue;
-			CopyMaterialBridgeRowRange(*resource.bridge, {0u, resource.count}, bridge, resource.offset, textureLookup);
-			changes.rows.push_back({resource.offset, resource.count});
-			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeRowsCopied, resource.count);
-			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeBytesCopied,
-				(uint64_t)resource.count * (sizeof(MaterialData) + sizeof(MaterialLightingMetadata)));
+			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeMatchOutputNs, PerfAuditClockNs() - matchingStart - matchingPrepared);
+			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeMatchCurrentRows, resources.size());
+			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeMatchPreviousRows, mResources.size());
+			PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeMatchLegacyCalls);
 		}
 	}
 	if (validate && incremental)
 	{
+		NRICpuDetailAuditScope referenceAudit(PerfAuditMetric::VoxelMaterialBridgeReferenceNs);
 		NRIPersistentVoxelMaterialBridge referenceOwner;
 		MaterialBridgeData reference;
 		referenceOwner.Update(resources, reserveRows, beforeGeneration, generation, reference);
@@ -126,6 +163,7 @@ void NRIPersistentVoxelMaterialBridge::Update(
 			mQuarantined = true;
 		}
 	}
+	NRICpuDetailAuditScope finalizeAudit(PerfAuditMetric::VoxelMaterialBridgeFinalizeNs);
 	changes.afterRows = (uint32_t)bridge.materials.size();
 	MergeMaterialRowRanges(changes.rows, changes.afterRows);
 	PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeDirtyRanges, changes.rows.size());

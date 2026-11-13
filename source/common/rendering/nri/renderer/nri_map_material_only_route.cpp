@@ -1,10 +1,12 @@
 #include "nri_map_material_only_route.h"
+#include "nri_cpu_detail_audit.h"
 
 #include "../scene/nri_texture_signature.h"
 
 #include "texturemanager.h"
 
 #include <cstring>
+#include <optional>
 
 namespace
 {
@@ -163,6 +165,9 @@ void NRIMapMaterialOnlyRoute::Reject(
 NRIMapMaterialOnlyRouteResult NRIMapMaterialOnlyRoute::TryPrepare(
 	const NRIMapMaterialOnlyRouteInput& input)
 {
+	const bool detail = PerfAuditCpuDetailActive();
+	std::optional<NRICpuDetailAuditScope> authorityAudit(std::in_place, PerfAuditMetric::MutationCanonicalAuthorityNs);
+	if (detail) PerfAuditAdd(PerfAuditMetric::MutationCanonicalObservedCalls);
 	BeginFrame(input.frameIndex);
 	mFrameStats.candidates++;
 	NRIMapMaterialOnlyRouteResult result;
@@ -205,43 +210,90 @@ NRIMapMaterialOnlyRouteResult NRIMapMaterialOnlyRoute::TryPrepare(
 		return result;
 	}
 
+	authorityAudit.reset();
 	nri_scene::PTMapMaterialLayoutOptions layoutOptions;
 	layoutOptions.resolveTextureIdentity = ResolveTextureIdentity;
-	if (input.retainedLayout != nullptr && input.retainedLayout->valid)
 	{
-		result.retainedLayout = *input.retainedLayout;
+		NRICpuDetailAuditScope retainedAudit(PerfAuditMetric::MutationCanonicalRetainedLayoutNs);
+		if (input.retainedLayout != nullptr && input.retainedLayout->valid)
+		{
+			if (detail)
+			{
+				const auto& source = *input.retainedLayout;
+				PerfAuditAdd(PerfAuditMetric::MutationCanonicalRetainedLayoutCopies);
+				PerfAuditAdd(PerfAuditMetric::MutationCanonicalRetainedLayoutCopiedBytes,
+					source.canonicalSlotIds.size() * sizeof(uint64_t) +
+					source.canonicalSemanticSlots.size() * sizeof(nri_scene::PTMapMaterialSemanticSlot) +
+					source.canonicalMaterialStateKeys.size() * sizeof(uint64_t) +
+					(source.emittedToCanonical.size() + source.canonicalToEmitted.size()) * sizeof(uint32_t));
+			}
+			result.retainedLayout = *input.retainedLayout;
+		}
+		else if ([&]()
+		{
+			if (detail) PerfAuditAdd(PerfAuditMetric::MutationCanonicalRetainedLayoutBuilds);
+			return !nri_scene::BuildCanonicalPTMapMaterialLayoutForChunkSceneView(
+			*input.retainedWorld, *input.retainedChunk, *input.retainedSceneView,
+			result.retainedLayout, result.validation, layoutOptions);
+		}())
+		{
+			Reject(result, NRIMapMaterialOnlyRouteReject::RetainedLayout);
+			return result;
+		}
 	}
-	else if (!nri_scene::BuildCanonicalPTMapMaterialLayoutForChunkSceneView(
-		*input.retainedWorld, *input.retainedChunk, *input.retainedSceneView,
-		result.retainedLayout, result.validation, layoutOptions))
+	if ([&]()
 	{
-		Reject(result, NRIMapMaterialOnlyRouteReject::RetainedLayout);
-		return result;
-	}
-	if (!nri_scene::BuildCanonicalPTMapMaterialLayoutForChunkSceneView(
-		*input.currentWorld, *input.currentChunk, *input.currentSceneView,
-		result.currentLayout, result.validation, layoutOptions))
+		NRICpuDetailAuditScope currentAudit(PerfAuditMetric::MutationCanonicalCurrentLayoutNs);
+		if (detail) PerfAuditAdd(PerfAuditMetric::MutationCanonicalCurrentLayoutBuilds);
+		return !nri_scene::BuildCanonicalPTMapMaterialLayoutForChunkSceneView(
+			*input.currentWorld, *input.currentChunk, *input.currentSceneView,
+			result.currentLayout, result.validation, layoutOptions);
+	}())
 	{
 		Reject(result, NRIMapMaterialOnlyRouteReject::CurrentLayout);
 		return result;
 	}
-	if (!nri_scene::RemapPTMapMaterialSceneViewToRetainedLayout(
-		result.retainedLayout, result.currentLayout, *input.currentSceneView,
-		result.residentOrderSceneView, result.validation))
+	if ([&]()
+	{
+		NRICpuDetailAuditScope remapAudit(PerfAuditMetric::MutationCanonicalRemapNs);
+		if (detail)
+		{
+			const auto& current = *input.currentSceneView;
+			PerfAuditAdd(PerfAuditMetric::MutationCanonicalRemapSurfaceRows, current.opaqueWalls.size() + current.opaqueFlats.size());
+			uint64_t vertices = 0, indices = 0;
+			const auto count = [&](const auto& rows)
+			{
+				for (const auto& row : rows) { vertices += row.vertices.size(); indices += row.indices.size(); }
+			};
+			count(current.opaqueWalls); count(current.opaqueFlats);
+			PerfAuditAdd(PerfAuditMetric::MutationCanonicalRemapVertexBytes, vertices * sizeof(nri_scene::CapturedVertex));
+			PerfAuditAdd(PerfAuditMetric::MutationCanonicalRemapIndexBytes, indices * sizeof(uint32_t));
+		}
+		return !nri_scene::RemapPTMapMaterialSceneViewToRetainedLayout(
+			result.retainedLayout, result.currentLayout, *input.currentSceneView,
+			result.residentOrderSceneView, result.validation);
+	}())
 	{
 		Reject(result, result.validation.failure == nri_scene::PTMapMaterialVariantRouteFailure::LayoutMismatch ?
 			NRIMapMaterialOnlyRouteReject::LayoutMismatch : NRIMapMaterialOnlyRouteReject::SceneRemap);
 		return result;
 	}
-	if (!nri_scene::ValidatePTMapMaterialVariantGeometryLayout(
-		*input.retainedSceneView, result.residentOrderSceneView, result.validation))
+	if ([&]()
+	{
+		NRICpuDetailAuditScope validationAudit(PerfAuditMetric::MutationCanonicalGeometryValidationNs);
+		return !nri_scene::ValidatePTMapMaterialVariantGeometryLayout(
+			*input.retainedSceneView, result.residentOrderSceneView, result.validation);
+	}())
 	{
 		Reject(result, NRIMapMaterialOnlyRouteReject::GeometryMismatch);
 		return result;
 	}
-	if (terminalSE12 &&
-		(!OnlyTerminalPaletteShadeChanged(input.retainedSceneView->opaqueWalls, result.residentOrderSceneView.opaqueWalls) ||
-		 !OnlyTerminalPaletteShadeChanged(input.retainedSceneView->opaqueFlats, result.residentOrderSceneView.opaqueFlats)))
+	if (terminalSE12 && [&]()
+	{
+		NRICpuDetailAuditScope terminalAudit(PerfAuditMetric::MutationCanonicalTerminalValidationNs);
+		return !OnlyTerminalPaletteShadeChanged(input.retainedSceneView->opaqueWalls, result.residentOrderSceneView.opaqueWalls) ||
+			!OnlyTerminalPaletteShadeChanged(input.retainedSceneView->opaqueFlats, result.residentOrderSceneView.opaqueFlats);
+	}())
 	{
 		Reject(result, NRIMapMaterialOnlyRouteReject::TerminalStateMismatch);
 		return result;
@@ -252,7 +304,10 @@ NRIMapMaterialOnlyRouteResult NRIMapMaterialOnlyRoute::TryPrepare(
 	identity.buildSerial = input.buildSerial;
 	identity.moverStableId = result.ownerStableId;
 	identity.chunkIndex = input.retainedChunk->chunkIndex;
-	result.variant = mVariants.Resolve(identity, result.currentLayout);
+	{
+		NRICpuDetailAuditScope variantAudit(PerfAuditMetric::MutationCanonicalVariantNs);
+		result.variant = mVariants.Resolve(identity, result.currentLayout);
+	}
 	if (!result.variant.eligible)
 	{
 		Reject(result, NRIMapMaterialOnlyRouteReject::VariantRejected);
