@@ -28,10 +28,16 @@ bool MaterialBridgesEquivalent(const MaterialBridgeData& a, const MaterialBridge
 
 // Uses the same first-reference order as AppendMaterialBridge, including
 // metadata-only texture references. No row storage is copied.
-void CollectMaterialBridgeTextureLayout(
+struct MaterialBridgeTextureLayoutWork
+{
+	uint64_t rowsVisited = 0;
+	bool singleTextureFast = false;
+	bool singleTextureFound = false;
+};
+MaterialBridgeTextureLayoutWork CollectMaterialBridgeTextureLayout(
 	const MaterialBridgeData& source,
 	MaterialBridgeData& destination,
-	std::unordered_map<uint64_t, uint32_t>& textureLookup);
+	std::unordered_map<uint64_t, uint32_t>& textureLookup, bool singleTextureFast = false);
 
 // The caller supplies aligned row/metadata spans and a complete destination
 // texture-key mapping. Unmapped source indices retain AppendMaterialBridge's

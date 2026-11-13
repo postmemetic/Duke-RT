@@ -1,5 +1,6 @@
 #include "nri_persistent_voxel_material_bridge.h"
 #include "nri_cpu_detail_audit.h"
+#include "nri_cvars.h"
 #include "../scene/nri_cpu_perf_audit.h"
 
 #include <algorithm>
@@ -18,6 +19,7 @@ void NRIPersistentVoxelMaterialBridge::Update(
 	changes.beforeRows = (uint32_t)bridge.materials.size();
 	const uint64_t namespaceStart = detail ? PerfAuditClockNs() : 0;
 	uint64_t namespaceRows = 0, texturedRows = 0, sourceTextures = 0;
+	uint64_t namespaceVisited = 0, namespaceFastCalls = 0, namespaceFastHits = 0;
 	MaterialBridgeData layout;
 	std::unordered_map<uint64_t, uint32_t> textureLookup;
 	bool aligned = true;
@@ -41,7 +43,14 @@ void NRIPersistentVoxelMaterialBridge::Update(
 				texturedRows += resource.bridge->textures.empty() ? 0 : resource.bridge->materials.size();
 				sourceTextures += resource.bridge->textures.size();
 			}
-			CollectMaterialBridgeTextureLayout(*resource.bridge, layout, textureLookup);
+			const auto work = CollectMaterialBridgeTextureLayout(*resource.bridge, layout, textureLookup,
+				(bool)nri_ptmaterialnamespacefast);
+			if (detail)
+			{
+				namespaceVisited += work.rowsVisited;
+				namespaceFastCalls += work.singleTextureFast;
+				namespaceFastHits += work.singleTextureFound;
+			}
 		}
 	}
 	bool sameNamespace = bridge.textures.size() == layout.textures.size() &&
@@ -56,6 +65,9 @@ void NRIPersistentVoxelMaterialBridge::Update(
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceMaterialRows, namespaceRows);
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceTexturedRows, texturedRows);
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceSourceTextures, sourceTextures);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceVisitedRows, namespaceVisited);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceSingleTextureFastCalls, namespaceFastCalls);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialBridgeNamespaceSingleTextureFastHits, namespaceFastHits);
 	}
 	const bool incremental = mValid && !mQuarantined && aligned && sameNamespace &&
 		mChanges.generation == beforeGeneration && mChanges.afterRows == bridge.materials.size() &&

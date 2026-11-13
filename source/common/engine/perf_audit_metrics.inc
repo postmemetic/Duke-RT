@@ -1301,3 +1301,7 @@ PERF_AUDIT_METRIC(MutationCanonicalRetainedLayoutCopiedBytes, counter)
 PERF_AUDIT_METRIC(MutationCanonicalRemapSurfaceRows, counter)
 PERF_AUDIT_METRIC(MutationCanonicalRemapVertexBytes, counter)
 PERF_AUDIT_METRIC(MutationCanonicalRemapIndexBytes, counter)
+
+PERF_AUDIT_METRIC(VoxelMaterialBridgeNamespaceVisitedRows, counter)
+PERF_AUDIT_METRIC(VoxelMaterialBridgeNamespaceSingleTextureFastCalls, counter)
+PERF_AUDIT_METRIC(VoxelMaterialBridgeNamespaceSingleTextureFastHits, counter)

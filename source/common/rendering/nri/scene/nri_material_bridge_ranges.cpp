@@ -73,11 +73,12 @@ void MergeMaterialRowRanges(std::vector<MaterialRowRange>& ranges, uint32_t rowC
 	ranges.resize(output);
 }
 
-void CollectMaterialBridgeTextureLayout(
+MaterialBridgeTextureLayoutWork CollectMaterialBridgeTextureLayout(
 	const MaterialBridgeData& source,
 	MaterialBridgeData& destination,
-	std::unordered_map<uint64_t, uint32_t>& textureLookup)
+	std::unordered_map<uint64_t, uint32_t>& textureLookup, bool singleTextureFast)
 {
+	MaterialBridgeTextureLayoutWork work;
 	auto visit = [&](uint32_t index)
 	{
 		if (index >= source.textures.size()) return;
@@ -85,24 +86,55 @@ void CollectMaterialBridgeTextureLayout(
 		if (textureLookup.emplace(texture.key, (uint32_t)destination.textures.size()).second)
 			destination.textures.push_back(texture);
 	};
-	for (size_t row = 0; row < source.materials.size(); ++row)
+	if (singleTextureFast && source.textures.size() == 1 && &source != &destination)
 	{
-		const auto& material = source.materials[row];
-		visit(material.textureIndex);
-		visit(material.normalTextureIndex);
-		visit(material.metallicTextureIndex);
-		visit(material.roughnessTextureIndex);
-		visit(material.emissiveTextureIndex);
-		if (row < source.lightMetadata.size())
+		// There is only one possible namespace entry. Preserve the original row
+		// domain and reference rules, then stop after its first reference.
+		work.singleTextureFast = true;
+		for (size_t row = 0; row < source.materials.size(); ++row)
 		{
-			const auto& metadata = source.lightMetadata[row];
-			visit(metadata.textureIndex);
-			visit(metadata.glowmapTextureIndex);
-			visit(metadata.normalTextureIndex);
-			visit(metadata.metallicTextureIndex);
-			visit(metadata.roughnessTextureIndex);
-			visit(metadata.emissiveTextureIndex);
+			work.rowsVisited = row + 1;
+			const auto& material = source.materials[row];
+			bool referenced = material.textureIndex == 0 || material.normalTextureIndex == 0 ||
+				material.metallicTextureIndex == 0 || material.roughnessTextureIndex == 0 ||
+				material.emissiveTextureIndex == 0;
+			if (!referenced && row < source.lightMetadata.size())
+			{
+				const auto& metadata = source.lightMetadata[row];
+				referenced = metadata.textureIndex == 0 || metadata.glowmapTextureIndex == 0 ||
+					metadata.normalTextureIndex == 0 || metadata.metallicTextureIndex == 0 ||
+					metadata.roughnessTextureIndex == 0 || metadata.emissiveTextureIndex == 0;
+			}
+			if (referenced)
+			{
+				visit(0);
+				work.singleTextureFound = true;
+				break;
+			}
 		}
+	}
+	else
+	{
+		for (size_t row = 0; row < source.materials.size(); ++row)
+		{
+			const auto& material = source.materials[row];
+			visit(material.textureIndex);
+			visit(material.normalTextureIndex);
+			visit(material.metallicTextureIndex);
+			visit(material.roughnessTextureIndex);
+			visit(material.emissiveTextureIndex);
+			if (row < source.lightMetadata.size())
+			{
+				const auto& metadata = source.lightMetadata[row];
+				visit(metadata.textureIndex);
+				visit(metadata.glowmapTextureIndex);
+				visit(metadata.normalTextureIndex);
+				visit(metadata.metallicTextureIndex);
+				visit(metadata.roughnessTextureIndex);
+				visit(metadata.emissiveTextureIndex);
+			}
+		}
+		work.rowsVisited = source.materials.size();
 	}
 	if (destination.paletteLookup.empty())
 	{
@@ -110,6 +142,7 @@ void CollectMaterialBridgeTextureLayout(
 		destination.paletteWidth = source.paletteWidth;
 		destination.paletteHeight = source.paletteHeight;
 	}
+	return work;
 }
 
 bool CopyMaterialBridgeRowRange(
