@@ -344,12 +344,12 @@ FString M_GetScreenshotsPath()
 	{
 		path = GetKnownFolder(-1, FOLDERID_Screenshots, true);
 
-		path << "/" GAMENAME "/";
+		path << "/Duke-RT/";
 	}
 	else 
 	{
 		path = GetKnownFolder(CSIDL_MYPICTURES, FOLDERID_Pictures, true);
-		path << "/Screenshots/" GAMENAME "/";
+		path << "/Screenshots/Duke-RT/";
 	}
 	CreatePath(path.GetChars());
 	return path;

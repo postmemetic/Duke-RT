@@ -182,7 +182,11 @@ FString M_GetConfigPath(bool for_reading)
 
 FString M_GetScreenshotsPath()
 {
+	#if defined(__HAIKU__)
 	return NicePath("$HOME/" GAME_DIR "/screenshots/");
+	#else
+	return NicePath("$HOME/.config/" GAME_USER_DIR "/screenshots/");
+	#endif
 }
 
 //===========================================================================
