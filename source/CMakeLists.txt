@@ -410,6 +410,7 @@ set( PLAT_WIN32_SOURCES
 	common/platform/win32/i_system.cpp
 	common/platform/win32/i_specialpaths.cpp
 	common/platform/win32/st_start.cpp
+	common/platform/win32/startup_progress_win32.cpp
 	common/platform/win32/gl_sysfb.cpp
 	common/platform/win32/base_sysfb.cpp
 	common/platform/win32/win32basevideo.cpp
@@ -1229,6 +1230,9 @@ set (PCH_SOURCES
 	core/coreplayer.cpp
 	core/rts.cpp
 	core/startup_recovery.cpp
+	core/startup_loading.cpp
+	common/platform/startup_progress.cpp
+	common/platform/startup_font.cpp
 	core/ct_chat.cpp
 	core/d_net.cpp
 	core/d_protocol.cpp

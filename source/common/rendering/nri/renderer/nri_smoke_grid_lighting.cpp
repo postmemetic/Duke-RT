@@ -1,4 +1,5 @@
 #include "nri_smoke_grid_lighting.h"
+#include "nri_startup_pipeline_report.h"
 
 #include "../system/nri_gpu_timing.h"
 
@@ -36,11 +37,13 @@ bool NRISmokeGridLighting::Initialize(const NRISmokeGridServices& services, nri:
 		return false;
 	mSharedLayout = sharedLayout;
 	const bool d3d12 = services.graphicsAPI == nri::GraphicsAPI::D3D12;
+	StartupProgress::BeginTasks("Preparing smoke lighting", static_cast<uint32_t>(mPipelines.size()));
 	for (uint32_t i = 0u; i < (uint32_t)mPipelines.size(); ++i)
 	{
 		std::vector<uint8_t> blob;
 		const std::string file = std::string(kPipelineNames[i]) + ".cs." + (d3d12 ? "dxil" : "spirv");
-		if (!services.LoadShaderBlob(file.c_str(), blob))
+		NRIStartupPipelineReport report(file.c_str(), "Preparing smoke lighting", services.graphicsAPI);
+		if (!report.Read([&]() { return services.LoadShaderBlob(file.c_str(), blob); }, blob))
 		{
 			for (nri::Pipeline*& pipeline : mPipelines) { if (pipeline != nullptr) services.core->DestroyPipeline(pipeline); pipeline = nullptr; }
 			mSharedLayout = nullptr;
@@ -55,7 +58,7 @@ bool NRISmokeGridLighting::Initialize(const NRISmokeGridServices& services, nri:
 		nri::ComputePipelineDesc desc = {};
 		desc.pipelineLayout = sharedLayout;
 		desc.shader = shader;
-		if (services.core->CreateComputePipeline(*services.device, desc, mPipelines[i]) != nri::Result::SUCCESS)
+		if (report.Create([&]() { return services.core->CreateComputePipeline(*services.device, desc, mPipelines[i]); }) != nri::Result::SUCCESS)
 		{
 			for (nri::Pipeline*& pipeline : mPipelines) { if (pipeline != nullptr) services.core->DestroyPipeline(pipeline); pipeline = nullptr; }
 			mSharedLayout = nullptr;

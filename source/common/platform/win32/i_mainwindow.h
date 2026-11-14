@@ -18,6 +18,15 @@ public:
 
 	void ShowGameView();
 	void RestoreConView();
+	void BeginStartupPresentation(bool hideGameWindow);
+	void RevealStartupGameView(bool splashWasShown);
+	void ResetStartupPresentation();
+	bool IsStartupHidden() const { return StartupHidden; }
+	bool HasPendingStartupMaximize() const { return StartupMaximizePending; }
+	void OnGameWindowActivated();
+	void ShowGameWindow(int command);
+	LONG GameWindowStyle(LONG style) const { return StartupHidden ? style & ~WS_VISIBLE : style; }
+	UINT GameWindowPositionFlags(UINT flags) const { return StartupHidden ? flags | SWP_NOACTIVATE : flags; }
 
 	void ShowErrorPane(const char* text);
 	bool CheckForRestart();
@@ -40,6 +49,12 @@ private:
 
 	HWND Window = 0;
 	bool restartrequest = false;
+	bool StartupHidden = false;
+	int StartupShowCommand = SW_SHOW;
+	bool StartupMaximizePending = false;
+	HWND StartupForegroundWindow = nullptr;
+	DWORD StartupLastInputTime = 0;
+	bool StartupLastInputValid = false;
 	TArray<FString> bufferedConsoleStuff;
 };
 

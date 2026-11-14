@@ -130,6 +130,7 @@ void SystemBaseFrameBuffer::KeepWindowOnScreen(int &winx, int &winy, int winw, i
 
 void SystemBaseFrameBuffer::SaveWindowedPos()
 {
+	if (mainwindow.IsStartupHidden() || mainwindow.HasPendingStartupMaximize()) return;
 	// Don't save if we were run with the -0 option.
 	if (Args->CheckParm("-0"))
 	{
@@ -202,10 +203,11 @@ void SystemBaseFrameBuffer::RestoreWindowedPos()
 		}
 		KeepWindowOnScreen(winx, winy, winw, winh, scrwidth, scrheight);
 	}
-	SetWindowPos(mainwindow.GetHandle(), nullptr, winx, winy, winw, winh, SWP_NOZORDER | SWP_FRAMECHANGED);
+	SetWindowPos(mainwindow.GetHandle(), nullptr, winx, winy, winw, winh,
+		mainwindow.GameWindowPositionFlags(SWP_NOZORDER | SWP_FRAMECHANGED));
 
 	if (win_maximized && !Args->CheckParm("-0"))
-		ShowWindow(mainwindow.GetHandle(), SW_MAXIMIZE);
+		mainwindow.ShowGameWindow(SW_MAXIMIZE);
 }
 
 //==========================================================================
@@ -222,7 +224,7 @@ void SystemBaseFrameBuffer::SetWindowSize(int w, int h)
 	}
 	else
 	{
-		LONG style = WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPEDWINDOW;
+		LONG style = mainwindow.GameWindowStyle(WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPEDWINDOW);
 		LONG exStyle = WS_EX_WINDOWEDGE;
 		SetWindowLong(mainwindow.GetHandle(), GWL_STYLE, style);
 		SetWindowLong(mainwindow.GetHandle(), GWL_EXSTYLE, exStyle);
@@ -248,8 +250,9 @@ void SystemBaseFrameBuffer::SetWindowSize(int w, int h)
 
 		if (!vid_fullscreen)
 		{
-			ShowWindow(mainwindow.GetHandle(), SW_SHOWNORMAL);
-			SetWindowPos(mainwindow.GetHandle(), nullptr, winx, winy, winw, winh, SWP_NOZORDER | SWP_FRAMECHANGED);
+			mainwindow.ShowGameWindow(SW_SHOWNORMAL);
+			SetWindowPos(mainwindow.GetHandle(), nullptr, winx, winy, winw, winh,
+				mainwindow.GameWindowPositionFlags(SWP_NOZORDER | SWP_FRAMECHANGED));
 			win_maximized = false;
 			SetSize(GetClientWidth(), GetClientHeight());
 			SaveWindowedPos();
@@ -304,10 +307,10 @@ void SystemBaseFrameBuffer::PositionWindow(bool fullscreen, bool initialcall)
 		}
 	}
 
-	ShowWindow(mainwindow.GetHandle(), SW_SHOW);
+	mainwindow.ShowGameWindow(SW_SHOW);
 
 	GetWindowRect(mainwindow.GetHandle(), &r);
-	style = WS_VISIBLE | WS_CLIPSIBLINGS;
+	style = mainwindow.GameWindowStyle(WS_VISIBLE | WS_CLIPSIBLINGS);
 	exStyle = 0;
 
 	if (fullscreen)
@@ -323,8 +326,13 @@ void SystemBaseFrameBuffer::PositionWindow(bool fullscreen, bool initialcall)
 
 	if (fullscreen)
 	{
-		SetWindowPos(mainwindow.GetHandle(), 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-		MoveWindow(mainwindow.GetHandle(), monRect.left, monRect.top, monRect.right-monRect.left, monRect.bottom-monRect.top, FALSE);
+		SetWindowPos(mainwindow.GetHandle(), 0, 0, 0, 0, 0,
+			mainwindow.GameWindowPositionFlags(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED));
+		if (mainwindow.IsStartupHidden())
+			SetWindowPos(mainwindow.GetHandle(), nullptr, monRect.left, monRect.top,
+				monRect.right-monRect.left, monRect.bottom-monRect.top, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOREDRAW);
+		else
+			MoveWindow(mainwindow.GetHandle(), monRect.left, monRect.top, monRect.right-monRect.left, monRect.bottom-monRect.top, FALSE);
 
 		// And now, seriously, it IS in the right place. Promise.
 	}
@@ -367,12 +375,13 @@ SystemBaseFrameBuffer::SystemBaseFrameBuffer(void *hMonitor, bool fullscreen) : 
 
 SystemBaseFrameBuffer::~SystemBaseFrameBuffer()
 {
-	if (!m_Fullscreen) SaveWindowedPos();
+	if (!m_Fullscreen && !mainwindow.IsStartupHidden()) SaveWindowedPos();
 
-	ShowWindow (mainwindow.GetHandle(), SW_SHOW);
-	SetWindowLong(mainwindow.GetHandle(), GWL_STYLE, WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPEDWINDOW);
+	mainwindow.ShowGameWindow(SW_SHOW);
+	SetWindowLong(mainwindow.GetHandle(), GWL_STYLE, mainwindow.GameWindowStyle(WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPEDWINDOW));
 	SetWindowLong(mainwindow.GetHandle(), GWL_EXSTYLE, WS_EX_WINDOWEDGE);
-	SetWindowPos(mainwindow.GetHandle(), 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+	SetWindowPos(mainwindow.GetHandle(), 0, 0, 0, 0, 0,
+		mainwindow.GameWindowPositionFlags(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED));
 
 	static_cast<Win32BaseVideo *>(Video)->Shutdown();
 }

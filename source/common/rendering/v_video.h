@@ -475,6 +475,9 @@ public:
 	virtual bool ShouldSkipSceneBuildForPathTracedScene(int drawmode, bool portal) const { return false; }
 	virtual bool RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool portal) { return false; }
 	virtual bool HasActiveSceneFrame() const { return true; }
+	// Legacy presenters report failure by exception. Backends with recoverable
+	// skipped/failed presents must expose successful output for startup handoff.
+	virtual bool HasPresentedFrame() const { return true; }
 	virtual bool StartPathTracingLevelPreload() { return false; }
 	virtual bool TickPathTracingLevelPreload() { return true; }
 	virtual bool IsPathTracingLevelPreloadPending() const { return false; }

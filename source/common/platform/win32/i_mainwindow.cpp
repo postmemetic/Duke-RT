@@ -78,12 +78,85 @@ void MainWindow::Create(const FString& caption, int x, int y, int width, int hei
 // Sets the main WndProc, hides all the child windows, and starts up in-game input.
 void MainWindow::ShowGameView()
 {
+	if (StartupHidden) return;
 	if (GetWindowLongPtr(Window, GWLP_USERDATA) == 0)
 	{
 		SetWindowLongPtr(Window, GWLP_USERDATA, 1);
 		SetWindowLongPtr(Window, GWLP_WNDPROC, (LONG_PTR)WndProc);
 		I_InitInput(Window);
 	}
+}
+
+void MainWindow::BeginStartupPresentation(bool hideGameWindow)
+{
+	StartupHidden = hideGameWindow;
+	StartupShowCommand = SW_SHOW;
+	StartupMaximizePending = false;
+	StartupForegroundWindow = GetForegroundWindow();
+	LASTINPUTINFO lastInput = { sizeof(lastInput) };
+	StartupLastInputValid = GetLastInputInfo(&lastInput) != FALSE;
+	StartupLastInputTime = lastInput.dwTime;
+	if (StartupHidden) ShowWindow(Window, SW_HIDE);
+}
+
+void MainWindow::ShowGameWindow(int command)
+{
+	if (StartupHidden)
+	{
+		StartupShowCommand = command;
+		return;
+	}
+	if (command == SW_SHOWNORMAL || command == SW_RESTORE)
+		StartupMaximizePending = false;
+	ShowWindow(Window, command);
+}
+
+void MainWindow::RevealStartupGameView(bool splashWasShown)
+{
+	if (!StartupHidden) return;
+	const HWND foregroundWindow = GetForegroundWindow();
+	DWORD foregroundProcess = 0;
+	GetWindowThreadProcessId(foregroundWindow, &foregroundProcess);
+	LASTINPUTINFO lastInput = { sizeof(lastInput) };
+	const bool launchUnchanged = !splashWasShown && foregroundWindow == StartupForegroundWindow &&
+		StartupLastInputValid && GetLastInputInfo(&lastInput) && lastInput.dwTime == StartupLastInputTime;
+	const bool activate = foregroundProcess == GetCurrentProcessId() || launchUnchanged;
+	StartupMaximizePending = StartupShowCommand == SW_MAXIMIZE;
+	StartupHidden = false;
+	ShowGameView();
+	// Show without activation first, and let Windows decide whether our request
+	// for foreground is allowed. Maximizing would itself activate the window.
+	ShowWindow(Window, StartupShowCommand == SW_SHOWNORMAL || StartupShowCommand == SW_RESTORE
+		? SW_SHOWNOACTIVATE : SW_SHOWNA);
+	if (activate) SetForegroundWindow(Window);
+	if (GetForegroundWindow() == Window)
+	{
+		OnGameWindowActivated();
+		SetFocus(Window);
+	}
+	// The startup window procedure did not maintain activation state, and a
+	// nonactivating reveal need not generate a new WM_ACTIVATEAPP notification.
+	// Refresh the normal input, sound, and scheduling policy after installing it.
+	SendMessageW(Window, WM_ACTIVATEAPP, GetForegroundWindow() == Window ? TRUE : FALSE, 0);
+}
+
+void MainWindow::OnGameWindowActivated()
+{
+	if (StartupHidden || !StartupMaximizePending || GetForegroundWindow() != Window) return;
+	// Clear before ShowWindow, which can synchronously reenter the window proc.
+	StartupMaximizePending = false;
+	if ((GetWindowLong(Window, GWL_STYLE) & WS_POPUP) == 0)
+		ShowWindow(Window, SW_MAXIMIZE);
+}
+
+void MainWindow::ResetStartupPresentation()
+{
+	StartupHidden = false;
+	StartupShowCommand = SW_SHOW;
+	StartupMaximizePending = false;
+	StartupForegroundWindow = nullptr;
+	StartupLastInputTime = 0;
+	StartupLastInputValid = false;
 }
 
 // Returns the main window to its startup state.

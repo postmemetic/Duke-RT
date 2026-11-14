@@ -1,4 +1,5 @@
 #include "nri_renderdevice.h"
+#include "common/platform/startup_progress.h"
 #include "../scene/nri_sector_color_policy.h"
 #include "nri_gpu_timing.h"
 #include "perf_audit.h"
@@ -2822,44 +2823,54 @@ void NRIRenderDevice::Update()
 
 void NRIRenderDevice::InitializeState()
 {
+	auto initialize = [](const char* label, auto&& work)
+	{
+		StartupProgress::CheckCancellation();
+		StartupProgress::SetStage(label);
+		StartupProgress::Operation operation("graphics", label);
+		const bool success = work();
+		operation.Finish(success);
+		StartupProgress::CheckCancellation();
+		return success;
+	};
 	NRIResetSettingsAvailability();
 	SetViewportRects(nullptr);
 
 	StartupRecovery_UpdateStage("nri_load");
-	if (!LoadNRI())
+	if (!initialize("Loading graphics backend", [&] { return LoadNRI(); }))
 	{
 		Printf(TEXTCOLOR_RED "NRI backend initialization failed.\n");
 		StartupRecovery_MarkNriStartupFailure("nri_load", "load_nri_failed");
 		mInitialized = false;
-		return;
+		I_FatalError("Unable to load the NRI graphics backend. See the startup log for details.");
 	}
 
 	StartupRecovery_UpdateStage("nri_create_device");
-	if (!CreateDevice())
+	if (!initialize("Creating graphics device", [&] { return CreateDevice(); }))
 	{
 		Printf(TEXTCOLOR_RED "NRI backend initialization failed.\n");
 		mInitialized = false;
-		return;
+		I_FatalError("Unable to create the NRI graphics device. See the startup log for details.");
 	}
 
 	NRIRefreshSettingsAvailability(*this);
 	StartupRecovery_UpdateStage("nri_create_render_resources");
-	if (!CreateRenderResources())
+	if (!initialize("Preparing graphics resources", [&] { return CreateRenderResources(); }))
 	{
 		Printf(TEXTCOLOR_RED "NRI backend initialization failed.\n");
 		StartupRecovery_MarkNriStartupFailure("nri_create_render_resources", "create_render_resources_failed");
 		mInitialized = false;
-		return;
+		I_FatalError("Unable to prepare NRI graphics resources. See the startup log for details.");
 	}
 
 	StartupRecovery_UpdateStage("nri_create_swapchain");
-	mFrameGeneration.Initialize(*this);
-	if (!CreateSwapChain())
+	initialize("Preparing presentation", [&] { mFrameGeneration.Initialize(*this); return true; });
+	if (!initialize("Creating game display", [&] { return CreateSwapChain(); }))
 	{
 		Printf(TEXTCOLOR_RED "NRI backend initialization failed.\n");
 		StartupRecovery_MarkNriStartupFailure("nri_create_swapchain", "create_swapchain_failed");
 		mInitialized = false;
-		return;
+		I_FatalError("Unable to create the NRI game display. See the startup log for details.");
 	}
 
 	NRIRefreshSettingsAvailability(*this);
@@ -2870,9 +2881,13 @@ void NRIRenderDevice::InitializeState()
 	mBones = new BoneBuffer(mPipelineNbr);
 
 	LogStartup();
-	if (mRenderer != nullptr && !mRenderer->Initialize())
+	if (mRenderer != nullptr && !initialize("Preparing renderer", [&] { return mRenderer->Initialize(); }))
 	{
-		Printf(TEXTCOLOR_RED "NRI path tracing renderer initialization failed.\n");
+		// SetResolution assumes InitializeState either succeeds or throws.
+		// Unsupported hardware already selects its fallback inside Initialize;
+		// false here means required resources/pipelines failed to prepare.
+		StartupRecovery_MarkNriStartupFailure("nri_prepare_renderer", "prepare_renderer_failed");
+		I_FatalError("Unable to prepare the NRI renderer. See the startup log for details.");
 	}
 	mInitialized = true;
 }
@@ -10588,7 +10603,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 		{
 			NoteSwapChainPresent(mCurrentSwapChainImage);
 		}
-		mHasPresentedSwapChainFrame = true;
+		mHasPresentedSwapChainFrame = submitResult == nri::Result::SUCCESS;
 		StartupRecovery_NoteNriGameplayPresent(gametic, gamestate == GS_LEVEL);
 		if (nri_ptdebug > 0 && sLoggedPresentCount < 4)
 		{

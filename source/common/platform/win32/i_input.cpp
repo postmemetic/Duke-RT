@@ -486,6 +486,11 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 		break;
 
+	case WM_ACTIVATE:
+		if (LOWORD(wParam) != WA_INACTIVE)
+			mainwindow.OnGameWindowActivated();
+		return DefWindowProc(hWnd, message, wParam, lParam);
+
 	case WM_ACTIVATEAPP:
 		AppActive = (wParam == TRUE);
 		if (wParam || !i_pauseinbackground)

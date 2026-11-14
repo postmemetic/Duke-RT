@@ -63,6 +63,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "x86.h"
 #include "startupinfo.h"
 #include "startup_recovery.h"
+#include "startup_loading.h"
 #include "mapinfo.h"
 #include "menustate.h"
 #include "screenjob_.h"
@@ -644,7 +645,7 @@ int GameMain()
 		gi->FreeLevelData();
 		for (int i = 0; i < MAXPLAYERS; i++)
 		{
-			PlayerArray[i]->Destroy();
+			if (PlayerArray[i]) PlayerArray[i]->Destroy();
 			PlayerArray[i] = nullptr;
 		}
 	}
@@ -665,6 +666,7 @@ int GameMain()
 	ClearPalManager();
 	TexMan.DeleteAll();
 	I_ShutdownGraphics();
+	StartupLoadingScreen::ResetAfterGraphicsShutdown();
 	if (gi)
 	{
 		delete gi;
@@ -1060,10 +1062,19 @@ int RunGame()
 	StartupRecovery_Begin();
 	GetGames();
 	auto usedgroups = SetupGame();
+	if (usedgroups.Size() == 0) return 0;
+	const char* startupFont = isDuke() ?
+		(((int)duke_menufont == 1 || ((int)duke_menufont == -1 && !isPlutoPak())) ? "duke13" : "duke15") : "default";
+	StartupLoadingScreen startupScreen("Duke-RT", startupFont,
+		!Args->CheckParm("-nostartup"), Args->CheckParm("-startuptrace") != 0);
+	if (StartupProgress::IsTracing())
+		Printf("Startup trace: build=%s revision=%s font=%s\n", GetVersionString(), GetGitHash(), startupFont);
 
+	StartupLoadingScreen::SetStage("Preparing graphics");
 	V_InitScreenSize();
 	V_InitScreen();
 	V_Init2();
+	StartupLoadingScreen::SetStage("Loading game resources");
 
 	bool colorset = false;
 	for (int i = usedgroups.Size()-1; i >= 0; i--)
@@ -1140,14 +1151,17 @@ int RunGame()
 	CheckUserMap();
 
 	palindexmap[0] = 255;
+	StartupLoadingScreen::SetStage("Preparing palettes");
 	for (int i = 1; i <= 255; i++) palindexmap[i] = i;
 	GPalette.Init(MAXPALOOKUPS + 2, palindexmap);    // one slot for each translation, plus a separate one for the base palettes and the internal one
 	gi->loadPalette();
 	BuildFogTable();
 	StartWindow->Progress();
+	StartupLoadingScreen::SetStage("Loading textures and fonts");
 	InitTextures(usedgroups);
 
 	StartWindow->Progress();
+	StartupLoadingScreen::SetStage("Preparing audio");
 	I_InitSound();
 	gi->StartSoundEngine();
 	StartWindow->Progress();
@@ -1155,6 +1169,7 @@ int RunGame()
 	S_ParseSndInfo();
 	S_ParseReverbDef();
 	InitStatistics();
+	StartupLoadingScreen::SetStage("Loading game scripts");
 	LoadScripts();
 	StartWindow->Progress();
 	SetDefaultStrings();
@@ -1169,8 +1184,10 @@ int RunGame()
 
 	GC::AddMarkerFunc(MarkMap);
 	GC::AddMarkerFunc(MarkPlayers);
+	StartupLoadingScreen::SetStage("Initializing game");
 	gi->app_init();
 	StartWindow->Progress();
+	StartupLoadingScreen::SetStage("Preparing menus");
 	G_ParseMapInfo();
 	ParseGLDefs();
 	ParseLightOverlays();
@@ -1188,9 +1205,10 @@ int RunGame()
 	I_UpdateWindowTitle();
 	DeleteStartupScreen();
 
+	StartupLoadingScreen::SetStage("Finishing graphics setup");
 	while (!screen->CompileNextShader())
 	{
-		// here we can do some visual updates later
+		StartupProgress::CheckCancellation();
 	}
 	twod->Begin(screen->GetWidth(), screen->GetHeight());
 	twod->End();
@@ -1199,7 +1217,9 @@ int RunGame()
 
 	setVideoMode();
 
+	StartupLoadingScreen::SetStage("Loading voxel models");
 	LoadVoxelModels();
+	StartupLoadingScreen::SetStage("Finishing startup");
 	screen->BeginFrame();
 	screen->SetTextureFilterMode();
 	setViewport(hud_size);
@@ -1208,6 +1228,7 @@ int RunGame()
 	UpdateGenericUI(ui_generic);
 	PClassActor::StaticInit();
 	gi->FinalizeSetup();
+	StartupProgress::CheckCancellation();
 	MainLoop();
 	return 0;
 }

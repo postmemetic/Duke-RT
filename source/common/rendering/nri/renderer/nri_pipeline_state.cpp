@@ -3,6 +3,7 @@
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 #include "nri_shader_contracts.h"
+#include "nri_startup_pipeline_report.h"
 #include "../system/nri_renderdevice.h"
 #include "printf.h"
 
@@ -515,10 +516,11 @@ bool NRIPipelineStateManager::CreateVoxelComputePipelineLayout(NRIRenderer& rend
 
 bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 {
-	auto createPipeline = [&renderer](const char* fileName, NRIRenderer::PipelineSlot slot, nri::PipelineLayout* layout)
+	auto createPipeline = [&renderer](const char* fileName, const char* label, NRIRenderer::PipelineSlot slot, nri::PipelineLayout* layout)
 	{
+		NRIStartupPipelineReport report(fileName, label, renderer.mFrameBuffer->GetSelectedAPI());
 		std::vector<uint8_t> shaderBlob;
-		if (!renderer.mFrameBuffer->LoadShaderBlob(fileName, shaderBlob))
+		if (!report.Read([&]() { return renderer.mFrameBuffer->LoadShaderBlob(fileName, shaderBlob); }, shaderBlob))
 		{
 			Printf("NRI PT pipeline create failed: shader=%s reason=load\n", fileName);
 			return false;
@@ -537,10 +539,13 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 		{
 			Printf("NRI PT voxel pipeline create: shader=%s slot=%u event=begin\n", fileName, (unsigned)slot);
 		}
-		const nri::Result result = renderer.mFrameBuffer->mCore.CreateComputePipeline(
-			*renderer.mFrameBuffer->mDevice,
-			pipelineDesc,
-			renderer.mPipelines[(size_t)slot]);
+		const nri::Result result = report.Create([&]()
+		{
+			return renderer.mFrameBuffer->mCore.CreateComputePipeline(
+				*renderer.mFrameBuffer->mDevice,
+				pipelineDesc,
+				renderer.mPipelines[(size_t)slot]);
+		});
 		if (result != nri::Result::SUCCESS)
 		{
 			Printf("NRI PT pipeline create failed: shader=%s slot=%u result=%d\n", fileName, (unsigned)slot, (int)result);
@@ -580,32 +585,51 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 	const std::string bloomUpsample = "BloomUpsample.cs." + suffix;
 	const std::string bloomComposite = "BloomComposite.cs." + suffix;
 
-	return
-		createPipeline(trace.c_str(), NRIRenderer::PipelineSlot::TraceOpaque, renderer.mPipelineLayout) &&
+	struct PipelineTask
+	{
+		const char* fileName;
+		const char* label;
+		NRIRenderer::PipelineSlot slot;
+		nri::PipelineLayout* layout;
+		bool enabled = true;
+	};
+	const PipelineTask tasks[] = {
+		{ trace.c_str(), "Preparing ray-traced lighting", NRIRenderer::PipelineSlot::TraceOpaque, renderer.mPipelineLayout },
 		// The first lean artifact uses the legacy absence layout. Typed/comparison
 		// formats deliberately leave this slot empty and retain the full shader.
-		(renderer.mSpatialAbsenceFormat != 0u || createPipeline(traceLeanDebug.c_str(), NRIRenderer::PipelineSlot::TraceOpaqueLeanDebug, renderer.mPipelineLayout)) &&
-		createPipeline(composition.c_str(), NRIRenderer::PipelineSlot::Composition, renderer.mPipelineLayout) &&
-		createPipeline(traceTransparent.c_str(), NRIRenderer::PipelineSlot::TraceTransparent, renderer.mPipelineLayout) &&
-		createPipeline(exposureHistogramClear.c_str(), NRIRenderer::PipelineSlot::ExposureHistogramClear, renderer.mExposurePipelineLayout) &&
-		createPipeline(exposureHistogramBuild.c_str(), NRIRenderer::PipelineSlot::ExposureHistogramBuild, renderer.mExposurePipelineLayout) &&
-		createPipeline(exposureResolve.c_str(), NRIRenderer::PipelineSlot::ExposureResolve, renderer.mExposurePipelineLayout) &&
-		createPipeline(taa.c_str(), NRIRenderer::PipelineSlot::Taa, renderer.mTaaPipelineLayout) &&
-		createPipeline(temporalReactiveCombine.c_str(), NRIRenderer::PipelineSlot::TemporalReactiveCombine, renderer.mTaaPipelineLayout) &&
-		createPipeline(rawPresent.c_str(), NRIRenderer::PipelineSlot::RawPresent, renderer.mPresentPipelineLayout) &&
-		createPipeline(finalPresent.c_str(), NRIRenderer::PipelineSlot::FinalPresent, renderer.mPresentPipelineLayout) &&
-		createPipeline(dlssSrBefore.c_str(), NRIRenderer::PipelineSlot::DlssSrBefore, renderer.mPipelineLayout) &&
-		createPipeline(dlssBefore.c_str(), NRIRenderer::PipelineSlot::DlssBefore, renderer.mPipelineLayout) &&
-		createPipeline(dlssAfter.c_str(), NRIRenderer::PipelineSlot::DlssAfter, renderer.mPipelineLayout) &&
-		createPipeline(final.c_str(), NRIRenderer::PipelineSlot::Final, renderer.mPipelineLayout) &&
-		createPipeline(bloomCopy.c_str(), NRIRenderer::PipelineSlot::BloomCopy, renderer.mBloomPipelineLayout) &&
-		createPipeline(voxelComputeCount.c_str(), NRIRenderer::PipelineSlot::VoxelComputeCount, renderer.mVoxelComputePipelineLayout) &&
-		createPipeline(voxelComputeEmit.c_str(), NRIRenderer::PipelineSlot::VoxelComputeEmit, renderer.mVoxelComputePipelineLayout) &&
-		createPipeline(voxelComputeClassify.c_str(), NRIRenderer::PipelineSlot::VoxelComputeClassify, renderer.mVoxelComputePipelineLayout) &&
-		createPipeline(voxelComputeScan.c_str(), NRIRenderer::PipelineSlot::VoxelComputeScan, renderer.mVoxelComputePipelineLayout) &&
-		createPipeline(voxelComputeEmitParallel.c_str(), NRIRenderer::PipelineSlot::VoxelComputeEmitParallel, renderer.mVoxelComputePipelineLayout) &&
-		createPipeline(voxelComputeFinalize.c_str(), NRIRenderer::PipelineSlot::VoxelComputeFinalize, renderer.mVoxelComputePipelineLayout) &&
-		createPipeline(bloomDownsample.c_str(), NRIRenderer::PipelineSlot::BloomDownsample, renderer.mBloomPipelineLayout) &&
-		createPipeline(bloomUpsample.c_str(), NRIRenderer::PipelineSlot::BloomUpsample, renderer.mBloomPipelineLayout) &&
-		createPipeline(bloomComposite.c_str(), NRIRenderer::PipelineSlot::BloomComposite, renderer.mBloomPipelineLayout);
+		{ traceLeanDebug.c_str(), "Preparing ray-traced lighting", NRIRenderer::PipelineSlot::TraceOpaqueLeanDebug, renderer.mPipelineLayout, renderer.mSpatialAbsenceFormat == 0u },
+		{ composition.c_str(), "Preparing lighting", NRIRenderer::PipelineSlot::Composition, renderer.mPipelineLayout },
+		{ traceTransparent.c_str(), "Preparing transparent surfaces", NRIRenderer::PipelineSlot::TraceTransparent, renderer.mPipelineLayout },
+		{ exposureHistogramClear.c_str(), "Preparing exposure", NRIRenderer::PipelineSlot::ExposureHistogramClear, renderer.mExposurePipelineLayout },
+		{ exposureHistogramBuild.c_str(), "Preparing exposure", NRIRenderer::PipelineSlot::ExposureHistogramBuild, renderer.mExposurePipelineLayout },
+		{ exposureResolve.c_str(), "Preparing exposure", NRIRenderer::PipelineSlot::ExposureResolve, renderer.mExposurePipelineLayout },
+		{ taa.c_str(), "Preparing anti-aliasing", NRIRenderer::PipelineSlot::Taa, renderer.mTaaPipelineLayout },
+		{ temporalReactiveCombine.c_str(), "Preparing anti-aliasing", NRIRenderer::PipelineSlot::TemporalReactiveCombine, renderer.mTaaPipelineLayout },
+		{ rawPresent.c_str(), "Preparing display output", NRIRenderer::PipelineSlot::RawPresent, renderer.mPresentPipelineLayout },
+		{ finalPresent.c_str(), "Preparing display output", NRIRenderer::PipelineSlot::FinalPresent, renderer.mPresentPipelineLayout },
+		{ dlssSrBefore.c_str(), "Preparing image upscaling", NRIRenderer::PipelineSlot::DlssSrBefore, renderer.mPipelineLayout },
+		{ dlssBefore.c_str(), "Preparing image upscaling", NRIRenderer::PipelineSlot::DlssBefore, renderer.mPipelineLayout },
+		{ dlssAfter.c_str(), "Preparing image upscaling", NRIRenderer::PipelineSlot::DlssAfter, renderer.mPipelineLayout },
+		{ final.c_str(), "Preparing display output", NRIRenderer::PipelineSlot::Final, renderer.mPipelineLayout },
+		{ bloomCopy.c_str(), "Preparing glow effects", NRIRenderer::PipelineSlot::BloomCopy, renderer.mBloomPipelineLayout },
+		{ voxelComputeCount.c_str(), "Preparing voxel models", NRIRenderer::PipelineSlot::VoxelComputeCount, renderer.mVoxelComputePipelineLayout },
+		{ voxelComputeEmit.c_str(), "Preparing voxel models", NRIRenderer::PipelineSlot::VoxelComputeEmit, renderer.mVoxelComputePipelineLayout },
+		{ voxelComputeClassify.c_str(), "Preparing voxel models", NRIRenderer::PipelineSlot::VoxelComputeClassify, renderer.mVoxelComputePipelineLayout },
+		{ voxelComputeScan.c_str(), "Preparing voxel models", NRIRenderer::PipelineSlot::VoxelComputeScan, renderer.mVoxelComputePipelineLayout },
+		{ voxelComputeEmitParallel.c_str(), "Preparing voxel models", NRIRenderer::PipelineSlot::VoxelComputeEmitParallel, renderer.mVoxelComputePipelineLayout },
+		{ voxelComputeFinalize.c_str(), "Preparing voxel models", NRIRenderer::PipelineSlot::VoxelComputeFinalize, renderer.mVoxelComputePipelineLayout },
+		{ bloomDownsample.c_str(), "Preparing glow effects", NRIRenderer::PipelineSlot::BloomDownsample, renderer.mBloomPipelineLayout },
+		{ bloomUpsample.c_str(), "Preparing glow effects", NRIRenderer::PipelineSlot::BloomUpsample, renderer.mBloomPipelineLayout },
+		{ bloomComposite.c_str(), "Preparing glow effects", NRIRenderer::PipelineSlot::BloomComposite, renderer.mBloomPipelineLayout }
+	};
+	uint32_t taskCount = 0;
+	for (const PipelineTask& task : tasks)
+		taskCount += task.enabled ? 1u : 0u;
+	StartupProgress::BeginTasks("Preparing graphics", taskCount);
+	for (const PipelineTask& task : tasks)
+	{
+		if (task.enabled && !createPipeline(task.fileName, task.label, task.slot, task.layout))
+			return false;
+	}
+	return true;
 }

@@ -67,6 +67,7 @@
 #include "i_time.h"
 #include "d_net.h"
 #include "gamecontrol.h"
+#include "startup_loading.h"
 #include "gamefuncs.h"
 #include "gameupdate.h"
 #include "actor_presentation_snapshot.h"
@@ -1340,7 +1341,9 @@ void Display()
 		perf2DProducerTraceStats.totalVertices = preUpdate2D.vertices;
 		perf2DProducerTraceStats.totalIndices = preUpdate2D.indices;
 	}
+	StartupLoadingScreen::BeforeFirstPresent();
 	screen->Update();
+	StartupLoadingScreen::AfterFirstPresent();
 	perfDisplayTraceStats.updateMs += I_msTimeF() - stageStart;
 
 	if (releaseLevelLoadBoundaryAfterPresent)

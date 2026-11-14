@@ -3,6 +3,7 @@
 #include "nri_pass_dispatch.h"
 #include "nri_smoke_descriptor_budget.h"
 #include "nri_renderer.h"
+#include "nri_startup_pipeline_report.h"
 #include "../system/nri_gpu_timing.h"
 #include "../system/nri_renderdevice.h"
 #include "gamecontrol.h"
@@ -385,11 +386,13 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 		return false;
 
 	const bool d3d12 = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
+	StartupProgress::BeginTasks("Preparing smoke effects", static_cast<uint32_t>(mPipelines.size()));
 	for (uint32_t i = 0; i < (uint32_t)mPipelines.size(); ++i)
 	{
 		std::vector<uint8_t> blob;
 		const std::string file = std::string(kSmokePipelineNames[i]) + ".cs." + (d3d12 ? "dxil" : "spirv");
-		if (!renderer.mFrameBuffer->LoadShaderBlob(file.c_str(), blob))
+		NRIStartupPipelineReport report(file.c_str(), "Preparing smoke effects", renderer.mFrameBuffer->GetSelectedAPI());
+		if (!report.Read([&]() { return renderer.mFrameBuffer->LoadShaderBlob(file.c_str(), blob); }, blob))
 			return false;
 		nri::ShaderDesc shader = {};
 		shader.stage = nri::StageBits::COMPUTE_SHADER;
@@ -399,7 +402,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 		nri::ComputePipelineDesc pipeline = {};
 		pipeline.pipelineLayout = mPipelineLayout;
 		pipeline.shader = shader;
-		if (renderer.mFrameBuffer->mCore.CreateComputePipeline(*renderer.mFrameBuffer->mDevice, pipeline, mPipelines[i]) != nri::Result::SUCCESS)
+		if (report.Create([&]() { return renderer.mFrameBuffer->mCore.CreateComputePipeline(*renderer.mFrameBuffer->mDevice, pipeline, mPipelines[i]); }) != nri::Result::SUCCESS)
 			return false;
 	}
 	// The grid-lighting owner shares this layout so it can consume the already
