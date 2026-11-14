@@ -9,6 +9,9 @@
 #include <memory>
 #include <mutex>
 
+extern bool gameisdead;
+extern FILE* Logfile;
+
 #ifdef _WIN32
 #include "win32/startup_progress_win32.h"
 #endif
@@ -39,6 +42,26 @@ double NowSeconds()
 double ElapsedSeconds()
 {
 	return std::chrono::duration<double>(Clock::now() - StartTime).count();
+}
+
+void LogTerminalState(const char* stage, double stageElapsedMs, const char* status, double elapsedMs)
+{
+	constexpr const char* StageFormat = "STARTUP stage end: name=\"%s\" elapsed_ms=%.3f\n";
+	constexpr const char* SessionFormat = "STARTUP session end: status=%s elapsed_ms=%.3f\n";
+	// Called only by session cleanup on the engine thread. I_FatalError
+	// disables console output before unwinding, but leaves its logfile open.
+	// Match that fatal-error path so the final startup record is not lost.
+	if (gameisdead && Logfile)
+	{
+		fprintf(Logfile, StageFormat, stage, stageElapsedMs);
+		fprintf(Logfile, SessionFormat, status, elapsedMs);
+		fflush(Logfile);
+	}
+	else
+	{
+		Printf(StageFormat, stage, stageElapsedMs);
+		Printf(SessionFormat, status, elapsedMs);
+	}
 }
 }
 
@@ -148,8 +171,7 @@ void Session::Close(bool completed) noexcept
 	{
 		try
 		{
-			Printf("STARTUP stage end: name=\"%s\" elapsed_ms=%.3f\n", stage.c_str(), stageElapsed * 1000.0);
-			Printf("STARTUP session end: status=%s elapsed_ms=%.3f\n",
+			LogTerminalState(stage.c_str(), stageElapsed * 1000.0,
 				cancelled ? "cancelled" : completed ? (failed ? "completed-with-failures" : "ready") : "aborted", elapsed * 1000.0);
 		}
 		catch (...) {}
