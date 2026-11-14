@@ -902,11 +902,13 @@ void NRIRenderState::FillShaderConstants(NRIShaderConstants& constants) const
 	if (mFrameBuffer != nullptr && mFrameBuffer->mActiveTarget != nullptr)
 	{
 		const bool isPresentTarget = mFrameBuffer->mActiveTarget == mFrameBuffer->mCurrentPresentTarget;
+		const bool isSaveTarget = mFrameBuffer->mActiveTarget == &mFrameBuffer->mSaveTarget;
 		const bool isFrameGenerationUiTarget =
 			mFrameBuffer->IsFrameGenerationPresentPathActive() &&
 			mFrameBuffer->mActiveTarget == mFrameBuffer->GetFrameGenerationUiTargetResource();
 		const NRIPTOutputPolicy outputPolicy = mFrameBuffer->GetPathTracingOutputPolicy();
-		if ((isPresentTarget || isFrameGenerationUiTarget) && outputPolicy.hdrSwapChainActive)
+		if ((isPresentTarget || isFrameGenerationUiTarget || isSaveTarget) && outputPolicy.hdrSwapChainActive &&
+			mFrameBuffer->mActiveTarget->format == nri::Format::RGBA16_SFLOAT)
 		{
 			constants.Flags |= NRI2D_OutputHdrLinear;
 			constants.OutputInfo[0] = GetNRIPTHdrUiWhiteScale(outputPolicy);

@@ -253,7 +253,7 @@ void DoWriteSavePic(FileWriter* file, uint8_t* scr, int width, int height, bool 
 		pitch *= -1;
 	}
 
-	M_CreatePNG(file, scr, nullptr, SS_RGB, width, height, pitch, vid_gamma);
+	M_CreatePNG(file, scr, nullptr, SS_RGB, width, height, pitch, vid_gamma, screen->IsScreenshotSrgb());
 }
 
 //===========================================================================

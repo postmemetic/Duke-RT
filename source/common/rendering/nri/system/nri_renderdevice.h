@@ -4,6 +4,7 @@
 #include "../nri_output.h"
 #include "../framegen/nri_framegen.h"
 #include "nri_frame_shell.h"
+#include "nri_capture_color.h"
 #include "nri_local.h"
 #include "Extensions/NRIWrapperD3D12.h"
 
@@ -139,6 +140,7 @@ public:
 	void ConsumePathTracingWeaponLightEvents(TArray<PathTracingWeaponLightEvent>& outEvents);
 	uint32_t GetPendingPathTracingWeaponLightEventCount() const;
 	NRIPTOutputPolicy GetPathTracingOutputPolicy() const;
+	nri::Format GetSceneOutputFormat() const;
 	void PrintPathTracingOutputModeChange(uint32_t frameIndex, NRIPTOutputMode previousRequestedMode, NRIPTOutputMode previousResolvedMode) const;
 
 	IHardwareTexture* CreateHardwareTexture(int numchannels) override;
@@ -150,6 +152,7 @@ public:
 	bool QueueScreenshot(FileWriter* file, const char* filename = nullptr) override;
 	TArray<uint8_t> GetScreenshotBuffer(int& pitch, ESSType& color_type, float& gamma) override;
 	bool FlipSavePic() const override { return false; }
+	bool IsScreenshotSrgb() const override { return true; }
 	void PrintPathTracingCaps() const;
 	void PrintPathTracingStatus() const;
 	void PrintPathTracingBuffers() const;
@@ -257,7 +260,7 @@ private:
 		uint32_t height = 0;
 		uint32_t rowPitch = 0;
 		uint32_t slicePitch = 0;
-		nri::Format sourceFormat = nri::Format::UNKNOWN;
+		NRICaptureColorInfo colorInfo = {};
 		bool readbackRecorded = false;
 	};
 
@@ -362,6 +365,7 @@ private:
 	void DestroyFrameGenerationUiTexture();
 	void DestroyViewSnapshotTexture();
 	bool EnsureSaveTarget(uint32_t width, uint32_t height);
+	NRICaptureColorInfo GetCaptureColorInfo(const NRITextureResource& source) const;
 	bool SubmitAndWaitCurrentCommandBuffer();
 	bool CopyTextureToTexture(NRITextureResource& destination, NRITextureResource& source);
 	bool SnapshotTextureToCanvas(FCanvasTexture* tex, NRITextureResource& source);

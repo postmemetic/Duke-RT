@@ -70,7 +70,7 @@ static void WritePNGfile(FileWriter* file, const uint8_t* buffer, const PalEntry
 	ESSType color_type, int width, int height, int pitch, float gamma)
 {
 	FStringf software(GAMENAME " %s", GetVersionString());
-	if (!M_CreatePNG(file, buffer, palette, color_type, width, height, pitch, gamma) ||
+	if (!M_CreatePNG(file, buffer, palette, color_type, width, height, pitch, gamma, screen->IsScreenshotSrgb()) ||
 		!M_AppendPNGText(file, "Software", software.GetChars()) ||
 		!M_FinishPNG(file))
 	{

@@ -44,18 +44,7 @@ nri::Format NRIFrameResources::ResolveFinalSceneFormat(const NRIRenderer& render
 		return nri::Format::BGRA8_UNORM;
 	}
 
-	const NRIFrameGenerationPresentContract& presentContract = renderer.mFrameBuffer->mFrameGeneration.GetPresentContract();
-	if (presentContract.resolvedTextureFormat != nri::Format::UNKNOWN)
-	{
-		return presentContract.resolvedTextureFormat;
-	}
-
-	if (renderer.mFrameBuffer->mResolvedSwapChainTextureFormat != nri::Format::UNKNOWN)
-	{
-		return renderer.mFrameBuffer->mResolvedSwapChainTextureFormat;
-	}
-
-	return nri::Format::BGRA8_UNORM;
+	return renderer.mFrameBuffer->GetSceneOutputFormat();
 }
 
 void NRIFrameResources::DestroyFrameTextures(NRIRenderer& renderer)

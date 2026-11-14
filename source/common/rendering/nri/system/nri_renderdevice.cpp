@@ -36,7 +36,6 @@
 #include "textures.h"
 #include "v_2ddrawer.h"
 #include "v_draw.h"
-#include "version.h"
 #include "hw_drawinfo.h"
 #include "hwrenderer/data/hw_clock.h"
 #include "hwrenderer/data/hw_viewpointbuffer.h"
@@ -1100,17 +1099,6 @@ namespace
 		return (nri::StageBits)((uint32_t)nri::StageBits::COPY | (uint32_t)nri::StageBits::COLOR_ATTACHMENT);
 	}
 
-	static uint32_t AlignUp(uint32_t value, uint32_t alignment)
-	{
-		if (alignment <= 1)
-		{
-			return value;
-		}
-
-		const uint32_t remainder = value % alignment;
-		return remainder == 0 ? value : value + alignment - remainder;
-	}
-
 #ifdef _WIN32
 	static const char* GetDxgiErrorName(HRESULT hr)
 	{
@@ -1738,56 +1726,6 @@ namespace
 		case nri::Format::R10_G10_B10_A2_UNORM: return "R10_G10_B10_A2_UNORM";
 		default: return "other";
 		}
-	}
-
-	static uint32_t GetScreenshotSourceBytesPerPixel(nri::Format format)
-	{
-		switch (format)
-		{
-		case nri::Format::BGRA8_UNORM:
-		case nri::Format::RGBA8_UNORM:
-		case nri::Format::BGRA8_SRGB:
-		case nri::Format::RGBA8_SRGB:
-		case nri::Format::R10_G10_B10_A2_UNORM:
-			return 4;
-		case nri::Format::RGBA16_SFLOAT:
-			return 8;
-		default:
-			return 0;
-		}
-	}
-
-	static float HalfToFloat(uint16_t value)
-	{
-		const uint32_t sign = (value >> 15) & 1u;
-		const uint32_t exponent = (value >> 10) & 0x1fu;
-		const uint32_t mantissa = value & 0x3ffu;
-
-		float result = 0.0f;
-		if (exponent == 0)
-		{
-			result = mantissa == 0 ? 0.0f : std::ldexp((float)mantissa, -24);
-		}
-		else if (exponent == 31)
-		{
-			result = mantissa == 0 ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
-		}
-		else
-		{
-			result = std::ldexp(1.0f + (float)mantissa / 1024.0f, (int)exponent - 15);
-		}
-
-		return sign ? -result : result;
-	}
-
-	static uint8_t FloatToByte(float value)
-	{
-		if (!std::isfinite(value))
-		{
-			value = 0.0f;
-		}
-		value = std::clamp(value, 0.0f, 1.0f);
-		return (uint8_t)std::lround(value * 255.0f);
 	}
 
 	static NRIPTOutputMode GetRequestedPathTracingOutputMode()
@@ -3806,22 +3744,6 @@ void NRIRenderDevice::DestroyViewSnapshotTexture()
 {
 	delete mViewSnapshotTexture;
 	mViewSnapshotTexture = nullptr;
-}
-
-bool NRIRenderDevice::EnsureSaveTarget(uint32_t width, uint32_t height)
-{
-	if (width == 0 || height == 0)
-	{
-		return false;
-	}
-
-	if (mSaveTarget.texture != nullptr && mSaveTarget.width == width && mSaveTarget.height == height)
-	{
-		return true;
-	}
-
-	DestroyTextureResource(mSaveTarget);
-	return CreateOwnedTexture(mSaveTarget, width, height, nri::Format::BGRA8_UNORM, NRIFlags(nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureUsageBits::COLOR_ATTACHMENT));
 }
 
 void NRIRenderDevice::WaitForCommands(bool finish)
@@ -7551,45 +7473,6 @@ FTexture* NRIRenderDevice::WipeEndScreen()
 	return tex;
 }
 
-bool NRIRenderDevice::QueueScreenshot(FileWriter* file, const char* filename)
-{
-	if (file == nullptr)
-	{
-		return false;
-	}
-
-	if (!mInitialized)
-	{
-		return false;
-	}
-
-	PendingScreenshotCapture capture;
-	capture.file.reset(file);
-	capture.fileName = filename != nullptr ? filename : "";
-	capture.serial = mNextScreenshotCaptureSerial++;
-	capture.width = (uint32_t)GetWidth();
-	capture.height = (uint32_t)GetHeight();
-	Printf("NRI screenshot queued: serial=%llu path=\"%s\"\n",
-		(unsigned long long)capture.serial,
-		capture.fileName.GetChars());
-	mPendingScreenshotCaptures.push_back(std::move(capture));
-	return true;
-}
-
-TArray<uint8_t> NRIRenderDevice::GetScreenshotBuffer(int& pitch, ESSType& color_type, float& gamma)
-{
-	const int w = SCREENWIDTH;
-	const int h = SCREENHEIGHT;
-
-	TArray<uint8_t> buffer(w * h * 3, true);
-	CopyScreenToBuffer(w, h, buffer.Data());
-
-	pitch = w * 3;
-	color_type = SS_RGB;
-	gamma = 1.0f;
-	return buffer;
-}
-
 void NRIRenderDevice::RefreshNativeFrameGenerationHandles()
 {
 #ifdef _WIN32
@@ -8033,6 +7916,15 @@ void NRIRenderDevice::ResolvePathTracingSwapChainOutput(nri::SwapChainFormat& ou
 	default:
 		return;
 	}
+}
+
+nri::Format NRIRenderDevice::GetSceneOutputFormat() const
+{
+	const auto& presentContract = mFrameGeneration.GetPresentContract();
+	if (presentContract.resolvedTextureFormat != nri::Format::UNKNOWN)
+		return presentContract.resolvedTextureFormat;
+	return mResolvedSwapChainTextureFormat != nri::Format::UNKNOWN ?
+		mResolvedSwapChainTextureFormat : nri::Format::BGRA8_UNORM;
 }
 
 NRIPTOutputPolicy NRIRenderDevice::GetPathTracingOutputPolicy() const
@@ -10868,275 +10760,6 @@ void NRIRenderDevice::SnapshotCurrentViewToCanvas(FCanvasTexture* tex)
 	{
 		tex->SetUpdated(true);
 	}
-}
-
-void NRIRenderDevice::RecordPendingScreenshotReadbacks()
-{
-	if (mPendingScreenshotCaptures.empty())
-	{
-		return;
-	}
-
-	if (!mFrameBegun || mCommandBuffer == nullptr || mCurrentPresentTarget == nullptr || mCurrentPresentTarget->texture == nullptr)
-	{
-		return;
-	}
-
-	NRITextureResource& source = *mCurrentPresentTarget;
-	const uint32_t bytesPerPixel = GetScreenshotSourceBytesPerPixel(source.format);
-	if (bytesPerPixel == 0)
-	{
-		Printf(TEXTCOLOR_RED "NRI screenshot failed: unsupported source format '%s'.\n", GetNriFormatName(source.format));
-		ClearPendingScreenshotReadbacks();
-		return;
-	}
-
-	mRenderState->EndFrame();
-	TransitionTexture(source, NRICopySourceState());
-
-	const nri::DeviceDesc& deviceDesc = mCore.GetDeviceDesc(*mDevice);
-	for (auto& capture : mPendingScreenshotCaptures)
-	{
-		if (capture.readbackRecorded || capture.readbackBuffer != nullptr)
-		{
-			continue;
-		}
-
-		capture.width = (std::min)(capture.width, source.width);
-		capture.height = (std::min)(capture.height, source.height);
-		if (capture.width == 0 || capture.height == 0)
-		{
-			continue;
-		}
-
-		capture.sourceFormat = source.format;
-		capture.rowPitch = AlignUp(capture.width * bytesPerPixel, deviceDesc.memoryAlignment.uploadBufferTextureRow);
-		capture.slicePitch = AlignUp(capture.rowPitch * capture.height, deviceDesc.memoryAlignment.uploadBufferTextureSlice);
-
-		nri::BufferDesc readbackDesc = {};
-		readbackDesc.size = capture.slicePitch;
-		if (mCore.CreateCommittedBuffer(*mDevice, nri::MemoryLocation::HOST_READBACK, 0.0f, readbackDesc, capture.readbackBuffer) != nri::Result::SUCCESS)
-		{
-			Printf(TEXTCOLOR_RED "NRI screenshot failed: could not create readback buffer.\n");
-			continue;
-		}
-
-		nri::TextureRegionDesc region = {};
-		region.width = capture.width;
-		region.height = capture.height;
-		region.depth = 1;
-		region.planes = nri::PlaneBits::COLOR;
-
-		nri::TextureDataLayoutDesc layout = {};
-		layout.rowPitch = capture.rowPitch;
-		layout.slicePitch = capture.slicePitch;
-
-		mCore.CmdReadbackTextureToBuffer(*mCommandBuffer, *capture.readbackBuffer, layout, *source.texture, region);
-		capture.readbackRecorded = true;
-		capture.shellFrameIndex = mFrameIndex;
-		capture.rendererFrameIndex = mRenderer != nullptr ? mRenderer->GetLastCompletedFrameIndex() : ~0u;
-		Printf("NRI screenshot frame: serial=%llu renderer_frame=%u shell_frame=%llu path=\"%s\"\n",
-			(unsigned long long)capture.serial,
-			capture.rendererFrameIndex,
-			(unsigned long long)capture.shellFrameIndex,
-			capture.fileName.GetChars());
-	}
-}
-
-void NRIRenderDevice::FinishPendingScreenshotReadbacks(bool submitted, uint64_t submittedFenceValue)
-{
-	if (mPendingScreenshotCaptures.empty())
-	{
-		return;
-	}
-
-	if (!submitted || mFrameFence == nullptr)
-	{
-		Printf(TEXTCOLOR_RED "NRI screenshot failed: frame submission did not complete.\n");
-		ClearPendingScreenshotReadbacks();
-		return;
-	}
-
-	if (!WaitForFenceValue(*mFrameFence, submittedFenceValue, "Wait(ScreenshotReadback)"))
-	{
-		Printf(TEXTCOLOR_RED "NRI screenshot failed: frame-fence wait did not complete.\n");
-		ClearPendingScreenshotReadbacks();
-		return;
-	}
-
-	for (auto& capture : mPendingScreenshotCaptures)
-	{
-		if (!capture.readbackRecorded || capture.readbackBuffer == nullptr || capture.file == nullptr)
-		{
-			Printf(TEXTCOLOR_RED "NRI screenshot failed: readback was not recorded.\n");
-			continue;
-		}
-
-		const uint8_t* pixels = (const uint8_t*)mCore.MapBuffer(*capture.readbackBuffer, 0, capture.slicePitch);
-		if (pixels == nullptr)
-		{
-			Printf(TEXTCOLOR_RED "NRI screenshot failed: could not map readback buffer.\n");
-			continue;
-		}
-
-		TArray<uint8_t> image(capture.width * capture.height * 3, true);
-		for (uint32_t y = 0; y < capture.height; ++y)
-		{
-			const uint8_t* src = pixels + (size_t)y * capture.rowPitch;
-			uint8_t* dst = image.Data() + (size_t)y * capture.width * 3u;
-
-			for (uint32_t x = 0; x < capture.width; ++x)
-			{
-				switch (capture.sourceFormat)
-				{
-				case nri::Format::BGRA8_UNORM:
-				case nri::Format::BGRA8_SRGB:
-					dst[x * 3 + 0] = src[x * 4 + 2];
-					dst[x * 3 + 1] = src[x * 4 + 1];
-					dst[x * 3 + 2] = src[x * 4 + 0];
-					break;
-				case nri::Format::RGBA8_UNORM:
-				case nri::Format::RGBA8_SRGB:
-					dst[x * 3 + 0] = src[x * 4 + 0];
-					dst[x * 3 + 1] = src[x * 4 + 1];
-					dst[x * 3 + 2] = src[x * 4 + 2];
-					break;
-				case nri::Format::RGBA16_SFLOAT:
-				{
-					const uint16_t* half = (const uint16_t*)(src + x * 8);
-					dst[x * 3 + 0] = FloatToByte(HalfToFloat(half[0]));
-					dst[x * 3 + 1] = FloatToByte(HalfToFloat(half[1]));
-					dst[x * 3 + 2] = FloatToByte(HalfToFloat(half[2]));
-					break;
-				}
-				case nri::Format::R10_G10_B10_A2_UNORM:
-				{
-					const uint32_t packed = *(const uint32_t*)(src + x * 4);
-					dst[x * 3 + 0] = (uint8_t)(((packed >> 0) & 0x3ffu) * 255u / 1023u);
-					dst[x * 3 + 1] = (uint8_t)(((packed >> 10) & 0x3ffu) * 255u / 1023u);
-					dst[x * 3 + 2] = (uint8_t)(((packed >> 20) & 0x3ffu) * 255u / 1023u);
-					break;
-				}
-				default:
-					dst[x * 3 + 0] = 0;
-					dst[x * 3 + 1] = 0;
-					dst[x * 3 + 2] = 0;
-					break;
-				}
-			}
-		}
-
-		mCore.UnmapBuffer(*capture.readbackBuffer);
-
-		FStringf software(GAMENAME " %s", GetVersionString());
-		if (!M_CreatePNG(capture.file.get(), image.Data(), nullptr, SS_RGB, capture.width, capture.height, capture.width * 3, 1.0f) ||
-			!M_AppendPNGText(capture.file.get(), "Software", software.GetChars()) ||
-			!M_FinishPNG(capture.file.get()))
-		{
-			Printf("Failed writing screenshot\n");
-		}
-		else
-		{
-			Printf("NRI screenshot completed: serial=%llu renderer_frame=%u shell_frame=%llu path=\"%s\"\n",
-				(unsigned long long)capture.serial,
-				capture.rendererFrameIndex,
-				(unsigned long long)capture.shellFrameIndex,
-				capture.fileName.GetChars());
-			Printf("screenshot saved\n");
-		}
-	}
-
-	ClearPendingScreenshotReadbacks();
-}
-
-void NRIRenderDevice::ClearPendingScreenshotReadbacks()
-{
-	for (auto& capture : mPendingScreenshotCaptures)
-	{
-		if (capture.readbackBuffer != nullptr && mDevice != nullptr)
-		{
-			mCore.DestroyBuffer(capture.readbackBuffer);
-			capture.readbackBuffer = nullptr;
-		}
-	}
-	mPendingScreenshotCaptures.clear();
-}
-
-void NRIRenderDevice::CopyScreenToBuffer(int width, int height, uint8_t* buffer)
-{
-	if (buffer == nullptr || width <= 0 || height <= 0)
-	{
-		return;
-	}
-
-	NRITextureResource* source = mActiveTarget != nullptr ? mActiveTarget : mCurrentPresentTarget;
-	if (source == nullptr || source->texture == nullptr)
-	{
-		memset(buffer, 0, (size_t)width * (size_t)height * 3);
-		return;
-	}
-
-	const bool useStandaloneSavePicFrame = mStandaloneSavePicFrame && mFrameBegun && mCommandBuffer != nullptr && mCommandBufferOpen;
-	if (mFrameBegun)
-	{
-		mRenderState->EndFrame();
-	}
-
-	if (!useStandaloneSavePicFrame && !BeginCommandList("CopyScreenToBuffer", !mFrameBegun))
-	{
-		memset(buffer, 0, (size_t)width * (size_t)height * 3);
-		return;
-	}
-
-	TransitionTexture(*source, NRICopySourceState());
-
-	const nri::DeviceDesc& deviceDesc = mCore.GetDeviceDesc(*mDevice);
-	const uint32_t rowPitch = AlignUp((uint32_t)width * 4u, deviceDesc.memoryAlignment.uploadBufferTextureRow);
-	const uint32_t slicePitch = AlignUp(rowPitch * (uint32_t)height, deviceDesc.memoryAlignment.uploadBufferTextureSlice);
-
-	nri::BufferDesc readbackDesc = {};
-	readbackDesc.size = slicePitch;
-	nri::Buffer* readbackBuffer = nullptr;
-	if (mCore.CreateCommittedBuffer(*mDevice, nri::MemoryLocation::HOST_READBACK, 0.0f, readbackDesc, readbackBuffer) != nri::Result::SUCCESS)
-	{
-		memset(buffer, 0, (size_t)width * (size_t)height * 3);
-		return;
-	}
-
-	nri::TextureRegionDesc region = {};
-	region.width = (uint32_t)width;
-	region.height = (uint32_t)height;
-	region.depth = 1;
-	region.planes = nri::PlaneBits::COLOR;
-
-	nri::TextureDataLayoutDesc layout = {};
-	layout.rowPitch = rowPitch;
-	layout.slicePitch = slicePitch;
-
-	mCore.CmdReadbackTextureToBuffer(*mCommandBuffer, *readbackBuffer, layout, *source->texture, region);
-	if (!SubmitAndWaitCurrentCommandBuffer())
-	{
-		mCore.DestroyBuffer(readbackBuffer);
-		memset(buffer, 0, (size_t)width * (size_t)height * 3);
-		return;
-	}
-
-	const uint8_t* pixels = (const uint8_t*)mCore.MapBuffer(*readbackBuffer, 0, slicePitch);
-	for (int y = 0; y < height; ++y)
-	{
-		const uint8_t* src = pixels + (size_t)y * rowPitch;
-		uint8_t* dst = buffer + (size_t)y * (size_t)width * 3u;
-
-		for (int x = 0; x < width; ++x)
-		{
-			dst[x * 3 + 0] = src[x * 4 + 0];
-			dst[x * 3 + 1] = src[x * 4 + 1];
-			dst[x * 3 + 2] = src[x * 4 + 2];
-		}
-	}
-
-	mCore.UnmapBuffer(*readbackBuffer);
-	mCore.DestroyBuffer(readbackBuffer);
 }
 
 void NRIRenderDevice::TransitionTexture(NRITextureResource& texture, nri::AccessLayoutStage after)

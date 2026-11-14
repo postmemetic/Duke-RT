@@ -134,7 +134,7 @@ const float png_gamma = 0;
 //==========================================================================
 
 bool M_CreatePNG (FileWriter *file, const uint8_t *buffer, const PalEntry *palette,
-				  ESSType color_type, int width, int height, int pitch, float gamma)
+				  ESSType color_type, int width, int height, int pitch, float gamma, bool srgb)
 {
 	uint8_t work[8 +				// signature
 			  12+2*4+5 +		// IHDR
@@ -159,7 +159,8 @@ bool M_CreatePNG (FileWriter *file, const uint8_t *buffer, const PalEntry *palet
 	MakeChunk (ihdr, MAKE_ID('I','H','D','R'), 2*4+5);
 
 	// Assume a display exponent of 2.2 (100000/2.2 ~= 45454.5)
-	*gama = BigLong (int (45454.5f * (png_gamma == 0.f ? gamma : png_gamma)));
+	// Explicitly encoded sRGB pixels must not inherit display/user gamma metadata.
+	*gama = BigLong (srgb ? 45455 : int (45454.5f * (png_gamma == 0.f ? gamma : png_gamma)));
 	MakeChunk (gama, MAKE_ID('g','A','M','A'), 4);
 
 	if (color_type == SS_PAL)
@@ -173,7 +174,24 @@ bool M_CreatePNG (FileWriter *file, const uint8_t *buffer, const PalEntry *palet
 		work_len = sizeof(work) - (12+256*3);
 	}
 
-	if (file->Write (work, work_len) != work_len)
+	// Color-space chunks must precede PLTE as well as IDAT.
+	const size_t deferredPaletteBytes = srgb && color_type == SS_PAL ? 12 + 256 * 3 : 0;
+	const size_t headerLength = work_len - deferredPaletteBytes;
+	if (file->Write (work, headerLength) != headerLength)
+		return false;
+
+	if (srgb)
+	{
+		const uint8_t intent = 0; // Perceptual rendering intent.
+		const uint32_t chromaticities[] = {
+			BigLong(31270u), BigLong(32900u), BigLong(64000u), BigLong(33000u),
+			BigLong(30000u), BigLong(60000u), BigLong(15000u), BigLong(6000u)
+		};
+		if (!M_AppendPNGChunk(file, MAKE_ID('s','R','G','B'), &intent, sizeof(intent)) ||
+			!M_AppendPNGChunk(file, MAKE_ID('c','H','R','M'), reinterpret_cast<const uint8_t*>(chromaticities), sizeof(chromaticities)))
+			return false;
+	}
+	if (deferredPaletteBytes != 0 && file->Write(work + headerLength, deferredPaletteBytes) != deferredPaletteBytes)
 		return false;
 
 	return M_SaveBitmap (buffer, color_type, width, height, pitch, file);

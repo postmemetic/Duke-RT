@@ -285,6 +285,14 @@ void NRIRenderer::CopyTexture(NRITextureResource& source, NRITextureResource& de
 
 void NRIRenderer::CopyTextureToActiveTarget(NRITextureResource& source)
 {
+	// A resource copy preserves bytes; it cannot convert HDR or swizzle RGBA/BGRA.
+	const auto* target = mFrameBuffer->mActiveTarget;
+	if (target == nullptr || target->texture == nullptr || source.texture == nullptr ||
+		target->format != source.format || target->width != source.width || target->height != source.height)
+	{
+		LogFallback("PT output copy requires matching source and target formats and dimensions.");
+		return;
+	}
 	mFrameBuffer->TransitionTexture(source, NRICopySourceState());
 	mFrameBuffer->TransitionTexture(*mFrameBuffer->mActiveTarget, NRICopyDestinationState());
 	mFrameBuffer->mCore.CmdCopyTexture(*mFrameBuffer->mCommandBuffer, *mFrameBuffer->mActiveTarget->texture, nullptr, *source.texture, nullptr);

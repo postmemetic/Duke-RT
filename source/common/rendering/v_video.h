@@ -463,6 +463,8 @@ public:
 	virtual void ImageTransitionScene(bool unknown) {}
 	virtual void CopyScreenToBuffer(int width, int height, uint8_t* buffer)	{ memset(buffer, 0, width* height); }
 	virtual bool FlipSavePic() const { return false; }
+	// True when screenshot/save-picture RGB bytes are already encoded as sRGB.
+	virtual bool IsScreenshotSrgb() const { return false; }
 	virtual void RenderTextureView(FCanvasTexture* tex, std::function<void(IntRect&)> renderFunc) {}
 	virtual void RenderTextureView(FGameTexture* tex, std::function<void(IntRect&)> renderFunc) {}
 	virtual void SnapshotCurrentViewToCanvas(FCanvasTexture* tex) {}

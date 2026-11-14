@@ -52,8 +52,10 @@ enum ESSType
 // The passed file should be a newly created file.
 // This function writes the PNG signature and the IHDR, gAMA, PLTE, and IDAT
 // chunks.
+// srgb marks already encoded pixels and writes standard sRGB metadata instead
+// of applying the legacy display/png_gamma metadata override.
 bool M_CreatePNG (FileWriter *file, const uint8_t *buffer, const PalEntry *pal,
-				  ESSType color_type, int width, int height, int pitch, float gamma);
+				  ESSType color_type, int width, int height, int pitch, float gamma, bool srgb = false);
 
 // Creates a grayscale 1x1 PNG file. Used for savegames without savepics.
 bool M_CreateDummyPNG (FileWriter *file);
