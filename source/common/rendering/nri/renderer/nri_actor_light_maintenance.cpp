@@ -1,6 +1,7 @@
 #include "nri_scene_lights.h"
 #include "nri_cvars.h"
 #include "coreactor.h"
+#include "buildtiles.h"
 #include "actor_lifecycle_journal.h"
 #include "perf_audit.h"
 
