@@ -77,16 +77,20 @@ public:
 	void Prepare(nri::CoreInterface& core, nri::Device& device);
 	void Destroy(nri::CoreInterface& core);
 	void RetireSlot(nri::CoreInterface& core, uint32_t slotIndex);
-	void BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t slotIndex, uint64_t rendererFrame);
-	void FinalizeSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer);
+	void BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t slotIndex, uint64_t rendererFrame, bool resumeScopes = false);
+	void FinalizeSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, bool continueScopes = false);
+	void CancelContinuation(const char* reason);
 	void AbandonSlot(uint32_t slotIndex);
-	uint32_t BeginScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, NRIGpuTimingScope scope);
-	void EndScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t markerIndex);
+	uint64_t BeginScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, NRIGpuTimingScope scope);
+	void EndScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint64_t scopeId);
 	bool IsRecording() const { return mActiveSlot < SlotCount; }
 
 private:
 	struct Marker
 	{
+		// A logical scope survives an explicit command-buffer restart. Marker
+		// indices do not: reusing one must never let an old RAII handle close it.
+		uint64_t scopeId = 0;
 		NRIGpuTimingScope scope = NRIGpuTimingScope::Scene;
 		uint32_t beginQuery = 0;
 		uint32_t endQuery = 0;
@@ -112,11 +116,26 @@ private:
 		uint32_t droppedOverlayBlasScopes = 0;
 		uint32_t droppedStaticTangentScopes = 0;
 		uint32_t droppedResidentBlasScopes = 0;
+		uint32_t resumedScopes = 0;
+		uint32_t continuedScopes = 0;
 		uint64_t rendererFrame = 0;
 		bool pending = false;
 	};
+	struct Continuation
+	{
+		std::array<Marker, ScopeCapacity> markers = {};
+		PerfCompactCaptureToken token;
+		PerfAuditToken auditToken;
+		uint64_t auditRequest = 0;
+		uint64_t rendererFrame = 0;
+		uint32_t slotIndex = SlotCount;
+		uint32_t markerCount = 0;
+	};
+	static void DropScope(Slot& slot, NRIGpuTimingScope scope);
 
 	std::array<Slot, SlotCount> mSlots = {};
+	Continuation mContinuation;
+	uint64_t mNextScopeId = 1;
 	uint64_t mFrequencyHz = 0;
 	uint32_t mActiveSlot = SlotCount;
 	bool mPrepared = false;
@@ -133,5 +152,5 @@ public:
 
 private:
 	NRIRenderDevice* mDevice = nullptr;
-	uint32_t mMarker = UINT32_MAX;
+	uint64_t mScopeId = 0;
 };

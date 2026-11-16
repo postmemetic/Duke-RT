@@ -203,8 +203,8 @@ public:
 	void CapturePerfAuditMemoryCensus() const;
 	uint64_t GetAdapterNonLocalBudgetBytes() const { return mAdapterNonLocalBudgetBytes; }
 	NRIBackendCapabilities BuildBackendCapabilities() const;
-	uint32_t BeginGpuTimingScope(NRIGpuTimingScope scope);
-	void EndGpuTimingScope(uint32_t markerIndex);
+	uint64_t BeginGpuTimingScope(NRIGpuTimingScope scope);
+	void EndGpuTimingScope(uint64_t scopeId);
 	bool UsesDiagnosticShaderVariant() const;
 	bool UsesDiagnosticTraceShaderVariant(bool cache, bool lean) const
 	{
@@ -280,7 +280,7 @@ private:
 	void DestroySwapChain();
 	bool CreateRenderResources();
 	void DestroyRenderResources();
-	bool BeginCommandList(const char* reason, bool waitForSlotReuse = false);
+	bool BeginCommandList(const char* reason, bool waitForSlotReuse = false, bool resumeGpuTimingScopes = false);
 	void AbandonRecordingCommandFenceValue();
 	bool TryGetFenceValue(nri::Fence& fence, const char* context, uint64_t& outCompletedFenceValue);
 	bool WaitForFenceValue(nri::Fence& fence, uint64_t fenceValue, const char* context);
@@ -367,7 +367,7 @@ private:
 	void DestroyViewSnapshotTexture();
 	bool EnsureSaveTarget(uint32_t width, uint32_t height);
 	NRICaptureColorInfo GetCaptureColorInfo(const NRITextureResource& source) const;
-	bool SubmitAndWaitCurrentCommandBuffer();
+	bool SubmitAndWaitCurrentCommandBuffer(bool continueGpuTimingScopes = false);
 	bool CopyTextureToTexture(NRITextureResource& destination, NRITextureResource& source);
 	bool SnapshotTextureToCanvas(FCanvasTexture* tex, NRITextureResource& source);
 	void RecordPendingScreenshotReadbacks();

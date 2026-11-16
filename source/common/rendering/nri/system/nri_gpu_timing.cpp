@@ -88,10 +88,18 @@ void NRIGpuTiming::Prepare(nri::CoreInterface& core, nri::Device& device)
 
 void NRIGpuTiming::Destroy(nri::CoreInterface& core)
 {
+	CancelContinuation("restart_resource_destroyed");
 	mActiveSlot = SlotCount;
 	for (Slot& slot : mSlots)
 	{
-		if (slot.pending || slot.auditRequest) AuditTimingEvent("gpu_timing_loss", slot.auditToken, slot.auditRequest, slot.rendererFrame, "resource_destroyed");
+		if (slot.pending || slot.auditRequest || slot.token)
+		{
+			AuditTimingEvent("gpu_timing_loss", slot.auditToken, slot.auditRequest, slot.rendererFrame, "resource_destroyed");
+			PerfCompactGpuTiming missing = {};
+			missing.invalidPairs = 1;
+			missing.droppedScopes = slot.droppedScopes;
+			PerfCompactCaptureResolveGpuSegment(slot.token, missing);
+		}
 		if (slot.readback != nullptr) core.DestroyBuffer(slot.readback);
 		if (slot.queryPool != nullptr) core.DestroyQueryPool(slot.queryPool);
 		slot = {};
@@ -291,13 +299,14 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 				PerfAuditMetric::GpuTimingPublished : PerfAuditMetric::GpuTimingLost);
 		char fields[2048];
 		snprintf(fields, sizeof(fields),
-			"\"request\":%llu,\"renderer_frame\":%llu,\"queued_slot\":%u,\"valid\":%s,\"invalid_pairs\":%u,\"dropped_scopes\":%u,\"segment_ms\":%.6f,\"scene_ms\":%.6f,\"trace_ms\":%.6f,\"trace_dispatch_ms\":%.6f,\"denoise_ms\":%.6f,\"composition_ms\":%.6f,\"upscale_ms\":%.6f,\"final_ms\":%.6f,\"voxel_admission_ms\":%.6f,\"voxel_upload_ms\":%.6f,\"voxel_arena_copy_ms\":%.6f,\"voxel_blas_ms\":%.6f,\"world_tlas_ms\":%.6f,\"overlay_blas_ms\":%.6f,\"resident_blas_ms\":%.6f,\"resident_blas_scopes\":%u,\"resident_blas_valid\":%u,\"resident_blas_invalid\":%u,\"resident_blas_dropped\":%u,\"query_count\":%u,\"readback_bytes\":%llu",
+			"\"request\":%llu,\"renderer_frame\":%llu,\"queued_slot\":%u,\"valid\":%s,\"invalid_pairs\":%u,\"dropped_scopes\":%u,\"segment_ms\":%.6f,\"scene_ms\":%.6f,\"trace_ms\":%.6f,\"trace_dispatch_ms\":%.6f,\"denoise_ms\":%.6f,\"composition_ms\":%.6f,\"upscale_ms\":%.6f,\"final_ms\":%.6f,\"voxel_admission_ms\":%.6f,\"voxel_upload_ms\":%.6f,\"voxel_arena_copy_ms\":%.6f,\"voxel_blas_ms\":%.6f,\"world_tlas_ms\":%.6f,\"overlay_blas_ms\":%.6f,\"resident_blas_ms\":%.6f,\"resident_blas_scopes\":%u,\"resident_blas_valid\":%u,\"resident_blas_invalid\":%u,\"resident_blas_dropped\":%u,\"query_count\":%u,\"readback_bytes\":%llu,\"resumed_scopes\":%u,\"continued_scopes\":%u",
 			(unsigned long long)slot.auditRequest, (unsigned long long)slot.rendererFrame, slotIndex,
 			segmentValid && timing.invalidPairs == 0 && slot.droppedScopes == 0 ? "true" : "false",
 			timing.invalidPairs, slot.droppedScopes, timing.segmentMs, timing.sceneMs, timing.traceMs, timing.traceDispatchMs,
 			timing.denoiseMs, timing.compositionMs, timing.upscaleMs, timing.finalMs, voxelAdmissionMs, voxelUploadMs,
 			voxelArenaCopyMs, voxelBlasMs, worldTlasMs, overlayBlasMs, residentBlasMs, residentBlasScopes,
-			validResidentBlasScopes, invalidResidentBlasScopes, slot.droppedResidentBlasScopes, slot.queryCount, (unsigned long long)readbackSize);
+			validResidentBlasScopes, invalidResidentBlasScopes, slot.droppedResidentBlasScopes, slot.queryCount, (unsigned long long)readbackSize,
+			slot.resumedScopes, slot.continuedScopes);
 		PerfAuditWriteEvent("gpu_timing_sample", slot.auditToken, fields);
 	}
 	if (slot.token) Printf("PERF pt smoke gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f simulation=%.6f volume=%.6f total=%.6f detail_total=%.6f unattributed=%.6f grid_allocate=%.6f grid_initialize=%.6f grid_deposit=%.6f grid_halo=%.6f grid_simulate=%.6f grid_rebuild=%.6f dormant_archive=%.6f dormant_promote=%.6f dormant_evolve=%.6f world_active=%.6f world_link=%.6f world_proposal=%.6f world_seed=%.6f world_temporal=%.6f world_filter=%.6f world_scatter=%.6f carrier=%.6f view_prepare=%.6f materialize=%.6f evaluate_grid=%.6f analytic_materialize=%.6f transient_bins=%.6f transient_light_build=%.6f transient_materialize=%.6f view_point=%.6f view_directional=%.6f view_direct_reuse=%.6f view_emissive=%.6f analytic_emissive_build=%.6f analytic_emissive_apply=%.6f view_indirect=%.6f integrate=%.6f reconstruction=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
@@ -411,32 +420,66 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 	slot.droppedOverlayBlasScopes = 0;
 	slot.droppedStaticTangentScopes = 0;
 	slot.droppedResidentBlasScopes = 0;
+	slot.resumedScopes = 0;
+	slot.continuedScopes = 0;
 	slot.rendererFrame = 0;
 }
 
-void NRIGpuTiming::BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t slotIndex, uint64_t rendererFrame)
+void NRIGpuTiming::CancelContinuation(const char* reason)
 {
+	if (mContinuation.markerCount == 0) return;
+	AuditTimingEvent("gpu_timing_loss", mContinuation.auditToken, mContinuation.auditRequest,
+		mContinuation.rendererFrame, reason);
+	PerfCompactGpuTiming missing = {};
+	missing.invalidPairs = 1;
+	missing.droppedScopes = mContinuation.markerCount;
+	PerfCompactCaptureResolveGpuSegment(mContinuation.token, missing);
+	mContinuation = {};
+}
+
+void NRIGpuTiming::BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t slotIndex, uint64_t rendererFrame, bool resumeScopes)
+{
+	if (!resumeScopes) CancelContinuation("restart_not_resumed");
 	const bool auditRequested = nri_ptgputiming && PerfAuditCensusRequested();
 	const PerfAuditToken auditToken = auditRequested ? PerfAuditCurrentToken() : PerfAuditToken{};
+	const PerfCompactCaptureToken compactToken = PerfCompactCaptureGetCurrentToken();
 	static uint64_t nextAuditRequest = 0;
 	const uint64_t auditRequest = auditRequested ? ++nextAuditRequest : 0;
 	AuditTimingEvent("gpu_timing_request", auditToken, auditRequest, rendererFrame, "requested");
 	if (!mPrepared || !nri_ptgputiming || (!PerfCompactCaptureTimingActive() && !auditRequested) || slotIndex >= SlotCount)
 	{
 		AuditTimingEvent("gpu_timing_loss", auditToken, auditRequest, rendererFrame, "timing_unavailable");
+		CancelContinuation("restart_timing_unavailable");
 		return;
 	}
 	Slot& slot = mSlots[slotIndex];
 	if (slot.pending)
 	{
 		AuditTimingEvent("gpu_timing_loss", auditToken, auditRequest, rendererFrame, "slot_busy");
+		CancelContinuation("restart_slot_busy");
 		return;
 	}
+	// Only the same capture/presentation may resume a synchronous restart.
+	// Otherwise invalidate the incomplete logical measurement, then start fresh.
+	if (mContinuation.markerCount != 0 &&
+		(mContinuation.slotIndex != slotIndex || mContinuation.rendererFrame != rendererFrame ||
+		 mContinuation.auditToken.epoch != auditToken.epoch ||
+		 mContinuation.auditToken.presentation != auditToken.presentation ||
+		 mContinuation.auditToken.checkpoint != auditToken.checkpoint ||
+		 mContinuation.auditToken.tic != auditToken.tic ||
+		 mContinuation.token.epoch != compactToken.epoch ||
+		 mContinuation.token.recordIndex != compactToken.recordIndex ||
+		 mContinuation.token.presentationGeneration != compactToken.presentationGeneration))
+		CancelContinuation("restart_owner_changed");
 	core.ResetQueries(*slot.queryPool, 0, QueryCapacity);
-	slot.token = PerfCompactCaptureGetCurrentToken();
+	slot.token = compactToken;
 	slot.auditToken = auditToken;
 	slot.auditRequest = auditRequest;
-	if (!slot.token && !slot.auditToken) return;
+	if (!slot.token && !slot.auditToken)
+	{
+		CancelContinuation("restart_capture_unavailable");
+		return;
+	}
 	slot.queryCount = 2;
 	slot.markerCount = 0;
 	slot.droppedScopes = 0;
@@ -445,65 +488,113 @@ void NRIGpuTiming::BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& co
 	slot.droppedOverlayBlasScopes = 0;
 	slot.droppedStaticTangentScopes = 0;
 	slot.droppedResidentBlasScopes = 0;
+	slot.resumedScopes = 0;
+	slot.continuedScopes = 0;
 	slot.rendererFrame = rendererFrame;
 	slot.segmentBeginQuery = 0;
 	slot.segmentEndQuery = 1;
 	core.CmdEndQuery(commandBuffer, *slot.queryPool, slot.segmentBeginQuery);
 	mActiveSlot = slotIndex;
-	PerfCompactCaptureExpectGpuSegment(slot.token);
+	if (mContinuation.markerCount == 0) PerfCompactCaptureExpectGpuSegment(slot.token);
+	for (uint32_t i = 0; i < mContinuation.markerCount; ++i)
+	{
+		const Marker& suspended = mContinuation.markers[i];
+		if (!suspended.open) continue;
+		Marker& marker = slot.markers[slot.markerCount++];
+		marker = suspended;
+		marker.beginQuery = slot.queryCount++;
+		marker.endQuery = slot.queryCount++;
+		core.CmdEndQuery(commandBuffer, *slot.queryPool, marker.beginQuery);
+		slot.resumedScopes++;
+	}
+	mContinuation = {};
 }
 
-uint32_t NRIGpuTiming::BeginScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, NRIGpuTimingScope scope)
+void NRIGpuTiming::DropScope(Slot& slot, NRIGpuTimingScope scope)
 {
-	if (!IsRecording()) return UINT32_MAX;
+	slot.droppedScopes++;
+	if (IsVoxelTimingScope(scope)) slot.droppedVoxelScopes++;
+	if (IsSmokeTimingScope(scope)) slot.droppedSmokeScopes++;
+	if (scope == NRIGpuTimingScope::DynamicOverlayBlas) slot.droppedOverlayBlasScopes++;
+	if (scope == NRIGpuTimingScope::StaticTangentBuild) slot.droppedStaticTangentScopes++;
+	if (scope == NRIGpuTimingScope::ResidentBlas) slot.droppedResidentBlasScopes++;
+}
+
+uint64_t NRIGpuTiming::BeginScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, NRIGpuTimingScope scope)
+{
+	if (!IsRecording()) return 0;
 	Slot& slot = mSlots[mActiveSlot];
-	if (slot.markerCount >= ScopeCapacity || slot.queryCount + 2 > QueryCapacity)
+	if (slot.markerCount >= ScopeCapacity || slot.queryCount + 2 > QueryCapacity || mNextScopeId == 0)
 	{
-		slot.droppedScopes++;
-		if (IsVoxelTimingScope(scope)) slot.droppedVoxelScopes++;
-		if (IsSmokeTimingScope(scope)) slot.droppedSmokeScopes++;
-		if (scope == NRIGpuTimingScope::DynamicOverlayBlas) slot.droppedOverlayBlasScopes++;
-		if (scope == NRIGpuTimingScope::StaticTangentBuild) slot.droppedStaticTangentScopes++;
-		if (scope == NRIGpuTimingScope::ResidentBlas) slot.droppedResidentBlasScopes++;
-		return UINT32_MAX;
+		DropScope(slot, scope);
+		return 0;
 	}
 	const uint32_t markerIndex = slot.markerCount++;
 	Marker& marker = slot.markers[markerIndex];
+	marker.scopeId = mNextScopeId++;
 	marker.scope = scope;
 	marker.beginQuery = slot.queryCount++;
 	marker.endQuery = slot.queryCount++;
 	marker.open = true;
 	core.CmdEndQuery(commandBuffer, *slot.queryPool, marker.beginQuery);
-	return markerIndex;
+	return marker.scopeId;
 }
 
-void NRIGpuTiming::EndScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t markerIndex)
+void NRIGpuTiming::EndScope(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint64_t scopeId)
 {
-	if (!IsRecording() || markerIndex == UINT32_MAX) return;
-	Slot& slot = mSlots[mActiveSlot];
-	if (markerIndex >= slot.markerCount || !slot.markers[markerIndex].open) return;
-	Marker& marker = slot.markers[markerIndex];
-	core.CmdEndQuery(commandBuffer, *slot.queryPool, marker.endQuery);
-	marker.open = false;
+	if (scopeId == 0) return;
+	if (IsRecording())
+	{
+		Slot& slot = mSlots[mActiveSlot];
+		for (uint32_t i = 0; i < slot.markerCount; ++i)
+		{
+			Marker& marker = slot.markers[i];
+			if (marker.scopeId != scopeId || !marker.open) continue;
+			core.CmdEndQuery(commandBuffer, *slot.queryPool, marker.endQuery);
+			marker.open = false;
+			return;
+		}
+	}
+	else
+	{
+		for (uint32_t i = 0; i < mContinuation.markerCount; ++i)
+			if (mContinuation.markers[i].scopeId == scopeId) mContinuation.markers[i].open = false;
+	}
 }
 
-void NRIGpuTiming::FinalizeSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer)
+void NRIGpuTiming::FinalizeSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, bool continueScopes)
 {
+	CancelContinuation("segment_finalized_without_restart");
 	if (!IsRecording()) return;
 	Slot& slot = mSlots[mActiveSlot];
 	for (uint32_t i = 0; i < slot.markerCount; ++i)
 	{
 		if (slot.markers[i].open)
 		{
+			if (continueScopes) mContinuation.markers[mContinuation.markerCount++] = slot.markers[i];
+			else DropScope(slot, slot.markers[i].scope);
+		}
+	}
+	// Preserve nesting: resume in begin order, suspend in reverse begin order.
+	for (uint32_t i = slot.markerCount; i-- > 0;)
+	{
+		if (slot.markers[i].open)
+		{
 			core.CmdEndQuery(commandBuffer, *slot.queryPool, slot.markers[i].endQuery);
 			slot.markers[i].open = false;
-			slot.droppedScopes++;
-			if (IsVoxelTimingScope(slot.markers[i].scope)) slot.droppedVoxelScopes++;
-			if (IsSmokeTimingScope(slot.markers[i].scope)) slot.droppedSmokeScopes++;
-			if (slot.markers[i].scope == NRIGpuTimingScope::DynamicOverlayBlas) slot.droppedOverlayBlasScopes++;
-			if (slot.markers[i].scope == NRIGpuTimingScope::StaticTangentBuild) slot.droppedStaticTangentScopes++;
-			if (slot.markers[i].scope == NRIGpuTimingScope::ResidentBlas) slot.droppedResidentBlasScopes++;
 		}
+	}
+	if (mContinuation.markerCount != 0)
+	{
+		mContinuation.token = slot.token;
+		mContinuation.auditToken = slot.auditToken;
+		mContinuation.auditRequest = slot.auditRequest;
+		mContinuation.rendererFrame = slot.rendererFrame;
+		mContinuation.slotIndex = mActiveSlot;
+		slot.continuedScopes = mContinuation.markerCount;
+		// Keep compact capture draining until the promised continuation is
+		// recorded or explicitly invalidated, even after this segment retires.
+		PerfCompactCaptureExpectGpuSegment(slot.token);
 	}
 	core.CmdEndQuery(commandBuffer, *slot.queryPool, slot.segmentEndQuery);
 	core.CmdCopyQueries(commandBuffer, *slot.queryPool, 0, slot.queryCount, *slot.readback, 0);
@@ -513,6 +604,7 @@ void NRIGpuTiming::FinalizeSegment(nri::CoreInterface& core, nri::CommandBuffer&
 
 void NRIGpuTiming::AbandonSlot(uint32_t slotIndex)
 {
+	if (mContinuation.slotIndex == slotIndex) CancelContinuation("restart_command_abandoned");
 	if (slotIndex >= SlotCount) return;
 	Slot& slot = mSlots[slotIndex];
 	if (!slot.pending && mActiveSlot != slotIndex) return;
@@ -534,22 +626,22 @@ void NRIGpuTiming::AbandonSlot(uint32_t slotIndex)
 NRIScopedGpuTiming::NRIScopedGpuTiming(NRIRenderDevice* device, NRIGpuTimingScope scope)
 	: mDevice(device)
 {
-	if (mDevice != nullptr) mMarker = mDevice->BeginGpuTimingScope(scope);
+	if (mDevice != nullptr) mScopeId = mDevice->BeginGpuTimingScope(scope);
 }
 
 NRIScopedGpuTiming::~NRIScopedGpuTiming()
 {
-	if (mDevice != nullptr) mDevice->EndGpuTimingScope(mMarker);
+	if (mDevice != nullptr) mDevice->EndGpuTimingScope(mScopeId);
 }
 
-uint32_t NRIRenderDevice::BeginGpuTimingScope(NRIGpuTimingScope scope)
+uint64_t NRIRenderDevice::BeginGpuTimingScope(NRIGpuTimingScope scope)
 {
-	if (mGpuTiming == nullptr || mCommandBuffer == nullptr || !mCommandBufferOpen) return UINT32_MAX;
+	if (mGpuTiming == nullptr || mCommandBuffer == nullptr || !mCommandBufferOpen) return 0;
 	return mGpuTiming->BeginScope(mCore, *mCommandBuffer, scope);
 }
 
-void NRIRenderDevice::EndGpuTimingScope(uint32_t markerIndex)
+void NRIRenderDevice::EndGpuTimingScope(uint64_t scopeId)
 {
-	if (mGpuTiming == nullptr || mCommandBuffer == nullptr || !mCommandBufferOpen) return;
-	mGpuTiming->EndScope(mCore, *mCommandBuffer, markerIndex);
+	if (mGpuTiming == nullptr || mCommandBuffer == nullptr) return;
+	mGpuTiming->EndScope(mCore, *mCommandBuffer, scopeId);
 }

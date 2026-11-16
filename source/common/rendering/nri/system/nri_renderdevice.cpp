@@ -3920,7 +3920,7 @@ void NRIRenderDevice::AbandonRecordingCommandFenceValue()
 	mRecordingCommandFenceValue = 0;
 }
 
-bool NRIRenderDevice::SubmitAndWaitCurrentCommandBuffer()
+bool NRIRenderDevice::SubmitAndWaitCurrentCommandBuffer(bool continueGpuTimingScopes)
 {
 	mLastSubmitAndWaitResult = nri::Result::SUCCESS;
 	if (mCommandBuffer == nullptr || !mCommandBufferOpen)
@@ -3928,7 +3928,7 @@ bool NRIRenderDevice::SubmitAndWaitCurrentCommandBuffer()
 		return true;
 	}
 
-	if (mGpuTiming != nullptr) mGpuTiming->FinalizeSegment(mCore, *mCommandBuffer);
+	if (mGpuTiming != nullptr) mGpuTiming->FinalizeSegment(mCore, *mCommandBuffer, continueGpuTimingScopes);
 	mCore.EndCommandBuffer(*mCommandBuffer);
 	mCommandBufferOpen = false;
 
@@ -4082,7 +4082,7 @@ bool NRIRenderDevice::SubmitWaitAndRestartCommandList(const char* reason)
 	}
 
 	const bool wasOpen = mCommandBufferOpen;
-	if (!SubmitAndWaitCurrentCommandBuffer())
+	if (!SubmitAndWaitCurrentCommandBuffer(true))
 	{
 		Printf(TEXTCOLOR_RED "NRI SubmitWaitAndRestartCommandList failed (reason=%s).\n",
 			reason != nullptr ? reason : "unknown");
@@ -4119,7 +4119,9 @@ bool NRIRenderDevice::SubmitWaitAndRestartCommandList(const char* reason)
 	{
 		return true;
 	}
-	return BeginCommandList(reason != nullptr ? reason : "SubmitWaitAndRestartCommandList", false);
+	const bool restarted = BeginCommandList(reason != nullptr ? reason : "SubmitWaitAndRestartCommandList", false, true);
+	if (!restarted && mGpuTiming != nullptr) mGpuTiming->CancelContinuation("restart_command_begin_failed");
+	return restarted;
 }
 
 bool NRIRenderDevice::BeginPreloadCommandContext(const char* reason)
@@ -10178,7 +10180,7 @@ void NRIRenderDevice::DestroyRenderResources()
 	}
 }
 
-bool NRIRenderDevice::BeginCommandList(const char* reason, bool waitForSlotReuse)
+bool NRIRenderDevice::BeginCommandList(const char* reason, bool waitForSlotReuse, bool resumeGpuTimingScopes)
 {
 	if (mDescriptorPool == nullptr || mQueuedFrames.empty())
 	{
@@ -10223,7 +10225,7 @@ bool NRIRenderDevice::BeginCommandList(const char* reason, bool waitForSlotReuse
 	mRecordingCommandFenceValue = success ? mNextCommandFenceValue++ : 0;
 	if (success && mGpuTiming != nullptr)
 	{
-		mGpuTiming->BeginSegment(mCore, *mCommandBuffer, mCurrentQueuedFrameIndex, mFrameIndex);
+		mGpuTiming->BeginSegment(mCore, *mCommandBuffer, mCurrentQueuedFrameIndex, mFrameIndex, resumeGpuTimingScopes);
 	}
 	if (!success)
 	{
