@@ -7,6 +7,7 @@
 #include "build.h"
 #include "c_dispatch.h"
 #include "coreactor.h"
+#include "gamestruct.h"
 #include "printf.h"
 #include "textures/buildtiles.h"
 
@@ -110,6 +111,11 @@ namespace
 		state.cstat2 = actor.spr.cstat2;
 		state.renderFlags = actor.sprext.renderflags;
 		state.alpha = actor.sprext.alpha;
+		state.spriteShade = actor.spr.shade;
+		state.spritePalette = actor.spr.pal;
+		state.spriteXOffset = actor.spr.xoffset;
+		state.spriteYOffset = actor.spr.yoffset;
+		if (gi != nullptr) gi->CaptureActorSpriteAnimation(actor, state.spriteAnimation);
 		state.authorityCurrent = actor.exists() && (actor.ObjectFlags & OF_EuthanizeMe) == 0;
 		state.publicationEligible = state.authorityCurrent && state.physicalSectorIndex >= 0 &&
 			actor.spr.scale.X != 0.0 && actor.spr.scale.Y != 0.0 &&

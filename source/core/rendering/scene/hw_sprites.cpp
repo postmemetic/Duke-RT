@@ -318,11 +318,16 @@ inline void HWSprite::PutSprite(HWDrawInfo* di, bool translucent)
 
 void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int thruportal)
 {
-	if (spr == nullptr)
-		return;
+	if (PrepareFacingSprite(di, spr, sector)) PutSprite(di, true);
+}
+
+bool HWSprite::PrepareFacingSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector, const float* actorAlpha)
+{
+	if (spr == nullptr || di == nullptr || sector == nullptr)
+		return false;
 
 	auto tex = TexMan.GetGameTexture(spr->spritetexture());
-	if (!tex || !tex->isValid()) return;
+	if (!tex || !tex->isValid()) return false;
 
 	texture = tex;
 	Sprite = spr;
@@ -334,7 +339,7 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 	fade = lookups.getFade(sector->floorpal);	// fog is per sector.
 	visibility = sectorVisibility(sector);
 
-	SetSpriteTranslucency(spr, alpha, RenderStyle);
+	SetSpriteTranslucency(spr, alpha, RenderStyle, actorAlpha);
 
 	x = spr->pos.X;
 	z = -spr->pos.Z;
@@ -342,7 +347,7 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 	auto vp = di->Viewpoint;
 
 	const bool mirrorPlayerCaptureOverride = gi != nullptr && gi->GetMirrorPlayerVisibilityCaptureOverride();
-	if (!mirrorPlayerCaptureOverride && (vp.Pos.XY() - DVector2(x, y)).LengthSquared() < 0.125) return;
+	if (!mirrorPlayerCaptureOverride && (vp.Pos.XY() - DVector2(x, y)).LengthSquared() < 0.125) return false;
 
 	if (modelframe == 0)
 	{
@@ -443,7 +448,7 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 	}
 #endif
 
-	PutSprite(di, true);
+	return true;
 }
 
 

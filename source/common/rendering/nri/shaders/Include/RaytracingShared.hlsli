@@ -2609,6 +2609,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					}
 					if (gateVisibleChunks &&
 						candidateInstance.dataSource != SCENE_DATA_SOURCE_PERSISTENT_VOXEL &&
+						(candidatePrimitive.flags & PRIMITIVE_FLAG_ACTOR_SPRITE_FALLBACK) == 0u &&
 						!candidateReflectionOnly &&
 						!IsVisibleChunk(ResolveVisibilityChunk(candidateInstance, candidatePrimitive)))
 					{
@@ -2866,7 +2867,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		// 360 actor-occurrence gate below. They remain fail-open for the ordinary
 		// per-view visible-chunk gate so off-screen/occluded actor residency and
 		// indirect transport retain their original behavior.
-		if (gateVisibleChunks && instanceData.dataSource != SCENE_DATA_SOURCE_PERSISTENT_VOXEL &&
+		const bool actorSpatialOwner = instanceData.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL ||
+			(primitive.flags & PRIMITIVE_FLAG_ACTOR_SPRITE_FALLBACK) != 0u;
+		if (gateVisibleChunks && !actorSpatialOwner &&
 			!reflectionOnlyPrimitive && !IsVisibleChunk(ResolveVisibilityChunk(instanceData, primitive)))
 		{
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
@@ -2883,7 +2886,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		const float3 committedPosition = startOrigin + direction * committedDistance;
 		const uint visibilityChunk = ResolveVisibilityChunk(instanceData, primitive);
 		if (spatialActorGateActive && !spatialProbeRay && spatialCandidatePayloadValid &&
-			instanceData.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL &&
+			actorSpatialOwner &&
 			visibilityChunk < spatialCandidateChunkCount && all(isfinite(committedPosition)))
 		{
 			const float3 actorGateOffset = committedPosition - spatialCandidateCenter;
@@ -2956,7 +2959,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		// candidates retain the exact expected-chunk selector.
 		const bool probeCandidate = spatialProbeRay &&
 			(visibilityChunk == probeExpectedChunk ||
-			 instanceData.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL);
+			 actorSpatialOwner);
 		uint spatialOutcome = committedSpatialOutcome;
 		uint matchedPositiveChunk = 0xffffffffu;
 		uint spatialCandidateMaterialFlags = 0xffffffffu;

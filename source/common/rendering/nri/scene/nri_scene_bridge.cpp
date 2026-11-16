@@ -1,4 +1,5 @@
 #include "nri_scene_bridge.h"
+#include "nri_actor_sprite_fallback.h"
 #include "nri_material_color_audit.h"
 #include "nri_material_average_color_cache.h"
 #include "nri_voxel_publication_diagnostic_status.h"
@@ -4525,6 +4526,20 @@ namespace
 		return changed;
 	}
 
+	void RefreshActorSpriteFallbacksAfterCapture(HWDrawInfo& di, const SceneView& view)
+	{
+		const auto discardOrdinarySprites = [](const std::vector<SurfaceRef>& surfaces)
+		{
+			for (const auto& surface : surfaces)
+				if (surface.provenance.sourceType != SurfaceSourceType::VoxelProxySprite)
+					DiscardRetainedActorSpriteFallbackCandidate(surface.provenance.actorIndex);
+		};
+		discardOrdinarySprites(view.opaqueSprites);
+		discardOrdinarySprites(view.opaqueWalls);
+		discardOrdinarySprites(view.opaqueFlats);
+		RefreshRetainedActorSpriteFallbackCandidates(di);
+	}
+
 	bool BeginVoxelActorCacheFrame()
 	{
 		const bool rootCapture = gVoxelActorCacheCaptureDepth++ == 0;
@@ -4535,6 +4550,8 @@ namespace
 			{
 				gVoxelActorCacheFrame = 1;
 			}
+			if (!r_voxels) ResetActorSpriteFallbackCandidates();
+			BeginActorSpriteFallbackFrame(gVoxelActorCacheFrame);
 		}
 		return rootCapture;
 	}
@@ -5817,12 +5834,35 @@ namespace
 		return captureMode == DynamicVoxelCaptureMode::Authoritative;
 	}
 
-	bool CaptureVoxelMeshSprite(HWDrawInfo* di, HWSprite& sprite, uint32_t drawListType, VoxelCaptureBudget& budget, std::vector<SurfaceRef>& outSprites, SceneDebugStats& stats, DynamicVoxelCaptureMode captureMode)
+	bool CaptureVoxelMeshSprite(HWDrawInfo* di, HWSprite& sprite, uint32_t drawListType, VoxelCaptureBudget& budget, std::vector<SurfaceRef>& outSprites, SceneDebugStats& stats, DynamicVoxelCaptureMode captureMode, bool publishGeometry = true)
 	{
 		if (sprite.modelframe >= 0 || sprite.voxel == nullptr || sprite.voxel->model == nullptr)
 		{
 			return false;
 		}
+
+		VoxelActorCacheLookup fallbackIdentity = {};
+		(void)TryBuildVoxelActorIdentity(sprite, fallbackIdentity);
+		if (di != nullptr && captureMode == DynamicVoxelCaptureMode::Authoritative)
+		{
+			(void)CaptureActorSpriteFallbackCandidate(*di, sprite, fallbackIdentity.identityKey, drawListType,
+				ShouldUseTransientVoxelActorCapture(sprite), fallbackIdentity.indirectOnly);
+		}
+		struct FallbackGeometryCapture
+		{
+			uint64_t identity;
+			const std::vector<SurfaceRef>& surfaces;
+			size_t begin;
+			~FallbackGeometryCapture()
+			{
+				for (size_t i = begin; i < surfaces.size(); ++i)
+					if (surfaces[i].vertices.size() >= 3)
+					{
+						MarkActorSpriteFallbackTransientGeometry(identity);
+						break;
+					}
+			}
+		} fallbackGeometryCapture = { publishGeometry ? fallbackIdentity.identityKey : 0, outSprites, outSprites.size() };
 
 		FGameTexture* voxelTexture = TexMan.GetGameTexture(sprite.voxel->model->GetPaletteTexture());
 		if (voxelTexture == nullptr || !voxelTexture->isValid())
@@ -6144,7 +6184,7 @@ namespace
 		return budget;
 	}
 
-	void CaptureModelSprites(HWDrawInfo& di, HWDrawList& list, uint32_t drawListType, std::vector<SurfaceRef>& outSprites, SceneDebugStats& stats, DynamicVoxelCaptureMode captureMode)
+	void CaptureModelSprites(HWDrawInfo& di, HWDrawList& list, uint32_t drawListType, std::vector<SurfaceRef>& outSprites, SceneDebugStats& stats, DynamicVoxelCaptureMode captureMode, bool publishGeometry = true)
 	{
 		const bool rootMeshCapture = BeginVoxelMeshCacheFrame();
 		static thread_local NRIRetainedScratch<std::vector<HWSprite*>> modelScratch;
@@ -6216,7 +6256,7 @@ namespace
 				continue;
 			}
 
-			if (CaptureVoxelMeshSprite(&di, *sprite, drawListType, budget, outSprites, stats, captureMode))
+			if (CaptureVoxelMeshSprite(&di, *sprite, drawListType, budget, outSprites, stats, captureMode, publishGeometry))
 			{
 				stats.voxelProxyDrawItems++;
 			}
@@ -6226,6 +6266,7 @@ namespace
 	}
 
 	bool CaptureActorModelSprites(
+		HWDrawInfo& di,
 		HWDrawList& list,
 		uint32_t drawListType,
 		int32_t actorIndex,
@@ -6259,8 +6300,8 @@ namespace
 
 			currentVoxel = true;
 			authoritativeSurfaces.clear();
-			(void)CaptureVoxelMeshSprite(nullptr, *sprite, drawListType, budget, authoritativeSurfaces, stats, DynamicVoxelCaptureMode::Authoritative);
-			if (captureTransient && CaptureVoxelMeshSprite(nullptr, *sprite, drawListType, budget, outSprites, stats, DynamicVoxelCaptureMode::Transient))
+			(void)CaptureVoxelMeshSprite(&di, *sprite, drawListType, budget, authoritativeSurfaces, stats, DynamicVoxelCaptureMode::Authoritative, false);
+			if (captureTransient && CaptureVoxelMeshSprite(&di, *sprite, drawListType, budget, outSprites, stats, DynamicVoxelCaptureMode::Transient))
 			{
 				stats.voxelProxyDrawItems++;
 			}
@@ -6816,6 +6857,11 @@ bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor)
 	return success;
 }
 
+void NudgeActorSpriteFallbackWallSurface(const HWWall& wall, SurfaceRef& surface)
+{
+	NudgeAttachedWallSpriteSurface(wall, surface);
+}
+
 MaterialRef MakeMaterialRef(FGameTexture* texture, int palette, int shade, float alpha, uint32_t extraFlags, int32_t authoredTextureId)
 {
 	MaterialRef material = {};
@@ -6978,13 +7024,15 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 				GLDL_MODELS,
 				scratchSurfaces,
 				scratchStats,
-				DynamicVoxelCaptureMode::Authoritative);
+				DynamicVoxelCaptureMode::Authoritative,
+				false);
 		}, nullptr);
 	}
 	if (voxelCaptureMode == DynamicVoxelCaptureMode::Authoritative)
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.voxelFrameMs);
 		EndVoxelActorCacheFrame(outView.stats, rootVoxelCacheFrame);
+		if (rootVoxelCacheFrame) RefreshActorSpriteFallbacksAfterCapture(di, outView);
 	}
 
 	{
@@ -7029,6 +7077,7 @@ ActorSpriteSceneCaptureResult CaptureActorSpriteScene(
 	outView.drawInfo = &di;
 	std::vector<SurfaceRef> modelSprites;
 	result.currentVoxel = CaptureActorModelSprites(
+		di,
 		di.drawlists[GLDL_MODELS],
 		GLDL_MODELS,
 		actorIndex,
@@ -7084,15 +7133,16 @@ ActorSpriteSceneCaptureResult CaptureActorVoxelSprite(
 	VoxelCaptureBudget budget = MakeVoxelCaptureBudget();
 	std::vector<SurfaceRef> authoritativeSurfaces;
 	(void)CaptureVoxelMeshSprite(
-		nullptr,
+		&di,
 		sprite,
 		GLDL_MODELS,
 		budget,
 		authoritativeSurfaces,
 		outView.stats,
-		DynamicVoxelCaptureMode::Authoritative);
+		DynamicVoxelCaptureMode::Authoritative,
+		false);
 	if (!residentVoxelReady && CaptureVoxelMeshSprite(
-		nullptr,
+		&di,
 		sprite,
 		GLDL_MODELS,
 		budget,
@@ -7123,6 +7173,7 @@ uint64_t GetPersistentVoxelCacheSerial()
 
 void ResetPersistentVoxelActorCache(const char* reason)
 {
+	ResetActorSpriteFallbackCandidates();
 	gVoxelPublicationDiagnosticCapture = {};
 	gVoxelActorPublication.Reset();
 	gVoxelActorPublicationQuarantined = false;
@@ -8042,6 +8093,7 @@ bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 	CaptureModelSprites(di, di.drawlists[GLDL_MODELS], GLDL_MODELS, outView.opaqueSprites, outView.stats, DynamicVoxelCaptureMode::Authoritative);
 	CapturePortalViews(di, outView);
 	EndVoxelActorCacheFrame(outView.stats, rootVoxelCacheFrame);
+	if (rootVoxelCacheFrame) RefreshActorSpriteFallbacksAfterCapture(di, outView);
 
 	for (const auto& wall : outView.opaqueWalls)
 	{

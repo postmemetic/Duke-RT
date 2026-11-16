@@ -155,6 +155,13 @@ struct NRIMaterialTextureWarmupCursor
 	bool ready = false;
 };
 
+struct NRIActorRepresentationTextureResult
+{
+    uint32_t materials = 0, textures = 0, ready = 0, inserted = 0, pendingReplacements = 0, failures = 0;
+    uint64_t insertedDeviceBytes = 0, pendingRetirementBytes = 0;
+    double cpuMs = 0.0;
+};
+
 class NRISceneTextureResidency
 {
 public:
@@ -189,6 +196,11 @@ public:
 	bool WarmMaterialTextures(NRIRenderDevice& device, const nri_scene::MaterialBridgeData& materials, NRIMaterialTextureWarmupResult& outResult);
 	bool WarmMaterialTexturesBudgeted(NRIRenderDevice& device, const nri_scene::MaterialBridgeData& materials, const NRIMaterialTextureWarmupOptions& options, NRIMaterialTextureWarmupCursor& cursor, NRIMaterialTextureWarmupResult& outResult);
 	bool ResolveTextureDescriptor(NRIRenderDevice& device, const nri_scene::TextureUpload& upload, bool tracePerf, NRISceneTextureMissPolicy missPolicy, SceneTextureResolveResult& outResult);
+    // Selected cheap actor carriers must not become transparent async proxies.
+    // This establishes resource-view readiness; the ordinary scene pass still
+    // owns slot assignment, descriptor publication and material upload.
+    bool EnsurePriorityMaterialTextures(NRIRenderDevice& device, const nri_scene::MaterialBridgeData& materials,
+        const std::vector<uint32_t>& selectedMaterialIndices, NRIActorRepresentationTextureResult& result);
 	nri::Descriptor* FindStableSlotDescriptor(uint64_t key, NRISceneTextureSlotHandle handle) const;
 	void StoreStableSlotDescriptor(uint64_t key, NRISceneTextureSlotHandle handle, nri::Descriptor* descriptor);
 	void PopulateStableSlotDescriptors(std::vector<nri::Descriptor*>& descriptors, uint32_t descriptorOffset) const;

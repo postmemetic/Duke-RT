@@ -166,9 +166,9 @@ inline int angletorotation2(DAngle sprang, DAngle viewang)
 }
 
 // 4 (8) frame rotation.
-inline void applyRotation1(DDukeActor* h, tspritetype* t, DAngle viewang, FTextureID base = FNullTextureID())
+inline void ResolveSpriteRotation1(DDukeActor* h, tspritetype* t, DAngle viewang, FTextureID base, bool suppressDirection)
 {
-	if (tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal))
+	if (suppressDirection && tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal))
 	{
 		t->cstat &= ~CSTAT_SPRITE_XFLIP;
 		return;
@@ -185,10 +185,21 @@ inline void applyRotation1(DDukeActor* h, tspritetype* t, DAngle viewang, FTextu
 	t->setspritetexture(base + k);
 }
 
-// 6 (12) frame rotation.
-inline void applyRotation2(DDukeActor* h, tspritetype* t, DAngle viewang, FTextureID base = FNullTextureID())
+inline void applyRotation1(DDukeActor* h, tspritetype* t, DAngle viewang, FTextureID base = FNullTextureID())
 {
-	if (tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal))
+	tspritetype alternate = *t;
+	alternate.ApplySpriteFallbackFrame();
+	ResolveSpriteRotation1(h, &alternate, viewang, base, false);
+	ResolveSpriteRotation1(h, t, viewang, base, true);
+	t->spriteFallbackRotationFrames = 8;
+	t->spriteFallbackRotationBase = base.isNull() ? h->spr.spritetexture() : base;
+	t->SetSpriteFallbackFrame(alternate);
+}
+
+// 6 (12) frame rotation.
+inline void ResolveSpriteRotation2(DDukeActor* h, tspritetype* t, DAngle viewang, FTextureID base, bool suppressDirection)
+{
+	if (suppressDirection && tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal))
 	{
 		t->cstat &= ~CSTAT_SPRITE_XFLIP;
 		return;
@@ -203,6 +214,17 @@ inline void applyRotation2(DDukeActor* h, tspritetype* t, DAngle viewang, FTextu
 	else t->cstat &= ~CSTAT_SPRITE_XFLIP;
 	if (base.isNull()) base = h->spr.spritetexture();
 	t->setspritetexture(base + k);
+}
+
+inline void applyRotation2(DDukeActor* h, tspritetype* t, DAngle viewang, FTextureID base = FNullTextureID())
+{
+	tspritetype alternate = *t;
+	alternate.ApplySpriteFallbackFrame();
+	ResolveSpriteRotation2(h, &alternate, viewang, base, false);
+	ResolveSpriteRotation2(h, t, viewang, base, true);
+	t->spriteFallbackRotationFrames = 12;
+	t->spriteFallbackRotationBase = base.isNull() ? h->spr.spritetexture() : base;
+	t->SetSpriteFallbackFrame(alternate);
 }
 
 inline int monsterCheatCheck(DDukeActor* self)

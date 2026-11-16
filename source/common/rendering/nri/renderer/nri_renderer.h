@@ -14,6 +14,8 @@
 #include "nri_nrd.h"
 #include "nri_occurrence_workload_mask_policy.h"
 #include "nri_persistent_voxels.h"
+#include "nri_actor_representation.h"
+#include "nri_persistent_voxel_allocation.h"
 #include "nri_pipeline_state.h"
 #include "nri_renderer_context.h"
 #include "nri_resources.h"
@@ -2764,7 +2766,13 @@ private:
 	void RetirePersistentVoxelMaterialRange(NRIPersistentVoxelMaterialRangeHandle range);
 	void RetirePersistentVoxelSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket);
 	void RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
-	NRIPersistentVoxelBudgetSnapshot GetPersistentVoxelBudgetSnapshot();
+	NRIPersistentVoxelBudgetSnapshot GetPersistentVoxelBudgetSnapshot(bool forceRefresh = false);
+	NRIPersistentVoxelAllocationResult PreparePersistentVoxelGeometryAllocation(
+		PersistentVoxelMeshVariantResource& mesh, NRIBufferResource* scratch,
+		uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs);
+	bool BuildPreparedPersistentVoxelBottomLevel(const NRIBufferResource& vertices, const NRIBufferResource& indices,
+		uint32_t vertexOffset, uint32_t vertexCount, uint32_t indexOffset, uint32_t indexCount,
+		uint32_t primitiveCount, NRIAccelerationStructureResource& accelerationStructure, NRIBufferResource* scratch);
 	void AuditPersistentVoxelArenaGrowthBudget(uint64_t oldBytes, uint64_t newCapacityBytes, uint32_t stride);
 	void TrimPersistentVoxelCacheAfterLevelWait();
 	NRIPersistentVoxelBudgetSnapshot mVoxelBudgetSnapshot;
@@ -2990,6 +2998,7 @@ private:
 	NRISurfaceLightOverlayCache mSurfaceLightOverlayCache;
 	DynamicSceneFrameState mDynamicSceneLastFrame = {};
 	NRIPersistentVoxelResidency mPersistentVoxels;
+	NRIActorRepresentations mActorRepresentations;
 	NRIVoxelRepresentationPolicy mVoxelRepresentationPolicy;
 	StateCommitDomainGenerations mLastStateCommitDomainGenerations = {};
 	bool mHasLastStateCommitDomainGenerations = false;

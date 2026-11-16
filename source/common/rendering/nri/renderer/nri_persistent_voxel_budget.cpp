@@ -6,12 +6,12 @@
 #include <cstdio>
 #include <limits>
 
-NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot()
+NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(bool forceRefresh)
 {
     // DXGI budget queries are bounded maintenance, not another per-frame walk.
     // Renderer tracked commitment remains current between OS-budget samples.
     const int testBudget = std::max(0, (int)nri_ptvoxelbudgettestbytes);
-    const bool refresh = mVoxelBudgetSnapshotFrame == UINT32_MAX ||
+    const bool refresh = forceRefresh || mVoxelBudgetSnapshotFrame == UINT32_MAX ||
         mVoxelBudgetSnapshotMap != mMapWorld.buildSerial || mVoxelBudgetSnapshotOverride != testBudget ||
         mFrameIndex < mVoxelBudgetSnapshotFrame || mFrameIndex - mVoxelBudgetSnapshotFrame >= 60;
     if (refresh)
@@ -28,7 +28,34 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot()
         mVoxelBudgetSnapshotMap = mMapWorld.buildSerial;
         mVoxelBudgetSnapshotOverride = testBudget;
     }
+    if (forceRefresh) mPersistentVoxels.MarkMaintenanceMutation();
     mVoxelBudgetSnapshot.trackedBytes = GetMemoryTelemetry().totalTrackedBytes;
+    if (forceRefresh)
+    {
+        // General renderer telemetry excludes pending voxel jobs and retired
+        // backing. They still own physical allocations until fence completion.
+        const auto add = [&](uint64_t bytes)
+        {
+            auto& tracked = mVoxelBudgetSnapshot.trackedBytes;
+            tracked = bytes > std::numeric_limits<uint64_t>::max() - tracked ?
+                std::numeric_limits<uint64_t>::max() : tracked + bytes;
+        };
+        const auto voxels = mPersistentVoxels.GetMemoryUsage();
+        add(voxels.admissionTransientBufferBytes);
+        add(voxels.admissionTransientAsBytes);
+        for (const auto& frame : mResidentUploadScratchFrames)
+        {
+            for (const auto& buffer : frame.retiredBuffers)
+                if (buffer.memoryLocation == nri::MemoryLocation::DEVICE) add(buffer.memorySize);
+            for (const auto& structure : frame.retiredAccelerationStructures) add(structure.memorySize);
+        }
+        add(mResidentBlasScratchRetirement.RetainedBytes());
+        const auto compute = GetNRIVoxelComputeMemoryUsage();
+        add(compute.rawDeviceBytes);
+        add(compute.transientInputDeviceBytes);
+        add(compute.transientGeneratedBytes);
+        add(compute.diagnosticAsBytes);
+    }
     mVoxelBudgetSnapshot.usageBytes = std::max(mVoxelBudgetSnapshot.trackedBytes,
         mVoxelBudgetSnapshot.liveAvailable ? mVoxelBudgetSnapshot.liveUsageBytes : 0);
     if (refresh && PerfAuditActive())
@@ -36,11 +63,11 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot()
         char fields[512];
         snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"live_available\":%s,"
             "\"tracked_bytes\":%llu,\"live_usage_bytes\":%llu,\"live_budget_bytes\":%llu,"
-            "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d",
+            "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d,\"allocation_refresh\":%s",
             mFrameIndex, (unsigned long long)mMapWorld.buildSerial, mVoxelBudgetSnapshot.liveAvailable ? "true" : "false",
             (unsigned long long)mVoxelBudgetSnapshot.trackedBytes, (unsigned long long)mVoxelBudgetSnapshot.liveUsageBytes,
             (unsigned long long)mVoxelBudgetSnapshot.liveBudgetBytes, (unsigned long long)mVoxelBudgetSnapshot.usageBytes,
-            (unsigned long long)mVoxelBudgetSnapshot.budgetBytes, testBudget);
+            (unsigned long long)mVoxelBudgetSnapshot.budgetBytes, testBudget, forceRefresh ? "true" : "false");
         PerfAuditWriteEvent("voxel_residency_budget", PerfAuditCurrentToken(), fields);
     }
     return mVoxelBudgetSnapshot;

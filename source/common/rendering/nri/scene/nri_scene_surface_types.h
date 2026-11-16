@@ -53,6 +53,9 @@ enum PrimitiveFlags : uint32_t
 {
 	PrimitiveFlag_None = 0,
 	PrimitiveFlag_ReflectionOnly = 1u << 16,
+	// Dynamic sprite carrier with persistent actor spatial ownership. This is
+	// independent of the buffer data source and never selects voxel buffers.
+	PrimitiveFlag_ActorSpriteFallback = 1u << 17,
 };
 
 // Shared CPU-side reason codes for primary-surface temporal correspondence.

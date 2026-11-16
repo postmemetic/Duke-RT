@@ -239,7 +239,7 @@ public:
 	void ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* frontsector);
 	// Builds the shared wall-sprite quad without publishing a draw item. A null
 	// view skips camera culling/orientation for view-independent material decals.
-	bool PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* frontsector);
+	bool PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* frontsector, const float* actorAlpha = nullptr);
 
 	float PointOnSide(float x,float y)
 	{
@@ -357,6 +357,7 @@ public:
 	void CreateVertices(HWDrawInfo* di);
 	void PutSprite(HWDrawInfo *di, bool translucent);
 	void Process(HWDrawInfo *di, tspritetype* thing,sectortype * sector, int thruportal = false);
+	bool PrepareFacingSprite(HWDrawInfo* di, tspritetype* thing, sectortype* sector, const float* actorAlpha = nullptr);
 	bool PrepareVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate);
 	bool ProcessVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate);
 
@@ -404,7 +405,7 @@ inline bool spriteHasTranslucency(const tspritetype* tspr)
 	return checkTranslucentReplacement(tspr->spritetexture(), tspr->pal);
 }
 
-inline void SetSpriteTranslucency(const tspritetype* sprite, float& alpha, FRenderStyle& RenderStyle)
+inline void SetSpriteTranslucency(const tspritetype* sprite, float& alpha, FRenderStyle& RenderStyle, const float* actorAlpha = nullptr)
 {
 	bool trans = (sprite->cstat & CSTAT_SPRITE_TRANSLUCENT);
 	if (trans)
@@ -417,7 +418,7 @@ inline void SetSpriteTranslucency(const tspritetype* sprite, float& alpha, FRend
 		RenderStyle = LegacyRenderStyles[STYLE_Translucent];
 		alpha = 1.f;
 	}
-	alpha *= 1.f - sprite->ownerActor->sprext.alpha;
+	alpha *= 1.f - (actorAlpha != nullptr ? *actorAlpha : sprite->ownerActor->sprext.alpha);
 }
 
 extern PalEntry GlobalMapFog;

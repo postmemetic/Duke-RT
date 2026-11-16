@@ -16,6 +16,8 @@ struct FRenderViewpoint;
 struct sectortype;
 struct tspritetype;
 struct MapRecord;
+struct ActorSpriteAnimationState;
+struct ActorPresentationState;
 
 struct GameStats
 {
@@ -142,6 +144,8 @@ struct GameInterface
 	virtual void SwitchCoopView() { Printf("Unsupported command\n"); }
 	virtual void ToggleShowWeapon() { Printf("Unsupported command\n"); }
 	virtual void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) = 0;
+	virtual void CaptureActorSpriteAnimation(const DCoreActor&, ActorSpriteAnimationState&) const {}
+	virtual bool ResolveActorSpriteFallbackFrame(const ActorPresentationState&, tspritetype&, const DVector2&, DAngle) const { return false; }
 	virtual void UpdateCameras(double smoothratio) {}
 	virtual void EnterPortal(DCoreActor* viewer, int type) {}
 	virtual void LeavePortal(DCoreActor* viewer, int type) {}

@@ -39,6 +39,21 @@ struct ActorPresentationAngles
 	double rollDegrees = 0.0;
 };
 
+// Read-only game animation inputs, captured once with simulation authority.
+// Script callbacks are deliberately not evaluated by renderer refreshes.
+struct ActorSpriteAnimationState
+{
+	bool available = false;
+	bool enabled = false;
+	bool actionActive = false;
+	bool rrZombieRotation = false;
+	int32_t rotationType = 0;
+	int32_t actionOffset = 0;
+	int32_t currentFrame = 0;
+	int32_t forcedRotation = 0;
+	int32_t fullbrightKind = 0;
+};
+
 // A renderer-safe copy of the authoritative actor placement at the end of a
 // completed simulation tick. It deliberately contains no actor pointer.
 struct ActorPresentationState
@@ -63,6 +78,11 @@ struct ActorPresentationState
 	uint16_t cstat2 = 0;
 	uint8_t renderFlags = 0;
 	float alpha = 0.0f;
+	ActorSpriteAnimationState spriteAnimation;
+	int32_t spriteShade = 0;
+	int32_t spritePalette = 0;
+	int32_t spriteXOffset = 0;
+	int32_t spriteYOffset = 0;
 	bool authorityCurrent = false;
 	bool publicationEligible = false;
 };

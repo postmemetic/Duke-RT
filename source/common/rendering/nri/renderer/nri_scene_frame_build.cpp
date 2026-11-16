@@ -1137,6 +1137,35 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			}
 		}
 
+		// Select the cheap representation before uploading the dynamic scene.
+		// It bypasses the retained emissive cache so promotion cannot leave a
+		// historical sprite or light behind after the voxel becomes ready.
+		NRIPersistentVoxelTlasServices representationServices = {};
+		representationServices.user = this;
+		representationServices.getAccelerationStructureHandle = [](void* user, const NRIAccelerationStructureResource& resource) -> uint64_t
+		{
+			auto* renderer = static_cast<NRIRenderer*>(user);
+			return resource.accelerationStructure != nullptr ?
+				renderer->mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*resource.accelerationStructure) : 0ull;
+		};
+		if (!deferOverlayThisFrame && mActorRepresentations.Build(mFrameIndex, mPersistentVoxels,
+			persistentVoxelSettings, representationServices, actorOccurrencePolicyContext,
+			sceneInstanceVisibilityContext, activeDynamicSceneView,
+			hasLocalPlayerReflectionScene ? localPlayerActorIndex : -1))
+		{
+			RebuildSceneViewStats(mActorRepresentations.Scene());
+			BuildMaterialsWithActorOverrides(mActorRepresentations.Scene(), mActorRepresentations.Materials(), "actor_fallback");
+			mActorRepresentations.FinishGeometry();
+			NRIActorRepresentationTextureResult fallbackTextures = {};
+			mSceneTextures.EnsurePriorityMaterialTextures(*mFrameBuffer, mActorRepresentations.Materials(),
+				mActorRepresentations.PriorityMaterials(), fallbackTextures);
+			activeDynamicSceneView = &mActorRepresentations.Scene();
+			activeDynamicGeometry = &mActorRepresentations.Geometry();
+			activeDynamicMaterials = &mActorRepresentations.Materials();
+			sceneLightDynamicView = activeDynamicSceneView;
+			sceneLightDynamicMaterials = activeDynamicMaterials;
+		}
+
 		if (hasPersistentVoxelBatch && mPersistentVoxels.HasValidBatch())
 		{
 			appendPersistentVoxelSceneLights = true;
@@ -1222,6 +1251,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			}
 
 			NRISceneFrameOverlayBuildInputs overlayInputs = {};
+			std::vector<std::pair<uint32_t, uint32_t>> actorRepresentationPublishedRanges;
 			overlayInputs.collectTiming = ShouldCollectPtPerfTiming();
 			overlayInputs.mapWorldBuildSerial = mMapWorld.buildSerial;
 			overlayInputs.frameIndex = mFrameIndex;
@@ -1690,6 +1720,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 							sceneRecord.materialCount = (uint32_t)dynamicGpuMaterials.size();
 							sceneRecord.visibilityChunk = UINT32_MAX;
 							const uint32_t instanceIndex = builder.AddInstance(dynamicInstance, sceneRecord);
+							if (dynamicInstance.mask != 0u) actorRepresentationPublishedRanges.emplace_back(occurrence.span.primitiveOffset, occurrence.span.primitiveCount);
 							SelectedDynamicOverlayBlasOccurrence selectedOccurrence = {};
 							selectedOccurrence.accelerationStructure = occurrence.accelerationStructure;
 							selectedOccurrence.sceneInstanceIndex = instanceIndex;
@@ -1737,6 +1768,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						sceneRecord.materialCount = activeGpuMaterials != nullptr ? (uint32_t)activeGpuMaterials->size() : UINT32_MAX;
 						sceneRecord.visibilityChunk = UINT32_MAX;
 						actorDynamicTlasInstanceIndex = builder.AddLegacyInstance(dynamicInstance, sceneRecord);
+						if (dynamicInstance.mask != 0u) actorRepresentationPublishedRanges.emplace_back(0u, liveOverlayPrimitiveCount);
 						actorDynamicTlasMask = dynamicInstance.mask;
 					}
 
@@ -1809,6 +1841,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				}
 			}
 
+			mActorRepresentations.RecordAssembly(mFrameIndex, mPersistentVoxels, overlayGeometry, dynamicGpuMaterials,
+				actorRepresentationPublishedRanges, paletteReady && texturesReady && buffersReady && accelerationReady);
 			if (actorOccurrenceFrameAvailable)
 			{
 				AppendNRIActorDynamicOccurrences(

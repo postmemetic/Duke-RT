@@ -9,6 +9,22 @@ void NRIPersistentVoxelResidency::SyncGeometryCursors()
     arenaPrimitiveCursor = uint32_t(geometryRanges.PrimitiveStats().cursorRows);
 }
 
+void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
+    const NRIPersistentVoxelGeometryRangeHandle& previous)
+{
+    if (resource.geometryRange.transaction == previous.transaction) return;
+    // Only used before the allocation service records any copy/compute command.
+    // Published and submitted ranges must continue through fence retirement.
+    ReleaseCompletedGeometryRange(resource.geometryRange);
+    resource.geometryRange = previous;
+    resource.vertexOffset = previous.vertices.offset;
+    resource.vertexCapacity = previous.vertices.capacity;
+    resource.indexOffset = previous.indices.offset;
+    resource.indexCapacity = previous.indices.capacity;
+    resource.primitiveOffset = previous.primitives.offset;
+    resource.primitiveCapacity = previous.primitives.capacity;
+}
+
 bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource,
     uint32_t vertices, uint32_t indices, uint32_t primitives, NRIPersistentVoxelGeometryRangeHandle& previous)
 {

@@ -323,14 +323,25 @@ void HWDrawInfo::DispatchSprites()
 		if (actor == nullptr || tspr->scale.X == 0 || tspr->scale.Y == 0 || !texid.isValid()) continue;
 
 		actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;
+		tspritetype fallback = *tspr;
+		fallback.ApplySpriteFallbackFrame();
+		auto fallbackTexture = fallback.spritetexture();
+		tspr->spriteFallbackTileBase = fallbackTexture;
 
 		if (!(tspr->cstat2 & CSTAT2_SPRITE_NOANIMATE))
 		{
 			tileUpdatePicnum(texid, (actor->GetIndex() & 16383));
+			if (fallbackTexture == baseTexId) fallbackTexture = texid;
+			else tileUpdatePicnum(fallbackTexture, (actor->GetIndex() & 16383));
 		}
 		if (tspr->cstat2 & CSTAT2_SPRITE_FULLBRIGHT)
+		{
 			tspr->shade = -127;
+			fallback.shade = -127;
+		}
 		tspr->setspritetexture(texid);
+		fallback.setspritetexture(fallbackTexture);
+		tspr->SetSpriteFallbackFrame(fallback);
 		if ((int)nri_ptactorspritetrace > 0 && (int)nri_pttraceframes > 0 && screen != nullptr)
 		{
 			PathTracingActorSpriteTraceEvent event = {};

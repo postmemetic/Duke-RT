@@ -1132,7 +1132,7 @@ void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 		PutWall(di, spriteHasTranslucency(Sprite));
 }
 
-bool HWWall::PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector)
+bool HWWall::PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector, const float* actorAlpha)
 {
 	auto tex = TexMan.GetGameTexture(spr->spritetexture());
 	if (!tex || !tex->isValid()) return false;
@@ -1169,7 +1169,7 @@ bool HWWall::PrepareWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 	fade = lookups.getFade(sector->floorpal);	// fog is per sector.
 	visibility = sectorVisibility(sector);
 
-	SetSpriteTranslucency(Sprite, alpha, RenderStyle);
+	SetSpriteTranslucency(Sprite, alpha, RenderStyle, actorAlpha);
 
 	const TileOffs* tofs;
 	int height, topofs;

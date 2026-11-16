@@ -7,6 +7,7 @@
 #include "nri_scene_instance_visibility.h"
 
 #include "../scene/nri_hash.h"
+#include "../scene/nri_actor_sprite_fallback.h"
 #include "../scene/nri_cpu_perf_audit.h"
 #include "../scene/nri_voxel_material_slots.h"
 #include "nri_cvars.h"
@@ -1253,6 +1254,7 @@ bool NRIPersistentVoxelResidency::IsActorTlasAppendEligible(
 
 	const PersistentVoxelMeshVariantResource& mesh = meshVariantResources.find(actor.meshResourceKey)->second;
 	if (mesh.accelerationStructure.accelerationStructure == nullptr ||
+		mesh.accelerationStructure.buildVertexBuffer == nullptr ||
 		vertexBuffer.shaderView == nullptr ||
 		indexBuffer.shaderView == nullptr ||
 		primitiveBuffer.shaderView == nullptr ||
@@ -2889,6 +2891,12 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 	{
 		PersistentVoxelBatch::ActorEntry& actor = *actorPtr;
 		persistentVoxelTlasCandidateCount++;
+		if (UsesSpriteFallback(actor.identityKey, frameIndex))
+		{
+			persistentVoxelTlasSkippedCount++;
+			recordOccurrenceCandidate(actor, false, "sprite-fallback");
+			continue;
+		}
 		const NRIActorOccurrenceOwnerKey actorOwner = {
 			actor.ownerWorldEpoch, actor.ownerLifetimeGeneration
 		};
@@ -3932,7 +3940,8 @@ NRIPersistentVoxelLightAppendStats NRIPersistentVoxelResidency::AppendSceneLight
 
 	for (const PersistentVoxelBatch::ActorEntry& actor : batch.actors)
 	{
-		if (!actor.active || !IsPersistentVoxelActorPublicationCurrent(actor) || actor.materialCount == 0)
+		if (!actor.active || UsesSpriteFallback(actor.identityKey, frameIndex) ||
+			!IsPersistentVoxelActorPublicationCurrent(actor) || actor.materialCount == 0)
 		{
 			continue;
 		}
@@ -4119,7 +4128,7 @@ void NRIPersistentVoxelResidency::CollectResidentAccelerationStructures(
 	for (auto& pair : meshVariantResources)
 	{
 		NRIAccelerationStructureResource& resource = pair.second.accelerationStructure;
-		if (resource.accelerationStructure != nullptr && !resource.compacted)
+		if (resource.accelerationStructure != nullptr && resource.buildVertexBuffer != nullptr && !resource.compacted)
 		{
 			outResources.push_back(&resource);
 		}
@@ -4757,6 +4766,8 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		traceLevel1,
 		resetServices);
 	NRIVoxelAdmissionDiagnosticScope diagnostic(*this, frameIndex, phase);
+	const auto actorPolicy = GetNRIVoxelAdmissionPolicySettings();
+	if (!loadingPhase) RefreshActorDemand(frameIndex, settings, resetServices);
 	if (loadingPhase)
 	{
 		MarkMaintenanceMutation();
@@ -5007,6 +5018,17 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 
 	std::sort(candidates.begin(), candidates.end(), [&](const PersistentVoxelAdmissionEntry* left, const PersistentVoxelAdmissionEntry* right)
 	{
+		if (!loadingPhase && actorPolicy.actorPriority && actorDemand.AuthorityAvailable())
+		{
+			// Finish owned work before selecting another actor. Existing tokens,
+			// uploads and fences remain protected even if their source pose changed.
+			const bool leftStarted = left->uploadPrepared || left->schedulerTokenId || left->directComputeRequested;
+			const bool rightStarted = right->uploadPrepared || right->schedulerTokenId || right->directComputeRequested;
+			if (leftStarted != rightStarted) return leftStarted;
+			const auto a = actorDemand.Pair(left->pairKey), b = actorDemand.Pair(right->pairKey);
+			if (NRIVoxelActorDemand::HigherPriority(a, b)) return true;
+			if (NRIVoxelActorDemand::HigherPriority(b, a)) return false;
+		}
 		const bool leftUploading = isUploadState(left->state);
 		const bool rightUploading = isUploadState(right->state);
 		if (leftUploading != rightUploading)
@@ -5064,11 +5086,25 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	uint32_t optionalAdmitted = 0;
 	uint32_t optionalSkippedGrace = 0;
 	const char* stopReason = "queue-drained";
+	bool capacityReuseOnly = false;
+	uint32_t capacityReuseScanned = 0;
 	for (PersistentVoxelAdmissionEntry* entry : candidates)
 	{
 		NRIVoxelAdmissionEntryDiagnosticScope observeEntry(diagnostic, entry->pairKey);
+		if (capacityReuseOnly && (++capacityReuseScanned > 256 || (msBudget > 0.0 && elapsedMs() >= msBudget)))
+		{
+			diagnostic.Disposition("capacity-reuse-scan-stop");
+			break;
+		}
 		const uint64_t meshResourceKey = BuildPersistentVoxelVariantMeshResourceKey(entry->variant);
 		const PersistentVoxelReadinessStatus currentReadiness = GetSharedVariantReadiness(meshResourceKey, entry->variant.materialKeyHash);
+		if (capacityReuseOnly && !entry->uploadPrepared && !entry->schedulerTokenId && !entry->directComputeRequested &&
+			!(currentReadiness.meshKeyMatches && currentReadiness.meshCountsValid && currentReadiness.meshArenaBuffersReady &&
+			  currentReadiness.blasReady && (currentReadiness.meshPrivateBuffersReady || currentReadiness.meshDirectBuffersReady)))
+		{
+			diagnostic.Disposition("capacity-new-job-skip");
+			continue;
+		}
 		if (currentReadiness.ready)
 		{
 			if (entry->state != PersistentVoxelAdmissionState::Ready || entry->runtimeRequested)
@@ -5261,6 +5297,15 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 						optionalAdmitted++;
 					}
 				}
+				continue;
+			}
+			if (!loadingPhase && actorPolicy.actorPriority && entry->lastReason &&
+				(std::strcmp(entry->lastReason, "scheduler-compute-lane") == 0 ||
+				 std::strcmp(entry->lastReason, "scheduler-capacity") == 0 ||
+				 std::strcmp(entry->lastReason, "runtime-compute-capacity") == 0))
+			{
+				capacityReuseOnly = true;
+				diagnostic.Disposition("capacity-reuse-continue");
 				continue;
 			}
 			diagnostic.Disposition("in-progress-stop");
@@ -5683,6 +5728,26 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 		return false;
 	};
+	if ((bool)nri_ptvoxelallocationbudget && frameIndex < entry.allocationRetryFrame &&
+		!entry.directComputeRequested && !entry.uploadPrepared && !existingMeshResourceReady())
+	{
+		entry.state = PersistentVoxelAdmissionState::Deferred;
+		entry.lastReason = "allocation-budget-cooldown";
+		outInProgress = true;
+		return true;
+	}
+	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
+		const NRIPersistentVoxelGeometryRangeHandle& oldRange, NRIPersistentVoxelAllocationResult result)
+	{
+		RollbackUnsubmittedGeometryRange(mesh, oldRange);
+		services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, false));
+		entry.state = PersistentVoxelAdmissionState::Deferred;
+		entry.lastReason = result == NRIPersistentVoxelAllocationResult::AllocationFailed ?
+			"allocation-device-retry" : "allocation-budget-deferred";
+		entry.allocationRetryFrame = frameIndex <= UINT32_MAX - 30u ? frameIndex + 30u : UINT32_MAX;
+		outInProgress = true;
+		return true;
+	};
 	if (entry.schedulerTokenId == 0 &&
 		!existingMeshResourceReady() &&
 		(entry.runtimeRequested || variant.directOnlyAdmission) &&
@@ -5698,7 +5763,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 		const NRIVoxelAdmissionSnapshot schedulerSnapshot = admissionScheduler.GetSnapshot();
 		const uint32_t activeRuntimeJobs = schedulerSnapshot.activeFairnessCounts[
-			(size_t)NRIVoxelAdmissionFairnessClass::VisibleNoFallback];
+			(size_t)NRIVoxelAdmissionFairnessClass::VisibleNoFallback] + schedulerSnapshot.activeFairnessCounts[
+			(size_t)NRIVoxelAdmissionFairnessClass::OldVisiblePending];
 		if (entry.runtimeRequested && activeRuntimeJobs >= runtimeComputeMaxJobs)
 		{
 			outInProgress = true;
@@ -5729,6 +5795,13 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			(IsRequiredAdmission(entry) ? NRIVoxelAdmissionFairnessClass::RequiredLoading : NRIVoxelAdmissionFairnessClass::OptionalLoading);
 		schedulerRequest.age = entry.firstQueuedFrame != UINT32_MAX && frameIndex >= entry.firstQueuedFrame ?
 			(uint64_t)(frameIndex - entry.firstQueuedFrame) : 0u;
+		if (entry.runtimeRequested && GetNRIVoxelAdmissionPolicySettings().actorPriority && actorDemand.AuthorityAvailable())
+		{
+			const auto demand = actorDemand.Pair(entry.pairKey);
+			schedulerRequest.age = demand.oldestWait;
+			schedulerRequest.fairnessClass = demand.priorityTier == 0 ?
+				NRIVoxelAdmissionFairnessClass::VisibleNoFallback : NRIVoxelAdmissionFairnessClass::OldVisiblePending;
+		}
 		schedulerRequest.dependenciesReady = true;
 		schedulerRequest.forceExclusive = isolateBlasBuild;
 		const NRIVoxelAdmissionResult schedulerResult = admissionScheduler.Admit(schedulerRequest);
@@ -5977,6 +6050,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, true));
 				CancelNRIVoxelComputeDirectPublication(meshResourceKey, entry.directComputeGeneration);
 				services.RetireGeometryRange(entry.uploadMeshResource.geometryRange);
+				services.RetireAccelerationStructure(entry.uploadMeshResource.accelerationStructure);
+				services.RetireBuffer(entry.directBlasScratchBuffer);
 				entry.uploadMeshResource = {};
 				entry.directComputeRequested = false;
 				entry.directComputeFailed = true;
@@ -6116,6 +6191,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				(uint64_t)entry.uploadMeshResource.primitiveCapacity * sizeof(nri_scene::PrimitiveData));
 			CancelNRIVoxelComputeDirectPublication(meshResourceKey, entry.directComputeGeneration);
 			services.RetireGeometryRange(entry.uploadMeshResource.geometryRange);
+			services.RetireAccelerationStructure(entry.uploadMeshResource.accelerationStructure);
+			services.RetireBuffer(entry.directBlasScratchBuffer);
 			entry.uploadMeshResource = {};
 			entry.directComputeRequested = false;
 			entry.directComputeFailed = true;
@@ -6447,11 +6524,17 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			const uint32_t directVertexCapacity = variant.primitiveCount * 2u;
 			const uint32_t directIndexCapacity = variant.primitiveCount * 3u;
 			const uint32_t directPrimitiveCapacity = variant.primitiveCount;
+			const auto oldRange = meshResource.geometryRange;
 			NRIPersistentVoxelGeometryRangeHandle previousRange;
 			if (!AllocateGeometryRange(meshResource, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");
+			const auto allocation = services.PrepareGeometryAllocation(meshResource,
+				entry.runtimeRequested ? &entry.directBlasScratchBuffer : nullptr,
+				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false);
+			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
+				return deferAllocation(meshResource, oldRange, allocation);
 			services.RetireGeometryRange(previousRange);
-			if (!services.EnsureArenaBuffer(
+			if (allocation == NRIPersistentVoxelAllocationResult::Disabled && (!services.EnsureArenaBuffer(
 					vertexBuffer,
 					(uint64_t)arenaVertexCursor * sizeof(nri_scene::SceneVertex),
 					sizeof(nri_scene::SceneVertex),
@@ -6468,7 +6551,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 					(uint64_t)arenaPrimitiveCursor * sizeof(nri_scene::PrimitiveData),
 					sizeof(nri_scene::PrimitiveData),
 					NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE),
-					PersistentVoxelComputeShaderResourceAccess()))
+					PersistentVoxelComputeShaderResourceAccess())))
 			{
 				services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, true));
 				services.RetireGeometryRange(entry.uploadMeshResource.geometryRange);
@@ -6505,10 +6588,14 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				request.priority = UINT32_MAX - normalizedPriority;
 				request.age = entry.firstQueuedFrame != UINT32_MAX && frameIndex >= entry.firstQueuedFrame ?
 					(uint64_t)(frameIndex - entry.firstQueuedFrame) : 0u;
+				if (GetNRIVoxelAdmissionPolicySettings().actorPriority && actorDemand.AuthorityAvailable())
+					request.age = actorDemand.Pair(entry.pairKey).oldestWait;
 				auto deferSchedulerCompute = [&]()
 				{
 					CancelNRIVoxelComputeDirectPublication(meshResourceKey, request.generation);
 					services.RetireGeometryRange(entry.uploadMeshResource.geometryRange);
+					services.RetireAccelerationStructure(entry.uploadMeshResource.accelerationStructure);
+					services.RetireBuffer(entry.directBlasScratchBuffer);
 					entry.uploadMeshResource = {};
 					entry.directComputeRequested = false;
 					entry.directComputeFailed = false;
@@ -6592,6 +6679,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 					std::max(0, (int)nri_ptvoxelcomputemaxjobs) > 0)
 				{
 					services.RetireGeometryRange(entry.uploadMeshResource.geometryRange);
+					services.RetireAccelerationStructure(entry.uploadMeshResource.accelerationStructure);
+					services.RetireBuffer(entry.directBlasScratchBuffer);
 					entry.uploadMeshResource = {};
 					entry.directComputeRequested = false;
 					entry.directComputeFailed = false;
@@ -6617,6 +6706,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 					return true;
 				}
 				services.RetireGeometryRange(entry.uploadMeshResource.geometryRange);
+				services.RetireAccelerationStructure(entry.uploadMeshResource.accelerationStructure);
+				services.RetireBuffer(entry.directBlasScratchBuffer);
 				entry.uploadMeshResource = {};
 				entry.directComputeFailed = true;
 				services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, true));
@@ -6663,12 +6754,18 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 
 		PersistentVoxelMeshVariantResource& meshResource = entry.uploadMeshResource;
+		const auto oldRange = meshResource.geometryRange;
 		NRIPersistentVoxelGeometryRangeHandle previousRange;
 		if (entry.uploadGeometry.vertices.size() > UINT32_MAX || entry.uploadGeometry.indices.size() > UINT32_MAX ||
 			entry.uploadGeometry.primitives.size() > UINT32_MAX ||
 			!AllocateGeometryRange(meshResource, (uint32_t)entry.uploadGeometry.vertices.size(),
 				(uint32_t)entry.uploadGeometry.indices.size(), (uint32_t)entry.uploadGeometry.primitives.size(), previousRange))
 			return rollbackAdmission("geometry-range-allocation-failed", "reserve");
+		const auto allocation = services.PrepareGeometryAllocation(meshResource, nullptr,
+			(uint32_t)entry.uploadGeometry.vertices.size(), (uint32_t)entry.uploadGeometry.indices.size(),
+			(uint32_t)entry.uploadGeometry.primitives.size(), true);
+		if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
+			return deferAllocation(meshResource, oldRange, allocation);
 		services.RetireGeometryRange(previousRange);
 		entry.shaderVertexOffset = meshResource.vertexOffset;
 		entry.shaderIndexOffset = meshResource.indexOffset;
@@ -6689,7 +6786,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 
 		const uint64_t vertexBytes = entry.uploadGeometry.vertices.size() * sizeof(nri_scene::SceneVertex);
 		const uint64_t indexBytes = entry.uploadGeometry.indices.size() * sizeof(uint32_t);
-		if (!services.CreateStructuredBufferNoUpload(
+		if (allocation == NRIPersistentVoxelAllocationResult::Disabled && (!services.CreateStructuredBufferNoUpload(
 				meshResource.vertexBuffer,
 				vertexBytes,
 				sizeof(nri_scene::SceneVertex),
@@ -6716,7 +6813,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				(uint64_t)arenaPrimitiveCursor * sizeof(nri_scene::PrimitiveData),
 				sizeof(nri_scene::PrimitiveData),
 				nri::BufferUsageBits::SHADER_RESOURCE,
-				PersistentVoxelComputeShaderResourceAccess()))
+				PersistentVoxelComputeShaderResourceAccess())))
 		{
 			return rollbackAdmission("buffer-allocation-failed", "buffers");
 		}
@@ -8133,6 +8230,13 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		}
 
 		PersistentVoxelMeshVariantResource& meshResource = meshVariantResources[meshResourceKey];
+		if ((bool)nri_ptvoxelallocationbudget && frameIndex < meshResource.allocationRetryFrame)
+		{
+			if (existingActor) existingActor->active = false;
+			if (outDeferredReason) *outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
+			NoteCacheActorDeferred(cacheEntry.identityKey, "allocation-budget-cooldown");
+			return true;
+		}
 		const auto oldRange = meshResource.geometryRange;
 		NRIPersistentVoxelGeometryRangeHandle previousRange;
 		if (actorGeometry.vertices.size() > UINT32_MAX || actorGeometry.indices.size() > UINT32_MAX ||
@@ -8143,7 +8247,6 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			Reset("persistent-voxel-range-allocation-failed", true, loadingTraceLevel >= 1 || voxelStatsEnabled, resetServices);
 			return false;
 		}
-		resetServices.RetireGeometryRange(previousRange);
 		const bool vertexSliceMoved = oldRange.vertices.generation != meshResource.geometryRange.vertices.generation;
 		const bool indexSliceMoved = oldRange.indices.generation != meshResource.geometryRange.indices.generation;
 		const bool primitiveSliceMoved = oldRange.primitives.generation != meshResource.geometryRange.primitives.generation;
@@ -8172,6 +8275,19 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		const bool actorGeometryChanged = sharedArenaChanged;
 		if (actorGeometryChanged)
 		{
+			const auto allocation = batchServices.PrepareGeometryAllocation(meshResource, nullptr,
+				(uint32_t)actorGeometry.vertices.size(), (uint32_t)actorGeometry.indices.size(),
+				(uint32_t)actorGeometry.primitives.size(), true);
+			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
+			{
+				RollbackUnsubmittedGeometryRange(meshResource, oldRange);
+				meshResource.allocationRetryFrame = frameIndex <= UINT32_MAX - 30u ? frameIndex + 30u : UINT32_MAX;
+				if (existingActor) existingActor->active = false;
+				if (outDeferredReason) *outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
+				NoteCacheActorDeferred(cacheEntry.identityKey, "allocation-budget-deferred");
+				return true;
+			}
+			resetServices.RetireGeometryRange(previousRange);
 			const uint32_t shaderVertexOffset = meshResource.vertexOffset;
 			const uint32_t shaderIndexOffset = meshResource.indexOffset;
 			const uint32_t shaderPrimitiveOffset = meshResource.primitiveOffset;
@@ -8290,7 +8406,8 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			}
 			if (meshResourceChanged)
 			{
-				batchServices.RetireAccelerationStructure(meshResource.accelerationStructure);
+				if (allocation == NRIPersistentVoxelAllocationResult::Disabled)
+					batchServices.RetireAccelerationStructure(meshResource.accelerationStructure);
 				RetirePersistentVoxelShadowProxy(meshResource.shadowProxy, resetServices);
 				meshResource.resourceKey = meshResourceKey;
 				meshResource.sourceModel = cacheEntry.model;
@@ -8731,6 +8848,11 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			const bool actorVisibilityChunkNeedsUpdate = actor.visibilityChunkIndex != expectedVisibilityChunkIndex;
 			auto holdPreviousRepresentation = [&]() -> bool
 			{
+				if (!actorDemand.CanHold(cacheEntry.identityKey, cacheEntry.ownerWorldEpoch,
+					cacheEntry.ownerLifetimeGeneration, frameIndex, GetNRIVoxelAdmissionPolicySettings().heldMaximumFrames) &&
+					nri_scene::HasCurrentActorSpriteFallbackCandidate(cacheEntry.identityKey,
+						cacheEntry.ownerWorldEpoch, cacheEntry.ownerLifetimeGeneration))
+					return false;
 				if (previouslyActiveActors.find(cacheEntry.identityKey) == previouslyActiveActors.end() ||
 					actor.ownerWorldEpoch != cacheEntry.ownerWorldEpoch ||
 					actor.ownerLifetimeGeneration != cacheEntry.ownerLifetimeGeneration)
@@ -9356,6 +9478,7 @@ bool NRIPersistentVoxelResidency::BuildAccelerationStructures(
 		}
 		const bool needsBuild =
 			meshResource.accelerationStructure.accelerationStructure == nullptr ||
+			meshResource.accelerationStructure.buildVertexBuffer == nullptr ||
 			meshResource.vertexBuffer.buffer == nullptr ||
 			meshResource.indexBuffer.buffer == nullptr;
 		if (!needsBuild)
@@ -9796,6 +9919,10 @@ void NRIPersistentVoxelResidency::Reset(
 	bool traceReset,
 	const NRIPersistentVoxelResetServices& services)
 {
+	actorDemand.Reset();
+	warmRetentionPressure = {};
+	spriteFallbackActors.clear();
+	spriteFallbackFrame = UINT32_MAX;
 	MarkMaintenanceMutation();
 	if (traceReset &&
 		(!batch.actors.empty() ||
@@ -9934,6 +10061,10 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 	bool traceReset,
 	const NRIPersistentVoxelResetServices& services)
 {
+	actorDemand.Reset();
+	warmRetentionPressure = {};
+	spriteFallbackActors.clear();
+	spriteFallbackFrame = UINT32_MAX;
 	MarkMaintenanceMutation();
 	const uint32_t actorCount = (uint32_t)batch.actors.size();
 	const uint32_t instanceCount = (uint32_t)instances.size();
@@ -11678,7 +11809,8 @@ PersistentVoxelReadinessStatus NRIPersistentVoxelResidency::GetSharedVariantRead
 		vertexBuffer.buffer != nullptr &&
 		indexBuffer.buffer != nullptr &&
 		primitiveBuffer.buffer != nullptr;
-	status.blasReady = meshResource.accelerationStructure.accelerationStructure != nullptr;
+	status.blasReady = meshResource.accelerationStructure.accelerationStructure != nullptr &&
+		meshResource.accelerationStructure.buildVertexBuffer != nullptr;
 	if (!status.meshKeyMatches || !status.meshCountsValid || (!status.meshPrivateBuffersReady && !status.meshDirectBuffersReady))
 	{
 		status.reason = "mesh-invalid";

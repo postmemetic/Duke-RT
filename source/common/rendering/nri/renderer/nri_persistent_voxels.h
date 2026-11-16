@@ -2,6 +2,7 @@
 
 #include "nri_voxel_admission_scheduler.h"
 #include "nri_persistent_voxel_actor_index.h"
+#include "nri_persistent_voxel_actor_demand.h"
 #include "nri_voxel_publication_order.h"
 
 #include "nri_persistent_voxel_admission_index.h"
@@ -9,6 +10,7 @@
 #include "nri_persistent_voxel_material_bridge.h"
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_geometry_ranges.h"
+#include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_retention_policy.h"
 #include "nri_persistent_voxel_cache_diagnostics.h"
 #include "nri_persistent_voxel_admission_diagnostics.h"
@@ -109,6 +111,7 @@ struct PersistentVoxelBatch
 
 struct PersistentVoxelMeshVariantResource
 {
+	uint32_t allocationRetryFrame = 0;
 	NRIPersistentVoxelGeometryRangeHandle geometryRange;
 	FVoxelModel* sourceModel = nullptr;
 	uint64_t resourceKey = 0;
@@ -248,6 +251,7 @@ struct PersistentVoxelAdmissionEntry
 	uint32_t directBlasRecordedFrame = UINT32_MAX;
 	bool directBlasExclusive = false;
 	uint64_t schedulerTokenId = 0;
+	uint32_t allocationRetryFrame = 0;
 	NRIBufferResource directBlasScratchBuffer;
 	nri_scene::GeometryData uploadGeometry;
 	std::vector<uint32_t> uploadGpuIndices;
@@ -465,6 +469,11 @@ struct NRIPersistentVoxelPreloadServices
 
 struct NRIPersistentVoxelAdmissionServices
 {
+	NRIPersistentVoxelAllocationResult (*prepareGeometryAllocation)(void*, PersistentVoxelMeshVariantResource&,
+		NRIBufferResource*, uint32_t, uint32_t, uint32_t, bool) = nullptr;
+	NRIPersistentVoxelAllocationResult PrepareGeometryAllocation(PersistentVoxelMeshVariantResource& mesh,
+		NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs) const
+	{ return prepareGeometryAllocation ? prepareGeometryAllocation(user, mesh, scratch, vertices, indices, primitives, privateInputs) : NRIPersistentVoxelAllocationResult::Disabled; }
 	using AdmitVariantResourceFn = bool (*)(
 		void* user,
 		PersistentVoxelAdmissionEntry& entry,
@@ -890,6 +899,11 @@ struct NRIPersistentVoxelBatchStats
 
 struct NRIPersistentVoxelBatchServices
 {
+	NRIPersistentVoxelAllocationResult (*prepareGeometryAllocation)(void*, PersistentVoxelMeshVariantResource&,
+		NRIBufferResource*, uint32_t, uint32_t, uint32_t, bool) = nullptr;
+	NRIPersistentVoxelAllocationResult PrepareGeometryAllocation(PersistentVoxelMeshVariantResource& mesh,
+		NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs) const
+	{ return prepareGeometryAllocation ? prepareGeometryAllocation(user, mesh, scratch, vertices, indices, primitives, privateInputs) : NRIPersistentVoxelAllocationResult::Disabled; }
 	using BuildMaterialsFn = void (*)(void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label);
 	using IsTextureCachedFn = bool (*)(void* user, const nri_scene::TextureUpload& upload);
 	using PrewarmTextureFn = bool (*)(void* user, const nri_scene::TextureUpload& upload, double* outMs);
@@ -1025,6 +1039,18 @@ struct NRIPersistentVoxelPreloadStatus
 class NRIPersistentVoxelResidency
 {
 public:
+    void RefreshActorDemand(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings,
+        const NRIPersistentVoxelResetServices& services);
+    void NotifyActorRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,
+        NRIVoxelActorRepresentation representation, uint64_t selectedMesh, uint64_t selectedMaterial, uint32_t frame)
+    { actorDemand.ObserveRepresentation(identity, world, lifetime, representation, selectedMesh, selectedMaterial, frame); }
+    const NRIVoxelActorDemandSnapshot& GetActorDemandSnapshot() const { return actorDemand.Snapshot(); }
+    bool UsesSpriteFallback(uint64_t identity, uint32_t frame) const
+    { return spriteFallbackFrame == frame && spriteFallbackActors.count(identity) != 0; }
+    NRIVoxelActorDemand actorDemand;
+    NRIVoxelRetentionPressure warmRetentionPressure;
+    std::unordered_set<uint64_t> spriteFallbackActors;
+    uint32_t spriteFallbackFrame = UINT32_MAX;
 	void Reset(const char* reason, bool clearSharedResources, bool traceReset, const NRIPersistentVoxelResetServices& services);
 	void ResetLevelSchedulingState(const char* reason, bool traceReset, const NRIPersistentVoxelResetServices& services);
 	bool CompactMaterialRangesForQuiescentLevelTransition(const char* reason, bool traceEnabled);
@@ -1085,6 +1111,8 @@ public:
 	bool AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource,
 		uint32_t vertices, uint32_t indices, uint32_t primitives,
 		NRIPersistentVoxelGeometryRangeHandle& previous);
+	void RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
+		const NRIPersistentVoxelGeometryRangeHandle& previous);
 	void SyncGeometryCursors();
 	void ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
 	NRIPersistentVoxelSchedulerRetirement TerminalizeAdmissionSchedulerToken(PersistentVoxelAdmissionEntry& entry, bool failed);

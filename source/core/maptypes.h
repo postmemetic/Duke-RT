@@ -553,6 +553,48 @@ struct tspritetype : public spritetypebase
 {
 	DCoreActor* ownerActor;
 	int time;
+
+	// Presentation-only alternate frame, resolved before voxel direction
+	// suppression. It never changes the actor or the normal draw descriptor.
+	FTextureID spriteFallbackTexture = FNullTextureID();
+	FTextureID spriteFallbackSourceTexture = FNullTextureID();
+	bool spriteFallbackValid = false;
+	bool spriteFallbackXFlip = false;
+	bool spriteFallbackHidden = false;
+	bool spriteFallbackShadeOverride = false;
+	int8_t spriteFallbackShade = 0;
+	int8_t spriteFallbackSourceShade = 0;
+	bool spriteFallbackActionApplied = false;
+	FTextureID spriteFallbackActionBase = FNullTextureID();
+	FTextureID spriteFallbackTileBase = FNullTextureID();
+	FTextureID spriteFallbackRotationBase = FNullTextureID();
+	uint8_t spriteFallbackRotationFrames = 0;
+	int8_t spriteFallbackActionShade = 0;
+	int8_t spriteFallbackActionResolvedShade = 0;
+
+	void ApplySpriteFallbackFrame()
+	{
+		// Temporary game sprites may copy a tsprite and then replace its tile.
+		// A copied alternate frame belongs only to its original source tile.
+		if (!spriteFallbackValid || spriteFallbackSourceTexture != spritetexture()) return;
+		setspritetexture(spriteFallbackTexture);
+		if (spriteFallbackXFlip) cstat |= CSTAT_SPRITE_XFLIP;
+		else cstat &= ~CSTAT_SPRITE_XFLIP;
+		if (spriteFallbackHidden) scale = DVector2(0, 0);
+		if (spriteFallbackShadeOverride && shade == spriteFallbackSourceShade) shade = spriteFallbackShade;
+	}
+
+	void SetSpriteFallbackFrame(const tspritetype& alternate)
+	{
+		spriteFallbackTexture = alternate.spritetexture();
+		spriteFallbackSourceTexture = spritetexture();
+		spriteFallbackValid = true;
+		spriteFallbackXFlip = (alternate.cstat & CSTAT_SPRITE_XFLIP) != 0;
+		spriteFallbackHidden = alternate.scale.X == 0 || alternate.scale.Y == 0;
+		spriteFallbackShadeOverride = alternate.shade != shade;
+		spriteFallbackShade = alternate.shade;
+		spriteFallbackSourceShade = shade;
+	}
 };
 
 class tspriteArray

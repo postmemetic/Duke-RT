@@ -53,6 +53,8 @@ struct GameInterface : public ::GameInterface
 	void SwitchCoopView() override;
 	void ToggleShowWeapon() override;
 	void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) override;
+	void CaptureActorSpriteAnimation(const DCoreActor&, ActorSpriteAnimationState&) const override;
+	bool ResolveActorSpriteFallbackFrame(const ActorPresentationState&, tspritetype&, const DVector2&, DAngle) const override;
 	void UpdateCameras(double smoothratio) override;
 	void EnterPortal(DCoreActor* viewer, int type) override;
 	void LeavePortal(DCoreActor* viewer, int type) override;

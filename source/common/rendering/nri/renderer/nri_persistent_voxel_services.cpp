@@ -44,25 +44,7 @@ namespace
 
 	nri::AccelerationStructureBits GetPersistentVoxelBlasBuildFlags()
 	{
-		nri::AccelerationStructureBits flags = nri::AccelerationStructureBits::PREFER_FAST_BUILD;
-		switch (std::clamp((int)nri_ptvoxelblaspolicy, 0, 3))
-		{
-		case 1:
-			flags = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
-			break;
-		case 2:
-			flags = nri::AccelerationStructureBits::MINIMIZE_MEMORY;
-			break;
-		case 3:
-			flags = NRIResourceFlags(
-				nri::AccelerationStructureBits::PREFER_FAST_TRACE,
-				nri::AccelerationStructureBits::MINIMIZE_MEMORY);
-			break;
-		default:
-			break;
-		}
-		return (bool)nri_ptvoxelblascompact && (bool)nri_ptvoxelcomputepreloadstrict ?
-			NRIResourceFlags(flags, nri::AccelerationStructureBits::ALLOW_COMPACTION) : flags;
+		return GetNRIPersistentVoxelAllocationBlasFlags();
 	}
 	struct PersistentVoxelPalettePayload
 	{
@@ -1136,6 +1118,9 @@ public:
 	{
 		NRIPersistentVoxelAdmissionServices services = {};
 		services.user = &renderer;
+		services.prepareGeometryAllocation = [](void* user, PersistentVoxelMeshVariantResource& mesh,
+			NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs)
+		{ return static_cast<NRIRenderer*>(user)->PreparePersistentVoxelGeometryAllocation(mesh, scratch, vertices, indices, primitives, privateInputs); };
 		services.retireSchedulerReservation = [](void* user, NRIPersistentVoxelSchedulerRetirement ticket)
 		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelSchedulerReservation(ticket); };
 		services.retireGeometryRange = [](void* user, NRIPersistentVoxelGeometryRangeHandle range)
@@ -1297,6 +1282,10 @@ public:
 			NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
 			NRIScopedGpuTiming admissionGpuTiming(renderer->mFrameBuffer, NRIGpuTimingScope::VoxelAdmission);
 			NRIScopedGpuTiming blasGpuTiming(renderer->mFrameBuffer, NRIGpuTimingScope::VoxelBlas);
+			if (outAccelerationStructure.accelerationStructure && outAccelerationStructure.buildTypeValid &&
+				!outAccelerationStructure.buildVertexBuffer && !outAccelerationStructure.buildIndexBuffer)
+				return renderer->BuildPreparedPersistentVoxelBottomLevel(vertexBuffer, indexBuffer,
+					vertexOffset, vertexCount, indexOffset, indexCount, primitiveCount, outAccelerationStructure, buildScratchBuffer);
 			renderer->mFrameBuffer->mCore.CmdBeginAnnotation(
 				*renderer->mFrameBuffer->mCommandBuffer,
 				"Raze.Voxel.DirectBLAS.Build",
@@ -1345,6 +1334,10 @@ public:
 			NRIRenderer& renderer = *static_cast<NRIRenderer*>(user);
 			NRIScopedGpuTiming admissionGpuTiming(renderer.mFrameBuffer, NRIGpuTimingScope::VoxelAdmission);
 			NRIScopedGpuTiming blasGpuTiming(renderer.mFrameBuffer, NRIGpuTimingScope::VoxelBlas);
+			if (outAccelerationStructure.accelerationStructure && outAccelerationStructure.buildTypeValid &&
+				!outAccelerationStructure.buildVertexBuffer && !outAccelerationStructure.buildIndexBuffer)
+				return renderer.BuildPreparedPersistentVoxelBottomLevel(vertexBuffer, indexBuffer,
+					vertexOffset, vertexCount, indexOffset, indexCount, primitiveCount, outAccelerationStructure, nullptr);
 			return renderer.BuildBottomLevelAccelerationStructure(
 				vertexBuffer,
 				indexBuffer,
@@ -1627,6 +1620,9 @@ public:
 	{
 		NRIPersistentVoxelBatchServices batchServices = {};
 		batchServices.user = &renderer;
+		batchServices.prepareGeometryAllocation = [](void* user, PersistentVoxelMeshVariantResource& mesh,
+			NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs)
+		{ return static_cast<NRIRenderer*>(user)->PreparePersistentVoxelGeometryAllocation(mesh, scratch, vertices, indices, primitives, privateInputs); };
 		batchServices.materialClosure = BuildMaterialClosureServices(renderer);
 		batchServices.buildMaterials = [](void* user, nri_scene::SceneView& sceneView, nri_scene::MaterialBridgeData& materials, const char* label)
 		{

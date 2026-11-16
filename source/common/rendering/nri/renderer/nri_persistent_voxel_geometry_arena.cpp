@@ -1,5 +1,6 @@
 #include "nri_renderer.h"
 #include "nri_persistent_voxel_geometry_arena_policy.h"
+#include "nri_persistent_voxel_allocation_policy.h"
 #include "nri_persistent_voxel_services.h"
 #include "nri_voxel_compute_preload.h"
 #include "nri_cvars.h"
@@ -78,7 +79,12 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     if (plan.overflow || plan.targetGeometryBytes == 0 ||
         plan.targetGeometryBytes > std::numeric_limits<uint64_t>::max() - (bytesPerPrimitive - 1))
     { report("estimate-overflow"); return; }
-    const uint64_t requestedPrimitives = (plan.targetGeometryBytes + bytesPerPrimitive - 1) / bytesPerPrimitive;
+    const uint64_t startupTarget = (bool)nri_ptvoxelallocationbudget ?
+        GetNRIPersistentVoxelStartupTarget(plan.targetGeometryBytes,
+            uint32_t(std::clamp((int)nri_ptvoxelarenastartuppercent, 0, 100)),
+            uint64_t(std::max(0, (int)nri_ptvoxelarenastartupmaxmb)) * 1024 * 1024) : plan.targetGeometryBytes;
+    if (!startupTarget) { report("startup-reservation-disabled"); return; }
+    const uint64_t requestedPrimitives = (startupTarget + bytesPerPrimitive - 1) / bytesPerPrimitive;
     if (!mFrameBuffer || !mFrameBuffer->mDevice || !mFrameBuffer->mCore.GetBufferMemoryDesc2 ||
         !mFrameBuffer->mCore.GetDeviceDesc(*mFrameBuffer->mDevice).features.getMemoryDesc2)
     { report("memory-requirements-unavailable"); return; }

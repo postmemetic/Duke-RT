@@ -33,6 +33,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "models/modeldata.h"
 
 #include "buildtiles.h"
+#include "actor_presentation_snapshot.h"
 
 BEGIN_DUKE_NS
 
@@ -108,18 +109,17 @@ bool RRRAFullbrightHack(tspritetype* t, int k)
 	return false;
 }
 
-void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAngle viewang)
+static void ResolveSpriteAnimationFrame(tspritetype* t, const ActorSpriteAnimationState& animation, const DVector2& viewVec, DAngle viewang, bool suppressDirection)
 {
-	if (!(h->flags2 & SFLAG2_DONTANIMATE))// && (t->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_SLAB)
+	if (animation.enabled)// && (t->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_SLAB)
 	{
 		DAngle kang;
-		auto action = h->curAction;
 		int k = 0, l = 0;
-		if (h->curAction->name != NAME_None)
+		if (animation.actionActive)
 		{
-			l = action->rotationtype;
+			l = animation.rotationType;
 
-			if (tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal))
+			if (suppressDirection)
 			{
 				k = 0;
 				t->cstat &= ~CSTAT_SPRITE_XFLIP;
@@ -166,31 +166,21 @@ void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAn
 				t->cstat &= ~CSTAT_SPRITE_XFLIP;
 				break;
 			default:
-				if (isRR())
+				if (animation.rrZombieRotation)
 				{
-					bool bg = badguy(h);
-					if (bg && h->spr.statnum == STAT_ZOMBIEACTOR && h->spr.extra > 0)
-					{
-						kang = (t->pos.XY() - viewVec).Angle();
-						k = angletorotation1(t->Angles.Yaw, kang);
-						if (k > 4)
-						{
-							k = 8 - k;
-							t->cstat |= CSTAT_SPRITE_XFLIP;
-						}
-						else t->cstat &= ~CSTAT_SPRITE_XFLIP;
-						break;
-					}
-					k = 0;
-					bg = 0;
-					break;
+					kang = (t->pos.XY() - viewVec).Angle();
+					k = angletorotation1(t->Angles.Yaw, kang);
+					if (k > 4) { k = 8 - k; t->cstat |= CSTAT_SPRITE_XFLIP; }
+					else t->cstat &= ~CSTAT_SPRITE_XFLIP;
 				}
+				break;
 			}
 
-			k += action->offset + l * h->curframe;
+			k += animation.actionOffset + l * animation.currentFrame;
 			int texid = t->spritetexture().GetIndex() + k; // we cannot work with texture IDs here because their arithmetics are limited.
 
-			if (isRRRA() && RRRAFullbrightHack(t, k)) t->shade = -127;
+			if ((animation.fullbrightKind == 1 && k >= 102 && k <= 151) ||
+				(animation.fullbrightKind == 2 && ((k >= 54 && k <= 58) || (k >= 84 && k <= 88)))) t->shade = -127;
 
 			FGameTexture* tex = TexMan.GameByIndex(texid);
 			if (l > 0)
@@ -210,19 +200,92 @@ void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAn
 			}
 			else t->setspritetexture(tex->GetID());
 
-			if (h->dispictex.isValid())
-				h->dispictex = t->spritetexture();
-		}
-
-		if (h->flags4 & SFLAG4_FLASHFRAME0)
-		{
-			if (t->spritetexture() == h->spr.spritetexture())
-			{
-				getPlayer(screenpeek)->visibility = -127;
-				lastvisinc = PlayClock + 32;
-			}
 		}
 
 	}
 }
+
+void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAngle viewang)
+{
+	tspritetype alternate = *t;
+	alternate.ApplySpriteFallbackFrame();
+	ActorSpriteAnimationState animation;
+	gi->CaptureActorSpriteAnimation(*h, animation);
+	t->spriteFallbackActionBase = alternate.spritetexture();
+	t->spriteFallbackActionShade = alternate.shade;
+	t->spriteFallbackActionApplied = animation.enabled && animation.actionActive;
+	ResolveSpriteAnimationFrame(&alternate, animation, viewVec, viewang, false);
+	t->spriteFallbackActionResolvedShade = alternate.shade;
+	ResolveSpriteAnimationFrame(t, animation, viewVec, viewang,
+		tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal) != 0);
+	t->SetSpriteFallbackFrame(alternate);
+
+	// These are game-visible side effects of the original animation path.
+	// Resolve the presentation-only alternate without repeating them.
+	if (!(h->flags2 & SFLAG2_DONTANIMATE))
+	{
+		if (h->curAction->name != NAME_None && h->dispictex.isValid())
+			h->dispictex = t->spritetexture();
+		if ((h->flags4 & SFLAG4_FLASHFRAME0) && t->spritetexture() == h->spr.spritetexture())
+		{
+			getPlayer(screenpeek)->visibility = -127;
+			lastvisinc = PlayClock + 32;
+		}
+	}
+}
+
+void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSpriteAnimationState& out) const
+{
+	out = {};
+	if (!actor.IsKindOf(RUNTIME_CLASS(DDukeActor))) return;
+	const auto& h = static_cast<const DDukeActor&>(actor);
+	out.available = true;
+	out.enabled = (h.flags2 & SFLAG2_DONTANIMATE) == 0;
+	out.actionActive = h.curAction != nullptr && h.curAction->name != NAME_None;
+	if (h.curAction != nullptr)
+	{
+		out.rotationType = h.curAction->rotationtype;
+		out.actionOffset = h.curAction->offset;
+	}
+	out.currentFrame = h.curframe;
+	out.forcedRotation = (h.flags2 & SFLAG2_ALWAYSROTATE1) ? 8 :
+		(h.flags2 & SFLAG2_ALWAYSROTATE2) ? 12 : 0;
+	out.rrZombieRotation = isRR() && badguy(&h) && h.spr.statnum == STAT_ZOMBIEACTOR && h.spr.extra > 0;
+	if (isRRRA())
+	{
+		if (h.IsKindOf(RedneckBillyRayClass) || h.IsKindOf(RedneckCheerleaderClass)) out.fullbrightKind = 1;
+		else if (h.IsKindOf(RedneckBikerClass)) out.fullbrightKind = 2;
+	}
+}
+
+bool GameInterface::ResolveActorSpriteFallbackFrame(const ActorPresentationState& state, tspritetype& sprite,
+	const DVector2& viewVec, DAngle viewang) const
+{
+	if (!state.spriteAnimation.available) return false;
+	const auto& animation = state.spriteAnimation;
+	int forcedRotation = sprite.spriteFallbackRotationFrames != 0 ? sprite.spriteFallbackRotationFrames : animation.forcedRotation;
+	if (sprite.clipdist & TSPR_ROTATE8FRAMES) forcedRotation = 8;
+	else if (sprite.clipdist & TSPR_ROTATE12FRAMES) forcedRotation = 12;
+	if (forcedRotation != 0)
+	{
+		int k = forcedRotation == 8 ? angletorotation1(sprite.Angles.Yaw, viewang) : angletorotation2(sprite.Angles.Yaw, viewang);
+		const int half = forcedRotation / 2;
+		if (k > half) { k = forcedRotation - k; sprite.cstat |= CSTAT_SPRITE_XFLIP; }
+		else sprite.cstat &= ~CSTAT_SPRITE_XFLIP;
+		FTextureID base = sprite.spriteFallbackRotationBase;
+		if (!base.isValid()) base.SetIndex(state.textureId);
+		sprite.setspritetexture(base + k);
+	}
+	else if (sprite.spriteFallbackActionApplied)
+	{
+		sprite.setspritetexture(sprite.spriteFallbackActionBase);
+	}
+	if (sprite.spriteFallbackActionApplied)
+	{
+		if (sprite.shade == sprite.spriteFallbackActionResolvedShade) sprite.shade = sprite.spriteFallbackActionShade;
+		ResolveSpriteAnimationFrame(&sprite, animation, viewVec, viewang, false);
+	}
+	return sprite.spriteFallbackActionApplied || forcedRotation != 0 || sprite.spritetexture().GetIndex() == state.textureId;
+}
+
 END_DUKE_NS
