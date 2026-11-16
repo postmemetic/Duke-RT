@@ -12,6 +12,7 @@
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
+#include "nri_persistent_voxel_loading_policy.h"
 #include "nri_voxel_compute_allocation_policy.h"
 #include "nri_persistent_voxel_retention_policy.h"
 #include "nri_persistent_voxel_cache_diagnostics.h"
@@ -114,7 +115,7 @@ struct PersistentVoxelBatch
 struct PersistentVoxelMeshVariantResource
 {
 	NRIVoxelComputeProviderReservation computeProviderReservation; // Physical provider buffers have their own fenced owner.
-	uint32_t allocationRetryFrame = 0;
+	uint64_t allocationRetryTick = 0;
 	NRIPersistentVoxelGeometryRangeHandle geometryRange;
 	FVoxelModel* sourceModel = nullptr;
 	uint64_t resourceKey = 0;
@@ -254,7 +255,7 @@ struct PersistentVoxelAdmissionEntry
 	uint32_t directBlasRecordedFrame = UINT32_MAX;
 	bool directBlasExclusive = false;
 	uint64_t schedulerTokenId = 0;
-	uint32_t allocationRetryFrame = 0;
+	uint64_t allocationRetryTick = 0;
 	NRIBufferResource directBlasScratchBuffer;
 	nri_scene::GeometryData uploadGeometry;
 	std::vector<uint32_t> uploadGpuIndices;
@@ -1030,6 +1031,7 @@ struct NRIPersistentVoxelPreloadStatus
 	bool gpuLoadingEnabled = false;
 	bool hasCacheEntries = false;
 	bool batchReady = true;
+	bool budgetDeferredToRuntime = false;
 	uint32_t requiredPending = 0;
 	uint32_t requiredReady = 0;
 	uint32_t optionalPending = 0;
@@ -1366,6 +1368,8 @@ public:
 	uint32_t arenaVertexCursor = 0;
 	NRIPersistentVoxelGrowthRetry allocationGrowthRetry;
 	NRIPersistentVoxelAllocationRetry allocationMeshRetry;
+	NRIPersistentVoxelAllocationBudgetCeiling allocationBudgetCeiling;
+	NRIPersistentVoxelPrewarmHandoff preloadHandoff;
 	uint64_t schedulerRetirementEpoch = 1;
 	std::vector<NRIPersistentVoxelSchedulerRetirement> quarantinedSchedulerReservations;
 	NRIPersistentVoxelGeometryRanges geometryRanges;

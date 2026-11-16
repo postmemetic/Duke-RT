@@ -558,6 +558,9 @@ NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadResidentSceneRes
 		}
 		return StepResult::Ready;
 	}
+	// A budget-deferred voxel preload releases only the voxel boundary. Static
+	// materials, resident voxel materials, and the remaining scene stages still
+	// pass through their usual readiness checks before gameplay is released.
 	if (!renderer.PreloadMaterialResources())
 	{
 		if (renderer.HasMaterialPreloadPending())
@@ -794,7 +797,7 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 	}
 	if ((int)nri_ptloadingtrace >= 1)
 	{
-		Printf("NRI PT loading summary: static_ready=%u startup_correction_pending=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u deferred_texture_prewarm=%u deferred_onboarding=%u material_pending=%u material_static_ready=%u material_static_pending=%u material_static_realized=%u material_static_bytes=%llu material_voxel_ready=%u material_voxel_pending=%u material_voxel_realized=%u material_voxel_bytes=%llu preload_submits=%u preload_submit_limit=%u submit_budget_hit=%u ms_budget_hit=%u frame_target_used=%u standalone_context_used=%u gpu_voxel_loading=%u static_light_refresh=%u\n",
+		Printf("NRI PT loading summary: static_ready=%u startup_correction_pending=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u voxel_budget_deferred_runtime=%u deferred_texture_prewarm=%u deferred_onboarding=%u material_pending=%u material_static_ready=%u material_static_pending=%u material_static_realized=%u material_static_bytes=%llu material_voxel_ready=%u material_voxel_pending=%u material_voxel_realized=%u material_voxel_bytes=%llu preload_submits=%u preload_submit_limit=%u submit_budget_hit=%u ms_budget_hit=%u frame_target_used=%u standalone_context_used=%u gpu_voxel_loading=%u static_light_refresh=%u\n",
 		staticReady ? 1u : 0u,
 		renderer.mAllowStartupMapWorldCorrection ? 1u : 0u,
 		voxelStatus.requiredPending,
@@ -802,6 +805,7 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		voxelStatus.optionalPending,
 		voxelStatus.batchReady ? 1u : 0u,
 		voxelStatus.batchPendingActors,
+		voxelStatus.budgetDeferredToRuntime ? 1u : 0u,
 		voxelStatus.deferredTexturePrewarm,
 		voxelStatus.deferredOnboarding,
 		materialStatus.pending ? 1u : 0u,
@@ -821,7 +825,7 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		context.standaloneContextUsed ? 1u : 0u,
 		voxelStatus.gpuLoadingEnabled ? 1u : 0u,
 			context.staticLightRefreshReady ? 1u : 0u);
-		Printf("PERF pt preload ready NRI: level=%s build_serial=%llu preload_ms=%.3f static_chunks=%u static_tris=%u static_materials=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u mesh_resources=%u material_resources=%u admission_queue=%u active_instances=%u pv_scene_bytes=%llu pv_as_bytes=%llu pv_total_bytes=%llu material_static_bytes=%llu material_voxel_bytes=%llu preload_submits=%u submit_budget_hit=%u ms_budget_hit=%u gpu_voxel_loading=%u\n",
+		Printf("PERF pt preload ready NRI: level=%s build_serial=%llu preload_ms=%.3f static_chunks=%u static_tris=%u static_materials=%u required_voxel_pending=%u required_voxel_ready=%u optional_voxel_pending=%u voxel_batch_ready=%u voxel_batch_pending=%u voxel_budget_deferred_runtime=%u mesh_resources=%u material_resources=%u admission_queue=%u active_instances=%u pv_scene_bytes=%llu pv_as_bytes=%llu pv_total_bytes=%llu material_static_bytes=%llu material_voxel_bytes=%llu preload_submits=%u submit_budget_hit=%u ms_budget_hit=%u gpu_voxel_loading=%u\n",
 		renderer.mMapWorld.level != nullptr ? renderer.mMapWorld.level->labelName.GetChars() : "(none)",
 		(unsigned long long)renderer.mMapWorld.buildSerial,
 		preloadMs,
@@ -833,6 +837,7 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		voxelStatus.optionalPending,
 		voxelStatus.batchReady ? 1u : 0u,
 		voxelStatus.batchPendingActors,
+		voxelStatus.budgetDeferredToRuntime ? 1u : 0u,
 		voxelSnapshot.meshVariantResourceCount,
 		voxelSnapshot.materialVariantResourceCount,
 		voxelSnapshot.admissionQueueCount,
@@ -876,7 +881,8 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 	}
 	if ((int)nri_ptloadingtrace >= 1)
 	{
-		Printf("NRI PT loading gate: event=renderer-preload result=ready reason=complete static_light_refresh=%u ms=%.3f\n",
+		Printf("NRI PT loading gate: event=renderer-preload result=ready reason=%s static_light_refresh=%u ms=%.3f\n",
+			voxelStatus.budgetDeferredToRuntime ? "voxel-budget-runtime-handoff" : "complete",
 			context.staticLightRefreshReady ? 1u : 0u,
 			preloadMs);
 	}

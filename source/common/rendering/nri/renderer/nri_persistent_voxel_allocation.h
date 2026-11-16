@@ -2,6 +2,12 @@
 
 #include "nri_resources.h"
 
+// Outer presentations advance during loading even when renderer frames do not.
+// Retry policy only; never use this clock as a resource-completion fence.
+uint64_t GetNRIVoxelAdmissionRetryClock();
+struct PersistentVoxelAdmissionEntry;
+bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry);
+
 enum class NRIPersistentVoxelAllocationResult : uint8_t
 {
     Disabled,

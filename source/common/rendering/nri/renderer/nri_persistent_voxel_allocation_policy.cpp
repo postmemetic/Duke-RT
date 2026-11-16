@@ -1,4 +1,5 @@
 #include "nri_persistent_voxel_allocation_policy.h"
+#include <cstring>
 #include <algorithm>
 #include <limits>
 
@@ -73,43 +74,85 @@ void NRIPersistentVoxelGrowthRetry::ObservePostDenial(uint32_t attemptedPercent,
         minimumAfterPostDenial = true;
 }
 
-void NRIPersistentVoxelAllocationRetry::BeginFrame(uint64_t mapEpoch, uint32_t frame)
+bool NRIPersistentVoxelAllocationWaitCanContinue(const char* reason, bool hasOwnedWork)
 {
-    if (epoch != mapEpoch || frame < lastFrame)
+    return !hasOwnedWork && reason &&
+        (std::strcmp(reason, "allocation-budget-deferred") == 0 ||
+         std::strcmp(reason, "allocation-budget-cooldown") == 0 ||
+         std::strcmp(reason, "allocation-mesh-cooldown") == 0 ||
+         std::strcmp(reason, "compute-provider-budget-retry") == 0);
+}
+
+void NRIPersistentVoxelAllocationBudgetCeiling::BeginTick(uint64_t epoch, uint64_t tick)
+{
+    if (mapEpoch != epoch || tick < lastTick)
+    {
+        *this = {};
+        mapEpoch = epoch;
+    }
+    lastTick = tick;
+    if (ceilingBytes && tick - deniedTick >= HoldTicks) ceilingBytes = 0;
+}
+
+uint64_t NRIPersistentVoxelAllocationBudgetCeiling::Apply(uint64_t epoch, uint64_t tick, uint64_t freshBudget)
+{
+    BeginTick(epoch, tick);
+    // Unknown/zero budget never becomes positive through remembered history.
+    return ceilingBytes ? std::min(freshBudget, ceilingBytes) : freshBudget;
+}
+
+uint64_t NRIPersistentVoxelAllocationBudgetCeiling::Remaining(uint64_t epoch, uint64_t tick)
+{
+    BeginTick(epoch, tick);
+    return ceilingBytes ? HoldTicks - (tick - deniedTick) : 0;
+}
+
+void NRIPersistentVoxelAllocationBudgetCeiling::ObservePostDenial(
+    uint64_t epoch, uint64_t tick, uint64_t beforeBudget, uint64_t afterBudget)
+{
+    BeginTick(epoch, tick);
+    if (!afterBudget || afterBudget >= beforeBudget) return;
+    ceilingBytes = ceilingBytes ? std::min(ceilingBytes, afterBudget) : afterBudget;
+    deniedTick = tick;
+}
+
+void NRIPersistentVoxelAllocationRetry::BeginTick(uint64_t mapEpoch, uint64_t tick)
+{
+    if (epoch != mapEpoch || tick < lastTick)
     {
         entries.clear();
         epoch = mapEpoch;
     }
-    if (frame == lastFrame) return;
-    lastFrame = frame;
+    if (tick == lastTick) return;
+    lastTick = tick;
     for (auto it = entries.begin(); it != entries.end();)
     {
-        if (frame - it->second.frame >= 30) it = entries.erase(it);
+        if (tick - it->second.tick >= 30) it = entries.erase(it);
         else ++it;
     }
 }
 
 uint32_t NRIPersistentVoxelAllocationRetry::Remaining(
-    uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes)
+    uint64_t mapEpoch, uint64_t tick, uint64_t meshKey, uint64_t allocationBytes)
 {
-    BeginFrame(mapEpoch, frame);
+    BeginTick(mapEpoch, tick);
     if (!allocationBytes) return 0;
     const auto it = entries.find(meshKey);
     if (it == entries.end() || allocationBytes < it->second.allocationBytes) return 0;
-    return 30 - (frame - it->second.frame);
+    return uint32_t(30 - (tick - it->second.tick));
 }
 
 void NRIPersistentVoxelAllocationRetry::ObserveDenial(
-    uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes)
+    uint64_t mapEpoch, uint64_t tick, uint64_t meshKey, uint64_t allocationBytes)
 {
-    BeginFrame(mapEpoch, frame);
-    if (allocationBytes) entries[meshKey] = { frame, allocationBytes };
+    BeginTick(mapEpoch, tick);
+    if (allocationBytes) entries[meshKey] = { tick, allocationBytes };
 }
 
 void NRIPersistentVoxelAllocationRetry::ObserveSuccess(
-    uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes)
+    uint64_t mapEpoch, uint64_t tick, uint64_t meshKey, uint64_t allocationBytes)
 {
-    BeginFrame(mapEpoch, frame);
+    BeginTick(mapEpoch, tick);
     const auto it = entries.find(meshKey);
     // An AS-only success can fit an existing range without proving that the
     // previously rejected whole-arena replacement now fits. Keep its deadline.

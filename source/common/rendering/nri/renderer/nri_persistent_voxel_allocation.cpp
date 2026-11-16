@@ -7,11 +7,41 @@
 #include "../system/nri_gpu_timing.h"
 #include "perf_audit.h"
 #include "nri_perf_audit.h"
+#include "gameupdate.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
 #include <limits>
+
+uint64_t GetNRIVoxelAdmissionRetryClock()
+{
+    return GetGameUpdateSnapshot().presentationGeneration;
+}
+
+bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry)
+{
+    const auto& mesh = entry.uploadMeshResource;
+    const auto ownsBuffer = [](const NRIBufferResource& buffer)
+    { return buffer.buffer || buffer.shaderView || buffer.storageView || buffer.memorySize; };
+    const auto ownsAs = [](const NRIAccelerationStructureResource& as)
+    { return as.accelerationStructure || as.descriptor || as.memorySize || as.buildVertexBuffer || as.buildIndexBuffer; };
+    const auto ownsRange = [](const NRIPersistentVoxelMaterialRangeHandle& range)
+    { return range.offset || range.capacity || range.generation; };
+    const bool hasOwnedWork = entry.schedulerTokenId || entry.directComputeRequested ||
+        entry.directComputeGeneration || entry.directComputeJobId || entry.computeGeometryJobId ||
+        entry.directBlasFenceValue || entry.directBlasRecordedFrame != UINT32_MAX ||
+        entry.uploadPrepared || entry.uploadSubmittedBeforeBlas || entry.bytesUploaded ||
+        entry.vertexBytesUploaded || entry.vertexArenaBytesUploaded || entry.indexBytesUploaded ||
+        entry.indexArenaBytesUploaded || entry.primitiveBytesUploaded ||
+        ownsBuffer(entry.directBlasScratchBuffer) || ownsBuffer(mesh.vertexBuffer) || ownsBuffer(mesh.indexBuffer) ||
+        ownsAs(mesh.accelerationStructure) || ownsBuffer(mesh.shadowProxy.vertexBuffer) ||
+        ownsBuffer(mesh.shadowProxy.indexBuffer) || ownsAs(mesh.shadowProxy.accelerationStructure) ||
+        mesh.computeProviderReservation.Total() || mesh.geometryRange.transaction ||
+        ownsRange(mesh.geometryRange.vertices) || ownsRange(mesh.geometryRange.indices) || ownsRange(mesh.geometryRange.primitives);
+    return entry.state == PersistentVoxelAdmissionState::Deferred &&
+        NRIPersistentVoxelAllocationWaitCanContinue(entry.lastReason, hasOwnedWork);
+}
 
 namespace
 {
@@ -78,13 +108,14 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     auto& rt = mFrameBuffer->mRayTracing;
     auto& scratch = buildScratch ? *buildScratch : mScratchBuffer;
     auto& arena = mPersistentVoxels;
-    arena.allocationMeshRetry.BeginFrame(mMapWorld.buildSerial, mFrameIndex);
+    const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
+    arena.allocationMeshRetry.BeginTick(mMapWorld.buildSerial, retryTick);
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     uint64_t predictedBytes = 0, actualBytes = 0, oldArenaBytes = 0, newArenaBytes = 0;
     uint32_t candidatePercent = arena.allocationGrowthRetry.SelectPercent(
         uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200)));
-    uint64_t postUsageBytes = 0, postBudgetBytes = 0;
+    uint64_t postUsageBytes = 0, postBudgetBytes = 0, postRawBudgetBytes = 0;
     uint32_t retryFrames = 0;
     auto budget = GetPersistentVoxelBudgetSnapshot(true);
     NRIPersistentVoxelAllocationBudget peak;
@@ -92,16 +123,21 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const auto report = [&](const char* decision, Result result)
     {
         if (result == Result::AllocationFailed || (result == Result::DeferredBudget && actualBytes != 0))
-            arena.allocationMeshRetry.ObserveDenial(mMapWorld.buildSerial, mFrameIndex, mesh.resourceKey, predictedBytes);
+            arena.allocationMeshRetry.ObserveDenial(mMapWorld.buildSerial, retryTick, mesh.resourceKey, predictedBytes);
+        if (result == Result::DeferredBudget)
+            arena.preloadHandoff.ObserveBudgetDenial(mMapWorld.buildSerial);
         if (PerfAuditActive())
         {
-            char fields[1536];
+            char fields[2048];
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
                 "\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
                 "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
                 "\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"growth_percent\":%u,"
                 "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,"
-                "\"post_usage_bytes\":%llu,\"post_budget_bytes\":%llu,\"minimum_after_post_denial\":%s,\"shared_retry_frames\":%u,\"cpu_ms\":%.6f",
+                "\"post_usage_bytes\":%llu,\"post_budget_bytes\":%llu,\"minimum_after_post_denial\":%s,\"shared_retry_frames\":%u,"
+                "\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\",\"cpu_ms\":%.6f,"
+                "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,"
+                "\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu",
                 mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision,
                 (unsigned long long)mesh.resourceKey, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
@@ -112,7 +148,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 (unsigned long long)postUsageBytes, (unsigned long long)postBudgetBytes,
                 arena.allocationGrowthRetry.minimumAfterPostDenial ? "true" : "false",
                 retryFrames,
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+                (unsigned long long)retryTick,
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
+                (unsigned long long)budget.rawBudgetBytes, (unsigned long long)budget.allocationCeilingBytes,
+                (unsigned long long)budget.allocationCeilingRemainingTicks, (unsigned long long)postRawBudgetBytes,
+                (unsigned long long)arena.allocationBudgetCeiling.ceilingBytes);
             PerfAuditWriteEvent("voxel_allocation_transaction", PerfAuditCurrentToken(), fields);
         }
         return result;
@@ -217,10 +257,10 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     // smaller replacement can proceed. Material pairs share the original
     // denial deadline instead of each allocating the same mesh independently.
     retryFrames = arena.allocationMeshRetry.Remaining(mMapWorld.buildSerial,
-        mFrameIndex, mesh.resourceKey, predictedBytes);
+        retryTick, mesh.resourceKey, predictedBytes);
     if (retryFrames)
     {
-        mesh.allocationRetryFrame = mFrameIndex <= UINT32_MAX - retryFrames ? mFrameIndex + retryFrames : UINT32_MAX;
+        mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, retryFrames);
         return report("defer-mesh-cooldown", Result::DeferredCooldown);
     }
 
@@ -286,6 +326,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const auto postBudget = GetPersistentVoxelBudgetSnapshot(true);
     postUsageBytes = postBudget.usageBytes;
     postBudgetBytes = postBudget.budgetBytes;
+    postRawBudgetBytes = postBudget.rawBudgetBytes;
     auto floor = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, postBudget.budgetBytes, actualBytes, 0);
     const uint64_t postUsage = NRIVoxelComputeUsageAfterOwnerCredit(postBudget.usageBytes,
         postBudget.computeReservedBytes, mesh.computeProviderReservation.Total());
@@ -297,6 +338,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         // back its provisional range and retains the usual 30-frame cooldown.
         // A later retry must not allocate the same rejected speculative slack.
         arena.allocationGrowthRetry.ObservePostDenial(candidatePercent, oldArenaBytes, newArenaBytes);
+        if (actualBytes)
+            arena.allocationBudgetCeiling.ObservePostDenial(mMapWorld.buildSerial, retryTick,
+                budget.rawBudgetBytes, postBudget.rawBudgetBytes);
         discard();
         return report("defer-post-budget", Result::DeferredBudget);
     }
@@ -356,8 +400,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         unpublishedAs = {};
     }
     mesh.computeProviderReservation = provider.reservation;
-    mesh.allocationRetryFrame = 0;
-    arena.allocationMeshRetry.ObserveSuccess(mMapWorld.buildSerial, mFrameIndex, mesh.resourceKey, predictedBytes);
+    mesh.allocationRetryTick = 0;
+    arena.allocationMeshRetry.ObserveSuccess(mMapWorld.buildSerial, retryTick, mesh.resourceKey, predictedBytes);
     arena.MarkMaintenanceMutation();
     return report("reserved", Result::Ready);
 }

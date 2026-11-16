@@ -188,7 +188,8 @@ void Observe(NRIPersistentVoxelResidency& owner, NRIPersistentVoxelAdmissionDiag
     pair->lastFrame = frame;
     char fields[4096];
     std::snprintf(fields, sizeof(fields),
-        "\"map_generation\":%u,\"renderer_frame\":%u,\"pump\":%llu,\"pair_key\":\"%llu\",\"mesh_key\":\"%llu\",\"material_key\":\"%llu\","
+        "\"map_generation\":%u,\"renderer_frame\":%u,\"retry_tick\":%llu,\"allocation_retry_tick\":%llu,\"retry_clock_unit\":\"presentation\","
+        "\"pump\":%llu,\"pair_key\":\"%llu\",\"mesh_key\":\"%llu\",\"material_key\":\"%llu\","
         "\"diagnostic_episode\":%llu,\"episode_start_reason\":\"%s\",\"event\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"result_code\":%d,\"rank_position\":%u,\"admission_rank\":%d,\"priority\":%d,"
         "\"first_observed_presentation\":%llu,\"first_attempt_presentation\":%llu,\"last_attempt_presentation\":%llu,\"attempts\":%llu,"
         "\"first_queued_frame\":%u,\"runtime_first_queued_frame\":%u,\"retry_count\":%u,\"runtime_requested\":%s,\"direct_only\":%s,"
@@ -197,7 +198,8 @@ void Observe(NRIPersistentVoxelResidency& owner, NRIPersistentVoxelAdmissionDiag
         "\"scheduler_epoch\":%llu,\"mesh_owner_token\":%llu,\"scheduler_token\":%llu,\"token_found\":%s,\"scheduler_stage\":%u,\"reservation_state\":%u,"
         "\"scheduler_active_jobs\":%u,\"scheduler_compute_inflight\":%u,\"scheduler_blas_inflight\":%u,\"scheduler_held_bytes\":%llu,\"scheduler_retire_pending_bytes\":%llu,"
         "\"direct_generation\":\"%llu\",\"direct_job\":%u,\"direct_request_frame\":%u,\"blas_recorded_frame\":%u,\"blas_fence\":%llu,\"complete\":%s",
-        state.map, frame, U64(pair->pump), U64(key), U64(mesh), U64(entry.variant.materialKeyHash),
+        state.map, frame, U64(GetNRIVoxelAdmissionRetryClock()), U64(entry.allocationRetryTick),
+        U64(pair->pump), U64(key), U64(mesh), U64(entry.variant.materialKeyHash),
         U64(pair->episode), pair->episodeStart, Safe(event), StateName(entry.state), Safe(entry.lastReason), result, pair->position, entry.admissionRank, entry.priority,
         U64(pair->firstPresentation), U64(pair->firstAttempt), U64(pair->lastAttempt), U64(pair->attempts),
         entry.firstQueuedFrame, entry.runtimeFirstQueuedFrame, entry.retryCount, Bool(entry.runtimeRequested), Bool(entry.variant.directOnlyAdmission),
@@ -312,12 +314,12 @@ NRIVoxelAdmissionDiagnosticScope::~NRIVoxelAdmissionDiagnosticScope()
     const auto scheduler = owner.admissionScheduler.GetSnapshot();
     char fields[2048];
     std::snprintf(fields, sizeof(fields),
-        "\"map_generation\":%u,\"renderer_frame\":%u,\"pump\":%llu,\"phase\":\"%s\",\"stop\":\"%s\","
+        "\"map_generation\":%u,\"renderer_frame\":%u,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\",\"pump\":%llu,\"phase\":\"%s\",\"stop\":\"%s\","
         "\"registry_entries\":%llu,\"active_entries\":%u,\"required_ready_history\":%u,\"optional_ready_history\":%u,\"failed_history\":%u,"
         "\"last_visited_pair\":\"%llu\",\"last_disposition\":\"%s\",\"tracked_candidates\":%llu,\"visited\":%u,\"attempted\":%u,\"admitted\":%u,\"variants_budget\":%u,\"bytes_budget\":%llu,\"bytes_used\":%llu,\"blas_budget\":%u,\"blas_used\":%u,\"ms_budget\":%.3f,"
         "\"scheduler_active_jobs\":%u,\"scheduler_compute_inflight\":%u,\"scheduler_blas_inflight\":%u,\"scheduler_held_bytes\":%llu,\"scheduler_retire_pending_bytes\":%llu,"
         "\"budget_raw_ns\":%llu,\"budget_observer_excluded_ns\":%llu,\"budget_scheduling_ns\":%llu,\"pair_history\":%llu,\"pair_overflow\":%llu,\"detail_suppressed_total\":%llu,\"complete\":%s",
-        state->map, frame, U64(pump), phase, stop, U64(owner.admissionQueue.size()), owner.admissionIndex.ActiveCount(),
+        state->map, frame, U64(GetNRIVoxelAdmissionRetryClock()), U64(pump), phase, stop, U64(owner.admissionQueue.size()), owner.admissionIndex.ActiveCount(),
         owner.admissionIndex.RequiredReadyCount(), owner.admissionIndex.OptionalReadyCount(), owner.admissionIndex.FailedCount(),
         U64(lastVisitedPair), lastDisposition, U64(candidates.size()), visited, attempted, admitted, variantBudget, U64(byteBudget), U64(bytesUsed), blasBudget, blasUsed, msBudget,
         scheduler.activeJobs, scheduler.computeInFlight, scheduler.blasInFlight, U64(scheduler.heldReservationBytes), U64(scheduler.retirePendingBytes),

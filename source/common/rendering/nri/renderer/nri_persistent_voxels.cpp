@@ -5301,6 +5301,14 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 				}
 				continue;
 			}
+			if (!loadingPhase && (bool)nri_ptvoxelallocationbudget && CanContinueNRIVoxelAllocationWait(*entry))
+			{
+				// A denied, resource-free request stays deferred on its own
+				// deadline without preventing other fitting/reusable work.
+				stats.skippedBudget++;
+				diagnostic.Disposition("allocation-wait-continue");
+				continue;
+			}
 			if (!loadingPhase && actorPolicy.actorPriority && entry->lastReason &&
 				(std::strcmp(entry->lastReason, "scheduler-compute-lane") == 0 ||
 				 std::strcmp(entry->lastReason, "scheduler-capacity") == 0 ||
@@ -5564,6 +5572,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	outReusedMaterial = false;
 	outInProgress = false;
 	outFailureReason = "none";
+	const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
 	const nri_scene::PrecachedVoxelVariantView& variant = entry.variant;
 	const uint64_t meshResourceKey = BuildPersistentVoxelVariantMeshResourceKey(variant);
 	const bool runtimeTailRequest =
@@ -5628,16 +5637,17 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		if (PerfAuditActive())
 		{
 			char fields[384];
-			snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"generation\":%llu,\"unspent_provider_bytes\":%llu,\"as_scratch_retired_bytes\":%llu,\"retry_frames\":30",
+			snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"generation\":%llu,\"unspent_provider_bytes\":%llu,\"as_scratch_retired_bytes\":%llu,\"retry_frames\":30,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\"",
 				frameIndex, (unsigned long long)meshResourceKey, (unsigned long long)entry.directComputeGeneration,
 				(unsigned long long)entry.uploadMeshResource.computeProviderReservation.Total(),
-				(unsigned long long)(entry.uploadMeshResource.accelerationStructure.memorySize + entry.directBlasScratchBuffer.memorySize));
+				(unsigned long long)(entry.uploadMeshResource.accelerationStructure.memorySize + entry.directBlasScratchBuffer.memorySize),
+				(unsigned long long)retryTick);
 			PerfAuditWriteEvent("voxel_compute_budget_yield", PerfAuditCurrentToken(), fields);
 		}
 		cleanupPendingUpload();
 		entry.state = PersistentVoxelAdmissionState::Deferred;
 		entry.lastReason = "compute-provider-budget-retry";
-		entry.allocationRetryFrame = frameIndex <= UINT32_MAX - 30 ? frameIndex + 30 : UINT32_MAX;
+		entry.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 30);
 		outInProgress = true;
 		return true;
 	}
@@ -5749,7 +5759,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 		return false;
 	};
-	if ((bool)nri_ptvoxelallocationbudget && frameIndex < entry.allocationRetryFrame &&
+	if ((bool)nri_ptvoxelallocationbudget && retryTick < entry.allocationRetryTick &&
 		!entry.directComputeRequested && !entry.uploadPrepared && !existingMeshResourceReady())
 	{
 		entry.state = PersistentVoxelAdmissionState::Deferred;
@@ -5768,8 +5778,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			"allocation-source-pending" : (result == NRIPersistentVoxelAllocationResult::DeferredCooldown ?
 			"allocation-mesh-cooldown" : "allocation-budget-deferred"));
 		const uint32_t retryDelay = result == NRIPersistentVoxelAllocationResult::DeferredSource ? 1u : 30u;
-		entry.allocationRetryFrame = result == NRIPersistentVoxelAllocationResult::DeferredCooldown ? mesh.allocationRetryFrame :
-			(frameIndex <= UINT32_MAX - retryDelay ? frameIndex + retryDelay : UINT32_MAX);
+		entry.allocationRetryTick = result == NRIPersistentVoxelAllocationResult::DeferredCooldown ? mesh.allocationRetryTick :
+			NRIVoxelComputeSaturatingAdd(retryTick, retryDelay);
 		outInProgress = true;
 		return true;
 	};
@@ -8258,7 +8268,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		}
 
 		PersistentVoxelMeshVariantResource& meshResource = meshVariantResources[meshResourceKey];
-		if ((bool)nri_ptvoxelallocationbudget && frameIndex < meshResource.allocationRetryFrame)
+		if ((bool)nri_ptvoxelallocationbudget && GetNRIVoxelAdmissionRetryClock() < meshResource.allocationRetryTick)
 		{
 			if (existingActor) existingActor->active = false;
 			if (outDeferredReason) *outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
@@ -8311,7 +8321,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			{
 				RollbackUnsubmittedGeometryRange(meshResource, oldRange);
 				if (allocation != NRIPersistentVoxelAllocationResult::DeferredCooldown)
-					meshResource.allocationRetryFrame = frameIndex <= UINT32_MAX - 30u ? frameIndex + 30u : UINT32_MAX;
+					meshResource.allocationRetryTick = NRIVoxelComputeSaturatingAdd(GetNRIVoxelAdmissionRetryClock(), 30);
 				if (existingActor) existingActor->active = false;
 				if (outDeferredReason) *outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
 				NoteCacheActorDeferred(cacheEntry.identityKey, "allocation-budget-deferred");
@@ -10026,6 +10036,8 @@ void NRIPersistentVoxelResidency::Reset(
 	warmRetentionPressure = {};
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
+	allocationBudgetCeiling = {};
+	preloadHandoff = {};
 	if (cacheDiagnosticState && PerfAuditActive())
 		PerfAuditWriteEvent("voxel_cache_diagnostic_reset", PerfAuditCurrentToken(), "\"reason\":\"full-shared-resource-reset\"");
 	cacheDiagnosticState.reset();
@@ -10103,6 +10115,8 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 	warmRetentionPressure = {};
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
+	allocationBudgetCeiling = {};
+	preloadHandoff = {};
 	spriteFallbackActors.clear();
 	spriteFallbackFrame = UINT32_MAX;
 	spriteFallbackReadyActors.clear();
@@ -11091,6 +11105,12 @@ bool NRIPersistentVoxelResidency::PreloadVariantResources(
 	const NRIPersistentVoxelPreloadServices& preloadServices)
 {
 	preloadPending = false;
+	const auto mayYieldBudgetPrewarm = [&]()
+	{
+		return preloadHandoff.MayYield(buildSerial, (bool)nri_ptvoxelallocationbudget,
+			(bool)nri_ptactorspritefallback, (bool)r_voxels, (bool)nri_ptvoxelcomputepreloadstrict);
+	};
+	if (mayYieldBudgetPrewarm()) return true;
 	if (variants.empty())
 	{
 		if (loadingTraceLevel >= 1)
@@ -11235,6 +11255,13 @@ bool NRIPersistentVoxelResidency::PreloadVariantResources(
 					failedAfter);
 			}
 			break;
+		}
+		if (mayYieldBudgetPrewarm())
+		{
+			// Preserve pending commands, resources, scheduler tokens and queue
+			// identity. The normal runtime pump continues them after loading.
+			preloadPending = false;
+			return true;
 		}
 		if (blockingPendingCount(requiredPendingAfter, optionalPendingAfter) == 0)
 		{
@@ -11629,6 +11656,29 @@ bool NRIPersistentVoxelResidency::PreloadResources(
 		settings,
 		loadingTraceLevel,
 		resetServices);
+	auto yieldBudgetPrewarm = [&]()
+	{
+		if (!preloadHandoff.MayYield(buildSerial, (bool)nri_ptvoxelallocationbudget,
+			(bool)nri_ptactorspritefallback, (bool)r_voxels, (bool)nri_ptvoxelcomputepreloadstrict)) return false;
+		preloadPending = false;
+		refreshAdmissionStatus();
+		lastPreloadStatus.budgetDeferredToRuntime = true;
+		lastPreloadStatus.batchReady = false; // Runtime handoff is not completed voxel prewarm.
+		if (!preloadHandoff.yielded)
+		{
+			char fields[512];
+			snprintf(fields, sizeof(fields), "\"map_epoch\":%llu,\"renderer_frame\":%u,\"retry_tick\":%llu,"
+				"\"retry_clock_unit\":\"presentation\",\"required_pending\":%u,\"optional_pending\":%u,\"required_ready\":%u,\"queue_preserved\":true",
+				(unsigned long long)buildSerial, frameIndex, (unsigned long long)GetNRIVoxelAdmissionRetryClock(),
+				lastPreloadStatus.requiredPending, lastPreloadStatus.optionalPending, lastPreloadStatus.requiredReady);
+			if (PerfAuditActive()) PerfAuditWriteEvent("voxel_loading_budget_handoff", PerfAuditCurrentToken(), fields);
+			Printf("NRI PT loading voxel resources: event=runtime-handoff reason=allocation-budget required_pending=%u optional_pending=%u required_ready=%u queue_preserved=1\n",
+				lastPreloadStatus.requiredPending, lastPreloadStatus.optionalPending, lastPreloadStatus.requiredReady);
+			preloadHandoff.yielded = true;
+		}
+		return true;
+	};
+	if (yieldBudgetPrewarm()) return true;
 
 	if (preloadMaterialPayloads)
 	{
@@ -11692,6 +11742,7 @@ bool NRIPersistentVoxelResidency::PreloadResources(
 		return true;
 	}
 
+	if (yieldBudgetPrewarm()) return true;
 	if (!hasCacheEntries)
 	{
 		const bool sharedBlasWarmupReady = preloadServices.WarmSharedBlas(variants, frameIndex);

@@ -9,6 +9,9 @@ struct NRIPersistentVoxelBudgetSnapshot
     uint64_t liveBudgetBytes = 0;
     uint64_t usageBytes = 0;
     uint64_t budgetBytes = 0;
+    uint64_t rawBudgetBytes = 0; // Fresh policy limit before allocation-only hysteresis.
+    uint64_t allocationCeilingBytes = 0;
+    uint64_t allocationCeilingRemainingTicks = 0;
     bool liveAvailable = false;
 };
 

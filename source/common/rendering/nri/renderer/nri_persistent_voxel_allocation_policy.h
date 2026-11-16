@@ -24,6 +24,28 @@ uint64_t GetNRIPersistentVoxelGrowthCapacity(uint64_t currentBytes,
 uint64_t GetNRIPersistentVoxelStartupTarget(uint64_t plannedBytes,
     uint32_t percent, uint64_t maximumBytes);
 
+// A resource-free budget wait need not stop unrelated runtime admissions.
+// The caller proves absence of concrete/promise/submitted ownership first.
+bool NRIPersistentVoxelAllocationWaitCanContinue(const char* reason, bool hasOwnedWork);
+
+// A driver's fresh pre-allocation budget can repeatedly rebound above the
+// lower budget observed after committing memory. Share that measured ceiling
+// across geometry/providers briefly; usage and raw budget are always refreshed.
+// Queries/preflight denials never prolong this interval. After expiry the next
+// fitting allocation can probe the current budget and re-arm on a new denial.
+struct NRIPersistentVoxelAllocationBudgetCeiling
+{
+    static constexpr uint64_t HoldTicks = 120;
+    uint64_t mapEpoch = 0;
+    uint64_t lastTick = UINT64_MAX;
+    uint64_t deniedTick = 0;
+    uint64_t ceilingBytes = 0;
+    void BeginTick(uint64_t epoch, uint64_t tick);
+    uint64_t Apply(uint64_t epoch, uint64_t tick, uint64_t freshBudget);
+    uint64_t Remaining(uint64_t epoch, uint64_t tick);
+    void ObservePostDenial(uint64_t epoch, uint64_t tick, uint64_t beforeBudget, uint64_t afterBudget);
+};
+
 // A live budget can contract while speculative arena backing is allocated.
 // Remember that result for this map's shared arenas so deferred owners ask
 // for required capacity instead of repeating the same rejected spare capacity.
@@ -38,18 +60,20 @@ struct NRIPersistentVoxelGrowthRetry
 // Different material admission pairs can request the same mesh allocation.
 // Only failed concrete allocation attempts populate this short-lived ledger;
 // smaller requirements and allocation-free reuse remain eligible immediately.
+// Ticks are outer presentation generations, including while loading blocks
+// renderer-frame advancement. They are never resource-completion fences.
 class NRIPersistentVoxelAllocationRetry
 {
 public:
-    void BeginFrame(uint64_t mapEpoch, uint32_t frame);
-    uint32_t Remaining(uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes);
-    void ObserveDenial(uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes);
-    void ObserveSuccess(uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes);
+    void BeginTick(uint64_t mapEpoch, uint64_t tick);
+    uint32_t Remaining(uint64_t mapEpoch, uint64_t tick, uint64_t meshKey, uint64_t allocationBytes);
+    void ObserveDenial(uint64_t mapEpoch, uint64_t tick, uint64_t meshKey, uint64_t allocationBytes);
+    void ObserveSuccess(uint64_t mapEpoch, uint64_t tick, uint64_t meshKey, uint64_t allocationBytes);
     std::size_t Size() const { return entries.size(); }
 
 private:
-    struct Entry { uint32_t frame; uint64_t allocationBytes; };
+    struct Entry { uint64_t tick; uint64_t allocationBytes; };
     std::unordered_map<uint64_t, Entry> entries;
     uint64_t epoch = 0;
-    uint32_t lastFrame = UINT32_MAX;
+    uint64_t lastTick = UINT64_MAX;
 };

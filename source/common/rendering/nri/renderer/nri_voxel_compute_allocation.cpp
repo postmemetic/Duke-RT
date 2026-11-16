@@ -112,7 +112,7 @@ NRIPersistentVoxelAllocationResult ReserveNRIVoxelComputeBuffers(NRIRenderer& re
     const auto& context = services.context;
     std::vector<uint64_t> predicted(count);
     std::vector<NRIBufferResource> pending(count);
-    uint64_t bytes = 0, actualBytes = 0;
+    uint64_t bytes = 0, actualBytes = 0, postUsageBytes = 0, postBudgetBytes = 0, postRawBudgetBytes = 0;
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     const auto budget = renderer.GetPersistentVoxelBudgetSnapshot(true);
     // Forecast promises reserve space from new geometry admissions. The provider
@@ -144,15 +144,24 @@ NRIPersistentVoxelAllocationResult ReserveNRIVoxelComputeBuffers(NRIRenderer& re
     auto peak = BuildNRIPersistentVoxelAllocationBudget(physicalUsage, budget.budgetBytes, 0, reserve);
     const auto report = [&](const char* decision, Result result)
     {
+        if (result == Result::DeferredBudget)
+            renderer.mPersistentVoxels.preloadHandoff.ObserveBudgetDenial(renderer.mMapWorld.buildSerial);
         if (PerfAuditActive())
         {
-            char fields[768];
+            char fields[1280];
             snprintf(fields, sizeof(fields), "\"phase\":\"%s\",\"decision\":\"%s\",\"budget_age_frames\":0,"
                 "\"usage_after_owner_credit_bytes\":%llu,\"reserved_provider_bytes\":%llu,\"budget_bytes\":%llu,"
-                "\"allocation_bytes\":%llu,\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"buffers\":%u,\"owner_credit_bytes\":%llu",
+                "\"allocation_bytes\":%llu,\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"buffers\":%u,\"owner_credit_bytes\":%llu,"
+                "\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\","
+                "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,"
+                "\"post_usage_after_owner_credit_bytes\":%llu,\"post_budget_bytes\":%llu,\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu",
                 phase, decision, (unsigned long long)physicalUsage, (unsigned long long)budget.computeReservedBytes,
                 (unsigned long long)budget.budgetBytes, (unsigned long long)bytes, (unsigned long long)actualBytes,
-                (unsigned long long)peak.projectedBytes, count, (unsigned long long)credit);
+                (unsigned long long)peak.projectedBytes, count, (unsigned long long)credit,
+                (unsigned long long)GetNRIVoxelAdmissionRetryClock(), (unsigned long long)budget.rawBudgetBytes,
+                (unsigned long long)budget.allocationCeilingBytes, (unsigned long long)budget.allocationCeilingRemainingTicks,
+                (unsigned long long)postUsageBytes, (unsigned long long)postBudgetBytes, (unsigned long long)postRawBudgetBytes,
+                (unsigned long long)renderer.mPersistentVoxels.allocationBudgetCeiling.ceilingBytes);
             PerfAuditWriteEvent("voxel_compute_allocation", PerfAuditCurrentToken(), fields);
         }
         return result;
@@ -207,9 +216,17 @@ NRIPersistentVoxelAllocationResult ReserveNRIVoxelComputeBuffers(NRIRenderer& re
     const auto post = renderer.GetPersistentVoxelBudgetSnapshot(true);
     const auto floor = BuildNRIPersistentVoxelAllocationBudget(physicalUsage, post.budgetBytes, actualBytes, 0);
     const uint64_t postPhysical = NRIVoxelComputeUsageAfterOwnerCredit(post.usageBytes, post.computeReservedBytes, credit);
+    postUsageBytes = postPhysical;
+    postBudgetBytes = post.budgetBytes;
+    postRawBudgetBytes = post.rawBudgetBytes;
     peak = BuildNRIPersistentVoxelAllocationBudget(std::max(floor.projectedBytes, postPhysical), post.budgetBytes, 0, reserve);
     if (floor.overflow || !peak.fits)
-    { discard(); return report("defer-post-budget", Result::DeferredBudget); }
+    {
+        renderer.mPersistentVoxels.allocationBudgetCeiling.ObservePostDenial(renderer.mMapWorld.buildSerial,
+            GetNRIVoxelAdmissionRetryClock(), budget.rawBudgetBytes, post.rawBudgetBytes);
+        discard();
+        return report("defer-post-budget", Result::DeferredBudget);
+    }
     for (uint32_t i = 0; i != count; ++i)
     {
         if (!predicted[i]) continue;

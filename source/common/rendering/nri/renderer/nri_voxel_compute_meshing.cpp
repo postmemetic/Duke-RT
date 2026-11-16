@@ -1035,7 +1035,8 @@ namespace
 		}
 
 		RawVoxelSourceArchivePage& page = state.rawArchivePages[pageIndex];
-		if (((bool)nri_ptvoxelallocationbudget && page.allocationRetry.Waiting(frameNumber)) ||
+		const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
+		if (((bool)nri_ptvoxelallocationbudget && page.allocationRetry.Waiting(retryTick)) ||
 			page.failed || page.uploadInFlight ||
 			(page.uploadedSlabCount == page.slabs.size() && page.uploadedColorRunCount == page.colorRuns.size()))
 		{
@@ -1073,7 +1074,7 @@ namespace
 			const auto allocation = ReserveNRIVoxelComputeBuffers(renderer, requests, uint32_t(std::size(requests)), "raw-page", owners);
 			if (allocation != NRIPersistentVoxelAllocationResult::Ready && allocation != NRIPersistentVoxelAllocationResult::Disabled)
 			{
-				if (page.allocationRetry.Denied(frameNumber, pageIndex))
+				if (page.allocationRetry.Denied(retryTick, pageIndex))
 				{
 					for (const auto& job : state.queuedJobs)
 					{
@@ -2399,7 +2400,8 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 	PumpPendingRawSources(frameNumber);
 	UploadPendingRawSources(renderer, renderer.mFrameBuffer, services, frameNumber);
 
-	if (state.queuedJobs.empty() || ((bool)nri_ptvoxelallocationbudget && state.allocationRetry.Waiting(frameNumber)))
+	const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
+	if (state.queuedJobs.empty() || ((bool)nri_ptvoxelallocationbudget && state.allocationRetry.Waiting(retryTick)))
 	{
 		return;
 	}
@@ -2744,7 +2746,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 		const auto allocation = ReserveNRIVoxelComputeBuffers(renderer, allocations.data(), uint32_t(allocations.size()), "dispatch", owners);
 		if (allocation != NRIPersistentVoxelAllocationResult::Ready && allocation != NRIPersistentVoxelAllocationResult::Disabled)
 		{
-			if (state.allocationRetry.Denied(frameNumber, pendingJobs.empty() ? 0 : pendingJobs.front().directKey))
+			if (state.allocationRetry.Denied(retryTick, pendingJobs.empty() ? 0 : pendingJobs.front().directKey))
 				for (const auto& pending : pendingJobs)
 					for (const auto& binding : pending.directBindings) state.budgetDeferredDirectKeys.insert(binding.directKey);
 			recordingGuard.abortReason = "allocation-budget-deferred";

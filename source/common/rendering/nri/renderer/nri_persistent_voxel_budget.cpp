@@ -68,20 +68,35 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
         mVoxelBudgetSnapshot.liveAvailable ? mVoxelBudgetSnapshot.liveUsageBytes : 0);
     mVoxelBudgetSnapshot.usageBytes = mVoxelBudgetSnapshot.computeReservedBytes > UINT64_MAX - mVoxelBudgetSnapshot.usageBytes ?
         UINT64_MAX : mVoxelBudgetSnapshot.usageBytes + mVoxelBudgetSnapshot.computeReservedBytes;
+    // Do not feed allocation hysteresis back into the cached maintenance budget.
+    // Both geometry and compute providers receive the same bounded fresh copy.
+    auto snapshot = mVoxelBudgetSnapshot;
+    snapshot.rawBudgetBytes = snapshot.budgetBytes;
+    const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
+    if (forceRefresh && (bool)nri_ptvoxelallocationbudget)
+    {
+        auto& ceiling = mPersistentVoxels.allocationBudgetCeiling;
+        snapshot.budgetBytes = ceiling.Apply(mMapWorld.buildSerial, retryTick, snapshot.rawBudgetBytes);
+        snapshot.allocationCeilingBytes = ceiling.ceilingBytes;
+        snapshot.allocationCeilingRemainingTicks = ceiling.Remaining(mMapWorld.buildSerial, retryTick);
+    }
     if (refresh && PerfAuditActive())
     {
-        char fields[640];
+        char fields[1024];
         snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"live_available\":%s,"
             "\"tracked_bytes\":%llu,\"live_usage_bytes\":%llu,\"live_budget_bytes\":%llu,"
-            "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d,\"allocation_refresh\":%s,\"reserved_provider_bytes\":%llu",
-            mFrameIndex, (unsigned long long)mMapWorld.buildSerial, mVoxelBudgetSnapshot.liveAvailable ? "true" : "false",
-            (unsigned long long)mVoxelBudgetSnapshot.trackedBytes, (unsigned long long)mVoxelBudgetSnapshot.liveUsageBytes,
-            (unsigned long long)mVoxelBudgetSnapshot.liveBudgetBytes, (unsigned long long)mVoxelBudgetSnapshot.usageBytes,
-            (unsigned long long)mVoxelBudgetSnapshot.budgetBytes, testBudget, forceRefresh ? "true" : "false",
-            (unsigned long long)mVoxelBudgetSnapshot.computeReservedBytes);
+            "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d,\"allocation_refresh\":%s,\"reserved_provider_bytes\":%llu,"
+            "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\"",
+            mFrameIndex, (unsigned long long)mMapWorld.buildSerial, snapshot.liveAvailable ? "true" : "false",
+            (unsigned long long)snapshot.trackedBytes, (unsigned long long)snapshot.liveUsageBytes,
+            (unsigned long long)snapshot.liveBudgetBytes, (unsigned long long)snapshot.usageBytes,
+            (unsigned long long)snapshot.budgetBytes, testBudget, forceRefresh ? "true" : "false",
+            (unsigned long long)snapshot.computeReservedBytes, (unsigned long long)snapshot.rawBudgetBytes,
+            (unsigned long long)snapshot.allocationCeilingBytes, (unsigned long long)snapshot.allocationCeilingRemainingTicks,
+            (unsigned long long)retryTick);
         PerfAuditWriteEvent("voxel_residency_budget", PerfAuditCurrentToken(), fields);
     }
-    return mVoxelBudgetSnapshot;
+    return snapshot;
 }
 
 void NRIRenderer::AuditPersistentVoxelArenaGrowthBudget(uint64_t oldBytes, uint64_t newCapacityBytes, uint32_t stride)

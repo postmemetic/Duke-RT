@@ -22,19 +22,21 @@ struct NRIVoxelComputeProviderReservation
 
 struct NRIVoxelComputeBudgetRetry
 {
-    uint64_t nextFrame = 0;
-    uint64_t firstDeniedFrame = UINT64_MAX;
+    // Presentation generations age during loading; renderer frames and
+    // completion fences intentionally remain separate clocks.
+    uint64_t nextTick = 0;
+    uint64_t firstDeniedTick = UINT64_MAX;
     uint64_t ownerKey = 0;
-    bool Waiting(uint64_t frame) const { return frame < nextFrame; }
+    bool Waiting(uint64_t tick) const { return tick < nextTick; }
     // A repeatedly denied unsubmitted owner yields its admission resources.
     // A new batch/page owner starts its own bounded observation window.
-    bool Denied(uint64_t frame, uint64_t key)
+    bool Denied(uint64_t tick, uint64_t key)
     {
-        if (firstDeniedFrame == UINT64_MAX || ownerKey != key || frame < firstDeniedFrame)
-        { firstDeniedFrame = frame; ownerKey = key; }
-        nextFrame = NRIVoxelComputeSaturatingAdd(frame, 30);
-        if (frame - firstDeniedFrame < 60) return false;
-        firstDeniedFrame = frame;
+        if (firstDeniedTick == UINT64_MAX || ownerKey != key || tick < firstDeniedTick)
+        { firstDeniedTick = tick; ownerKey = key; }
+        nextTick = NRIVoxelComputeSaturatingAdd(tick, 30);
+        if (tick - firstDeniedTick < 60) return false;
+        firstDeniedTick = tick;
         return true;
     }
     void Accepted() { *this = {}; }
