@@ -36,9 +36,14 @@ namespace
 	uint64_t gFrame = 0;
 	uint32_t gDescriptorTraceCount = 0;
 
-	void TraceDescriptorRejection(const ActorSpriteFallbackCandidate& candidate, const ActorPresentationState& actor,
+	void TraceDescriptorRejection(ActorSpriteFallbackCandidate& candidate, const ActorPresentationState& actor,
 		const tspritetype& sprite, const HWDrawInfo& view, const char* reason)
 	{
+		// Preserve failure metadata even when detailed tracing targets a different
+		// actor. The renderer emits only bounded missing-body rows from this copy.
+		candidate.descriptorReason = reason;
+		candidate.descriptorTexture = sprite.spritetexture().GetIndex();
+		candidate.recipeCertified = actor.spriteAnimation.recipeCertified;
 		if (!(bool)nri_ptactorrepresentationtrace || !PerfAuditActive() || gDescriptorTraceCount >= 128 ||
 			((int)nri_ptactorrepresentationactor >= 0 && (int)nri_ptactorrepresentationactor != actor.actorIndex)) return;
 		auto placedPosition = sprite.pos;
@@ -182,6 +187,7 @@ void BeginActorSpriteFallbackFrame(uint64_t frame)
 		retained.candidate.presentationHidden = false;
 		retained.candidate.primaryHidden = false;
 		retained.candidate.transientGeometryCaptured = false;
+		retained.candidate.descriptorReason = "not-refreshed";
 	}
 }
 
@@ -211,6 +217,9 @@ bool CaptureActorSpriteFallbackCandidate(HWDrawInfo& di, const HWSprite& source,
 	next.candidate.animationCurrent = true;
 	next.candidate.indirectOnly = indirectOnly;
 	next.candidate.transientVoxel = transientVoxel;
+	next.candidate.descriptorReason = "ready";
+	next.candidate.descriptorTexture = next.sprite.spritetexture().GetIndex();
+	next.candidate.recipeCertified = next.authority.spriteAnimation.recipeCertified;
 	const char* rejection = "capture-prepare";
 	if (!BuildSurface(di, next.sprite, *actor, next.luminous, drawListType, next.candidate.surface, &rejection, &next.candidate.primaryHidden))
 	{
@@ -255,7 +264,12 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 		// during representation selection, preventing a duplicate body.
 		if (candidate.capturedThisFrame) continue;
 		const auto* actor = LookupActorPresentationByOwnerKey(retained.authority.owner);
-		if (!Eligible(actor) || actor->physicalSectorIndex < 0 || (unsigned)actor->physicalSectorIndex >= sector.Size()) continue;
+		if (!Eligible(actor)) { candidate.descriptorReason = "authority-unavailable"; continue; }
+		if (actor->physicalSectorIndex < 0 || (unsigned)actor->physicalSectorIndex >= sector.Size())
+		{
+			candidate.descriptorReason = "invalid-sector";
+			continue;
+		}
 		tspritetype sprite = retained.sprite;
 		if (sprite.spriteFallbackTileBase.isValid()) sprite.setspritetexture(sprite.spriteFallbackTileBase);
 		const auto& before = retained.authority;
@@ -318,6 +332,9 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 		if (candidate.primaryHidden) TraceDescriptorRejection(candidate, *actor, sprite, view, "primary-view-overlap-retained");
 		candidate.surface = std::move(surface);
 		candidate.descriptorCurrent = true;
+		candidate.descriptorReason = "ready";
+		candidate.descriptorTexture = sprite.spritetexture().GetIndex();
+		candidate.recipeCertified = actor->spriteAnimation.recipeCertified;
 		SetAuthority(candidate, *actor);
 	}
 }

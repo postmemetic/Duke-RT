@@ -32,6 +32,10 @@ struct ActorSpriteFallbackCandidate
 	bool indirectOnly = false;
 	bool transientVoxel = false;
 	bool transientGeometryCaptured = false;
+	// Static reason strings only; never an actor or transient text pointer.
+	const char* descriptorReason = "not-refreshed";
+	int32_t descriptorTexture = -1;
+	bool recipeCertified = false;
 	SurfaceRef surface;
 };
 

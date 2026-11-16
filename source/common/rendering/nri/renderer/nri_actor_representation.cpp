@@ -166,7 +166,11 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			selection = demand.found && actor->meshResourceKey == demand.desiredMesh && actor->materialKeyHash == demand.desiredMaterial ? "exact" : "held";
 		mDecisions.push_back({candidate.identityKey, candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration,
 			demand.desiredMesh, demand.desiredMaterial, sameOwner ? actor->meshResourceKey : 0,
-			sameOwner ? actor->materialKeyHash : 0, demand.exactMissingAge, candidate.actorIndex, selection});
+			sameOwner ? actor->materialKeyHash : 0, demand.exactMissingAge, candidate.actorIndex, selection,
+			candidate.descriptorReason, candidate.descriptorTexture, candidate.descriptorCurrent, candidate.capturedThisFrame,
+			candidate.animationCurrent, candidate.recipeCertified, ready,
+			(bool)nri_ptactorrepresentationtrace && voxels.spriteFallbackReadyFrame == frameIndex &&
+				voxels.spriteFallbackReadyActors.count(candidate.identityKey) != 0});
 
 		if ((bool)nri_ptactorrepresentationtrace && traced < 128u &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == candidate.actorIndex))
@@ -217,6 +221,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		}
 	}
 	uint32_t spritesPublished = 0, voxelsPublished = 0, absent = 0, duplicates = 0, suppressedPublished = 0, traced = 0;
+	uint32_t missingTraced = 0;
 	for (const auto& row : mDecisions)
 	{
 		const uint32_t slot = voxels.batch.actorIndex.Find(row.identity);
@@ -231,6 +236,23 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		absent += intendedBody && !spritePublished && !voxelPublished;
 		duplicates += spritePublished && voxelPublished;
 		suppressedPublished += std::strcmp(row.selection, "suppressed") == 0 && (spritePublished || voxelPublished);
+		// Independent of the chosen detail actor and its 128-row cap. A small
+		// failure-only stream identifies any other missing owner without turning
+		// a targeted diagnostic into a full-route all-actor trace.
+		if ((bool)nri_ptactorrepresentationtrace && missingTraced < 16u && intendedBody && !spritePublished && !voxelPublished)
+		{
+			char missingFields[1280];
+			std::snprintf(missingFields, sizeof(missingFields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"selection\":\"%s\",\"descriptor_reason\":\"%s\",\"descriptor_texture\":%d,\"descriptor_current\":%s,\"captured\":%s,\"animation_current\":%s,\"recipe_certified\":%s,\"voxel_ready\":%s,\"texture_ready\":%s,\"scene_ready\":%s,\"sprite_primitives\":%u,\"sprite_material_primitives\":%u,\"desired_mesh\":%llu,\"desired_material\":%llu,\"exact_wait_frames\":%u",
+				frameIndex, row.actorIndex, (unsigned long long)row.identity, (unsigned long long)row.world,
+				(unsigned long long)row.lifetime, row.selection, row.descriptorReason, row.descriptorTexture,
+				row.descriptorCurrent ? "true" : "false", row.captured ? "true" : "false",
+				row.animationCurrent ? "true" : "false", row.recipeCertified ? "true" : "false",
+				row.voxelReady ? "true" : "false", row.textureReady ? "true" : "false", ready ? "true" : "false",
+				carrierPrimitives[row.actorIndex], materialPrimitives[row.actorIndex],
+				(unsigned long long)row.desiredMesh, (unsigned long long)row.desiredMaterial, row.waitFrames);
+			PerfAuditWriteEvent("actor_representation_missing", PerfAuditCurrentToken(), missingFields);
+			++missingTraced;
+		}
 		if ((bool)nri_ptactorrepresentationtrace && traced < 128u &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == row.actorIndex))
 		{
@@ -251,6 +273,13 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		spritesPublished, voxelsPublished, absent, duplicates, suppressedPublished, (unsigned long long)mStats.vertexBytes,
 		(unsigned long long)mStats.indexBytes, (unsigned long long)mStats.primitiveBytes);
 	PerfAuditWriteEvent("actor_representation_frame", PerfAuditCurrentToken(), fields);
+	if ((bool)nri_ptactorrepresentationtrace && absent > 0)
+	{
+		char coverage[192];
+		std::snprintf(coverage, sizeof(coverage), "\"renderer_frame\":%u,\"missing\":%u,\"emitted\":%u,\"omitted\":%u,\"limit\":16",
+			frameIndex, absent, missingTraced, absent - missingTraced);
+		PerfAuditWriteEvent("actor_representation_missing_coverage", PerfAuditCurrentToken(), coverage);
+	}
 }
 
 bool NRIActorRepresentations::HasIndirectSprites(uint32_t frameIndex) const

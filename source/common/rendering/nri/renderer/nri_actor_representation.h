@@ -55,6 +55,10 @@ private:
 		uint32_t waitFrames = 0;
 		int32_t actorIndex = -1;
 		const char* selection = "unavailable";
+		const char* descriptorReason = "not-refreshed";
+		int32_t descriptorTexture = -1;
+		bool descriptorCurrent = false, captured = false, animationCurrent = false, recipeCertified = false;
+		bool voxelReady = false, textureReady = false;
 	};
 	uint32_t mFrameIndex = UINT32_MAX;
 	std::vector<Decision> mDecisions;

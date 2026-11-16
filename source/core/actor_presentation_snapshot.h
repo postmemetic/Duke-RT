@@ -66,6 +66,7 @@ struct ActorSpriteAnimationState
 	int32_t recipePalette = 0;
 	int32_t recipeFloorPalette = -1;
 	int32_t recipeTextureId = -1;
+	bool recipeTextureSet = false; // SetSpritePic(-1) may explicitly select an invalid display texture.
 	uint16_t recipeCstatSet = 0;
 	uint16_t recipeCstatClear = 0;
 	uint8_t recipePositionZMode = 0; // 0: offset only, 1: floor plane, 2: absolute.

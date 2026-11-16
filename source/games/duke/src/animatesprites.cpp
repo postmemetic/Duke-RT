@@ -37,9 +37,14 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "vm.h"
 #include "c_dispatch.h"
 #include <unordered_map>
+#include <cstring>
 
 EXTERN_CVAR(Bool, wt_commentary)
 CVAR(Int, duke_sprite_recipe_checks, 0, 0)
+
+// Native setter touches only the supplied temporary sprite; the self-test uses
+// it as the ordinary-path oracle without invoking Animate or mutating an actor.
+void tspritetype_setSpritePic(tspritetype* sprite, DCoreActor* actor, unsigned index);
 
 BEGIN_DUKE_NS
 
@@ -322,6 +327,32 @@ static SpriteRecipe GetSpriteRecipe(const DDukeActor& actor)
 	return recipe;
 }
 
+static void CaptureSpriteSetFrame(const DDukeActor& actor, int index, ActorSpriteAnimationState& out)
+{
+	const auto& sprites = static_cast<PClassActor*>(actor.GetClass())->ActorInfo()->SpriteSet;
+	if ((unsigned)index < sprites.Size())
+	{
+		out.recipeTextureId = sprites[index].GetIndex();
+		out.recipeTextureSet = true;
+	}
+	else if (index == -1)
+	{
+		out.recipeTextureId = actor.dispictex.GetIndex();
+		out.recipeTextureSet = true;
+	}
+	// SetSpritePic leaves its input unchanged for every other out-of-range
+	// index. In particular ShotgunShell has one entry but requests counter&1.
+}
+
+static void CaptureShellSpriteRecipe(const DDukeActor& actor, int counter, ActorSpriteAnimationState& out)
+{
+	out.recipeCertified = true;
+	const auto& sprites = static_cast<PClassActor*>(actor.GetClass())->ActorInfo()->SpriteSet;
+	if (sprites.Size() > 0) CaptureSpriteSetFrame(actor, counter & 1, out);
+	out.recipeCstatClear = (uint16_t)CSTAT_SPRITE_XFLIP | (uint16_t)CSTAT_SPRITE_YFLIP;
+	out.recipeCstatSet = counter <= 1 ? out.recipeCstatClear : counter <= 2 ? (uint16_t)CSTAT_SPRITE_YFLIP : 0;
+}
+
 void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSpriteAnimationState& out) const
 {
 	out = {};
@@ -348,9 +379,7 @@ void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSp
 	const auto recipe = GetSpriteRecipe(h);
 	const auto spriteSetFrame = [&](int index)
 	{
-		const auto& sprites = static_cast<PClassActor*>(h.GetClass())->ActorInfo()->SpriteSet;
-		if (index < 0 || (unsigned)index >= sprites.Size()) { out.recipeCertified = false; return; }
-		out.recipeTextureId = sprites[index].GetIndex();
+		CaptureSpriteSetFrame(h, index, out);
 	};
 	out.recipeHandled = recipe != SpriteRecipe::Default;
 	if (!out.recipeHandled) out.recipeCertified = true;
@@ -440,12 +469,7 @@ void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSp
 	}
 	else if (recipe == SpriteRecipe::Shell)
 	{
-		out.recipeCertified = true;
-		const auto& sprites = static_cast<PClassActor*>(h.GetClass())->ActorInfo()->SpriteSet;
-		if (sprites.Size() > 0) spriteSetFrame(h.counter & 1);
-		out.recipeCstatClear = (uint16_t)CSTAT_SPRITE_XFLIP | (uint16_t)CSTAT_SPRITE_YFLIP;
-		out.recipeCstatSet = h.counter <= 1 ? out.recipeCstatClear :
-			h.counter <= 2 ? (uint16_t)CSTAT_SPRITE_YFLIP : 0;
+		CaptureShellSpriteRecipe(h, h.counter, out);
 	}
 	else if (recipe == SpriteRecipe::Jibs)
 	{
@@ -526,7 +550,7 @@ static bool ApplySpritePresentationRecipe(const ActorPresentationState& state, t
 	if (!animation.recipeCertified) return false;
 	sprite.shade = animation.recipeShade;
 	sprite.pal = animation.recipePalette;
-	if (animation.recipeTextureId >= 0)
+	if (animation.recipeTextureSet || animation.recipeTextureId >= 0)
 	{
 		FTextureID texture;
 		texture.SetIndex(animation.recipeTextureId);
@@ -791,7 +815,59 @@ CCMD(duke_sprite_fallback_selftest)
 			Printf("Duke sprite fallback self-test: result=fail reason=script-frame-forced-rotation forced=%d frame=%d\n", direction, selectedFrame); return;
 		}
 	}
-	Printf("Duke sprite fallback self-test: result=pass parity_cases=%u missing_frame_cases=%u recipe_cases=19\n", cases, missingFrames);
+	uint32_t spriteSetCases = 0, shellCases = 0;
+	for (const char* name : { "DukeShell", "DukeShotgunShell" })
+	{
+		const auto* cls = PClass::FindClass(name);
+		auto* defaults = cls != nullptr ? GetDefaultByType(cls) : nullptr;
+		if (defaults == nullptr || !defaults->IsKindOf(RUNTIME_CLASS(DDukeActor)))
+		{
+			Printf("Duke sprite fallback self-test: result=fail reason=shell-class class=%s\n", name); return;
+		}
+		const auto& actor = *static_cast<const DDukeActor*>(defaults);
+		const int size = (int)static_cast<PClassActor*>(actor.GetClass())->ActorInfo()->SpriteSet.Size();
+		if (size != (std::strcmp(name, "DukeShotgunShell") == 0 ? 1 : 2))
+		{
+			Printf("Duke sprite fallback self-test: result=fail reason=shell-spriteset-size class=%s size=%d\n", name, size); return;
+		}
+		for (int index : { -2, -1, 0, 1, size, size + 3 })
+		{
+			recipe = {};
+			recipe.available = recipe.recipeCertified = recipe.recipeHandled = true;
+			sprite = {};
+			sprite.setspritetexture(base); // Deliberately different: out-of-range is a no-op.
+			sprite.scale = DVector2(1, 1);
+			auto expected = sprite;
+			::tspritetype_setSpritePic(&expected, defaults, (unsigned)index);
+			CaptureSpriteSetFrame(actor, index, recipe);
+			if (!ApplySpritePresentationRecipe(state, sprite) || sprite.spritetexture() != expected.spritetexture())
+			{
+				Printf("Duke sprite fallback self-test: result=fail reason=spriteset-native-parity class=%s index=%d\n", name, index); return;
+			}
+			++spriteSetCases;
+		}
+		for (int counter = 0; counter < 4; ++counter)
+		{
+			recipe = {};
+			recipe.available = recipe.recipeHandled = true;
+			sprite = {};
+			sprite.setspritetexture(actor.spr.spritetexture());
+			sprite.scale = DVector2(1, 1);
+			sprite.cstat = CSTAT_SPRITE_BLOCK;
+			auto expected = sprite;
+			::tspritetype_setSpritePic(&expected, defaults, (unsigned)(counter & 1));
+			expected.cstat |= CSTAT_SPRITE_XFLIP | CSTAT_SPRITE_YFLIP;
+			if (counter > 1) expected.cstat &= ~CSTAT_SPRITE_XFLIP;
+			if (counter > 2) expected.cstat &= ~(CSTAT_SPRITE_XFLIP | CSTAT_SPRITE_YFLIP);
+			CaptureShellSpriteRecipe(actor, counter, recipe);
+			if (!ApplySpritePresentationRecipe(state, sprite) || !equal(expected, sprite))
+			{
+				Printf("Duke sprite fallback self-test: result=fail reason=shell-cycle class=%s counter=%d\n", name, counter); return;
+			}
+			++shellCases;
+		}
+	}
+	Printf("Duke sprite fallback self-test: result=pass parity_cases=%u missing_frame_cases=%u recipe_cases=19 spriteset_cases=%u shell_cases=%u\n", cases, missingFrames, spriteSetCases, shellCases);
 }
 
 END_DUKE_NS
