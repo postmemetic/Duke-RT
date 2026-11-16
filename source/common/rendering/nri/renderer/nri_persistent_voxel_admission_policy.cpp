@@ -55,7 +55,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     const NRIPersistentVoxelSettings& settings, const NRIPersistentVoxelResetServices& services)
 {
     const auto policy = GetNRIVoxelAdmissionPolicySettings();
-    if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames)
+    if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames && !(bool)nri_ptvoxeladmissionreclaim)
     {
         actorDemand.Reset();
         return;
@@ -93,7 +93,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         }
         inputs.push_back(input);
     }
-    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs);
+    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs, (bool)nri_ptvoxeladmissionreclaim);
     uint32_t coalesced = 0;
     if (policy.coalesce)
     {

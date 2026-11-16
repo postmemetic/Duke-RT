@@ -10,6 +10,98 @@
 #include <unordered_set>
 #include <set>
 
+bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSettings& settings,
+    NRIVoxelCachePins& pins, size_t maximum, bool authoritativeEmptyAfterWait) const
+{
+    // Include the committed frame and current source authority. Source entries
+    // include retained offscreen actors and desiredPending bindings. Admission
+    // terminal Ready records are cache history, not an ownership pin.
+    auto& pinnedMeshes = pins.meshes; auto& pinnedMaterials = pins.materials;
+    auto& pendingMeshes = pins.pendingMeshes; auto& pinnedPairs = pins.pairs;
+    if (batch.actors.size() > maximum || activeMeshReferences.size() > maximum ||
+        activeMaterialReferences.size() > maximum || admissionQueue.size() > maximum) return false;
+    for (const auto& actor : batch.actors)
+        if (actor.active) pinnedPairs.emplace(actor.meshResourceKey, actor.materialKeyHash);
+    for (const auto& pair : activeMeshReferences) if (pair.second) pinnedMeshes.insert(pair.first);
+    for (const auto& pair : activeMaterialReferences) if (pair.second) pinnedMaterials.insert(pair.first);
+    std::vector<nri_scene::PersistentVoxelCacheEntryView> current;
+    if (authoritativeEmptyAfterWait && (!batch.actors.empty() || !instances.empty() || !admissionQueue.empty())) return false;
+    if (!authoritativeEmptyAfterWait && !nri_scene::BuildPersistentVoxelCacheEntries(current, maximum))
+    {
+        PerfAuditAdd(PerfAuditMetric::VoxelCacheAuthorityUnavailable);
+        return false;
+    }
+    for (const auto& actor : current)
+    {
+        const uint64_t meshKey = BuildPersistentVoxelMeshResourceKey(actor, settings);
+        pinnedMeshes.insert(meshKey);
+        pinnedMaterials.insert(actor.materialKeyHash);
+        pinnedPairs.emplace(meshKey, actor.materialKeyHash);
+    }
+    for (const auto& pair : admissionQueue)
+    {
+        const auto& admission = pair.second;
+        if (admission.state == PersistentVoxelAdmissionState::Ready ||
+            admission.state == PersistentVoxelAdmissionState::Failed) continue;
+        const uint64_t meshKey = BuildPersistentVoxelVariantMeshResourceKey(admission.variant);
+        pendingMeshes.insert(meshKey);
+        pinnedMeshes.insert(meshKey);
+        pinnedMaterials.insert(admission.variant.materialKeyHash);
+        pinnedPairs.emplace(meshKey, admission.variant.materialKeyHash);
+    }
+    return true;
+}
+
+bool NRIPersistentVoxelResidency::EvictInactiveMesh(uint64_t key, const NRIPersistentVoxelResetServices& services)
+{
+    const auto found = meshVariantResources.find(key);
+    if (found == meshVariantResources.end()) return false;
+    auto& resource = found->second;
+    // A compute-cache result contains absolute offsets. Remove it before
+    // the reservation can retire and those offsets can belong to a new key.
+    if (resource.directComputeGeneration)
+        CancelNRIVoxelComputeDirectPublication(key, resource.directComputeGeneration);
+    services.RetireGeometryRange(resource.geometryRange);
+    services.RetireBuffer(resource.vertexBuffer);
+    services.RetireBuffer(resource.indexBuffer);
+    services.RetireAccelerationStructure(resource.accelerationStructure);
+    services.RetireBuffer(resource.shadowProxy.vertexBuffer);
+    services.RetireBuffer(resource.shadowProxy.indexBuffer);
+    services.RetireAccelerationStructure(resource.shadowProxy.accelerationStructure);
+    sharedBlasCache.RetireKey(key, [&](NRIAccelerationStructureResource& as) { services.RetireAccelerationStructure(as); });
+    inactiveMeshSince.erase(key);
+    publishedMeshKeys.erase(key);
+    meshVariantResources.erase(found);
+    return true;
+}
+
+uint32_t NRIPersistentVoxelResidency::PruneOrphanedTerminalAdmissions(const NRIVoxelCachePins& pins,
+    const NRIPersistentVoxelResetServices& services)
+{
+    uint32_t terminalPruned = 0;
+    // Prune orphan terminal history even if an earlier pressure pass removed
+    // its backing resource. Exact live pairs protect authority; sharing a mesh
+    // or material alone does not permanently pin an unrelated terminal pair.
+    for (auto it = admissionQueue.begin(); it != admissionQueue.end(); )
+    {
+        const auto& entry = it->second;
+        const uint64_t meshKey = BuildPersistentVoxelVariantMeshResourceKey(entry.variant);
+        const uint64_t materialKey = entry.variant.materialKeyHash;
+        const bool terminal = entry.state == PersistentVoxelAdmissionState::Ready || entry.state == PersistentVoxelAdmissionState::Failed;
+        const bool backingMissing = meshVariantResources.find(meshKey) == meshVariantResources.end() ||
+            materialVariantResources.find(materialKey) == materialVariantResources.end();
+        if (NRIVoxelPruneOrphanedAdmission(terminal, backingMissing,
+            pins.pairs.count({meshKey, materialKey}) != 0, entry.directComputeRequested, pins.pendingMeshes.count(meshKey) != 0))
+        {
+            DiscardAdmissionEntry(it->second, services);
+            it = admissionQueue.erase(it);
+            terminalPruned++;
+        }
+        else ++it;
+    }
+    return terminalPruned;
+}
+
 void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint32_t frameIndex,
     const NRIPersistentVoxelSettings& settings, uint64_t usageBytes, uint64_t budgetBytes,
     const NRIPersistentVoxelResetServices& services, bool authoritativeEmptyAfterWait)
@@ -85,40 +177,9 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     const bool pressure = warmPolicy ? (warmRetentionPressure.active && budgetBytes != 0) :
         NRIVoxelBudgetPressure(usageBytes, budgetBytes, settings.residentMinHeadroomBytes) != 0;
 
-    // Include the committed frame and current source authority. Source entries
-    // include retained offscreen actors and desiredPending bindings. Admission
-    // terminal Ready records are cache history, not an ownership pin.
-    std::unordered_set<uint64_t> pinnedMeshes, pinnedMaterials, pendingMeshes;
-    std::set<std::pair<uint64_t, uint64_t>> pinnedPairs;
-    for (const auto& actor : batch.actors)
-        if (actor.active) pinnedPairs.emplace(actor.meshResourceKey, actor.materialKeyHash);
-    for (const auto& pair : activeMeshReferences) if (pair.second) pinnedMeshes.insert(pair.first);
-    for (const auto& pair : activeMaterialReferences) if (pair.second) pinnedMaterials.insert(pair.first);
-    std::vector<nri_scene::PersistentVoxelCacheEntryView> current;
-    if (authoritativeEmptyAfterWait && (!batch.actors.empty() || !instances.empty() || !admissionQueue.empty())) return;
-    if (!authoritativeEmptyAfterWait && !nri_scene::BuildPersistentVoxelCacheEntries(current))
-    {
-        PerfAuditAdd(PerfAuditMetric::VoxelCacheAuthorityUnavailable);
-        return;
-    }
-    for (const auto& actor : current)
-    {
-        const uint64_t meshKey = BuildPersistentVoxelMeshResourceKey(actor, settings);
-        pinnedMeshes.insert(meshKey);
-        pinnedMaterials.insert(actor.materialKeyHash);
-        pinnedPairs.emplace(meshKey, actor.materialKeyHash);
-    }
-    for (const auto& pair : admissionQueue)
-    {
-        const auto& admission = pair.second;
-        if (admission.state == PersistentVoxelAdmissionState::Ready ||
-            admission.state == PersistentVoxelAdmissionState::Failed) continue;
-        const uint64_t meshKey = BuildPersistentVoxelVariantMeshResourceKey(admission.variant);
-        pendingMeshes.insert(meshKey);
-        pinnedMeshes.insert(meshKey);
-        pinnedMaterials.insert(admission.variant.materialKeyHash);
-        pinnedPairs.emplace(meshKey, admission.variant.materialKeyHash);
-    }
+    NRIVoxelCachePins pins;
+    if (!CollectCachePins(settings, pins, SIZE_MAX, authoritativeEmptyAfterWait)) return;
+    auto& pinnedMeshes = pins.meshes; auto& pinnedMaterials = pins.materials;
     struct Candidate { uint64_t key, bytes, physicalBytes; uint32_t since, warmRank; };
     std::vector<Candidate> meshes, materials;
     uint64_t inactiveMeshBytes = 0, inactiveMaterialBytes = 0, warmMeshBytes = 0;
@@ -181,27 +242,13 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         if (found == meshVariantResources.end()) continue;
         auto& resource = found->second;
         NoteCacheMeshEviction(candidate.key, frameIndex, phase, pinnedMeshes.count(candidate.key) != 0);
-        // A compute-cache result contains absolute offsets. Remove it before
-        // the reservation can retire and those offsets can belong to a new key.
-        if (resource.directComputeGeneration)
-            CancelNRIVoxelComputeDirectPublication(candidate.key, resource.directComputeGeneration);
-        services.RetireGeometryRange(resource.geometryRange);
-        services.RetireBuffer(resource.vertexBuffer);
-        services.RetireBuffer(resource.indexBuffer);
-        services.RetireAccelerationStructure(resource.accelerationStructure);
-        services.RetireBuffer(resource.shadowProxy.vertexBuffer);
-        services.RetireBuffer(resource.shadowProxy.indexBuffer);
-        services.RetireAccelerationStructure(resource.shadowProxy.accelerationStructure);
-        sharedBlasCache.RetireKey(candidate.key, [&](NRIAccelerationStructureResource& as) { services.RetireAccelerationStructure(as); });
         reusableBytes += uint64_t(resource.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
             uint64_t(resource.indexCapacity) * sizeof(uint32_t) + uint64_t(resource.primitiveCapacity) * sizeof(nri_scene::PrimitiveData);
         inactiveMeshBytes -= candidate.bytes;
         if (candidate.warmRank) warmMeshBytes -= candidate.bytes;
         physicalRetiringBytes += candidate.physicalBytes;
-        inactiveMeshSince.erase(candidate.key);
-        publishedMeshKeys.erase(candidate.key);
+        EvictInactiveMesh(candidate.key, services);
         evictedMeshKeys.insert(candidate.key);
-        meshVariantResources.erase(found);
         evictedMeshes++;
     }
     for (const auto& candidate : materials)
@@ -230,26 +277,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         materialVariantResources.erase(found);
         evictedMaterials++;
     }
-    // Prune orphan terminal history even if an earlier pressure pass removed
-    // its backing resource. Exact live pairs protect authority; sharing a mesh
-    // or material alone does not permanently pin an unrelated terminal pair.
-    for (auto it = admissionQueue.begin(); it != admissionQueue.end(); )
-    {
-        const auto& entry = it->second;
-        const uint64_t meshKey = BuildPersistentVoxelVariantMeshResourceKey(entry.variant);
-        const uint64_t materialKey = entry.variant.materialKeyHash;
-        const bool terminal = entry.state == PersistentVoxelAdmissionState::Ready || entry.state == PersistentVoxelAdmissionState::Failed;
-        const bool backingMissing = meshVariantResources.find(meshKey) == meshVariantResources.end() ||
-            materialVariantResources.find(materialKey) == materialVariantResources.end();
-        if (terminal && backingMissing && !pinnedPairs.count({meshKey, materialKey}) &&
-            (!entry.directComputeRequested || !pendingMeshes.count(meshKey)))
-        {
-            DiscardAdmissionEntry(it->second, services);
-            it = admissionQueue.erase(it);
-            terminalPruned++;
-        }
-        else ++it;
-    }
+    terminalPruned = PruneOrphanedTerminalAdmissions(pins, services);
     if (evictedMeshes || evictedMaterials || terminalPruned)
     {
         PerfAuditAdd(PerfAuditMetric::VoxelCacheMeshEvictions, evictedMeshes);

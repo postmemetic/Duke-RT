@@ -8,6 +8,7 @@
 #include "perf_audit.h"
 #include "nri_perf_audit.h"
 #include "gameupdate.h"
+#include "../scene/nri_hash.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -110,6 +111,20 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     auto& arena = mPersistentVoxels;
     const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
     arena.allocationMeshRetry.BeginTick(mMapWorld.buildSerial, retryTick);
+    const bool reclaimEnabled = (bool)nri_ptvoxeladmissionreclaim;
+    const std::array<uint32_t, 3> requestedRows = { vertexCount, indexCount, primitiveCount };
+    const bool growsArena = uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex) > arena.vertexBuffer.size ||
+        uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
+        uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size;
+    if (reclaimEnabled)
+    {
+        arena.admissionReclaim.BeginTick(arena.residencyMapGeneration, retryTick);
+        if (!arena.admissionReclaim.PermitPreflight(growsArena))
+        {
+            mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
+            return Result::DeferredCooldown;
+        }
+    }
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     uint64_t predictedBytes = 0, actualBytes = 0, oldArenaBytes = 0, newArenaBytes = 0;
@@ -120,12 +135,39 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     auto budget = GetPersistentVoxelBudgetSnapshot(true);
     NRIPersistentVoxelAllocationBudget peak;
     NRIVoxelComputeProviderForecast provider;
+    uint64_t reclaimSignature = 0;
+    bool requirementsComplete = false;
     const auto report = [&](const char* decision, Result result)
     {
         if (result == Result::AllocationFailed || (result == Result::DeferredBudget && actualBytes != 0))
             arena.allocationMeshRetry.ObserveDenial(mMapWorld.buildSerial, retryTick, mesh.resourceKey, predictedBytes);
         if (result == Result::DeferredBudget)
             arena.preloadHandoff.ObserveBudgetDenial(mMapWorld.buildSerial);
+        if (reclaimEnabled && requirementsComplete && result == Result::DeferredBudget && newArenaBytes &&
+            arena.actorDemand.Upgrade(mesh.resourceKey, mFrameIndex).consumers)
+        {
+            NRIVoxelReclaimRequest request;
+            request.mesh = mesh.resourceKey; request.epoch = arena.residencyMapGeneration;
+            request.tick = retryTick; request.revision = arena.reclaimGeometryRevision;
+            request.rows = requestedRows; request.usage = budget.usageBytes;
+            request.budget = budget.budgetBytes; request.reserve = reserve;
+            request.nonArenaBytes = NRIVoxelComputeSaturatingAdd(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes);
+            request.signature = reclaimSignature; request.avoidedArenaBytes = newArenaBytes;
+            // Notice only. The next pump processes it after this caller has
+            // rolled back its unpublished lease; it never acts on this cursor.
+            if (arena.admissionReclaim.Observe(request))
+                arena.ReportAdmissionReclaim("request", "geometry-growth-budget-denied", request, mFrameIndex);
+        }
+        if (reclaimEnabled && result == Result::Ready)
+        {
+            const auto found = arena.admissionReclaim.Records().find(mesh.resourceKey);
+            if (found != arena.admissionReclaim.Records().end())
+            {
+                arena.ReportAdmissionReclaim("outcome", newArenaBytes ? "allocated-with-growth" : "allocated-in-existing-arena",
+                    found->second.request, mFrameIndex);
+                arena.admissionReclaim.Success(mesh.resourceKey);
+            }
+        }
         if (PerfAuditActive())
         {
             char fields[2048];
@@ -215,6 +257,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const auto& limits = core.GetDeviceDesc(*mFrameBuffer->mDevice).memory;
     const auto candidate = [&](uint32_t percent)
     {
+        requirementsComplete = false;
         predictedBytes = asBytes;
         oldArenaBytes = newArenaBytes = 0;
         for (size_t i = 0; i != targets.size(); ++i)
@@ -242,16 +285,39 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
         uint64_t combined = predictedBytes;
         if (!AddBytes(combined, provider.bytes)) return false;
+        requirementsComplete = true;
         peak = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, budget.budgetBytes, combined, reserve);
         return combined == 0 || peak.fits;
     };
     // Preferred spare capacity is optional. Retry the exact footprint before
     // denying an otherwise affordable actor representation.
-    if (!candidate(candidatePercent))
+    bool candidateFits = candidate(candidatePercent);
+    if (!candidateFits)
     {
         candidatePercent = 100;
-        if (!candidate(candidatePercent)) return report("defer-budget", Result::DeferredBudget);
+        candidateFits = candidate(candidatePercent);
     }
+    if (reclaimEnabled)
+    {
+        // Signature includes exact non-arena/private/AS/scratch/provider requirements,
+        // independent of material-pair identity. Bound expensive probes per tick;
+        // repeated identical denials then retain a longer per-owner retry deadline.
+        reclaimSignature = nri_scene::HashCombine64(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes);
+        reclaimSignature = nri_scene::HashCombine64(reclaimSignature, budget.budgetBytes);
+        reclaimSignature = nri_scene::HashCombine64(reclaimSignature, reserve);
+        reclaimSignature = nri_scene::HashCombine64(reclaimSignature, uint64_t(flags));
+        reclaimSignature = nri_scene::HashCombine64(reclaimSignature, privateBuildInputs);
+        const auto reuseFloor = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, budget.budgetBytes,
+            NRIVoxelComputeSaturatingAdd(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes), reserve);
+        reclaimSignature = nri_scene::HashCombine64(reclaimSignature, reuseFloor.fits);
+        if (reclaimEnabled && !candidateFits && arena.admissionReclaim.Suppress(mesh.resourceKey, requestedRows,
+            arena.reclaimGeometryRevision, growsArena, reclaimSignature))
+        {
+            mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, NRIVoxelAdmissionReclaim::ProbeTicks);
+            return Result::DeferredCooldown;
+        }
+    }
+    if (!candidateFits) return report("defer-budget", Result::DeferredBudget);
 
     // Check after exact requirements so existing allocation-free reuse and a
     // smaller replacement can proceed. Material pairs share the original
@@ -403,6 +469,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     mesh.allocationRetryTick = 0;
     arena.allocationMeshRetry.ObserveSuccess(mMapWorld.buildSerial, retryTick, mesh.resourceKey, predictedBytes);
     arena.MarkMaintenanceMutation();
+    if (reclaimEnabled) ++arena.reclaimGeometryRevision;
     return report("reserved", Result::Ready);
 }
 

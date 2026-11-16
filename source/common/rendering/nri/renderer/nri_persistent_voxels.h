@@ -3,6 +3,7 @@
 #include "nri_voxel_admission_scheduler.h"
 #include "nri_persistent_voxel_actor_index.h"
 #include "nri_persistent_voxel_actor_demand.h"
+#include "nri_persistent_voxel_admission_reclaim.h"
 #include "nri_voxel_publication_order.h"
 
 #include "nri_persistent_voxel_admission_index.h"
@@ -385,6 +386,7 @@ struct NRIPersistentVoxelResetServices
 	RetireAccelerationStructureFn retireAccelerationStructure = nullptr;
 	InvalidateSceneDataDescriptorsFn invalidateSceneDataDescriptors = nullptr;
 	bool (*cacheRetirementAllowed)(void*) = nullptr;
+    void (*allocationBudget)(void*, uint64_t& usage, uint64_t& budget) = nullptr;
 	void (*retireSchedulerReservation)(void*, NRIPersistentVoxelSchedulerRetirement) = nullptr;
 	void RetireSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket) const
 	{ if (ticket && retireSchedulerReservation) retireSchedulerReservation(user, ticket); }
@@ -1055,6 +1057,20 @@ public:
     { return spriteFallbackFrame == frame && spriteFallbackActors.count(identity) != 0; }
     NRIVoxelActorDemand actorDemand;
     NRIVoxelRetentionPressure warmRetentionPressure;
+    NRIVoxelAdmissionReclaim admissionReclaim;
+    uint64_t reclaimGeometryRevision = 0;
+    bool CollectCachePins(const NRIPersistentVoxelSettings& settings, NRIVoxelCachePins& pins,
+        size_t maximum = SIZE_MAX, bool authoritativeEmptyAfterWait = false) const;
+    bool EvictInactiveMesh(uint64_t key, const NRIPersistentVoxelResetServices& services);
+    uint32_t PruneOrphanedTerminalAdmissions(const NRIVoxelCachePins& pins, const NRIPersistentVoxelResetServices& services);
+    void ProcessAdmissionReclaim(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings,
+        const NRIPersistentVoxelResetServices& services);
+    void ReportAdmissionReclaim(const char* action, const char* reason, const NRIVoxelReclaimRequest& request,
+        uint32_t frameIndex, uint64_t victim = 0, uint32_t rank = 0, uint64_t geometryBytes = 0,
+        uint64_t physicalBytes = 0, uint32_t candidates = 0, uint32_t pins = 0,
+        const NRIPersistentVoxelGeometryRangeHandle* victimRange = nullptr, double workCpuMs = 0,
+        uint32_t recordsExamined = 0, uint32_t plansEvaluated = 0) const;
+
     std::unordered_set<uint64_t> spriteFallbackActors;
     uint32_t spriteFallbackFrame = UINT32_MAX;
     std::unordered_set<uint64_t> spriteFallbackReadyActors;
@@ -1122,7 +1138,7 @@ public:
 	void RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
 		const NRIPersistentVoxelGeometryRangeHandle& previous);
 	void SyncGeometryCursors();
-	void ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
+	void ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool committedRetirement = true);
 	NRIPersistentVoxelSchedulerRetirement TerminalizeAdmissionSchedulerToken(PersistentVoxelAdmissionEntry& entry, bool failed);
 	bool IsSchedulerRetirementPending(NRIPersistentVoxelSchedulerRetirement ticket, uint64_t* bytes = nullptr) const;
 	bool ReleaseCompletedSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket);

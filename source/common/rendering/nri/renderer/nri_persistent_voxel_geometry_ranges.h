@@ -2,6 +2,7 @@
 
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include <array>
+#include <cstddef>
 #include <unordered_map>
 
 // Generation-qualified ownership of all three shared geometry streams. Counts
@@ -23,6 +24,7 @@ public:
     bool Release(const NRIPersistentVoxelGeometryRangeHandle& handle);
     void Reset();
     bool ValidateInvariants() const;
+    std::size_t TransactionCount() const { return transactions.size(); }
     const NRIPersistentVoxelMaterialRangeStats& VertexStats() const { return streams[0].Stats(); }
     const NRIPersistentVoxelMaterialRangeStats& IndexStats() const { return streams[1].Stats(); }
     const NRIPersistentVoxelMaterialRangeStats& PrimitiveStats() const { return streams[2].Stats(); }

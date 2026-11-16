@@ -9,6 +9,7 @@
 #include "hw_drawstructs.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -440,7 +441,10 @@ ActorSpriteSceneCaptureResult CaptureActorVoxelSprite(
 	SceneView& outView);
 bool CaptureScene(HWDrawInfo& di, SceneView& outView);
 bool BuildPersistentVoxelCacheSceneView(SceneView& outView);
-bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>& outEntries);
+// Bound the complete source registry before sorting or copying publication
+// views. Overflow clears output and fails; never return truncated authority.
+bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>& outEntries,
+	size_t maxSourceEntries = SIZE_MAX);
 // Diagnostic-only: call immediately after an empty result. This does not change
 // the Boolean contract or certify discovery of all live voxel actors.
 VoxelPublicationDiagnosticStatus InspectPersistentVoxelEmptyPublication();

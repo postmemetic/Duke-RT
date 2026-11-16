@@ -304,6 +304,7 @@ CVAR(Bool, nri_voxelstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(Bool, nri_ptvoxelpublication, true, 0)
 CVAR(Bool, nri_ptvoxelallocationbudget, false, 0)
+CVAR(Bool, nri_ptvoxeladmissionreclaim, false, 0)
 CVAR(Int, nri_ptvoxelallocationreservemb, 128, 0)
 CVAR(Int, nri_ptvoxelarenagrowthpercent, 200, 0)
 CVAR(Int, nri_ptvoxelarenastartuppercent, 100, 0)

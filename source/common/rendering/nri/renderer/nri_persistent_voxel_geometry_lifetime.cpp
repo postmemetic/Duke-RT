@@ -15,7 +15,7 @@ void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVox
     if (resource.geometryRange.transaction == previous.transaction) return;
     // Only used before the allocation service records any copy/compute command.
     // Published and submitted ranges must continue through fence retirement.
-    ReleaseCompletedGeometryRange(resource.geometryRange);
+    ReleaseCompletedGeometryRange(resource.geometryRange, false);
     resource.geometryRange = previous;
     resource.vertexOffset = previous.vertices.offset;
     resource.vertexCapacity = previous.vertices.capacity;
@@ -55,7 +55,7 @@ bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVaria
     return true;
 }
 
-void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range)
+void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool committedRetirement)
 {
     if (geometryRanges.Release(range))
     {
@@ -63,6 +63,7 @@ void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVox
         PerfAuditAdd(PerfAuditMetric::VoxelGeometryRangeReleasedBytes,
             uint64_t(range.vertices.capacity) * sizeof(nri_scene::SceneVertex) +
             uint64_t(range.indices.capacity) * sizeof(uint32_t) + uint64_t(range.primitives.capacity) * sizeof(nri_scene::PrimitiveData));
+        if (committedRetirement) ++reclaimGeometryRevision;
         SyncGeometryCursors();
         MarkMaintenanceMutation();
     }

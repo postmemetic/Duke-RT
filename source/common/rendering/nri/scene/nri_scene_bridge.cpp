@@ -7409,9 +7409,13 @@ bool BuildVoxelActorPublicationEntry(uint64_t identity, PersistentVoxelCacheEntr
 }
 }
 
-bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>& outEntries)
+bool BuildPersistentVoxelCacheEntries(std::vector<PersistentVoxelCacheEntryView>& outEntries, size_t maxSourceEntries)
 {
 	outEntries.clear();
+	// The registry size is available without a scan. In particular, ineligible
+	// rows still count toward this work bound: filtering them first would hide
+	// an unbounded authority walk before a bounded reclaim planner.
+	if (gVoxelActorCache.size() > maxSourceEntries) return false;
 	std::vector<uint64_t> identities;
 	identities.reserve(gVoxelActorCache.size());
 	for (const auto& pair : gVoxelActorCache) identities.push_back(pair.first);

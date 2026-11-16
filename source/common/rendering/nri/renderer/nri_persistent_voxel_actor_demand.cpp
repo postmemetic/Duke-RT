@@ -13,7 +13,9 @@ void NRIVoxelActorDemand::Reset()
 {
     generation = 0;
     valid = false;
-    actors.clear(); pairs.clear(); meshes.clear(); materials.clear(); snapshot = {};
+    actors.clear(); pairs.clear(); upgrades.clear(); meshes.clear(); materials.clear(); snapshot = {};
+    refreshedFrame = UINT32_MAX;
+    captureUpgrades = false; upgradeRevision = upgradeSignature = 0;
 }
 
 void NRIVoxelActorDemand::NoteSelected(Actor& actor, uint64_t mesh, uint64_t material, uint32_t frame)
@@ -51,10 +53,24 @@ void NRIVoxelActorDemand::TrimHistory(std::unordered_map<uint64_t, Warm>& histor
     for (size_t i = 0; i < remove; ++i) history.erase(oldest[i].second);
 }
 
-void NRIVoxelActorDemand::Refresh(uint64_t nextGeneration, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs)
+void NRIVoxelActorDemand::Refresh(uint64_t nextGeneration, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs, bool nextCaptureUpgrades)
 {
     if (generation != nextGeneration) { Reset(); generation = nextGeneration; }
     valid = true;
+    captureUpgrades = nextCaptureUpgrades;
+    if (captureUpgrades)
+    {
+        uint64_t signature = inputs.size();
+        const auto mix = [](uint64_t a, uint64_t b) { return (a ^ b) * UINT64_C(1099511628211); };
+        for (const auto& input : inputs)
+        {
+            uint64_t row = mix(input.identity, input.world);
+            row = mix(row, input.lifetime); row = mix(row, input.mesh); row = mix(row, input.material);
+            row = mix(row, input.selectedMesh); row = mix(row, input.selectedMaterial);
+            signature ^= mix(row, uint64_t(input.visible) | (uint64_t(input.representation) << 1));
+        }
+        if (signature != upgradeSignature) { upgradeSignature = signature; ++upgradeRevision; }
+    }
     for (const auto& input : inputs)
     {
         if (!input.identity || !input.world || !input.pair) continue;
@@ -89,12 +105,24 @@ void NRIVoxelActorDemand::ObserveRepresentation(uint64_t identity, uint64_t worl
 
 void NRIVoxelActorDemand::RebuildPairs(uint32_t frame)
 {
-    pairs.clear(); snapshot = {}; snapshot.authorityAvailable = valid;
+    pairs.clear(); upgrades.clear(); refreshedFrame = frame;
+    snapshot = {}; snapshot.authorityAvailable = valid;
     for (const auto& entry : actors)
     {
         const Actor& actor = entry.second;
         const auto representation = actor.input.representation;
         const uint32_t age = Age(frame, actor.exactMissingSince);
+        if (captureUpgrades && actor.input.visible && representation != NRIVoxelActorRepresentation::Exact)
+        {
+            auto& upgrade = upgrades[actor.input.mesh];
+            if (!upgrade.consumers || age > upgrade.oldestWait ||
+                (age == upgrade.oldestWait && actor.input.identity < upgrade.identity))
+            {
+                upgrade.identity = actor.input.identity; upgrade.world = actor.input.world;
+                upgrade.lifetime = actor.input.lifetime; upgrade.oldestWait = age;
+            }
+            ++upgrade.consumers;
+        }
         auto& demand = pairs[actor.input.pair];
         demand.consumers++;
         demand.visibleConsumers += actor.input.visible;
@@ -131,6 +159,13 @@ NRIVoxelPairDemand NRIVoxelActorDemand::Pair(uint64_t key) const
     if (!valid) return {};
     const auto found = pairs.find(key);
     return found != pairs.end() ? found->second : NRIVoxelPairDemand{};
+}
+
+NRIVoxelMeshUpgradeDemand NRIVoxelActorDemand::Upgrade(uint64_t mesh, uint32_t frame) const
+{
+    if (!valid || frame != refreshedFrame) return {};
+    const auto found = upgrades.find(mesh);
+    return found == upgrades.end() ? NRIVoxelMeshUpgradeDemand{} : found->second;
 }
 
 NRIVoxelActorDemandState NRIVoxelActorDemand::GetActor(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame) const

@@ -37,17 +37,25 @@ struct NRIVoxelActorDemandState
     uint32_t exactMissingAge = 0;
 };
 
+struct NRIVoxelMeshUpgradeDemand
+{
+    uint64_t identity = 0, world = 0, lifetime = 0;
+    uint32_t consumers = 0, oldestWait = 0;
+};
+
 // CPU policy only. No source pointers, GPU resources or ownership pins.
 class NRIVoxelActorDemand
 {
 public:
     void Reset();
-    void Refresh(uint64_t generation, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs);
+    void Refresh(uint64_t generation, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs, bool captureUpgrades = false);
     void InvalidateAuthority() { valid = false; snapshot.authorityAvailable = false; }
     void ObserveRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,
         NRIVoxelActorRepresentation representation, uint64_t selectedMesh, uint64_t selectedMaterial, uint32_t frame);
     bool CanHold(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame, uint32_t maximumFrames) const;
     NRIVoxelPairDemand Pair(uint64_t key) const;
+    NRIVoxelMeshUpgradeDemand Upgrade(uint64_t mesh, uint32_t frame) const;
+    uint64_t UpgradeRevision() const { return upgradeRevision; }
     NRIVoxelActorDemandState GetActor(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame) const;
     uint32_t WarmMeshRank(uint64_t key, uint32_t frame) const;
     uint32_t WarmMaterialRank(uint64_t key, uint32_t frame) const;
@@ -72,6 +80,10 @@ private:
     bool valid = false;
     std::unordered_map<uint64_t, Actor> actors;
     std::unordered_map<uint64_t, NRIVoxelPairDemand> pairs;
+    std::unordered_map<uint64_t, NRIVoxelMeshUpgradeDemand> upgrades;
+    uint32_t refreshedFrame = UINT32_MAX;
+    bool captureUpgrades = false;
+    uint64_t upgradeRevision = 0, upgradeSignature = 0;
     std::unordered_map<uint64_t, Warm> meshes, materials;
     NRIVoxelActorDemandSnapshot snapshot;
 };

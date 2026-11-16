@@ -4769,7 +4769,11 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		resetServices);
 	NRIVoxelAdmissionDiagnosticScope diagnostic(*this, frameIndex, phase);
 	const auto actorPolicy = GetNRIVoxelAdmissionPolicySettings();
-	if (!loadingPhase) RefreshActorDemand(frameIndex, settings, resetServices);
+	if (!loadingPhase)
+	{
+		RefreshActorDemand(frameIndex, settings, resetServices);
+		ProcessAdmissionReclaim(frameIndex, settings, resetServices);
+	}
 	if (loadingPhase)
 	{
 		MarkMaintenanceMutation();
@@ -5760,6 +5764,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		return false;
 	};
 	if ((bool)nri_ptvoxelallocationbudget && retryTick < entry.allocationRetryTick &&
+        (!(bool)nri_ptvoxeladmissionreclaim || !admissionReclaim.RetryAllowed(BuildPersistentVoxelVariantMeshResourceKey(entry.variant))) &&
 		!entry.directComputeRequested && !entry.uploadPrepared && !existingMeshResourceReady())
 	{
 		entry.state = PersistentVoxelAdmissionState::Deferred;
@@ -10034,6 +10039,8 @@ void NRIPersistentVoxelResidency::Reset(
 	}
 	actorDemand.Reset();
 	warmRetentionPressure = {};
+	admissionReclaim.Reset();
+	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
 	allocationBudgetCeiling = {};
@@ -10113,6 +10120,8 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 {
 	actorDemand.Reset();
 	warmRetentionPressure = {};
+	admissionReclaim.Reset();
+	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
 	allocationBudgetCeiling = {};

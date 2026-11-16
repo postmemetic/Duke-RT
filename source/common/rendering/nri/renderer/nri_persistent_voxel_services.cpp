@@ -1109,6 +1109,11 @@ public:
 			return stage != NRIRenderer::PersistentVoxelBlasCompactionState::Stage::QueryPending &&
 				stage != NRIRenderer::PersistentVoxelBlasCompactionState::Stage::CopyPending;
 		};
+        services.allocationBudget = [](void* user, uint64_t& usage, uint64_t& budget)
+        {
+            const auto sample = static_cast<NRIRenderer*>(user)->GetPersistentVoxelBudgetSnapshot(true);
+            usage = sample.usageBytes; budget = sample.budgetBytes;
+        };
 		services.retireMaterialRange = [](void* user, NRIPersistentVoxelMaterialRangeHandle range)
 		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelMaterialRange(range); };
 		return services;
