@@ -11,6 +11,7 @@
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_allocation.h"
+#include "nri_persistent_voxel_allocation_policy.h"
 #include "nri_voxel_compute_allocation_policy.h"
 #include "nri_persistent_voxel_retention_policy.h"
 #include "nri_persistent_voxel_cache_diagnostics.h"
@@ -1363,6 +1364,8 @@ public:
 	NRIVoxelAdmissionScheduler admissionScheduler = NRIVoxelAdmissionScheduler(NRIVoxelAdmissionLimits{});
 	NRIPersistentVoxelSharedBlasCache sharedBlasCache;
 	uint32_t arenaVertexCursor = 0;
+	NRIPersistentVoxelGrowthRetry allocationGrowthRetry;
+	NRIPersistentVoxelAllocationRetry allocationMeshRetry;
 	uint64_t schedulerRetirementEpoch = 1;
 	std::vector<NRIPersistentVoxelSchedulerRetirement> quarantinedSchedulerReservations;
 	NRIPersistentVoxelGeometryRanges geometryRanges;

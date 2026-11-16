@@ -2,6 +2,7 @@
 #define RAZE_NRI_TRANSLUCENT_EFFECTS_HLSLI
 
 #include "Shared.hlsli"
+#include "ActorSpriteWorkloads.hlsli"
 
 // Effect sprites share the live scene's geometry/material uploads, but do not
 // own opaque depth, lighting or denoiser guides. Keep their premultiplied
@@ -72,7 +73,7 @@ float4 ResolveTranslucentEffects(uint2 pixelPos)
 			const uint primitiveIndex = instance.primitiveBase + query.CandidatePrimitiveIndex();
 			if (primitiveIndex >= gTraceConstants.DynamicPrimitiveCount) continue;
 			const PrimitiveData primitive = gDynamicPrimitives[primitiveIndex];
-			if ((primitive.flags & PRIMITIVE_FLAG_REFLECTION_ONLY) != 0u) continue;
+			if (RejectScenePrimitiveWorkload(primitive.flags, NRI_TLAS_MASK_MAIN, false)) continue;
 			const uint materialIndex = instance.materialBase + primitive.materialIndex;
 			if (materialIndex >= gTraceConstants.DynamicMaterialCount) continue;
 			const MaterialData material = gDynamicMaterials[materialIndex];

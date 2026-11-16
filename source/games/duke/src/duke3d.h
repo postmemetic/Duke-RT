@@ -112,6 +112,7 @@ bool CallOnUse(DDukeActor* actor, DDukePlayer* user);
 void CallOnMotoSmash(DDukeActor* actor, DDukePlayer* hitter);
 void CallOnRespawn(DDukeActor* actor, int low);
 bool CallAnimate(DDukeActor* actor, tspritetype* hitter);
+void CheckActorSpriteRecipeParity(DDukeActor* actor, const tspritetype& before, const tspritetype& actual, bool handled);
 bool CallShootThis(DDukeActor* clsdef, DDukeActor* actor, int pn, const DVector3& spos, DAngle sang);
 void CallStaticSetup(DDukeActor* actor);
 void CallPlayFTASound(DDukeActor* actor, int mode = 0);

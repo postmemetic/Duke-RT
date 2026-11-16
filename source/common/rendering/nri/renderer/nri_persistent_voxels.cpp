@@ -5765,9 +5765,11 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		entry.state = PersistentVoxelAdmissionState::Deferred;
 		entry.lastReason = result == NRIPersistentVoxelAllocationResult::AllocationFailed ?
 			"allocation-device-retry" : (result == NRIPersistentVoxelAllocationResult::DeferredSource ?
-			"allocation-source-pending" : "allocation-budget-deferred");
+			"allocation-source-pending" : (result == NRIPersistentVoxelAllocationResult::DeferredCooldown ?
+			"allocation-mesh-cooldown" : "allocation-budget-deferred"));
 		const uint32_t retryDelay = result == NRIPersistentVoxelAllocationResult::DeferredSource ? 1u : 30u;
-		entry.allocationRetryFrame = frameIndex <= UINT32_MAX - retryDelay ? frameIndex + retryDelay : UINT32_MAX;
+		entry.allocationRetryFrame = result == NRIPersistentVoxelAllocationResult::DeferredCooldown ? mesh.allocationRetryFrame :
+			(frameIndex <= UINT32_MAX - retryDelay ? frameIndex + retryDelay : UINT32_MAX);
 		outInProgress = true;
 		return true;
 	};
@@ -6786,6 +6788,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			!AllocateGeometryRange(meshResource, (uint32_t)entry.uploadGeometry.vertices.size(),
 				(uint32_t)entry.uploadGeometry.indices.size(), (uint32_t)entry.uploadGeometry.primitives.size(), previousRange))
 			return rollbackAdmission("geometry-range-allocation-failed", "reserve");
+		meshResource.resourceKey = meshResourceKey;
 		const auto allocation = services.PrepareGeometryAllocation(meshResource, nullptr,
 			(uint32_t)entry.uploadGeometry.vertices.size(), (uint32_t)entry.uploadGeometry.indices.size(),
 			(uint32_t)entry.uploadGeometry.primitives.size(), true);
@@ -8300,13 +8303,15 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		const bool actorGeometryChanged = sharedArenaChanged;
 		if (actorGeometryChanged)
 		{
+			meshResource.resourceKey = meshResourceKey;
 			const auto allocation = batchServices.PrepareGeometryAllocation(meshResource, nullptr,
 				(uint32_t)actorGeometry.vertices.size(), (uint32_t)actorGeometry.indices.size(),
 				(uint32_t)actorGeometry.primitives.size(), true);
 			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 			{
 				RollbackUnsubmittedGeometryRange(meshResource, oldRange);
-				meshResource.allocationRetryFrame = frameIndex <= UINT32_MAX - 30u ? frameIndex + 30u : UINT32_MAX;
+				if (allocation != NRIPersistentVoxelAllocationResult::DeferredCooldown)
+					meshResource.allocationRetryFrame = frameIndex <= UINT32_MAX - 30u ? frameIndex + 30u : UINT32_MAX;
 				if (existingActor) existingActor->active = false;
 				if (outDeferredReason) *outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
 				NoteCacheActorDeferred(cacheEntry.identityKey, "allocation-budget-deferred");
@@ -9945,8 +9950,6 @@ void NRIPersistentVoxelResidency::Reset(
 	bool traceReset,
 	const NRIPersistentVoxelResetServices& services)
 {
-	actorDemand.Reset();
-	warmRetentionPressure = {};
 	spriteFallbackActors.clear();
 	spriteFallbackFrame = UINT32_MAX;
 	spriteFallbackReadyActors.clear();
@@ -10013,9 +10016,16 @@ void NRIPersistentVoxelResidency::Reset(
 	services.InvalidateSceneDataDescriptors();
 	if (!clearSharedResources)
 	{
+		// Empty instance batches do not end the map or its reuse history.
+		// The next runtime pump refreshes authoritative actor demand before
+		// admission/retention, pruning absent consumers but retaining warm use.
 		sharedBlasCache.BeginFrame();
 		return;
 	}
+	actorDemand.Reset();
+	warmRetentionPressure = {};
+	allocationGrowthRetry = {};
+	allocationMeshRetry = {};
 	if (cacheDiagnosticState && PerfAuditActive())
 		PerfAuditWriteEvent("voxel_cache_diagnostic_reset", PerfAuditCurrentToken(), "\"reason\":\"full-shared-resource-reset\"");
 	cacheDiagnosticState.reset();
@@ -10091,6 +10101,8 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 {
 	actorDemand.Reset();
 	warmRetentionPressure = {};
+	allocationGrowthRetry = {};
+	allocationMeshRetry = {};
 	spriteFallbackActors.clear();
 	spriteFallbackFrame = UINT32_MAX;
 	spriteFallbackReadyActors.clear();

@@ -152,7 +152,7 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			const auto visibility = ResolveNRIPersistentVoxelInstanceVisibility(candidate.indirectOnly, candidate.actorIndex, visibilityContext);
 			mSelected.emplace(candidate.actorIndex, SelectedSprite{
 				ResolveNRIPersistentVoxelOwnerChunk(candidate.physicalSectorIndex, visibilityContext),
-				(visibility.metadataFlags & SceneInstanceMetadataFlag_IndirectOnly) != 0});
+				(visibility.metadataFlags & SceneInstanceMetadataFlag_IndirectOnly) != 0, candidate.primaryHidden});
 			voxels.spriteFallbackActors.insert(candidate.identityKey);
 			voxels.NotifyActorRepresentation(candidate.identityKey, candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration,
 				NRIVoxelActorRepresentation::SpriteFallback, 0, 0, frameIndex);
@@ -172,11 +172,12 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == candidate.actorIndex))
 		{
 			char fields[768];
-			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"placement\":%llu,\"selection\":\"%s\",\"descriptor_current\":%s,\"captured\":%s,\"voxel_ready\":%s",
+			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"placement\":%llu,\"selection\":\"%s\",\"descriptor_current\":%s,\"captured\":%s,\"voxel_ready\":%s,\"sprite_primary_hidden\":%s",
 				frameIndex, candidate.actorIndex, (unsigned long long)candidate.identityKey,
 				(unsigned long long)candidate.ownerWorldEpoch, (unsigned long long)candidate.ownerLifetimeGeneration,
 				(unsigned long long)candidate.placementGeneration, selection,
-				candidate.descriptorCurrent ? "true" : "false", candidate.capturedThisFrame ? "true" : "false", ready ? "true" : "false");
+				candidate.descriptorCurrent ? "true" : "false", candidate.capturedThisFrame ? "true" : "false", ready ? "true" : "false",
+				candidate.primaryHidden ? "true" : "false");
 			PerfAuditWriteEvent("actor_representation", PerfAuditCurrentToken(), fields);
 			++traced;
 		}
@@ -198,7 +199,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 	const std::vector<std::pair<uint32_t, uint32_t>>& publishedRanges, bool ready) const
 {
 	if (mFrameIndex != frameIndex || !(bool)nri_ptactorspritefallback || !PerfAuditCurrentToken()) return;
-	std::unordered_map<int32_t, uint32_t> carrierPrimitives, materialPrimitives;
+	std::unordered_map<int32_t, uint32_t> carrierPrimitives, materialPrimitives, primaryHiddenPrimitives, indirectPrimitives;
 	for (const auto& range : publishedRanges)
 	{
 		for (uint64_t index = range.first; index < uint64_t(range.first) + range.second && index < geometry.primitives.size(); ++index)
@@ -208,6 +209,9 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 			if ((primitive.flags & nri_scene::PrimitiveFlag_ActorSpriteFallback) == 0) continue;
 			const auto actorIndex = geometry.primitiveProvenance[index].actorIndex;
 			++carrierPrimitives[actorIndex];
+			if ((primitive.flags & nri_scene::PrimitiveFlag_ActorSpritePrimaryHidden) != 0) ++primaryHiddenPrimitives[actorIndex];
+			if ((bool)nri_ptactorrepresentationtrace && (primitive.flags & nri_scene::PrimitiveFlag_ReflectionOnly) != 0)
+				++indirectPrimitives[actorIndex];
 			if (primitive.materialIndex < materials.size() && materials[primitive.materialIndex].alpha > 1.0f / 255.0f)
 				++materialPrimitives[actorIndex];
 		}
@@ -231,12 +235,12 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == row.actorIndex))
 		{
 			char fields[1024];
-			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"selection\":\"%s\",\"desired_mesh\":%llu,\"desired_material\":%llu,\"selected_mesh\":%llu,\"selected_material\":%llu,\"exact_wait_frames\":%u,\"scene_ready\":%s,\"voxel_in_tlas\":%s,\"sprite_primitives\":%u,\"sprite_material_primitives\":%u,\"sprite_in_tlas\":%s",
+			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"selection\":\"%s\",\"desired_mesh\":%llu,\"desired_material\":%llu,\"selected_mesh\":%llu,\"selected_material\":%llu,\"exact_wait_frames\":%u,\"scene_ready\":%s,\"voxel_in_tlas\":%s,\"sprite_primitives\":%u,\"sprite_material_primitives\":%u,\"sprite_in_tlas\":%s,\"sprite_primary_hidden_primitives\":%u,\"sprite_indirect_primitives\":%u",
 				frameIndex, row.actorIndex, (unsigned long long)row.identity, (unsigned long long)row.world,
 				(unsigned long long)row.lifetime, row.selection, (unsigned long long)row.desiredMesh,
 				(unsigned long long)row.desiredMaterial, (unsigned long long)row.selectedMesh,
 				(unsigned long long)row.selectedMaterial, row.waitFrames, ready ? "true" : "false",
-				voxelPublished ? "true" : "false", carrierPrimitives[row.actorIndex], materialPrimitives[row.actorIndex], spritePublished ? "true" : "false");
+				voxelPublished ? "true" : "false", carrierPrimitives[row.actorIndex], materialPrimitives[row.actorIndex], spritePublished ? "true" : "false", primaryHiddenPrimitives[row.actorIndex], indirectPrimitives[row.actorIndex]);
 			PerfAuditWriteEvent("actor_representation_assembly", PerfAuditCurrentToken(), fields);
 			++traced;
 		}
@@ -266,6 +270,7 @@ void NRIActorRepresentations::FinishGeometry()
 		auto& primitive = mGeometry.primitives[index];
 		primitive.flags |= nri_scene::PrimitiveFlag_ActorSpriteFallback;
 		if (found->second.indirectOnly) primitive.flags |= nri_scene::PrimitiveFlag_ReflectionOnly;
+		if (found->second.primaryHidden) primitive.flags |= nri_scene::PrimitiveFlag_ActorSpritePrimaryHidden;
 		primitive.reserved0 = found->second.ownerChunk;
 		if (materialIndices.insert(primitive.materialIndex).second) mPriorityMaterials.push_back(primitive.materialIndex);
 		mStats.primitiveBytes += sizeof(nri_scene::PrimitiveData);

@@ -47,7 +47,7 @@ public:
 	const std::vector<uint32_t>& PriorityMaterials() const { return mPriorityMaterials; }
 	bool HasIndirectSprites(uint32_t frameIndex) const;
 private:
-	struct SelectedSprite { uint32_t ownerChunk = UINT32_MAX; bool indirectOnly = false; };
+	struct SelectedSprite { uint32_t ownerChunk = UINT32_MAX; bool indirectOnly = false; bool primaryHidden = false; };
 	struct Decision
 	{
 		uint64_t identity = 0, world = 0, lifetime = 0, desiredMesh = 0, desiredMaterial = 0;

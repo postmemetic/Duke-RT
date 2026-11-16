@@ -357,7 +357,8 @@ public:
 	void CreateVertices(HWDrawInfo* di);
 	void PutSprite(HWDrawInfo *di, bool translucent);
 	void Process(HWDrawInfo *di, tspritetype* thing,sectortype * sector, int thruportal = false);
-	bool PrepareFacingSprite(HWDrawInfo* di, tspritetype* thing, sectortype* sector, const float* actorAlpha = nullptr);
+	bool PrepareFacingSprite(HWDrawInfo* di, tspritetype* thing, sectortype* sector, const float* actorAlpha = nullptr,
+		bool allowViewOverlap = false, bool* primaryHidden = nullptr);
 	bool PrepareVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate);
 	bool ProcessVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate);
 

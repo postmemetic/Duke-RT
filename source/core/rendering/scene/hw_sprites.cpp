@@ -321,8 +321,10 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 	if (PrepareFacingSprite(di, spr, sector)) PutSprite(di, true);
 }
 
-bool HWSprite::PrepareFacingSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector, const float* actorAlpha)
+bool HWSprite::PrepareFacingSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sector, const float* actorAlpha,
+	bool allowViewOverlap, bool* primaryHidden)
 {
+	if (primaryHidden != nullptr) *primaryHidden = false;
 	if (spr == nullptr || di == nullptr || sector == nullptr)
 		return false;
 
@@ -347,7 +349,11 @@ bool HWSprite::PrepareFacingSprite(HWDrawInfo* di, tspritetype* spr, sectortype*
 	auto vp = di->Viewpoint;
 
 	const bool mirrorPlayerCaptureOverride = gi != nullptr && gi->GetMirrorPlayerVisibilityCaptureOverride();
-	if (!mirrorPlayerCaptureOverride && (vp.Pos.XY() - DVector2(x, y)).LengthSquared() < 0.125) return false;
+	const bool overlapsPrimaryView = !mirrorPlayerCaptureOverride && (vp.Pos.XY() - DVector2(x, y)).LengthSquared() < 0.125;
+	if (primaryHidden != nullptr) *primaryHidden = overlapsPrimaryView;
+	// Retained ray geometry must survive a primary-camera-only rejection so
+	// that reflections, GI and shadows still have the actor's body.
+	if (overlapsPrimaryView && !allowViewOverlap) return false;
 
 	if (modelframe == 0)
 	{

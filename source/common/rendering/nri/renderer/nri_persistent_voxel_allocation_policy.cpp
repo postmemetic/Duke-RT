@@ -60,3 +60,58 @@ uint64_t GetNRIPersistentVoxelStartupTarget(uint64_t plannedBytes,
     const uint64_t target = plannedBytes / 100 * percent + plannedBytes % 100 * percent / 100;
     return maximumBytes ? std::min(target, maximumBytes) : target;
 }
+
+uint32_t NRIPersistentVoxelGrowthRetry::SelectPercent(uint32_t configuredPercent) const
+{
+    return minimumAfterPostDenial ? 100u : std::clamp(configuredPercent, 100u, 200u);
+}
+
+void NRIPersistentVoxelGrowthRetry::ObservePostDenial(uint32_t attemptedPercent,
+    uint64_t oldArenaBytes, uint64_t newArenaBytes)
+{
+    if (attemptedPercent > 100 && oldArenaBytes != 0 && newArenaBytes > oldArenaBytes)
+        minimumAfterPostDenial = true;
+}
+
+void NRIPersistentVoxelAllocationRetry::BeginFrame(uint64_t mapEpoch, uint32_t frame)
+{
+    if (epoch != mapEpoch || frame < lastFrame)
+    {
+        entries.clear();
+        epoch = mapEpoch;
+    }
+    if (frame == lastFrame) return;
+    lastFrame = frame;
+    for (auto it = entries.begin(); it != entries.end();)
+    {
+        if (frame - it->second.frame >= 30) it = entries.erase(it);
+        else ++it;
+    }
+}
+
+uint32_t NRIPersistentVoxelAllocationRetry::Remaining(
+    uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes)
+{
+    BeginFrame(mapEpoch, frame);
+    if (!allocationBytes) return 0;
+    const auto it = entries.find(meshKey);
+    if (it == entries.end() || allocationBytes < it->second.allocationBytes) return 0;
+    return 30 - (frame - it->second.frame);
+}
+
+void NRIPersistentVoxelAllocationRetry::ObserveDenial(
+    uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes)
+{
+    BeginFrame(mapEpoch, frame);
+    if (allocationBytes) entries[meshKey] = { frame, allocationBytes };
+}
+
+void NRIPersistentVoxelAllocationRetry::ObserveSuccess(
+    uint64_t mapEpoch, uint32_t frame, uint64_t meshKey, uint64_t allocationBytes)
+{
+    BeginFrame(mapEpoch, frame);
+    const auto it = entries.find(meshKey);
+    // An AS-only success can fit an existing range without proving that the
+    // previously rejected whole-arena replacement now fits. Keep its deadline.
+    if (it != entries.end() && allocationBytes >= it->second.allocationBytes) entries.erase(it);
+}

@@ -17,10 +17,22 @@ bool RejectIndirectActorSpriteWorkload(uint primitiveFlags, uint traceMask)
 		(traceMask & (NRI_TLAS_MASK_REFLECTION | NRI_TLAS_MASK_GI)) == 0u;
 }
 
-bool RejectReflectionOnlyWorkload(uint primitiveFlags, uint traceMask, bool allowReflectionOnlySurfaces)
+bool RejectActorSpriteWorkload(uint primitiveFlags, uint traceMask)
 {
-	if (IsIndirectActorSprite(primitiveFlags))
-		return RejectIndirectActorSpriteWorkload(primitiveFlags, traceMask);
+	if (RejectIndirectActorSpriteWorkload(primitiveFlags, traceMask)) return true;
+	const uint required = PRIMITIVE_FLAG_ACTOR_SPRITE_FALLBACK | PRIMITIVE_FLAG_ACTOR_SPRITE_PRIMARY_HIDDEN;
+	const uint secondaryWorkloads = NRI_TLAS_MASK_SHADOW | NRI_TLAS_MASK_REFLECTION | NRI_TLAS_MASK_GI |
+		NRI_TLAS_MASK_EMISSIVE | NRI_TLAS_MASK_DEBUG;
+	// A workload union is admitted if any of its non-primary rays can see the
+	// body. This flag never removes shadow, reflection, GI or debug visibility.
+	return (primitiveFlags & required) == required && (traceMask & NRI_TLAS_MASK_MAIN) != 0u &&
+		(traceMask & secondaryWorkloads) == 0u;
+}
+
+bool RejectScenePrimitiveWorkload(uint primitiveFlags, uint traceMask, bool allowReflectionOnlySurfaces)
+{
+	if (RejectActorSpriteWorkload(primitiveFlags, traceMask)) return true;
+	if (IsIndirectActorSprite(primitiveFlags)) return false;
 	return (primitiveFlags & PRIMITIVE_FLAG_REFLECTION_ONLY) != 0u && !allowReflectionOnlySurfaces;
 }
 

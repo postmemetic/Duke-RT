@@ -10,9 +10,14 @@
 #include "gametexture.h"
 #include "buildtiles.h"
 #include "c_dispatch.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 #include <utility>
+#include <cstdio>
+
+EXTERN_CVAR(Bool, nri_ptactorrepresentationtrace)
+EXTERN_CVAR(Int, nri_ptactorrepresentationactor)
 
 namespace nri_scene
 {
@@ -29,6 +34,33 @@ namespace
 	std::vector<RetainedSprite> gSprites;
 	std::vector<ActorSpriteFallbackCandidate> gCandidates;
 	uint64_t gFrame = 0;
+	uint32_t gDescriptorTraceCount = 0;
+
+	void TraceDescriptorRejection(const ActorSpriteFallbackCandidate& candidate, const ActorPresentationState& actor,
+		const tspritetype& sprite, const HWDrawInfo& view, const char* reason)
+	{
+		if (!(bool)nri_ptactorrepresentationtrace || !PerfAuditActive() || gDescriptorTraceCount >= 128 ||
+			((int)nri_ptactorrepresentationactor >= 0 && (int)nri_ptactorrepresentationactor != actor.actorIndex)) return;
+		auto placedPosition = sprite.pos;
+		if (actor.renderFlags & SPREXT_AWAY1) placedPosition += sprite.Angles.Yaw.ToVector() * 0.125;
+		else if (actor.renderFlags & SPREXT_AWAY2) placedPosition -= sprite.Angles.Yaw.ToVector() * 0.125;
+		const auto distance = placedPosition.XY() - DVector2(view.Viewpoint.Pos.X, -view.Viewpoint.Pos.Y);
+		char fields[1280];
+		std::snprintf(fields, sizeof(fields), "\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,"
+			"\"capture_frame\":%llu,\"reason\":\"%s\",\"animation_current\":%s,\"recipe_certified\":%s,"
+			"\"texture\":%d,\"authority_texture\":%d,\"recipe_texture\":%d,\"sector\":%d,\"cstat\":%u,"
+			"\"scale\":[%.6f,%.6f],\"pos\":[%.6f,%.6f,%.6f],\"view\":[%.6f,%.6f,%.6f],"
+			"\"view_distance_squared\":%.9f,\"actor_alpha\":%.6f,\"presentation_hidden\":%s,\"primary_hidden\":%s",
+			actor.actorIndex, (unsigned long long)candidate.identityKey, (unsigned long long)actor.owner.ownerWorldEpoch,
+			(unsigned long long)actor.owner.ownerLifetimeGeneration, (unsigned long long)gFrame, reason,
+			candidate.animationCurrent ? "true" : "false", actor.spriteAnimation.recipeCertified ? "true" : "false",
+			sprite.spritetexture().GetIndex(), actor.textureId, actor.spriteAnimation.recipeTextureId, actor.physicalSectorIndex,
+			(unsigned)sprite.cstat, sprite.scale.X, sprite.scale.Y, placedPosition.X, placedPosition.Y, placedPosition.Z,
+			(double)view.Viewpoint.Pos.X, (double)-view.Viewpoint.Pos.Y, (double)-view.Viewpoint.Pos.Z,
+			distance.LengthSquared(), (double)actor.alpha, candidate.presentationHidden ? "true" : "false", candidate.primaryHidden ? "true" : "false");
+		PerfAuditWriteEvent("actor_sprite_descriptor", PerfAuditCurrentToken(), fields);
+		++gDescriptorTraceCount;
+	}
 
 	bool Eligible(const ActorPresentationState* actor)
 	{
@@ -48,10 +80,14 @@ namespace
 	}
 
 	bool BuildSurface(HWDrawInfo& view, tspritetype sprite, const ActorPresentationState& actor,
-		bool luminous, uint32_t drawListType, SurfaceRef& surface)
+		bool luminous, uint32_t drawListType, SurfaceRef& surface, const char** rejection = nullptr, bool* primaryHidden = nullptr)
 	{
-		if (sprite.scale.X == 0 || sprite.scale.Y == 0 || !sprite.spritetexture().isValid() ||
-			(sprite.cstat & CSTAT_SPRITE_INVISIBLE) != 0 || sprite.sectp == nullptr) return false;
+		if (primaryHidden != nullptr) *primaryHidden = false;
+		const auto reject = [&](const char* reason) { if (rejection != nullptr) *rejection = reason; return false; };
+		if (sprite.scale.X == 0 || sprite.scale.Y == 0) return reject("zero-scale");
+		if (!sprite.spritetexture().isValid()) return reject("invalid-texture-id");
+		if ((sprite.cstat & CSTAT_SPRITE_INVISIBLE) != 0) return reject("invisible");
+		if (sprite.sectp == nullptr) return reject("missing-sector");
 		if (actor.renderFlags & SPREXT_AWAY1) sprite.pos += sprite.Angles.Yaw.ToVector() * 0.125;
 		else if (actor.renderFlags & SPREXT_AWAY2) sprite.pos -= sprite.Angles.Yaw.ToVector() * 0.125;
 		FGameTexture* texture = nullptr;
@@ -67,7 +103,7 @@ namespace
 			HWWall wall = {};
 			// Retained geometry is shared by all ray workloads. One-way behavior
 			// belongs to the material, not a primary-camera capture rejection.
-			if (!wall.PrepareWallSprite(nullptr, &sprite, sprite.sectp, &actor.alpha)) return false;
+			if (!wall.PrepareWallSprite(nullptr, &sprite, sprite.sectp, &actor.alpha)) return reject("wall-prepare");
 			texture = wall.texture;
 			alpha = wall.alpha;
 			style = wall.RenderStyle;
@@ -85,7 +121,12 @@ namespace
 		else if ((sprite.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FACING)
 		{
 			HWSprite facing = {};
-			if (!facing.PrepareFacingSprite(&view, &sprite, sprite.sectp, &actor.alpha)) return false;
+			if (!facing.PrepareFacingSprite(&view, &sprite, sprite.sectp, &actor.alpha, true, primaryHidden))
+			{
+				const auto* art = TexMan.GetGameTexture(sprite.spritetexture());
+				if (art == nullptr || !art->isValid()) return reject("invalid-art");
+				return reject("facing-prepare");
+			}
 			texture = facing.texture;
 			alpha = facing.alpha;
 			style = facing.RenderStyle;
@@ -95,10 +136,12 @@ namespace
 			surface.vertices.push_back(BuildCapturedVertex(facing.x1, facing.z2, facing.y1, facing.ul, facing.vb));
 			surface.vertices.push_back(BuildCapturedVertex(facing.x2, facing.z2, facing.y2, facing.ur, facing.vb));
 		}
-		else return false;
+		else return reject("unsupported-alignment");
 		const bool supportedBlend = style.BlendOp == STYLEOP_Add && style.SrcAlpha == STYLEALPHA_Src &&
 			style.DestAlpha == STYLEALPHA_InvSrc && style.Flags == 0;
-		if (!supportedBlend || alpha <= (1.0f / 255.0f) || sprite.statnum == 99) return false;
+		if (!supportedBlend) return reject("unsupported-blend");
+		if (alpha <= (1.0f / 255.0f)) return reject("transparent");
+		if (sprite.statnum == 99) return reject("temporary-shadow");
 		if (alpha < 0.999f && (luminous || shade <= -127)) flags |= MaterialFlag_TranslucentEffect;
 		surface.material = MakeMaterialRef(texture, palette, shade, alpha, flags);
 		surface.provenance.sourceType = SurfaceSourceType::FacingSprite;
@@ -125,6 +168,7 @@ void BeginActorSpriteFallbackFrame(uint64_t frame)
 		return;
 	}
 	gFrame = frame;
+	gDescriptorTraceCount = 0;
 	gSprites.erase(std::remove_if(gSprites.begin(), gSprites.end(), [](const RetainedSprite& retained)
 	{
 		const auto* actor = LookupActorPresentationByOwnerKey(retained.authority.owner);
@@ -136,6 +180,7 @@ void BeginActorSpriteFallbackFrame(uint64_t frame)
 		retained.candidate.descriptorCurrent = false;
 		retained.candidate.animationCurrent = false;
 		retained.candidate.presentationHidden = false;
+		retained.candidate.primaryHidden = false;
 		retained.candidate.transientGeometryCaptured = false;
 	}
 }
@@ -149,6 +194,10 @@ bool CaptureActorSpriteFallbackCandidate(HWDrawInfo& di, const HWSprite& source,
 	if (!Eligible(actor)) return false;
 	RetainedSprite next;
 	next.authority = *actor;
+	// The optional snapshot recipe can be absent on the first enabled frame.
+	// Capture read-only metadata for offset normalization, never replay Animate.
+	if (!next.authority.spriteAnimation.available && gi != nullptr)
+		gi->CaptureActorSpriteAnimation(*source.Sprite->ownerActor, next.authority.spriteAnimation);
 	next.sprite = *source.Sprite;
 	next.sprite.ApplySpriteFallbackFrame();
 	next.luminous = source.Sprite->ownerActor->spr.shade <= -127;
@@ -162,7 +211,13 @@ bool CaptureActorSpriteFallbackCandidate(HWDrawInfo& di, const HWSprite& source,
 	next.candidate.animationCurrent = true;
 	next.candidate.indirectOnly = indirectOnly;
 	next.candidate.transientVoxel = transientVoxel;
-	if (!BuildSurface(di, next.sprite, *actor, next.luminous, drawListType, next.candidate.surface)) return false;
+	const char* rejection = "capture-prepare";
+	if (!BuildSurface(di, next.sprite, *actor, next.luminous, drawListType, next.candidate.surface, &rejection, &next.candidate.primaryHidden))
+	{
+		TraceDescriptorRejection(next.candidate, *actor, next.sprite, di, rejection);
+		return false;
+	}
+	if (next.candidate.primaryHidden) TraceDescriptorRejection(next.candidate, *actor, next.sprite, di, "primary-view-overlap-retained");
 	auto found = std::find_if(gSprites.begin(), gSprites.end(), [identityKey](const RetainedSprite& item)
 		{ return item.candidate.identityKey == identityKey; });
 	if (found == gSprites.end()) gSprites.push_back(std::move(next));
@@ -207,6 +262,10 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 		// Preserve game-authored presentation offsets while applying live placement.
 		sprite.pos += DVector3(actor->position.x - before.position.x,
 			actor->position.y - before.position.y, actor->position.z - before.position.z);
+		// The captured template already contains its scripted constant offset.
+		// Remove it before the pure current recipe applies the new offset once.
+		if (before.spriteAnimation.recipeCertified && actor->spriteAnimation.recipeCertified)
+			sprite.pos.Z -= before.spriteAnimation.recipeZOffset;
 		sprite.Angles.Yaw += DAngle::fromDeg(actor->angles.yawDegrees - before.angles.yawDegrees);
 		if (before.scale.x != 0) sprite.scale.X *= actor->scale.x / before.scale.x;
 		if (before.scale.y != 0) sprite.scale.Y *= actor->scale.y / before.scale.y;
@@ -233,11 +292,16 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 		candidate.animationCurrent = gi != nullptr && gi->ResolveActorSpriteFallbackFrame(*actor, sprite,
 			DVector2(view.Viewpoint.Pos.X, -view.Viewpoint.Pos.Y), DAngle::fromBam(view.Viewpoint.RotAngle));
 		// Unknown script-only animation is not certified beyond its captured tick.
-		if (!candidate.animationCurrent && candidate.simulationGeneration != GetActorPresentationSnapshot().simulationGeneration) continue;
+		if (!candidate.animationCurrent && candidate.simulationGeneration != GetActorPresentationSnapshot().simulationGeneration)
+		{
+			TraceDescriptorRejection(candidate, *actor, sprite, view, "recipe-uncertified");
+			continue;
+		}
 		if (candidate.animationCurrent && (sprite.scale.X == 0 || sprite.scale.Y == 0))
 		{
 			candidate.presentationHidden = true;
 			SetAuthority(candidate, *actor);
+			TraceDescriptorRejection(candidate, *actor, sprite, view, "authored-hidden");
 			continue;
 		}
 		auto texture = sprite.spritetexture();
@@ -245,7 +309,13 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 		sprite.setspritetexture(texture);
 		if (sprite.cstat2 & CSTAT2_SPRITE_FULLBRIGHT) sprite.shade = -127;
 		SurfaceRef surface;
-		if (!BuildSurface(view, sprite, *actor, retained.luminous, candidate.surface.provenance.drawListType, surface)) continue;
+		const char* rejection = "refresh-prepare";
+		if (!BuildSurface(view, sprite, *actor, retained.luminous, candidate.surface.provenance.drawListType, surface, &rejection, &candidate.primaryHidden))
+		{
+			TraceDescriptorRejection(candidate, *actor, sprite, view, rejection);
+			continue;
+		}
+		if (candidate.primaryHidden) TraceDescriptorRejection(candidate, *actor, sprite, view, "primary-view-overlap-retained");
 		candidate.surface = std::move(surface);
 		candidate.descriptorCurrent = true;
 		SetAuthority(candidate, *actor);
@@ -291,6 +361,7 @@ CCMD(nri_actor_sprite_descriptor_selftest)
 	}
 	HWDrawInfo view = {};
 	view.Viewpoint.Pos = DVector3(-512, -512, 0);
+	view.Viewpoint.ViewVector = DVector2(1, 0);
 	// Private unlinked sector: no level mutation, clipping or wall attachment
 	// from the loaded map can change these geometry assertions.
 	sectortype testSector = {};
@@ -349,6 +420,24 @@ CCMD(nri_actor_sprite_descriptor_selftest)
 	{
 		Printf("Actor sprite descriptor self-test: result=fail reason=zero-scale\n"); return;
 	}
-	Printf("Actor sprite descriptor self-test: result=pass cases=6\n");
+	sprite.scale = DVector2(0.5, 0.5);
+	view.Viewpoint.Pos = DVector3(sprite.pos.X, -sprite.pos.Y, 0);
+	HWSprite facing = {};
+	bool primaryHidden = false;
+	if (facing.PrepareFacingSprite(&view, &sprite, sprite.sectp, &actor.alpha, false, &primaryHidden) || !primaryHidden)
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=ordinary-primary-overlap\n"); return;
+	}
+	if (!BuildSurface(view, sprite, actor, true, 0, effect, nullptr, &primaryHidden) || !primaryHidden || effect.vertices.size() != 4 ||
+		effect.vertices[0].position[2] == effect.vertices[1].position[2] || effect.vertices[0].position[1] == effect.vertices[2].position[1])
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=retained-primary-overlap\n"); return;
+	}
+	view.Viewpoint.Pos.X += 1;
+	if (!BuildSurface(view, sprite, actor, true, 0, effect, nullptr, &primaryHidden) || primaryHidden)
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=primary-overlap-cleared\n"); return;
+	}
+	Printf("Actor sprite descriptor self-test: result=pass cases=9\n");
 }
 }

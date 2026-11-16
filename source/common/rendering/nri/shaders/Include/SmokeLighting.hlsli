@@ -131,7 +131,7 @@ bool SmokeAcceptOpaqueCandidate(uint instanceId, uint primitiveIndex, uint trace
 	const SceneInstanceData instance = gSmokeSceneInstances[instanceId];
 	if (instance.dataSource != NRI_SMOKE_SCENE_DATA_SOURCE_DYNAMIC) return true;
 	const PrimitiveData primitive = SmokeGetPrimitive(instance.dataSource, instance.primitiveBase + primitiveIndex);
-	if (RejectIndirectActorSpriteWorkload(primitive.flags, traceMask)) return false;
+	if (RejectActorSpriteWorkload(primitive.flags, traceMask)) return false;
 	const MaterialData material = SmokeGetMaterial(instance.dataSource, SmokeResolveMaterialIndex(instance, primitive));
 	return (material.flags & MATERIAL_FLAG_TRANSLUCENT_EFFECT) == 0u;
 }

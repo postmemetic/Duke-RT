@@ -78,23 +78,30 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     auto& rt = mFrameBuffer->mRayTracing;
     auto& scratch = buildScratch ? *buildScratch : mScratchBuffer;
     auto& arena = mPersistentVoxels;
+    arena.allocationMeshRetry.BeginFrame(mMapWorld.buildSerial, mFrameIndex);
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     uint64_t predictedBytes = 0, actualBytes = 0, oldArenaBytes = 0, newArenaBytes = 0;
-    uint32_t candidatePercent = uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200));
+    uint32_t candidatePercent = arena.allocationGrowthRetry.SelectPercent(
+        uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200)));
+    uint64_t postUsageBytes = 0, postBudgetBytes = 0;
+    uint32_t retryFrames = 0;
     auto budget = GetPersistentVoxelBudgetSnapshot(true);
     NRIPersistentVoxelAllocationBudget peak;
     NRIVoxelComputeProviderForecast provider;
     const auto report = [&](const char* decision, Result result)
     {
+        if (result == Result::AllocationFailed || (result == Result::DeferredBudget && actualBytes != 0))
+            arena.allocationMeshRetry.ObserveDenial(mMapWorld.buildSerial, mFrameIndex, mesh.resourceKey, predictedBytes);
         if (PerfAuditActive())
         {
-            char fields[1024];
+            char fields[1536];
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
                 "\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
                 "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
                 "\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"growth_percent\":%u,"
-                "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,\"cpu_ms\":%.6f",
+                "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,"
+                "\"post_usage_bytes\":%llu,\"post_budget_bytes\":%llu,\"minimum_after_post_denial\":%s,\"shared_retry_frames\":%u,\"cpu_ms\":%.6f",
                 mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision,
                 (unsigned long long)mesh.resourceKey, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
@@ -102,6 +109,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 (unsigned long long)predictedBytes, (unsigned long long)actualBytes,
                 (unsigned long long)peak.projectedBytes, candidatePercent,
                 (unsigned long long)oldArenaBytes, (unsigned long long)newArenaBytes, (unsigned long long)provider.bytes,
+                (unsigned long long)postUsageBytes, (unsigned long long)postBudgetBytes,
+                arena.allocationGrowthRetry.minimumAfterPostDenial ? "true" : "false",
+                retryFrames,
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
             PerfAuditWriteEvent("voxel_allocation_transaction", PerfAuditCurrentToken(), fields);
         }
@@ -203,6 +213,17 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         if (!candidate(candidatePercent)) return report("defer-budget", Result::DeferredBudget);
     }
 
+    // Check after exact requirements so existing allocation-free reuse and a
+    // smaller replacement can proceed. Material pairs share the original
+    // denial deadline instead of each allocating the same mesh independently.
+    retryFrames = arena.allocationMeshRetry.Remaining(mMapWorld.buildSerial,
+        mFrameIndex, mesh.resourceKey, predictedBytes);
+    if (retryFrames)
+    {
+        mesh.allocationRetryFrame = mFrameIndex <= UINT32_MAX - retryFrames ? mFrameIndex + retryFrames : UINT32_MAX;
+        return report("defer-mesh-cooldown", Result::DeferredCooldown);
+    }
+
     std::array<NRIBufferResource, 6> unpublished = {};
     std::array<double, 6> allocationMs = {};
     NRIAccelerationStructureResource unpublishedAs;
@@ -263,13 +284,22 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     // Locals are not yet in renderer telemetry. Include their complete physical
     // footprint even if the driver's accounting lags the committed allocations.
     const auto postBudget = GetPersistentVoxelBudgetSnapshot(true);
+    postUsageBytes = postBudget.usageBytes;
+    postBudgetBytes = postBudget.budgetBytes;
     auto floor = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, postBudget.budgetBytes, actualBytes, 0);
     const uint64_t postUsage = NRIVoxelComputeUsageAfterOwnerCredit(postBudget.usageBytes,
         postBudget.computeReservedBytes, mesh.computeProviderReservation.Total());
     peak = BuildNRIPersistentVoxelAllocationBudget(std::max(floor.projectedBytes, postUsage),
         postBudget.budgetBytes, provider.bytes, reserve);
     if ((actualBytes != 0 || provider.bytes != 0) && (floor.overflow || !peak.fits))
-    { discard(); return report("defer-post-budget", Result::DeferredBudget); }
+    {
+        // Unpublished resources have no command references. The caller rolls
+        // back its provisional range and retains the usual 30-frame cooldown.
+        // A later retry must not allocate the same rejected speculative slack.
+        arena.allocationGrowthRetry.ObservePostDenial(candidatePercent, oldArenaBytes, newArenaBytes);
+        discard();
+        return report("defer-post-budget", Result::DeferredBudget);
+    }
 
     NRIScopedGpuTiming admissionTiming(mFrameBuffer, NRIGpuTimingScope::VoxelAdmission);
     NRIScopedGpuTiming copyTiming(mFrameBuffer, NRIGpuTimingScope::VoxelArenaCopy);
@@ -326,6 +356,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         unpublishedAs = {};
     }
     mesh.computeProviderReservation = provider.reservation;
+    mesh.allocationRetryFrame = 0;
+    arena.allocationMeshRetry.ObserveSuccess(mMapWorld.buildSerial, mFrameIndex, mesh.resourceKey, predictedBytes);
     arena.MarkMaintenanceMutation();
     return report("reserved", Result::Ready);
 }

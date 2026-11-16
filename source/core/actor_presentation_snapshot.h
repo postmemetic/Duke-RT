@@ -57,12 +57,21 @@ struct ActorSpriteAnimationState
 	bool recipeCertified = false;
 	bool recipeHandled = false;
 	bool recipeHidden = false;
+	bool recipeHideYOnly = false;
+	bool recipeNativeHidden = false;
+	bool recipeEmptyArtHides = false;
 	bool forceSphereChild = false;
 	bool heatVision = false;
 	int32_t recipeShade = 0;
 	int32_t recipePalette = 0;
 	int32_t recipeFloorPalette = -1;
 	int32_t recipeTextureId = -1;
+	uint16_t recipeCstatSet = 0;
+	uint16_t recipeCstatClear = 0;
+	uint8_t recipePositionZMode = 0; // 0: offset only, 1: floor plane, 2: absolute.
+	double recipeZOffset = 0;
+	double recipePositionZ = 0;
+	ActorPresentationVector2 recipeFloorSlope;
 	ActorPresentationVector2 sphereOwnerPosition;
 	ActorPresentationVector2 viewPlayerPosition;
 };

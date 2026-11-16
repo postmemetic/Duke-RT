@@ -7,6 +7,7 @@ enum class NRIPersistentVoxelAllocationResult : uint8_t
     Disabled,
     Ready,
     DeferredBudget,
+    DeferredCooldown,
     DeferredSource,
     DeferredFence,
     RequirementsUnavailable,
@@ -16,6 +17,7 @@ enum class NRIPersistentVoxelAllocationResult : uint8_t
 inline bool NRIPersistentVoxelAllocationDeferred(NRIPersistentVoxelAllocationResult result)
 {
     return result == NRIPersistentVoxelAllocationResult::DeferredBudget ||
+        result == NRIPersistentVoxelAllocationResult::DeferredCooldown ||
         result == NRIPersistentVoxelAllocationResult::DeferredSource ||
         result == NRIPersistentVoxelAllocationResult::DeferredFence ||
         result == NRIPersistentVoxelAllocationResult::RequirementsUnavailable;

@@ -41,6 +41,7 @@ source as it is released.
 #include "models/modeldata.h"
 
 EXTERN_CVAR(Bool, wt_commentary)
+EXTERN_CVAR(Int, duke_sprite_recipe_checks)
 
 BEGIN_DUKE_NS
 
@@ -102,7 +103,14 @@ void animatesprites_d(tspriteArray& tsprites, const DVector2& viewVec, DAngle vi
 
 
 		auto sectp = h->sector();
-		bool res = CallAnimate(h, t);
+		bool res;
+		if ((int)duke_sprite_recipe_checks > 0)
+		{
+			const tspritetype before = *t;
+			res = CallAnimate(h, t);
+			CheckActorSpriteRecipeParity(h, before, *t, res);
+		}
+		else res = CallAnimate(h, t);
 		// some actors have 4, some 6 rotation frames - in true Build fashion there's no pointers what to do here without flagging it.
 		if ((h->flags2 & SFLAG2_ALWAYSROTATE1) || (t->clipdist & TSPR_ROTATE8FRAMES))
 			applyRotation1(h, t, viewang);

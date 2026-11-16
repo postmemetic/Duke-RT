@@ -2595,7 +2595,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					const bool candidateAlpha =
 						(candidateMaterial.flags & MATERIAL_FLAG_ALPHA_CLIP) != 0u ||
 						candidateMaterial.alpha < 0.999;
-					if (RejectReflectionOnlyWorkload(candidatePrimitive.flags, traceMask, allowReflectionOnlySurfaces))
+					if (RejectScenePrimitiveWorkload(candidatePrimitive.flags, traceMask, allowReflectionOnlySurfaces))
 					{
 						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 						TraceShaderStatAdd(TRACE_STAT_REJECT_REFLECTION, 1u);
@@ -2851,7 +2851,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		const PrimitiveData primitive = GetPrimitiveData(instanceData.dataSource, primitiveIndex);
 		const uint materialIndex = ResolvePrimitiveMaterialIndex(instanceData, primitive);
 		const bool reflectionOnlyPrimitive = IsReflectionOnlyPrimitive(primitive);
-		if (RejectReflectionOnlyWorkload(primitive.flags, traceMask, allowReflectionOnlySurfaces))
+		if (RejectScenePrimitiveWorkload(primitive.flags, traceMask, allowReflectionOnlySurfaces))
 		{
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
