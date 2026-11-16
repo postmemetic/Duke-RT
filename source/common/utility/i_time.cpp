@@ -50,6 +50,8 @@ static uint64_t CurrentFrameStartTime;
 static uint64_t FreezeTime;
 static uint64_t FrozenElapsedTimeNS = UINT64_MAX;
 static double lastinputtime;
+static bool SimulationTimeOverrideEnabled;
+static uint64_t SimulationTimeOverrideNS;
 int GameTicRate = 35;	// make sure it is not 0, even if the client doesn't set it.
 
 double TimeScale = 1.0;
@@ -170,11 +172,18 @@ uint64_t I_msTimeFS() // from "start"
 
 uint64_t I_GetTimeNS()
 {
+	if (SimulationTimeOverrideEnabled) return SimulationTimeOverrideNS;
 	if (FreezeTime != 0 && FrozenElapsedTimeNS != UINT64_MAX)
 	{
 		return FrozenElapsedTimeNS;
 	}
 	return CurrentFrameStartTime - FirstFrameStartTime;
+}
+
+void I_SetSimulationTimeOverride(bool enabled, uint64_t elapsedNS)
+{
+	SimulationTimeOverrideEnabled = enabled;
+	SimulationTimeOverrideNS = elapsedNS;
 }
 
 int I_GetTime(double const ticrate)

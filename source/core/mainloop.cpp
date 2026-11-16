@@ -105,8 +105,9 @@
 #include "d_eventbase.h"
 #include "input_lineage.h"
 #include "perf_capture.h"
-#include "perf_audit.h"
+#include "perf_route.h"
 #include "perf_actor_census.h"
+#include "perf_audit.h"
 #include "hw_clock.h"
 
 CVAR(Bool, vid_activeinbackground, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -834,6 +835,7 @@ static void GameTicker()
 		case ga_loadgamehidecon:
 		//case ga_autoloadgame:
 			G_DoLoadGame();
+			PerfRouteLoaded();
 			break;
 
 		case ga_autosave:
@@ -959,6 +961,10 @@ static void GameTicker()
 		C_AdjustBottom();
 	}
 
+	// Arm routes at the completed load boundary, before ordinary gameplay can
+	// consume commands. The next outer frame starts the recorded schedule.
+	if (gamestate == GS_LEVEL && !IsPathTracingLevelLoadBoundaryActive() && PerfRouteHoldAtBoundary()) return;
+
 	// get commands, check consistancy, and build new consistancy check
 	int buf = (gametic / ticdup) % BACKUPTICS;
 
@@ -973,7 +979,7 @@ static void GameTicker()
 
 			if ((gametic % ticdup) == 0)
 			{
-				RunNetSpecs(i, buf);
+				if (PerfRouteAllowSpecials(i, buf)) RunNetSpecs(i, buf);
 			}
 #if 0
 			if (demorecording)
@@ -989,6 +995,7 @@ static void GameTicker()
 			{
 				*cmd = *newcmd;
 				PlayerArray[i]->cmdSyncInput = netcmdsync[i][buf];
+				if (i == myconnectindex) PerfRouteCommand(cmd->ucmd, PlayerArray[i]->cmdSyncInput);
 				if (i == myconnectindex && PerfLoopTraceActive())
 				{
 					PerfLoopTraceNoteCommandSync(PlayerArray[i]->cmdSyncInput);
@@ -1010,7 +1017,7 @@ static void GameTicker()
 		}
 	}
 
-	C_RunDelayedCommands();
+	if (!PerfRoutePlaying()) C_RunDelayedCommands();
 	updatePauseStatus();
 
 	switch (gamestate)
@@ -1152,7 +1159,7 @@ void Display()
 	}
 
 	double stageStart = I_msTimeF();
-	screen->FrameTime = I_msTimeFS();
+	screen->FrameTime = PerfRouteFrameTime(I_msTimeFS());
 	tileUpdateAnimations();
 	screen->BeginFrame();
 	perfDisplayTraceStats.beginFrameMs += I_msTimeF() - stageStart;
@@ -1184,7 +1191,7 @@ void Display()
 			levelRenderedThisFrame = true;
 			perfDisplayTraceStats.levelRendered = true;
 			stageStart = I_msTimeF();
-			screen->FrameTime = I_msTimeFS();
+			screen->FrameTime = PerfRouteFrameTime(I_msTimeFS());
 			screen->BeginFrame();
 			const auto lateMouseEligible = [&]()
 			{
@@ -1454,6 +1461,35 @@ void TryRunTics (void)
 	const double traceStartMs = I_msTimeF();
 	perfTryRunTicsTraceStats = {};
 	gGameUpdateTicksThisPresentation = 0;
+	if (PerfRoutePlaying())
+	{
+		I_StartTic();
+		D_ProcessEvents();
+		const int routeTicks = PerfRoutePlaybackTicks();
+		for (int routeTick = 0; routeTick < routeTicks && PerfRoutePlaying(); ++routeTick)
+		{
+			PerfRouteBeforePlaybackTick();
+			C_Ticker();
+			M_Ticker();
+			GameTicker();
+			++gEngineUpdateGeneration;
+			if (gEngineUpdateGeneration == 0) gEngineUpdateGeneration = 1;
+			++gGameUpdateGeneration;
+			if (gGameUpdateGeneration == 0) gGameUpdateGeneration = 1;
+			PublishActorPresentationSnapshot(gGameUpdateGeneration);
+			++gGameUpdateTicksThisPresentation;
+			++gametic;
+			++perfTryRunTicsTraceStats.ticksRun;
+		}
+		if (routeTicks > 0)
+		{
+			gi->UpdateSounds();
+			soundEngine->UpdateSounds(I_GetTime());
+		}
+		perfTryRunTicsTraceStats.counts = routeTicks;
+		perfTryRunTicsTraceStats.durationMs = I_msTimeF() - traceStartMs;
+		return;
+	}
 
 	// Keep presentation, renderer publication, fence retirement, and GPU work
 	// running while a bounded performance capture holds authoritative gameplay
@@ -1691,6 +1727,7 @@ void TryRunTics (void)
 
 			NetUpdate ();	// check for new console commands
 			TicStabilityEnd();
+			if (PerfRouteAwaitingBoundary()) counts = 0;
 			if ((int)perf_fixedsimulationframes > 0 &&
 				gamestate == GS_LEVEL && !netgame && !demoplayback && counts > 0 &&
 				((int)perf_fixedsimulationplayclock < 0 || PlayClock >= (int)perf_fixedsimulationplayclock))
@@ -1788,6 +1825,7 @@ void MainLoop ()
 			}
 			I_SetFrameTime();
 			PerfAuditBeginFrame(gPresentationGeneration, gametic);
+			PerfRouteBeginPresentation();
 
 			// update the scale factor for unsynchronised input here.
 			gameInput.UpdateInputScale();
@@ -1802,9 +1840,11 @@ void MainLoop ()
 			const double startTicMs = I_msTimeF() - startTicStartMs;
 
 			const double displayStartMs = I_msTimeF();
+			PerfRouteBeforeDisplay();
 			Display();
 			const double displayMs = I_msTimeF() - displayStartMs;
 			if (gamestate == GS_LEVEL) PerfAuditCaptureActors();
+			PerfRouteEndPresentation();
 			PerfAuditEndFrame();
 			const double musicStartMs = I_msTimeF();
 			Mus_UpdateMusic();		// must be at the end.

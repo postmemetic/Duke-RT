@@ -43,6 +43,8 @@ source as it is released.
 #include "automap.h"
 #include "dukeactor.h"
 #include "i_protocol.h"
+#include "perf_route.h"
+#include "perf_audit.h"
 
 EXTERN_CVAR(Int, developer)
 EXTERN_CVAR(Bool, sv_cheats)
@@ -542,3 +544,50 @@ void InitCheats()
 }
 
 END_DUKE_NS
+
+bool PerfRouteApplyDukeFixture()
+{
+#ifndef NO_NAMESPACE
+	using namespace DUKE_NS;
+#endif
+	// Ordinary play/save semantics stay unchanged. Only an armed route invokes
+	// this after validating the supported single-player map/load boundary.
+	if (!isDuke() || numplayers != 1) return false;
+	const auto player = getPlayer(myconnectindex);
+	if (!player) return false;
+	bool allWeapons = true;
+	uint32_t weaponMask = 0;
+	for (int weapon = PISTOL_WEAPON; weapon < MAX_WEAPONS; ++weapon)
+	{
+		allWeapons = allWeapons && player->gotweapon[weapon];
+		if (player->gotweapon[weapon] && weapon < 32) weaponMask |= 1u << weapon;
+	}
+	const bool valid = ud.god && allWeapons && player->ammo_amount[SHOTGUN_WEAPON] > 0 && player->ammo_amount[RPG_WEAPON] > 0;
+	if (valid) ud.clipping = 1;
+	char fields[256];
+	snprintf(fields, sizeof(fields), "\"god\":%u,\"noclip\":%u,\"all_weapons\":%s,\"weapon_mask\":%u,\"shotgun_ammo\":%d,\"rocket_ammo\":%d,\"valid\":%s",
+		(unsigned)ud.god, (unsigned)ud.clipping, allWeapons ? "true" : "false", weaponMask,
+		player->ammo_amount[SHOTGUN_WEAPON], player->ammo_amount[RPG_WEAPON], valid ? "true" : "false");
+	PerfAuditWriteEvent("route_fixture", PerfAuditCurrentToken(), fields);
+	Printf("PERF route fixture: god=%u noclip=%u all_weapons=%u weapon_mask=%u shotgun_ammo=%d rocket_ammo=%d valid=%u\n",
+		(unsigned)ud.god, (unsigned)ud.clipping, allWeapons ? 1u : 0u, weaponMask,
+		player->ammo_amount[SHOTGUN_WEAPON], player->ammo_amount[RPG_WEAPON], valid ? 1u : 0u);
+	return valid;
+}
+
+bool PerfRoutePrepareDukeFixture()
+{
+#ifndef NO_NAMESPACE
+	using namespace DUKE_NS;
+#endif
+	if (!isDuke() || numplayers != 1 || gamestate != GS_LEVEL) return false;
+	const auto player = getPlayer(myconnectindex);
+	if (!player || !player->GetActor()) return false;
+	// Apply the existing cheat implementations directly at the known loaded
+	// boundary. Queueing console/network cheats here would require arbitrary
+	// waits before taking the save and was unreliable during startup catch-up.
+	cheatGod(player, 1);
+	cheatStuff(player);
+	ud.clipping = 1;
+	return PerfRouteApplyDukeFixture();
+}

@@ -49,6 +49,7 @@
 #include "i_time.h"
 #include "keydef.h"
 #include "input_lineage.h"
+#include "perf_route.h"
 
 int eventhead;
 int eventtail;
@@ -514,6 +515,7 @@ void D_ProcessEvents (void)
 	{
 		event_t *ev = &events[eventtail];
 		eventtail = (eventtail + 1) & (MAXEVENTS - 1);
+		if (PerfRouteFilterEvent(ev)) continue;
 
 		if (ev->type == EV_KeyUp && keywasdown[ev->data1])
 		{
@@ -593,6 +595,9 @@ void D_RemoveNextCharEvent()
 
 void D_PostEvent(event_t* ev)
 {
+	// Mouse dispatch and key-state updates happen before the responder queue.
+	// Playback must intercept here as well as drain pre-existing queued events.
+	if (PerfRouteFilterEvent(ev)) return;
 	if (IsDebouncedGuiKeyEvent(ev))
 	{
 		return;

@@ -15,6 +15,7 @@ void G_LoadGame(const char* filename, bool hidecon = false);
 void G_SaveGame(const char* fn, const char* desc);
 void G_DoSaveGame(bool okForQuicksave, bool forceQuicksave, const char* filename, const char* description);
 void G_DoLoadGame();
+bool WriteSavegame(const char* filename, const char* description);
 
 void M_Autosave();
 

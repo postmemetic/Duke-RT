@@ -50,6 +50,7 @@
 #include "i_video.h"
 #include "c_console.h"
 #include "d_net.h"
+#include "perf_route.h"
 #include "d_protocol.h"
 #include "i_protocol.h"
 #include "cmdlib.h"
@@ -959,6 +960,11 @@ void NetUpdate (void)
 	bool	resendOnly;
 
 	GC::CheckGC();
+	if (PerfRoutePlaying())
+	{
+		D_ProcessEvents();
+		return;
+	}
 
 	if (ticdup == 0)
 	{

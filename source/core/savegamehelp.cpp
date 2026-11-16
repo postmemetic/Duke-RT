@@ -34,6 +34,7 @@
 */
 
 #include "savegamehelp.h"
+#include "perf_route.h"
 #include "gstrings.h"
 #include "i_specialpaths.h"
 #include "cmdlib.h"
@@ -762,6 +763,10 @@ void DoLoadGame(const char* name)
 {
 	const LevelTransitionInfo transition = G_BeginLevelTransition(LevelTransitionReason::SaveGameLoad);
 	G_CompleteLevelUnload(transition);
+	if (!PerfRouteBeforeLoad())
+	{
+		I_Error("%s: Performance route script RNG baseline verification failed", name);
+	}
 	if (ReadSavegame(name))
 	{
 		G_NotifyLevelLoadBegin(transition);

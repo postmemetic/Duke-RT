@@ -15,6 +15,10 @@ int I_GetTime(double const ticrate = GameTicRate);
 // same, but using nanoseconds
 uint64_t I_GetTimeNS();
 
+// Route playback replaces only cached simulation/presentation time. Profiling
+// clocks (I_nsTime/I_msTimeF) continue to measure actual elapsed time.
+void I_SetSimulationTimeOverride(bool enabled, uint64_t elapsedNS);
+
 double I_GetTimeFrac(double const ticrate = GameTicRate);
 
 // like I_GetTime, except it waits for a new tic before returning
