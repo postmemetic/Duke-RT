@@ -106,6 +106,7 @@
 #include "input_lineage.h"
 #include "perf_capture.h"
 #include "perf_route.h"
+#include "perf_route_observer.h"
 #include "perf_actor_census.h"
 #include "perf_audit.h"
 #include "hw_clock.h"
@@ -1840,8 +1841,11 @@ void MainLoop ()
 			const double startTicMs = I_msTimeF() - startTicStartMs;
 
 			const double displayStartMs = I_msTimeF();
-			PerfRouteBeforeDisplay();
-			Display();
+			{
+				PerfRouteObserverDisplayScope observation;
+				PerfRouteBeforeDisplay();
+				Display();
+			}
 			const double displayMs = I_msTimeF() - displayStartMs;
 			if (gamestate == GS_LEVEL) PerfAuditCaptureActors();
 			PerfRouteEndPresentation();

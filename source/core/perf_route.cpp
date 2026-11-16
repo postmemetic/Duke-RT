@@ -1,4 +1,5 @@
 #include "perf_route.h"
+#include "perf_route_observer.h"
 
 #include <array>
 #include <cctype>
@@ -176,6 +177,7 @@ FILE* CreateRecording(const char* path)
 
 void Finish(const char* status, const char* reason)
 {
+    PerfRouteObserver::Finish(status, reason);
     const bool wasPlayback = mode == Mode::Play;
     char audit[384];
     snprintf(audit, sizeof(audit), "\"status\":\"%s\",\"reason\":\"%s\",\"route_frames\":%llu,\"route_ticks\":%llu",
@@ -279,12 +281,31 @@ void CompleteRecording()
         Invalid("write-footer");
     else Finish("recorded", "complete");
 }
+// Read only the fixed footer's declared frame count for observation bounds.
+// Restore the stream position; normal sequential checksum/witness validation is
+// unchanged and remains authoritative. Disabled observers do not seek the file.
+bool ObservationFrameCount(uint64_t& count)
+{
+    fpos_t position;
+    if (fgetpos(stream, &position) != 0) return false;
+    uint32_t tag = 0;
+    Footer footer{};
+    const bool read = fseek(stream, -long(sizeof(tag) + sizeof(footer)), SEEK_END) == 0 &&
+        Read(&tag, sizeof(tag)) && Read(&footer, sizeof(footer));
+    const bool restored = fsetpos(stream, &position) == 0;
+    if (!read || !restored || tag != DoneTag || footer.frames == 0) return false;
+    count = footer.frames;
+    return true;
+}
+
 void Start(const char* path, const char* save, bool playback)
 {
     if (mode != Mode::Idle) { Printf("PERF route: busy; stop the active route first\n"); return; }
     if (netgame || demoplayback || !isDuke() || ticdup != 1 || (int)perf_fixedsimulationframes > 0 ||
         (int)perf_tileanimationtime_ms >= 0)
     { Printf("PERF route: requires single-player Duke, ticdup=1 and live animation/simulation clocks\n"); return; }
+    if (!playback && PerfRouteObserver::Configured())
+    { Printf("PERF route observer: status=failed reason=observers-require-playback\n"); return; }
     routePath = path;
     stream = playback ? fopen(path, "rb") : CreateRecording(path);
     if (!stream)
@@ -317,6 +338,12 @@ void Start(const char* path, const char* save, bool playback)
     FILE* saveFile = fopen(save, "rb");
     if (!saveFile) { Invalid("missing-save"); return; }
     fclose(saveFile);
+    if (playback && PerfRouteObserver::Configured())
+    {
+        uint64_t routeFrames = 0;
+        if (!ObservationFrameCount(routeFrames) || !PerfRouteObserver::Arm(routeFrames))
+        { Invalid("observer-arm"); return; }
+    }
     cl_syncinput = true; cl_latelatchmouse = false;
     M_ClearMenus(); C_HideConsole();
     mode = playback ? Mode::PlayPending : Mode::RecordPending;
@@ -330,6 +357,8 @@ void Prepare(const char* map, const char* save)
     if (netgame || demoplayback || !isDuke() ||
         (strcmp(map, "e2l6") != 0 && strcmp(map, "e2l8") != 0 && strcmp(map, "E2L6") != 0 && strcmp(map, "E2L8") != 0))
     { Printf("PERF route: status=invalid reason=prepare-requires-single-player-E2L6-or-E2L8\n"); return; }
+    if (PerfRouteObserver::Configured())
+    { Printf("PERF route observer: status=failed reason=observers-require-playback\n"); return; }
     FILE* reservation = CreateRecording(save);
     if (!reservation)
     { Printf("PERF route: status=invalid reason=prepare-save-open-failed-or-already-exists\n"); return; }
@@ -525,6 +554,7 @@ void PerfRouteBeforeDisplay()
     if (!PerfRouteActive() || !frameOpen) return;
     if (mode == Mode::Record) frame.displayNS = I_GetTimeNS();
     else I_SetSimulationTimeOverride(true, frame.displayNS);
+    if (mode == Mode::Play) PerfRouteObserver::BeforeDisplay(frame.index);
 }
 void PerfRouteEndPresentation()
 {
@@ -614,4 +644,26 @@ CCMD(perf_route_stop)
 {
     if (mode == Mode::Record) { if (frameOpen) stopRequested = true; else CompleteRecording(); }
     else if (mode != Mode::Idle) Finish("aborted", "command");
+}
+
+// Allowlisted, session-only declarations. No arbitrary command string is stored
+// or executed; pending loads and active playback reject every configuration edit.
+CCMD(perf_route_observe_clear)
+{
+    if (mode != Mode::Idle || UnsafeExecutionContext || ParsingKeyConf || argv.argc() != 1)
+    { Printf("PERF route observer: status=failed reason=clear-requires-idle-safe-context\n"); return; }
+    PerfRouteObserver::Clear();
+    Printf("PERF route observer: status=cleared\n");
+}
+CCMD(perf_route_observe_shot)
+{
+    if (mode != Mode::Idle || UnsafeExecutionContext || ParsingKeyConf || argv.argc() != 3 ||
+        !PerfRouteObserver::AddShot(argv[1], argv[2]))
+        Printf("PERF route observer: status=failed reason=shot-declaration-rejected usage=perf_route_observe_shot_<zero-based-frame>_<absolute-new-png>\n");
+}
+CCMD(perf_route_observe_occurrence)
+{
+    if (mode != Mode::Idle || UnsafeExecutionContext || ParsingKeyConf || argv.argc() != 4 ||
+        !PerfRouteObserver::SetOccurrence(argv[1], argv[2], argv[3]))
+        Printf("PERF route observer: status=failed reason=occurrence-declaration-rejected usage=perf_route_observe_occurrence_<first-frame>_<last-frame>_<actor-index>\n");
 }

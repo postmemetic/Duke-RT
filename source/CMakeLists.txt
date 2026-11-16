@@ -1434,6 +1434,7 @@ set (PCH_SOURCES
 	common/engine/perf_audit.cpp
 	core/perf_actor_census.cpp
 	core/perf_route.cpp
+	core/perf_route_observer.cpp
 	common/engine/date.cpp
 	common/engine/stats.cpp
 	common/engine/sc_man.cpp
