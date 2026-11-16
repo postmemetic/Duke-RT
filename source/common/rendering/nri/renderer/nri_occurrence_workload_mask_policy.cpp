@@ -16,12 +16,14 @@ namespace
 
 	NRIOccurrenceWorkloadCertificate CertifyReflectionOnly(
 		const nri_scene::GeometryData& geometry,
-		const NRISceneBufferUploadDomainSpan& span)
+		const NRISceneBufferUploadDomainSpan& span, bool& actorIndirectSprites)
 	{
 		for (uint32_t local = 0; local < span.primitiveCount; ++local)
 		{
-			if ((geometry.primitives[span.primitiveOffset + local].flags & nri_scene::PrimitiveFlag_ReflectionOnly) == 0u)
+			const uint32_t flags = geometry.primitives[span.primitiveOffset + local].flags;
+			if ((flags & nri_scene::PrimitiveFlag_ReflectionOnly) == 0u)
 				return NRIOccurrenceWorkloadCertificate::MixedReflection;
+			actorIndirectSprites |= (flags & nri_scene::PrimitiveFlag_ActorSpriteFallback) != 0u;
 		}
 		return NRIOccurrenceWorkloadCertificate::Certified;
 	}
@@ -123,9 +125,11 @@ NRIOccurrenceWorkloadMaskDecision EvaluateNRIOccurrenceWorkloadMaskPolicy(
 	if (!IsValidRange(span.primitiveOffset, span.primitiveCount, geometry.primitives.size()))
 		return reject(NRIOccurrenceWorkloadCertificate::PrimitiveRange);
 
-	decision.reflection = CertifyReflectionOnly(geometry, span);
+	bool actorIndirectSprites = false;
+	decision.reflection = CertifyReflectionOnly(geometry, span, actorIndirectSprites);
 	if (decision.reflection == NRIOccurrenceWorkloadCertificate::Certified)
-		decision.certifiedRemovalMask |= NRI_TLAS_MASK_MAIN | NRI_TLAS_MASK_SHADOW | NRI_TLAS_MASK_GI;
+		decision.certifiedRemovalMask |= NRI_TLAS_MASK_MAIN | NRI_TLAS_MASK_SHADOW |
+			(actorIndirectSprites ? 0u : NRI_TLAS_MASK_GI);
 	if (surfaceLightCandidate)
 	{
 		decision.surfaceLight = CertifySurfaceLightNoShadow(geometry, finalMaterials, span);

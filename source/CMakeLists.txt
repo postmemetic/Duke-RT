@@ -1013,6 +1013,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_actor_representation_textures.cpp
 	common/rendering/nri/scene/nri_actor_sprite_fallback.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_allocation.cpp
+	common/rendering/nri/renderer/nri_voxel_compute_allocation.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_allocation_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_actor_demand.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_policy.cpp

@@ -16,6 +16,7 @@
 #include "nri_persistent_voxels.h"
 #include "nri_actor_representation.h"
 #include "nri_persistent_voxel_allocation.h"
+#include "nri_voxel_compute_allocation.h"
 #include "nri_pipeline_state.h"
 #include "nri_renderer_context.h"
 #include "nri_resources.h"
@@ -2269,6 +2270,8 @@ private:
 	friend void ReadbackNRIRendererAutoExposureStats(NRIRenderer& renderer);
 	friend void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t frameNumber);
 	friend void DestroyNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer);
+	friend NRIPersistentVoxelAllocationResult ReserveNRIVoxelComputeBuffers(NRIRenderer& renderer,
+		const NRIVoxelComputeBufferAllocation*, uint32_t, const char*, const NRIVoxelComputeAllocationOwners&);
 
 	NRIResourceContext BuildResourceContext() const;
 	NRIResourceServices BuildResourceServices();

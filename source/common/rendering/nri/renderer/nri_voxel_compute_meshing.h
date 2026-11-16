@@ -207,6 +207,8 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 NRIVoxelComputeGeneratedGeometryStatus RequestNRIVoxelComputeDirectPublication(const NRIVoxelComputeDirectPublishRequest& request);
 bool TakeNRIVoxelComputeDirectPublication(uint64_t meshResourceKey, uint64_t generation, NRIVoxelComputeDirectPublishedMesh& outMesh);
 void CancelNRIVoxelComputeDirectPublication(uint64_t meshResourceKey, uint64_t generation);
+// Consumes a bounded provider-budget retry signal; never marks source failure.
+bool TakeNRIVoxelComputeBudgetDeferral(uint64_t meshResourceKey, uint64_t generation);
 bool QueryNRIVoxelComputeRawSourceArchiveStats(FVoxelModel* model, FVoxelRawMeshStats& outStats);
 bool CopyNRIVoxelComputeRawSourceArchiveSnapshot(
 	FVoxelModel* model,

@@ -4,6 +4,7 @@
 struct NRIPersistentVoxelBudgetSnapshot
 {
     uint64_t trackedBytes = 0;
+    uint64_t computeReservedBytes = 0;
     uint64_t liveUsageBytes = 0;
     uint64_t liveBudgetBytes = 0;
     uint64_t usageBytes = 0;

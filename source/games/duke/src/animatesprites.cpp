@@ -34,6 +34,9 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 
 #include "buildtiles.h"
 #include "actor_presentation_snapshot.h"
+#include "vm.h"
+#include "c_dispatch.h"
+#include <unordered_map>
 
 BEGIN_DUKE_NS
 
@@ -205,12 +208,14 @@ static void ResolveSpriteAnimationFrame(tspritetype* t, const ActorSpriteAnimati
 	}
 }
 
+static void CaptureSpriteAction(const DDukeActor& h, ActorSpriteAnimationState& out);
+
 void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAngle viewang)
 {
 	tspritetype alternate = *t;
 	alternate.ApplySpriteFallbackFrame();
 	ActorSpriteAnimationState animation;
-	gi->CaptureActorSpriteAnimation(*h, animation);
+	CaptureSpriteAction(*h, animation);
 	t->spriteFallbackActionBase = alternate.spritetexture();
 	t->spriteFallbackActionShade = alternate.shade;
 	t->spriteFallbackActionApplied = animation.enabled && animation.actionActive;
@@ -234,11 +239,9 @@ void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAn
 	}
 }
 
-void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSpriteAnimationState& out) const
+static void CaptureSpriteAction(const DDukeActor& h, ActorSpriteAnimationState& out)
 {
 	out = {};
-	if (!actor.IsKindOf(RUNTIME_CLASS(DDukeActor))) return;
-	const auto& h = static_cast<const DDukeActor&>(actor);
 	out.available = true;
 	out.enabled = (h.flags2 & SFLAG2_DONTANIMATE) == 0;
 	out.actionActive = h.curAction != nullptr && h.curAction->name != NAME_None;
@@ -258,12 +261,147 @@ void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSp
 	}
 }
 
+enum class SpriteRecipe { Unknown, Default, Marker, ForceSphere, Destructible, BloodPool, Puke, BloodSplat, Neon, Recon };
+
+static SpriteRecipe GetSpriteRecipe(const DDukeActor& actor)
+{
+	static const unsigned slot = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "animate");
+	const auto* cls = actor.GetClass();
+	if (slot == ~0u || slot >= cls->Virtuals.Size()) return SpriteRecipe::Unknown;
+	const auto* function = cls->Virtuals[slot];
+	struct CachedRecipe { const VMFunction* function; SpriteRecipe recipe; };
+	static std::unordered_map<const PClass*, CachedRecipe> cache;
+	const auto found = cache.find(cls);
+	if (found != cache.end() && found->second.function == function) return found->second.recipe;
+	SpriteRecipe recipe = function == RUNTIME_CLASS(DDukeActor)->Virtuals[slot] ? SpriteRecipe::Default : SpriteRecipe::Unknown;
+	if (recipe == SpriteRecipe::Unknown)
+	{
+		const struct { const char* name; SpriteRecipe recipe; } known[] = {
+			{ "DukeRespawnMarker", SpriteRecipe::Marker }, { "DukeForceSphere", SpriteRecipe::ForceSphere },
+			{ "DukeGenericDestructible", SpriteRecipe::Destructible }, { "DukeBloodPool", SpriteRecipe::BloodPool },
+			{ "DukePuke", SpriteRecipe::Puke }, { "DukeBloodSplat1", SpriteRecipe::BloodSplat },
+			{ "DukeNeon", SpriteRecipe::Neon }, { "DukeRecon", SpriteRecipe::Recon }
+		};
+		for (const auto& entry : known)
+		{
+			const auto* builtin = PClass::FindClass(entry.name);
+			if (builtin != nullptr && slot < builtin->Virtuals.Size() && function == builtin->Virtuals[slot])
+			{
+				recipe = entry.recipe;
+				break;
+			}
+		}
+	}
+	cache[cls] = { function, recipe };
+	return recipe;
+}
+
+void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSpriteAnimationState& out) const
+{
+	out = {};
+	if (!actor.IsKindOf(RUNTIME_CLASS(DDukeActor))) return;
+	const auto& h = static_cast<const DDukeActor&>(actor);
+	CaptureSpriteAction(h, out);
+	// Player-specific view/weapon copies and Redneck's additional native rules
+	// require their own recipes. Keep their freshly captured descriptors usable,
+	// without certifying an arbitrary old presentation for a later tick.
+	if (isRR() || h.isPlayer() || h.sector() == nullptr || h.GetClass() == DukeSectorEffectorClass) return;
+	const auto* sect = h.sector();
+	out.recipeShade = h.spr.shade;
+	out.recipePalette = h.spr.pal;
+	const bool keepShade = (!(h.flags2 & SFLAG2_FORCESECTORSHADE) && (h.spr.cstat & CSTAT_SPRITE_ALIGNMENT_WALL)) ||
+		(badguy(&h) && h.spr.extra > 0) || h.spr.statnum == STAT_PLAYER;
+	if (keepShade)
+	{
+		if (sect->shadedsector == 1 && h.spr.statnum != STAT_ACTOR) out.recipeShade = 16;
+	}
+	else out.recipeShade = clamp<int>(sect->ceilingstat & CSTAT_SECTOR_SKY ? sect->ceilingshade : sect->floorshade, -127, 127);
+
+	// Match the actual virtual implementation, not merely an ancestor class:
+	// a mod overriding Animate must not inherit a false built-in certificate.
+	const auto recipe = GetSpriteRecipe(h);
+	out.recipeHandled = recipe != SpriteRecipe::Default;
+	if (!out.recipeHandled) out.recipeCertified = true;
+	else if (recipe == SpriteRecipe::Marker)
+	{
+		out.recipeCertified = true;
+		out.recipeHidden = ud.marker == 0;
+	}
+	else if (recipe == SpriteRecipe::ForceSphere)
+	{
+		out.recipeCertified = true;
+		const auto* owner = h.ownerActor.Get();
+		const auto* player = getPlayer(screenpeek)->GetActor();
+		out.forceSphereChild = h.spr.statnum == STAT_MISC && owner != nullptr && player != nullptr;
+		if (out.forceSphereChild)
+		{
+			out.sphereOwnerPosition = { owner->spr.pos.X, owner->spr.pos.Y };
+			out.viewPlayerPosition = { player->spr.pos.X, player->spr.pos.Y };
+		}
+	}
+	else if (recipe == SpriteRecipe::Destructible)
+	{
+		// ScriptVar's API lacks const access; these are reads only, never VM calls.
+		const auto* fullbright = static_cast<const int*>(const_cast<DDukeActor&>(h).ScriptVar(NAME_fullbright, nullptr));
+		const auto* broken = static_cast<const int*>(const_cast<DDukeActor&>(h).ScriptVar(FName("broken"), nullptr));
+		out.recipeCertified = fullbright != nullptr && broken != nullptr && *broken >= 0 && *broken < 32;
+		if (out.recipeCertified && ((uint32_t)*fullbright & (1u << *broken))) out.recipeShade = -127;
+	}
+	else if (recipe == SpriteRecipe::BloodPool)
+	{
+		out.recipeCertified = true;
+		if (h.spr.shade == 127) out.recipeShade = 127;
+		if (h.spr.pal == 6) out.recipeShade = -127;
+	}
+	else if (recipe == SpriteRecipe::Puke)
+	{
+		out.recipeCertified = true;
+		if (h.spr.shade == 127) out.recipeShade = 127;
+	}
+	else if (recipe == SpriteRecipe::BloodSplat)
+	{
+		out.recipeCertified = true;
+		out.recipeShade = h.spr.pal == 6 ? -127 : 16;
+	}
+	else if (recipe == SpriteRecipe::Neon)
+	{
+		out.recipeCertified = true;
+		out.recipeShade = h.spr.shade;
+	}
+	else if (recipe == SpriteRecipe::Recon)
+	{
+		const auto sprites = h.spriteset();
+		const unsigned index = abs(h.temp_data[3]) > 64 ? 1u : 0u;
+		out.recipeCertified = index < sprites.Size();
+		if (out.recipeCertified) out.recipeTextureId = sprites[index].GetIndex();
+	}
+	if (!out.recipeCertified) return;
+	if (sect->floorpal && !(h.flags2 & SFLAG2_NOFLOORPAL) && !lookups.noFloorPal(sect->floorpal))
+		out.recipeFloorPalette = SectorPaletteForRendering(sect, out.recipePalette);
+	if (!out.recipeHandled)
+	{
+		out.recipeHidden = sect->floortexture == mirrortex;
+		const auto* player = getPlayer(screenpeek);
+		out.heatVision = (h.spr.statnum == STAT_DUMMYPLAYER || badguy(&h)) && player->heat_amount > 0 && player->heat_on;
+	}
+}
+
 bool GameInterface::ResolveActorSpriteFallbackFrame(const ActorPresentationState& state, tspritetype& sprite,
 	const DVector2& viewVec, DAngle viewang) const
 {
 	if (!state.spriteAnimation.available) return false;
 	const auto& animation = state.spriteAnimation;
-	int forcedRotation = sprite.spriteFallbackRotationFrames != 0 ? sprite.spriteFallbackRotationFrames : animation.forcedRotation;
+	if (!animation.recipeCertified) return false;
+	sprite.shade = animation.recipeShade;
+	sprite.pal = animation.recipeFloorPalette >= 0 && !(sprite.clipdist & TSPR_NOFLOORPAL) ?
+		animation.recipeFloorPalette : animation.recipePalette;
+	if (animation.recipeTextureId >= 0)
+	{
+		FTextureID texture;
+		texture.SetIndex(animation.recipeTextureId);
+		sprite.setspritetexture(texture);
+	}
+	int forcedRotation = animation.forcedRotation;
 	if (sprite.clipdist & TSPR_ROTATE8FRAMES) forcedRotation = 8;
 	else if (sprite.clipdist & TSPR_ROTATE12FRAMES) forcedRotation = 12;
 	if (forcedRotation != 0)
@@ -276,16 +414,120 @@ bool GameInterface::ResolveActorSpriteFallbackFrame(const ActorPresentationState
 		if (!base.isValid()) base.SetIndex(state.textureId);
 		sprite.setspritetexture(base + k);
 	}
-	else if (sprite.spriteFallbackActionApplied)
+	else if (!animation.recipeHandled)
 	{
-		sprite.setspritetexture(sprite.spriteFallbackActionBase);
+		FTextureID base;
+		base.SetIndex(state.textureId);
+		sprite.setspritetexture(base);
 	}
-	if (sprite.spriteFallbackActionApplied)
+	if (!animation.recipeHandled)
 	{
-		if (sprite.shade == sprite.spriteFallbackActionResolvedShade) sprite.shade = sprite.spriteFallbackActionShade;
 		ResolveSpriteAnimationFrame(&sprite, animation, viewVec, viewang, false);
 	}
-	return sprite.spriteFallbackActionApplied || forcedRotation != 0 || sprite.spritetexture().GetIndex() == state.textureId;
+	if (animation.heatVision) { sprite.pal = 6; sprite.shade = 0; }
+	bool hidden = animation.recipeHidden;
+	if (animation.forceSphereChild)
+	{
+		const DVector2 owner(animation.sphereOwnerPosition.x, animation.sphereOwnerPosition.y);
+		const DVector2 player(animation.viewPlayerPosition.x, animation.viewPlayerPosition.y);
+		const auto toPlayer = owner - player;
+		const auto toSprite = owner - sprite.pos.XY();
+		if (absangle(toPlayer.Angle(), toSprite.Angle()) > DAngle::fromDeg(90) && toSprite.LengthSquared() < toPlayer.LengthSquared()) hidden = true;
+	}
+	if (hidden) sprite.scale = DVector2(0, 0);
+	return true;
+}
+
+// Exercises the production ordinary sprite resolver against retained refresh.
+// No actor, VM callback, random stream, global voxel toggle or simulation write.
+CCMD(duke_sprite_fallback_selftest)
+{
+	const auto base = TexMan.CheckForTexture("LIZTROOP", ETextureType::Any);
+	if (!base.isValid() || gi == nullptr)
+	{
+		Printf("Duke sprite fallback self-test: result=fail reason=load-a-Duke-map-first\n");
+		return;
+	}
+	uint32_t cases = 0, missingFrames = 0;
+	const auto equal = [](const tspritetype& a, const tspritetype& b)
+	{
+		return a.spritetexture() == b.spritetexture() && a.cstat == b.cstat &&
+			a.scale == b.scale && a.shade == b.shade && a.pal == b.pal;
+	};
+	const int rotations[] = { 0, 2, 3, 4, 5, 7, 8 };
+	const int frames[] = { 0, 1, 3, 16, 8192 };
+	const int forced[] = { 0, 8, 12 };
+	for (int rotation : rotations) for (int frame : frames) for (int direction : forced)
+		for (int angle = -17; angle < 2048; angle += 63)
+	{
+		ActorPresentationState state;
+		state.textureId = base.GetIndex();
+		auto& animation = state.spriteAnimation;
+		animation.available = animation.enabled = animation.actionActive = animation.recipeCertified = true;
+		animation.rotationType = rotation;
+		animation.currentFrame = frame;
+		animation.forcedRotation = direction;
+		animation.recipeShade = 23;
+		animation.recipePalette = 2;
+		tspritetype raw = {};
+		raw.setspritetexture(base);
+		raw.spriteFallbackRotationBase = base;
+		raw.shade = 23;
+		raw.pal = 2;
+		raw.scale = DVector2(0.5, 0.75);
+		raw.pos = DVector3(64, 32, 0);
+		raw.Angles.Yaw = DAngle::fromBuild(angle);
+		raw.cstat |= CSTAT_SPRITE_XFLIP;
+		const auto viewAngle = DAngle::fromBuild(97);
+		const DVector2 view(-24, 11);
+		auto expected = raw;
+		if (direction == 8) ResolveSpriteRotation1(nullptr, &expected, viewAngle, base, false);
+		if (direction == 12) ResolveSpriteRotation2(nullptr, &expected, viewAngle, base, false);
+		ResolveSpriteAnimationFrame(&expected, animation, view, viewAngle, false);
+		auto retained = raw;
+		if (!gi->ResolveActorSpriteFallbackFrame(state, retained, view, viewAngle) || !equal(expected, retained))
+		{
+			Printf("Duke sprite fallback self-test: result=fail reason=parity rotation=%d frame=%d forced=%d angle=%d\n", rotation, frame, direction, angle);
+			return;
+		}
+		++cases;
+		if (retained.scale.X == 0 || retained.scale.Y == 0) ++missingFrames;
+	}
+	ActorPresentationState state;
+	state.textureId = base.GetIndex();
+	state.spriteAnimation.available = state.spriteAnimation.recipeCertified = true;
+	state.spriteAnimation.recipeShade = -127;
+	state.spriteAnimation.recipePalette = 2;
+	tspritetype sprite = {};
+	sprite.setspritetexture(base);
+	sprite.scale = DVector2(1, 1);
+	if (!gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {}) || sprite.shade != -127)
+	{
+		Printf("Duke sprite fallback self-test: result=fail reason=fullbright\n"); return;
+	}
+	state.spriteAnimation.heatVision = true;
+	gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {});
+	if (sprite.shade != 0 || sprite.pal != 6) { Printf("Duke sprite fallback self-test: result=fail reason=heat-on\n"); return; }
+	state.spriteAnimation.heatVision = false;
+	gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {});
+	if (sprite.shade != -127 || sprite.pal != 2) { Printf("Duke sprite fallback self-test: result=fail reason=heat-off\n"); return; }
+	state.spriteAnimation.recipeHidden = true;
+	gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {});
+	if (sprite.scale.X != 0 || sprite.scale.Y != 0) { Printf("Duke sprite fallback self-test: result=fail reason=intentional-hidden\n"); return; }
+	state.spriteAnimation.recipeHidden = false;
+	state.spriteAnimation.forceSphereChild = true;
+	state.spriteAnimation.viewPlayerPosition = { 10, 0 };
+	sprite.scale = DVector2(1, 1);
+	sprite.pos = DVector3(-1, 0, 0);
+	gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {});
+	if (sprite.scale.X != 0) { Printf("Duke sprite fallback self-test: result=fail reason=sphere-hidden\n"); return; }
+	sprite.scale = DVector2(1, 1);
+	sprite.pos = DVector3(1, 0, 0);
+	gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {});
+	if (sprite.scale.X == 0) { Printf("Duke sprite fallback self-test: result=fail reason=sphere-visible\n"); return; }
+	state.spriteAnimation.recipeCertified = false;
+	if (gi->ResolveActorSpriteFallbackFrame(state, sprite, {}, {})) { Printf("Duke sprite fallback self-test: result=fail reason=unknown-script-certified\n"); return; }
+	Printf("Duke sprite fallback self-test: result=pass parity_cases=%u missing_frame_cases=%u recipe_cases=7\n", cases, missingFrames);
 }
 
 END_DUKE_NS

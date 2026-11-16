@@ -157,6 +157,7 @@ struct NRIMaterialTextureWarmupCursor
 
 struct NRIActorRepresentationTextureResult
 {
+    std::vector<uint32_t> unavailableMaterials;
     uint32_t materials = 0, textures = 0, ready = 0, inserted = 0, pendingReplacements = 0, failures = 0;
     uint64_t insertedDeviceBytes = 0, pendingRetirementBytes = 0;
     double cpuMs = 0.0;

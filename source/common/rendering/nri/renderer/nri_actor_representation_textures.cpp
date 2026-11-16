@@ -1,11 +1,61 @@
 #include "nri_scene_textures.h"
+#include "nri_actor_representation.h"
+#include "nri_persistent_voxels.h"
+#include "../scene/nri_actor_sprite_fallback.h"
 #include "../scene/nri_material_bridge.h"
 #include "../system/nri_renderdevice.h"
+#include "c_cvars.h"
 #include "perf_audit.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <vector>
+
+EXTERN_CVAR(Bool, nri_ptactorspritefallback)
+
+void NRIActorRepresentations::PrepareTextures(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
+    NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
+    void (*buildMaterials)(void*, nri_scene::SceneView&, nri_scene::MaterialBridgeData&))
+{
+    voxels.spriteFallbackReadyActors.clear();
+    voxels.spriteFallbackReadyFrame = frameIndex;
+    if (!(bool)nri_ptactorspritefallback || !buildMaterials) return;
+    const bool trace = PerfAuditActive();
+    const auto begin = trace ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    mScene = {};
+    std::vector<uint64_t> identities;
+    uint32_t materialCount = 0;
+    const auto report = [&]()
+    {
+        if (!trace) return;
+        char fields[256];
+        std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"descriptors\":%u,\"materials\":%u,\"ready_owners\":%u,\"cpu_ms\":%.6f",
+            frameIndex, uint32_t(identities.size()), materialCount, uint32_t(voxels.spriteFallbackReadyActors.size()),
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+        PerfAuditWriteEvent("actor_representation_preflight", PerfAuditCurrentToken(), fields);
+    };
+    for (const auto& candidate : nri_scene::GetActorSpriteFallbackCandidates())
+    {
+        if (!candidate.descriptorCurrent || candidate.presentationHidden || !candidate.ownerWorldEpoch ||
+            candidate.surface.vertices.size() < 3 || candidate.transientGeometryCaptured) continue;
+        mScene.opaqueSprites.push_back(candidate.surface);
+        identities.push_back(candidate.identityKey);
+    }
+    if (identities.empty()) { report(); return; }
+    buildMaterials(user, mScene, mMaterials);
+    materialCount = uint32_t(mMaterials.materials.size());
+    // A sprite-only scene has one material row per surface, in source order.
+    // Fail closed if that bridge contract changes.
+    if (mMaterials.materials.size() != identities.size()) { report(); return; }
+    std::vector<uint32_t> rows(identities.size());
+    for (uint32_t i = 0; i < rows.size(); ++i) rows[i] = i;
+    NRIActorRepresentationTextureResult result;
+    textures.EnsurePriorityMaterialTextures(device, mMaterials, rows, result);
+    for (uint32_t i = 0; i < identities.size(); ++i)
+        if (std::find(result.unavailableMaterials.begin(), result.unavailableMaterials.end(), i) == result.unavailableMaterials.end())
+            voxels.spriteFallbackReadyActors.insert(identities[i]);
+    report();
+}
 
 bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& device,
     const nri_scene::MaterialBridgeData& materials, const std::vector<uint32_t>& selectedMaterialIndices,
@@ -39,6 +89,7 @@ bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& d
     std::sort(textures.begin(), textures.end());
     textures.erase(std::unique(textures.begin(), textures.end()), textures.end());
     result.textures = uint32_t(textures.size());
+    std::vector<bool> readyTextures(materials.textures.size(), false);
     for (uint32_t index : textures)
     {
         const auto& upload = materials.textures[index];
@@ -71,6 +122,22 @@ bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& d
             continue;
         }
         ++result.ready;
+        readyTextures[index] = true;
+    }
+    for (uint32_t row : rows)
+    {
+        bool available = row < materials.materials.size();
+        const auto ready = [&](uint32_t index, bool required)
+        { return (!required && index == UINT32_MAX) || (index < readyTextures.size() && readyTextures[index]); };
+        if (available)
+        {
+            const auto& material = materials.materials[row];
+            available = ready(material.textureIndex, true) && ready(material.normalTextureIndex, false) &&
+                ready(material.metallicTextureIndex, false) && ready(material.roughnessTextureIndex, false) &&
+                ready(material.emissiveTextureIndex, false) &&
+                (row >= materials.lightMetadata.size() || ready(materials.lightMetadata[row].glowmapTextureIndex, false));
+        }
+        if (!available) result.unavailableMaterials.push_back(row);
     }
     result.cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
     if (PerfAuditActive())

@@ -42,7 +42,7 @@ bool Unstarted(const PersistentVoxelAdmissionEntry& entry)
         !entry.indexBytesUploaded && !entry.indexArenaBytesUploaded && !entry.primitiveBytesUploaded &&
         emptyBuffer(entry.directBlasScratchBuffer) && emptyBuffer(mesh.vertexBuffer) && emptyBuffer(mesh.indexBuffer) &&
         emptyAs(mesh.accelerationStructure) && emptyBuffer(mesh.shadowProxy.vertexBuffer) && emptyBuffer(mesh.shadowProxy.indexBuffer) &&
-        emptyAs(mesh.shadowProxy.accelerationStructure) && !mesh.geometryRange.transaction &&
+        emptyAs(mesh.shadowProxy.accelerationStructure) && !mesh.computeProviderReservation.Total() && !mesh.geometryRange.transaction &&
         emptyRange(mesh.geometryRange.vertices) && emptyRange(mesh.geometryRange.indices) && emptyRange(mesh.geometryRange.primitives) &&
         !mesh.vertexCapacity && !mesh.indexCapacity && !mesh.primitiveCapacity &&
         !mesh.vertexOffset && !mesh.indexOffset && !mesh.primitiveOffset &&

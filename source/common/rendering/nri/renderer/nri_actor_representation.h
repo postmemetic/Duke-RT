@@ -11,6 +11,8 @@ class NRIPersistentVoxelResidency;
 struct NRIPersistentVoxelSettings;
 struct NRIPersistentVoxelTlasServices;
 struct NRIActorOccurrencePolicyContext;
+class NRIRenderDevice;
+class NRISceneTextureResidency;
 
 struct NRIActorRepresentationStats
 {
@@ -24,6 +26,10 @@ struct NRIActorRepresentationStats
 class NRIActorRepresentations
 {
 public:
+	// Resolve cheap texture dependencies before residency can expire a held voxel.
+	void PrepareTextures(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
+		NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
+		void (*buildMaterials)(void*, nri_scene::SceneView&, nri_scene::MaterialBridgeData&));
 	bool Build(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
 		const NRIPersistentVoxelSettings& settings,
 		const NRIPersistentVoxelTlasServices& services,
@@ -39,6 +45,7 @@ public:
 	nri_scene::MaterialBridgeData& Materials() { return mMaterials; }
 	const NRIActorRepresentationStats& Stats() const { return mStats; }
 	const std::vector<uint32_t>& PriorityMaterials() const { return mPriorityMaterials; }
+	bool HasIndirectSprites(uint32_t frameIndex) const;
 private:
 	struct SelectedSprite { uint32_t ownerChunk = UINT32_MAX; bool indirectOnly = false; };
 	struct Decision

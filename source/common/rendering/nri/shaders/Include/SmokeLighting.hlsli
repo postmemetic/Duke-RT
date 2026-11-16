@@ -3,6 +3,7 @@
 
 #include "AnalyticLightSampling.hlsli"
 #include "SceneShadowContracts.hlsli"
+#include "ActorSpriteWorkloads.hlsli"
 #include "EmissiveLightContracts.hlsli"
 #include "EmissiveResponseLookup.hlsli"
 #include "DirectionalLightSampling.hlsli"
@@ -114,13 +115,15 @@ PrimitiveData SmokeGetPrimitive(uint dataSource, uint primitiveIndex);
 MaterialData SmokeGetMaterial(uint dataSource, uint materialIndex);
 uint SmokeResolveMaterialIndex(SceneInstanceData instanceData, PrimitiveData primitive);
 
-uint SmokeOpaqueRayFlags()
+uint SmokeOpaqueRayFlags(uint traceMask)
 {
-	return (gSmokeConstants.LightSourceFlags & NRI_SMOKE_SCENE_TRANSLUCENT_EFFECTS) != 0u
+	const bool filterIndirectActors = (traceMask & NRI_TLAS_MASK_SHADOW) != 0u &&
+		(gSmokeConstants.LightSourceFlags & NRI_SMOKE_SCENE_ACTOR_INDIRECT_SPRITES) != 0u;
+	return filterIndirectActors || (gSmokeConstants.LightSourceFlags & NRI_SMOKE_SCENE_TRANSLUCENT_EFFECTS) != 0u
 		? RAY_FLAG_FORCE_NON_OPAQUE : RAY_FLAG_FORCE_OPAQUE;
 }
 
-bool SmokeAcceptOpaqueCandidate(uint instanceId, uint primitiveIndex)
+bool SmokeAcceptOpaqueCandidate(uint instanceId, uint primitiveIndex, uint traceMask)
 {
 	uint count, stride;
 	gSmokeSceneInstances.GetDimensions(count, stride);
@@ -128,6 +131,7 @@ bool SmokeAcceptOpaqueCandidate(uint instanceId, uint primitiveIndex)
 	const SceneInstanceData instance = gSmokeSceneInstances[instanceId];
 	if (instance.dataSource != NRI_SMOKE_SCENE_DATA_SOURCE_DYNAMIC) return true;
 	const PrimitiveData primitive = SmokeGetPrimitive(instance.dataSource, instance.primitiveBase + primitiveIndex);
+	if (RejectIndirectActorSpriteWorkload(primitive.flags, traceMask)) return false;
 	const MaterialData material = SmokeGetMaterial(instance.dataSource, SmokeResolveMaterialIndex(instance, primitive));
 	return (material.flags & MATERIAL_FLAG_TRANSLUCENT_EFFECT) == 0u;
 }
@@ -139,11 +143,11 @@ SmokeIndirectHit SmokeTraceIndirectClosest(float3 origin, float3 direction, floa
 	result.instanceSectorIndex = 0xffffffffu;
 	RayDesc ray = { origin + direction * 0.05, 0.001, direction, max(maximumDistance - 0.051, 0.001) };
 	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
-	query.TraceRayInline(gSmokeWorldTlas, SmokeOpaqueRayFlags(), NRI_TLAS_MASK_GI, ray);
+	query.TraceRayInline(gSmokeWorldTlas, SmokeOpaqueRayFlags(NRI_TLAS_MASK_GI), NRI_TLAS_MASK_GI, ray);
 	while (query.Proceed())
 	{
 		if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
-			SmokeAcceptOpaqueCandidate(query.CandidateInstanceID(), query.CandidatePrimitiveIndex()))
+			SmokeAcceptOpaqueCandidate(query.CandidateInstanceID(), query.CandidatePrimitiveIndex(), NRI_TLAS_MASK_GI))
 			query.CommitNonOpaqueTriangleHit();
 	}
 	if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
@@ -553,13 +557,13 @@ bool SmokePointLightVisibleBiasedWithBlocker(
 	ray.TMin = 0.001;
 	ray.Direction = lightDirection;
 	ray.TMax = max(lightDistance - originBias - endpointBias, 0.001);
-	const uint rayFlags = SmokeOpaqueRayFlags();
+	const uint rayFlags = SmokeOpaqueRayFlags(NRI_TLAS_MASK_SHADOW);
 	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
 	query.TraceRayInline(gSmokeWorldTlas, rayFlags, NRI_TLAS_MASK_SHADOW, ray);
 	while (query.Proceed())
 	{
 		if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
-			SmokeAcceptOpaqueCandidate(query.CandidateInstanceID(), query.CandidatePrimitiveIndex()))
+			SmokeAcceptOpaqueCandidate(query.CandidateInstanceID(), query.CandidatePrimitiveIndex(), NRI_TLAS_MASK_SHADOW))
 			query.CommitNonOpaqueTriangleHit();
 	}
 	const bool visible = query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;

@@ -12,6 +12,7 @@
 #include "MotionContracts.hlsli"
 #include "StaticShadingData.hlsli"
 #include "RayQueryContinuation.hlsli"
+#include "ActorSpriteWorkloads.hlsli"
 
 StructuredBuffer<StaticTangentData> gStaticTangents : register(t28, space2);
 
@@ -2594,7 +2595,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					const bool candidateAlpha =
 						(candidateMaterial.flags & MATERIAL_FLAG_ALPHA_CLIP) != 0u ||
 						candidateMaterial.alpha < 0.999;
-					if (candidateReflectionOnly && !allowReflectionOnlySurfaces)
+					if (RejectReflectionOnlyWorkload(candidatePrimitive.flags, traceMask, allowReflectionOnlySurfaces))
 					{
 						TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 						TraceShaderStatAdd(TRACE_STAT_REJECT_REFLECTION, 1u);
@@ -2850,7 +2851,7 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		const PrimitiveData primitive = GetPrimitiveData(instanceData.dataSource, primitiveIndex);
 		const uint materialIndex = ResolvePrimitiveMaterialIndex(instanceData, primitive);
 		const bool reflectionOnlyPrimitive = IsReflectionOnlyPrimitive(primitive);
-		if (!allowReflectionOnlySurfaces && reflectionOnlyPrimitive)
+		if (RejectReflectionOnlyWorkload(primitive.flags, traceMask, allowReflectionOnlySurfaces))
 		{
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);

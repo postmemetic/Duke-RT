@@ -52,6 +52,19 @@ struct ActorSpriteAnimationState
 	int32_t currentFrame = 0;
 	int32_t forcedRotation = 0;
 	int32_t fullbrightKind = 0;
+	// Certified built-in Duke presentation recipe. These inputs are deliberately
+	// outside the placement/witness hash and never execute script callbacks.
+	bool recipeCertified = false;
+	bool recipeHandled = false;
+	bool recipeHidden = false;
+	bool forceSphereChild = false;
+	bool heatVision = false;
+	int32_t recipeShade = 0;
+	int32_t recipePalette = 0;
+	int32_t recipeFloorPalette = -1;
+	int32_t recipeTextureId = -1;
+	ActorPresentationVector2 sphereOwnerPosition;
+	ActorPresentationVector2 viewPlayerPosition;
 };
 
 // A renderer-safe copy of the authoritative actor placement at the end of a
@@ -111,3 +124,7 @@ const ActorPresentationState* LookupActorPresentationByOwnerKey(const ActorPrese
 const ActorPresentationState* LookupActorPresentationByActor(const DCoreActor* actor);
 
 bool RunActorPresentationSnapshotSelfTests(std::string* failureReason = nullptr);
+
+// Optional renderer consumer demand. Disabled frames skip game recipe capture;
+// toggling this does not alter placement authority or gameplay witness hashes.
+void SetActorSpriteFallbackRecipesRequested(bool requested);

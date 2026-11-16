@@ -1,4 +1,5 @@
 #include "nri_voxel_compute_meshing.h"
+#include "nri_voxel_compute_allocation.h"
 #include "nri_persistent_voxel_admission_diagnostics.h"
 
 #include "nri_voxel_compute_batch_plan.h"
@@ -20,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -240,6 +242,7 @@ namespace
 		uint32_t uploadedSlabCount = 0;
 		uint32_t uploadedColorRunCount = 0;
 		uint64_t uploadFenceValue = 0;
+		NRIVoxelComputeBudgetRetry allocationRetry;
 		bool uploadInFlight = false;
 		bool failed = false;
 	};
@@ -349,6 +352,7 @@ namespace
 		double rawSourceIngestScanMs = 0.0;
 		double rawSourceIngestScanMaxMs = 0.0;
 		uint64_t lastObservedFrame = 0;
+		NRIVoxelComputeBudgetRetry allocationRetry;
 		uint64_t totalStatusReadbackBytes = 0;
 		uint64_t totalFullGeometryReadbackBytes = 0;
 		uint64_t directBatchInputRequests = 0;
@@ -365,6 +369,7 @@ namespace
 		std::unordered_set<uint64_t> pendingConsumeKeys;
 		std::unordered_set<uint64_t> failedConsumeKeys;
 		std::unordered_set<uint64_t> queuedDirectKeys;
+		std::unordered_set<uint64_t> budgetDeferredDirectKeys;
 		std::unordered_set<uint64_t> pendingDirectKeys;
 		std::unordered_set<uint64_t> cancelledDirectKeys;
 		std::unordered_set<uint64_t> failedDirectKeys;
@@ -1030,7 +1035,8 @@ namespace
 		}
 
 		RawVoxelSourceArchivePage& page = state.rawArchivePages[pageIndex];
-		if (page.failed || page.uploadInFlight ||
+		if (((bool)nri_ptvoxelallocationbudget && page.allocationRetry.Waiting(frameNumber)) ||
+			page.failed || page.uploadInFlight ||
 			(page.uploadedSlabCount == page.slabs.size() && page.uploadedColorRunCount == page.colorRuns.size()))
 		{
 			return;
@@ -1049,6 +1055,37 @@ namespace
 		const uint64_t uploadSlabBytes = (uint64_t)uploadSlabCount * sizeof(NRIVoxelComputeSlabRecord);
 		const uint64_t uploadColorRunBytes = (uint64_t)uploadColorRunCount * sizeof(NRIVoxelComputeColorRunRecord);
 
+		if ((bool)nri_ptvoxelallocationbudget)
+		{
+			const NRIVoxelComputeBufferAllocation requests[] = {
+				{ &page.slabBuffer, uint64_t(pagePlan->slabCapacity) * sizeof(NRIVoxelComputeSlabRecord), sizeof(NRIVoxelComputeSlabRecord), nri::BufferUsageBits::SHADER_RESOURCE, nri::MemoryLocation::DEVICE, nri::BufferView::STRUCTURED_BUFFER, true },
+				{ &page.colorRunBuffer, uint64_t(pagePlan->colorRunCapacity) * sizeof(NRIVoxelComputeColorRunRecord), sizeof(NRIVoxelComputeColorRunRecord), nri::BufferUsageBits::SHADER_RESOURCE, nri::MemoryLocation::DEVICE, nri::BufferView::STRUCTURED_BUFFER, true },
+				{ &page.slabUploadBuffer, uploadSlabBytes, sizeof(NRIVoxelComputeSlabRecord), nri::BufferUsageBits::NONE, nri::MemoryLocation::DEVICE_UPLOAD, nri::BufferView::STRUCTURED_BUFFER, false },
+				{ &page.colorRunUploadBuffer, uploadColorRunBytes, sizeof(NRIVoxelComputeColorRunRecord), nri::BufferUsageBits::NONE, nri::MemoryLocation::DEVICE_UPLOAD, nri::BufferView::STRUCTURED_BUFFER, false },
+			};
+			std::vector<const FVoxelModel*> ownerModels;
+			for (const auto& archived : state.rawSourceArchive)
+				if (archived.second.pageIndex == pageIndex) ownerModels.push_back(archived.first);
+			NRIVoxelComputeAllocationOwners owners;
+			owners.stage = NRIVoxelComputeProviderStage::RawSource;
+			owners.sourceModels = ownerModels.data();
+			owners.sourceCount = uint32_t(ownerModels.size());
+			const auto allocation = ReserveNRIVoxelComputeBuffers(renderer, requests, uint32_t(std::size(requests)), "raw-page", owners);
+			if (allocation != NRIPersistentVoxelAllocationResult::Ready && allocation != NRIPersistentVoxelAllocationResult::Disabled)
+			{
+				if (page.allocationRetry.Denied(frameNumber, pageIndex))
+				{
+					for (const auto& job : state.queuedJobs)
+					{
+						const auto archived = state.rawSourceArchive.find(job.model);
+						if (archived != state.rawSourceArchive.end() && archived->second.pageIndex == pageIndex)
+							for (const auto& binding : job.directBindings) state.budgetDeferredDirectKeys.insert(binding.directKey);
+					}
+				}
+				return; // Source remains pending; budget pressure is not corruption.
+			}
+			page.allocationRetry.Accepted();
+		}
 		const bool ok =
 			(page.slabBuffer.buffer != nullptr || CreateBuffer(
 				services,
@@ -1979,11 +2016,17 @@ bool TakeNRIVoxelComputeDirectPublication(uint64_t meshResourceKey, uint64_t gen
 	return true;
 }
 
+bool TakeNRIVoxelComputeBudgetDeferral(uint64_t meshResourceKey, uint64_t generation)
+{
+	return gVoxelComputeState.budgetDeferredDirectKeys.erase(BuildDirectPublishKey(meshResourceKey, generation)) != 0;
+}
+
 void CancelNRIVoxelComputeDirectPublication(uint64_t meshResourceKey, uint64_t generation)
 {
 	NoteNRIVoxelAdmissionComputeDiagnostic(meshResourceKey, generation, "cancel-request", 0, UINT64_MAX);
 	VoxelComputeState& state = gVoxelComputeState;
 	const uint64_t directKey = BuildDirectPublishKey(meshResourceKey, generation);
+	state.budgetDeferredDirectKeys.erase(directKey);
 	state.queuedDirectKeys.erase(directKey);
 	if (state.pendingDirectKeys.erase(directKey) != 0)
 	{
@@ -2166,6 +2209,36 @@ bool PreloadNRIVoxelComputeRawSource(FVoxelModel* model, NRIVoxelComputeRawSourc
 	return true;
 }
 
+bool PrepareNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputeProviderSource& source)
+{
+	source = {};
+	if (!model || !IsRawSourceArchiveEnabled()) return false;
+	auto& state = gVoxelComputeState;
+	const auto found = state.rawSourceArchive.find(model);
+	if (found == state.rawSourceArchive.end())
+	{
+		QueueRuntimeRawSource(model, state.lastObservedFrame);
+		return false;
+	}
+	const auto& archive = found->second;
+	const auto* pagePlan = state.rawArchivePlan.GetPage(archive.pageIndex);
+	if (archive.failed || !pagePlan || archive.pageIndex >= state.rawArchivePages.size()) return false;
+	const auto& page = state.rawArchivePages[archive.pageIndex];
+	if (page.failed || !archive.stats.slabCount) return false;
+	source.pageIndex = archive.pageIndex;
+	source.slabCount = archive.stats.slabCount;
+	source.vertexCount = archive.stats.adjacencySurfaceVertexCount;
+	source.indexCount = archive.stats.adjacencySurfaceIndexCount;
+	source.primitiveCount = AdjacencySurfacePrimitiveCount(archive.stats);
+	source.slabCapacity = pagePlan->slabCapacity;
+	source.colorRunCapacity = pagePlan->colorRunCapacity;
+	source.slabAllocated = page.slabBuffer.buffer != nullptr;
+	source.colorRunsAllocated = page.colorRunBuffer.buffer != nullptr;
+	source.uploaded = archive.uploaded;
+	source.fullReadback = IsFullGeneratedReadbackEnabled();
+	return true;
+}
+
 NRIVoxelComputeMemoryUsage GetNRIVoxelComputeMemoryUsage()
 {
 	const VoxelComputeState& state = gVoxelComputeState;
@@ -2326,7 +2399,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 	PumpPendingRawSources(frameNumber);
 	UploadPendingRawSources(renderer, renderer.mFrameBuffer, services, frameNumber);
 
-	if (state.queuedJobs.empty())
+	if (state.queuedJobs.empty() || ((bool)nri_ptvoxelallocationbudget && state.allocationRetry.Waiting(frameNumber)))
 	{
 		return;
 	}
@@ -2613,6 +2686,72 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 	const uint64_t primitiveBytes = (uint64_t)emittedPrimitiveCount * sizeof(NRIVoxelComputePrimitiveData);
 	const uint64_t scratchBytes = parallelArchivedEmit ?
 		(uint64_t)parallelPlan.scratchRecordCount * sizeof(NRIVoxelComputeSlabScratch) : 0u;
+	if ((bool)nri_ptvoxelallocationbudget)
+	{
+		std::vector<NRIVoxelComputeBufferAllocation> allocations;
+		const auto reserveBuffer = [&](NRIBufferResource& target, uint64_t bytes, uint32_t stride,
+			nri::BufferUsageBits usage, nri::MemoryLocation location, nri::BufferView view, bool createView)
+		{ allocations.push_back({ &target, bytes, stride, usage, location, view, createView }); };
+		const auto uploadLocation = nri::MemoryLocation::DEVICE_UPLOAD;
+		const auto deviceLocation = nri::MemoryLocation::DEVICE;
+		const auto readbackLocation = nri::MemoryLocation::HOST_READBACK;
+		const auto readUsage = nri::BufferUsageBits::SHADER_RESOURCE;
+		const auto writeUsage = nri::BufferUsageBits::SHADER_RESOURCE_STORAGE;
+		const auto noneUsage = nri::BufferUsageBits::NONE;
+		const auto readView = nri::BufferView::STRUCTURED_BUFFER;
+		const auto writeView = nri::BufferView::STORAGE_STRUCTURED_BUFFER;
+		reserveBuffer(slot.jobUploadBuffer, jobBytes, sizeof(NRIVoxelComputeJob), noneUsage, uploadLocation, readView, false);
+		reserveBuffer(slot.jobBuffer, jobBytes, sizeof(NRIVoxelComputeJob), readUsage, deviceLocation, readView, true);
+		reserveBuffer(slot.resultBuffer, resultBytes, sizeof(NRIVoxelComputeResult), writeUsage, deviceLocation, writeView, true);
+		reserveBuffer(slot.readbackBuffer, resultBytes, sizeof(NRIVoxelComputeResult), noneUsage, readbackLocation, readView, false);
+		if (!directSource)
+		{
+			reserveBuffer(slot.slabUploadBuffer, slabBytes, sizeof(NRIVoxelComputeSlabRecord), noneUsage, uploadLocation, readView, false);
+			reserveBuffer(slot.slabBuffer, slabBytes, sizeof(NRIVoxelComputeSlabRecord), readUsage, deviceLocation, readView, true);
+			reserveBuffer(slot.colorRunUploadBuffer, colorRunBytes, sizeof(NRIVoxelComputeColorRunRecord), noneUsage, uploadLocation, readView, false);
+			reserveBuffer(slot.colorRunBuffer, colorRunBytes, sizeof(NRIVoxelComputeColorRunRecord), readUsage, deviceLocation, readView, true);
+		}
+		if (parallelArchivedEmit)
+			reserveBuffer(slot.slabScratchBuffer, scratchBytes, sizeof(NRIVoxelComputeSlabScratch), writeUsage, deviceLocation, writeView, true);
+		if (emit)
+		{
+			if (!directSource)
+				reserveBuffer(slot.faceUploadBuffer, faceBytes, sizeof(NRIVoxelComputeFaceRecord), noneUsage, uploadLocation, readView, false);
+			reserveBuffer(slot.faceBuffer, directSource ? sizeof(NRIVoxelComputeFaceRecord) : faceBytes, sizeof(NRIVoxelComputeFaceRecord), readUsage, deviceLocation, readView, true);
+			if (!directOutput)
+			{
+				const auto geometryUsage = NRIResourceFlags(writeUsage, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
+				reserveBuffer(slot.vertexBuffer, vertexBytes, sizeof(NRIVoxelComputeSceneVertex), geometryUsage, deviceLocation, writeView, true);
+				reserveBuffer(slot.indexBuffer, indexBytes, sizeof(uint32_t), geometryUsage, deviceLocation, writeView, true);
+				reserveBuffer(slot.primitiveBuffer, primitiveBytes, sizeof(NRIVoxelComputePrimitiveData), writeUsage, deviceLocation, writeView, true);
+			}
+			if (fullGeneratedReadback)
+			{
+				reserveBuffer(slot.vertexReadbackBuffer, vertexBytes, sizeof(NRIVoxelComputeSceneVertex), noneUsage, readbackLocation, readView, false);
+				reserveBuffer(slot.indexReadbackBuffer, indexBytes, sizeof(uint32_t), noneUsage, readbackLocation, readView, false);
+				reserveBuffer(slot.primitiveReadbackBuffer, primitiveBytes, sizeof(NRIVoxelComputePrimitiveData), noneUsage, readbackLocation, readView, false);
+			}
+		}
+		std::vector<uint64_t> ownerMeshes;
+		for (const auto& pending : pendingJobs)
+		{
+			if (pending.directMeshResourceKey) ownerMeshes.push_back(pending.directMeshResourceKey);
+			for (const auto& binding : pending.directBindings) ownerMeshes.push_back(binding.meshResourceKey);
+		}
+		NRIVoxelComputeAllocationOwners owners;
+		owners.meshKeys = ownerMeshes.data();
+		owners.meshCount = uint32_t(ownerMeshes.size());
+		const auto allocation = ReserveNRIVoxelComputeBuffers(renderer, allocations.data(), uint32_t(allocations.size()), "dispatch", owners);
+		if (allocation != NRIPersistentVoxelAllocationResult::Ready && allocation != NRIPersistentVoxelAllocationResult::Disabled)
+		{
+			if (state.allocationRetry.Denied(frameNumber, pendingJobs.empty() ? 0 : pendingJobs.front().directKey))
+				for (const auto& pending : pendingJobs)
+					for (const auto& binding : pending.directBindings) state.budgetDeferredDirectKeys.insert(binding.directKey);
+			recordingGuard.abortReason = "allocation-budget-deferred";
+			return; // No dispatch or dequeue: the fenced slot guard releases its claim.
+		}
+		state.allocationRetry.Accepted();
+	}
 	if (!EnsureBuffer(services, slot.jobUploadBuffer, jobBytes, sizeof(NRIVoxelComputeJob), nri::BufferUsageBits::NONE, nri::MemoryLocation::DEVICE_UPLOAD, nri::BufferView::STRUCTURED_BUFFER, false) ||
 		!EnsureBuffer(services, slot.jobBuffer, jobBytes, sizeof(NRIVoxelComputeJob), nri::BufferUsageBits::SHADER_RESOURCE, nri::MemoryLocation::DEVICE, nri::BufferView::STRUCTURED_BUFFER, true) ||
 		(!directSource &&
@@ -2988,6 +3127,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 
 	constexpr uint32_t MaxDiagnosticBlasPrimitives = 8192;
 	const bool allowDiagnosticBlas =
+		!(bool)nri_ptvoxelallocationbudget && // Optional diagnostic sidecar has no production admission owner.
 		buildBlas &&
 		!directOutput &&
 		state.diagnosticBlasBuildsSubmitted == 0 &&
@@ -3055,7 +3195,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 			"PERF pt voxel compute blas NRI: frame=%llu jobs=%u success=0 skipped=1 reason=%s vertices=%u indices=%u primitives=%u max_primitives=%u submitted=%u direct_source=%u full_readback=%u\n",
 			(unsigned long long)frameNumber,
 			(unsigned)gpuJobs.size(),
-			state.diagnosticBlasBuildsSubmitted != 0 ? "single_build_budget" : "primitive_budget",
+			(bool)nri_ptvoxelallocationbudget ? "allocation_budget" : (state.diagnosticBlasBuildsSubmitted != 0 ? "single_build_budget" : "primitive_budget"),
 			vertexOffset,
 			indexOffset,
 			primitiveOffset,

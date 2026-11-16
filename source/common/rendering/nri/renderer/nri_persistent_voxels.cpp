@@ -4104,6 +4104,8 @@ NRIPersistentVoxelMemoryUsage NRIPersistentVoxelResidency::GetMemoryUsage() cons
 			entry.uploadMeshResource.indexBuffer.memorySize +
 			entry.directBlasScratchBuffer.memorySize;
 		usage.admissionTransientAsBytes += entry.uploadMeshResource.accelerationStructure.memorySize;
+		usage.admissionProviderReservedBytes = NRIVoxelComputeSaturatingAdd(usage.admissionProviderReservedBytes,
+			entry.uploadMeshResource.computeProviderReservation.Total());
 		usage.admissionCpuGeometryBytes +=
 			(uint64_t)entry.uploadGeometry.vertices.capacity() * sizeof(nri_scene::SceneVertex) +
 			(uint64_t)entry.uploadGeometry.indices.capacity() * sizeof(uint32_t) +
@@ -5621,6 +5623,25 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		entry.directBlasExclusive = false;
 	};
 
+	if (entry.directComputeRequested && TakeNRIVoxelComputeBudgetDeferral(meshResourceKey, entry.directComputeGeneration))
+	{
+		if (PerfAuditActive())
+		{
+			char fields[384];
+			snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"generation\":%llu,\"unspent_provider_bytes\":%llu,\"as_scratch_retired_bytes\":%llu,\"retry_frames\":30",
+				frameIndex, (unsigned long long)meshResourceKey, (unsigned long long)entry.directComputeGeneration,
+				(unsigned long long)entry.uploadMeshResource.computeProviderReservation.Total(),
+				(unsigned long long)(entry.uploadMeshResource.accelerationStructure.memorySize + entry.directBlasScratchBuffer.memorySize));
+			PerfAuditWriteEvent("voxel_compute_budget_yield", PerfAuditCurrentToken(), fields);
+		}
+		cleanupPendingUpload();
+		entry.state = PersistentVoxelAdmissionState::Deferred;
+		entry.lastReason = "compute-provider-budget-retry";
+		entry.allocationRetryFrame = frameIndex <= UINT32_MAX - 30 ? frameIndex + 30 : UINT32_MAX;
+		outInProgress = true;
+		return true;
+	}
+
 	auto rollbackAdmission = [&](const char* reason, const char* step) -> bool
 	{
 		outFailureReason = reason != nullptr ? reason : "failed";
@@ -5743,8 +5764,10 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, false));
 		entry.state = PersistentVoxelAdmissionState::Deferred;
 		entry.lastReason = result == NRIPersistentVoxelAllocationResult::AllocationFailed ?
-			"allocation-device-retry" : "allocation-budget-deferred";
-		entry.allocationRetryFrame = frameIndex <= UINT32_MAX - 30u ? frameIndex + 30u : UINT32_MAX;
+			"allocation-device-retry" : (result == NRIPersistentVoxelAllocationResult::DeferredSource ?
+			"allocation-source-pending" : "allocation-budget-deferred");
+		const uint32_t retryDelay = result == NRIPersistentVoxelAllocationResult::DeferredSource ? 1u : 30u;
+		entry.allocationRetryFrame = frameIndex <= UINT32_MAX - retryDelay ? frameIndex + retryDelay : UINT32_MAX;
 		outInProgress = true;
 		return true;
 	};
@@ -6528,6 +6551,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			NRIPersistentVoxelGeometryRangeHandle previousRange;
 			if (!AllocateGeometryRange(meshResource, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");
+			meshResource.sourceModel = variant.model;
+			meshResource.resourceKey = meshResourceKey;
 			const auto allocation = services.PrepareGeometryAllocation(meshResource,
 				entry.runtimeRequested ? &entry.directBlasScratchBuffer : nullptr,
 				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false);
@@ -8850,6 +8875,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			{
 				if (!actorDemand.CanHold(cacheEntry.identityKey, cacheEntry.ownerWorldEpoch,
 					cacheEntry.ownerLifetimeGeneration, frameIndex, GetNRIVoxelAdmissionPolicySettings().heldMaximumFrames) &&
+					spriteFallbackReadyFrame == frameIndex && spriteFallbackReadyActors.count(cacheEntry.identityKey) != 0 &&
 					nri_scene::HasCurrentActorSpriteFallbackCandidate(cacheEntry.identityKey,
 						cacheEntry.ownerWorldEpoch, cacheEntry.ownerLifetimeGeneration))
 					return false;
@@ -9923,6 +9949,8 @@ void NRIPersistentVoxelResidency::Reset(
 	warmRetentionPressure = {};
 	spriteFallbackActors.clear();
 	spriteFallbackFrame = UINT32_MAX;
+	spriteFallbackReadyActors.clear();
+	spriteFallbackReadyFrame = UINT32_MAX;
 	MarkMaintenanceMutation();
 	if (traceReset &&
 		(!batch.actors.empty() ||
@@ -10065,6 +10093,8 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 	warmRetentionPressure = {};
 	spriteFallbackActors.clear();
 	spriteFallbackFrame = UINT32_MAX;
+	spriteFallbackReadyActors.clear();
+	spriteFallbackReadyFrame = UINT32_MAX;
 	MarkMaintenanceMutation();
 	const uint32_t actorCount = (uint32_t)batch.actors.size();
 	const uint32_t instanceCount = (uint32_t)instances.size();

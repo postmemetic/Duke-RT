@@ -11,6 +11,7 @@
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_allocation.h"
+#include "nri_voxel_compute_allocation_policy.h"
 #include "nri_persistent_voxel_retention_policy.h"
 #include "nri_persistent_voxel_cache_diagnostics.h"
 #include "nri_persistent_voxel_admission_diagnostics.h"
@@ -111,6 +112,7 @@ struct PersistentVoxelBatch
 
 struct PersistentVoxelMeshVariantResource
 {
+	NRIVoxelComputeProviderReservation computeProviderReservation; // Physical provider buffers have their own fenced owner.
 	uint32_t allocationRetryFrame = 0;
 	NRIPersistentVoxelGeometryRangeHandle geometryRange;
 	FVoxelModel* sourceModel = nullptr;
@@ -670,6 +672,7 @@ struct NRIPersistentVoxelMemoryUsage
 	uint64_t materialLogicalBytes = 0;
 	uint64_t admissionTransientBufferBytes = 0;
 	uint64_t admissionTransientAsBytes = 0;
+	uint64_t admissionProviderReservedBytes = 0;
 	uint64_t admissionCpuGeometryBytes = 0;
 };
 
@@ -1051,6 +1054,8 @@ public:
     NRIVoxelRetentionPressure warmRetentionPressure;
     std::unordered_set<uint64_t> spriteFallbackActors;
     uint32_t spriteFallbackFrame = UINT32_MAX;
+    std::unordered_set<uint64_t> spriteFallbackReadyActors;
+    uint32_t spriteFallbackReadyFrame = UINT32_MAX;
 	void Reset(const char* reason, bool clearSharedResources, bool traceReset, const NRIPersistentVoxelResetServices& services);
 	void ResetLevelSchedulingState(const char* reason, bool traceReset, const NRIPersistentVoxelResetServices& services);
 	bool CompactMaterialRangesForQuiescentLevelTransition(const char* reason, bool traceEnabled);

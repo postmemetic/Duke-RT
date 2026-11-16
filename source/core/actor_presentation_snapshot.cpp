@@ -17,6 +17,7 @@ namespace
 	uint64_t gNextSnapshotGeneration = 1;
 	uint64_t gNextPlacementGeneration = 1;
 	bool gFullReconcileRequired = true;
+	bool gSpriteFallbackRecipesRequested = false;
 
 	uint64_t HashBytes(uint64_t hash, const void* data, size_t size)
 	{
@@ -115,7 +116,7 @@ namespace
 		state.spritePalette = actor.spr.pal;
 		state.spriteXOffset = actor.spr.xoffset;
 		state.spriteYOffset = actor.spr.yoffset;
-		if (gi != nullptr) gi->CaptureActorSpriteAnimation(actor, state.spriteAnimation);
+		if (gSpriteFallbackRecipesRequested && gi != nullptr) gi->CaptureActorSpriteAnimation(actor, state.spriteAnimation);
 		state.authorityCurrent = actor.exists() && (actor.ObjectFlags & OF_EuthanizeMe) == 0;
 		state.publicationEligible = state.authorityCurrent && state.physicalSectorIndex >= 0 &&
 			actor.spr.scale.X != 0.0 && actor.spr.scale.Y != 0.0 &&
@@ -154,6 +155,11 @@ namespace
 		if (failureReason != nullptr) *failureReason = reason;
 		return false;
 	}
+}
+
+void SetActorSpriteFallbackRecipesRequested(bool requested)
+{
+	gSpriteFallbackRecipesRequested = requested;
 }
 
 void PublishActorPresentationSnapshot(uint64_t simulationGeneration)
@@ -283,6 +289,28 @@ bool RunActorPresentationSnapshotSelfTests(std::string* failureReason)
 	ActorPresentationState represented = base;
 	represented.picnum++;
 	if (!expectPlacementChange(represented, "representation did not advance placement generation")) return false;
+	ActorPresentationState presentationOnly = base;
+	presentationOnly.spriteAnimation.recipeCertified = true;
+	presentationOnly.spriteAnimation.recipeHidden = true;
+	presentationOnly.spriteAnimation.recipeShade = -127;
+	presentationOnly.spriteAnimation.currentFrame = 4;
+	if (HashState(presentationOnly) != base.placementStateHash)
+	{
+		return FailSelfTest(failureReason, "presentation recipe changed placement/witness hash");
+	}
+	ActorPresentationSnapshot owners;
+	owners.actors.push_back(base);
+	if (FindState(owners, base.owner) != &owners.actors.front() ||
+		FindState(owners, { base.owner.ownerWorldEpoch + 1, base.owner.ownerLifetimeGeneration }) != nullptr ||
+		FindState(owners, { base.owner.ownerWorldEpoch, base.owner.ownerLifetimeGeneration + 1 }) != nullptr)
+	{
+		return FailSelfTest(failureReason, "retained owner accepted a different world or lifetime");
+	}
+	owners.actors.clear();
+	if (FindState(owners, base.owner) != nullptr)
+	{
+		return FailSelfTest(failureReason, "deleted owner remained available");
+	}
 
 	ActorPresentationState hidden = base;
 	hidden.publicationEligible = false;

@@ -5,6 +5,7 @@
 
 // LightSourceFlags; shared with SmokeConstants.hlsli.
 static constexpr uint32_t NRISmokeSceneTranslucentEffects = 0x1000u;
+static constexpr uint32_t NRISmokeSceneActorIndirectSprites = 0x2000u;
 
 enum class NRISmokePass : uint32_t
 {

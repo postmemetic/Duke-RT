@@ -96,7 +96,7 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 		const bool ready = sameOwner && actor->active && activeOwners.Count(candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration) == 1u &&
 			voxels.IsActorTlasAppendEligible(*actor, frameIndex, settings, services);
 		const auto* suppressed = voxels.GetSuppressedActorIndices(frameIndex);
-		const bool intentionalAbsence = settings.omitTlasOccurrences ||
+		const bool intentionalAbsence = candidate.presentationHidden || settings.omitTlasOccurrences ||
 			(sameOwner && ((actor->resolvedVoxelIndex >= 0 &&
 				(actor->resolvedVoxelIndex == settings.excludeIndices[0] || actor->resolvedVoxelIndex == settings.excludeIndices[1] ||
 				 actor->resolvedVoxelIndex == settings.excludeIndices[2])) ||
@@ -111,7 +111,8 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 		}
 		const auto selected = SelectNRIActorRepresentation({intentionalAbsence,
 			candidate.transientGeometryCaptured || candidate.actorIndex == separateReflectionActor,
-			ready, candidate.descriptorCurrent && candidate.ownerWorldEpoch != 0 && candidate.surface.vertices.size() >= 3,
+			ready, candidate.descriptorCurrent && candidate.ownerWorldEpoch != 0 && candidate.surface.vertices.size() >= 3 &&
+				voxels.spriteFallbackReadyFrame == frameIndex && voxels.spriteFallbackReadyActors.count(candidate.identityKey) != 0,
 			ForceSprite(candidate.actorIndex)});
 		// Retained emissive surfaces are not a lifetime-qualified actor body.
 		// A current voxel candidate owns this actor's body; replace any old
@@ -129,6 +130,9 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 		{
 			selection = "suppressed";
 			++mStats.suppressed;
+			// Pure game presentation can intentionally hide an otherwise live
+			// voxel owner. Final voxel and light append consume this decision too.
+			voxels.spriteFallbackActors.insert(candidate.identityKey);
 		}
 		else if (selected == NRIActorSelection::ExistingDynamic)
 		{
@@ -208,7 +212,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 				++materialPrimitives[actorIndex];
 		}
 	}
-	uint32_t spritesPublished = 0, voxelsPublished = 0, absent = 0, duplicates = 0, traced = 0;
+	uint32_t spritesPublished = 0, voxelsPublished = 0, absent = 0, duplicates = 0, suppressedPublished = 0, traced = 0;
 	for (const auto& row : mDecisions)
 	{
 		const uint32_t slot = voxels.batch.actorIndex.Find(row.identity);
@@ -222,6 +226,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		voxelsPublished += voxelPublished;
 		absent += intendedBody && !spritePublished && !voxelPublished;
 		duplicates += spritePublished && voxelPublished;
+		suppressedPublished += std::strcmp(row.selection, "suppressed") == 0 && (spritePublished || voxelPublished);
 		if ((bool)nri_ptactorrepresentationtrace && traced < 128u &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == row.actorIndex))
 		{
@@ -237,11 +242,17 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		}
 	}
 	char fields[768];
-	std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"scene_ready\":%s,\"candidates\":%u,\"selected_sprite\":%u,\"selected_voxel\":%u,\"sprite_published\":%u,\"voxel_published\":%u,\"unrepresented\":%u,\"duplicates\":%u,\"vertex_bytes\":%llu,\"index_bytes\":%llu,\"primitive_bytes\":%llu",
+	std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"scene_ready\":%s,\"candidates\":%u,\"selected_sprite\":%u,\"selected_voxel\":%u,\"sprite_published\":%u,\"voxel_published\":%u,\"unrepresented\":%u,\"duplicates\":%u,\"suppressed_published\":%u,\"vertex_bytes\":%llu,\"index_bytes\":%llu,\"primitive_bytes\":%llu",
 		frameIndex, ready ? "true" : "false", mStats.candidates, mStats.sprite, mStats.voxel,
-		spritesPublished, voxelsPublished, absent, duplicates, (unsigned long long)mStats.vertexBytes,
+		spritesPublished, voxelsPublished, absent, duplicates, suppressedPublished, (unsigned long long)mStats.vertexBytes,
 		(unsigned long long)mStats.indexBytes, (unsigned long long)mStats.primitiveBytes);
 	PerfAuditWriteEvent("actor_representation_frame", PerfAuditCurrentToken(), fields);
+}
+
+bool NRIActorRepresentations::HasIndirectSprites(uint32_t frameIndex) const
+{
+	return mFrameIndex == frameIndex && std::any_of(mSelected.begin(), mSelected.end(),
+		[](const auto& item) { return item.second.indirectOnly; });
 }
 
 void NRIActorRepresentations::FinishGeometry()

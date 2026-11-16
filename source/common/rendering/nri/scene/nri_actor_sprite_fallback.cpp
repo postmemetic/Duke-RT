@@ -9,6 +9,7 @@
 #include "texturemanager.h"
 #include "gametexture.h"
 #include "buildtiles.h"
+#include "c_dispatch.h"
 
 #include <algorithm>
 #include <utility>
@@ -116,7 +117,9 @@ namespace
 
 void BeginActorSpriteFallbackFrame(uint64_t frame)
 {
-	if (!(bool)nri_ptactorspritefallback)
+	const bool enabled = (bool)nri_ptactorspritefallback && (bool)r_voxels;
+	SetActorSpriteFallbackRecipesRequested(enabled);
+	if (!enabled)
 	{
 		ResetActorSpriteFallbackCandidates();
 		return;
@@ -132,6 +135,7 @@ void BeginActorSpriteFallbackFrame(uint64_t frame)
 		retained.candidate.capturedThisFrame = false;
 		retained.candidate.descriptorCurrent = false;
 		retained.candidate.animationCurrent = false;
+		retained.candidate.presentationHidden = false;
 		retained.candidate.transientGeometryCaptured = false;
 	}
 }
@@ -191,7 +195,10 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 	for (auto& retained : gSprites)
 	{
 		auto& candidate = retained.candidate;
-		if (candidate.capturedThisFrame || candidate.transientVoxel) continue;
+		// A transient voxel has no canonical retained BLAS, but its original
+		// sprite can still serve offscreen rays. Current transient output wins
+		// during representation selection, preventing a duplicate body.
+		if (candidate.capturedThisFrame) continue;
 		const auto* actor = LookupActorPresentationByOwnerKey(retained.authority.owner);
 		if (!Eligible(actor) || actor->physicalSectorIndex < 0 || (unsigned)actor->physicalSectorIndex >= sector.Size()) continue;
 		tspritetype sprite = retained.sprite;
@@ -227,6 +234,12 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 			DVector2(view.Viewpoint.Pos.X, -view.Viewpoint.Pos.Y), DAngle::fromBam(view.Viewpoint.RotAngle));
 		// Unknown script-only animation is not certified beyond its captured tick.
 		if (!candidate.animationCurrent && candidate.simulationGeneration != GetActorPresentationSnapshot().simulationGeneration) continue;
+		if (candidate.animationCurrent && (sprite.scale.X == 0 || sprite.scale.Y == 0))
+		{
+			candidate.presentationHidden = true;
+			SetAuthority(candidate, *actor);
+			continue;
+		}
 		auto texture = sprite.spritetexture();
 		if (!(sprite.cstat2 & CSTAT2_SPRITE_NOANIMATE)) tileUpdatePicnum(texture, actor->actorIndex & 16383);
 		sprite.setspritetexture(texture);
@@ -262,8 +275,80 @@ bool HasCurrentActorSpriteFallbackCandidate(uint64_t identityKey, uint64_t world
 
 void ResetActorSpriteFallbackCandidates()
 {
+	SetActorSpriteFallbackRecipesRequested(false);
 	gSprites.clear();
 	gCandidates.clear();
 	gFrame = 0;
+}
+
+CCMD(nri_actor_sprite_descriptor_selftest)
+{
+	const auto tripbomb = TexMan.CheckForTexture("TRIPBOMB", ETextureType::Any);
+	const auto explosion = TexMan.CheckForTexture("EXPLOSION2", ETextureType::Any);
+	if (sector.Size() == 0 || !tripbomb.isValid() || !explosion.isValid())
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=load-a-Duke-map-first\n"); return;
+	}
+	HWDrawInfo view = {};
+	view.Viewpoint.Pos = DVector3(-512, -512, 0);
+	// Private unlinked sector: no level mutation, clipping or wall attachment
+	// from the loaded map can change these geometry assertions.
+	sectortype testSector = {};
+	testSector.ceilingz = -1024;
+	testSector.floorz = 1024;
+	ActorPresentationState actor;
+	actor.actorIndex = 123;
+	actor.physicalSectorIndex = 0;
+	actor.position = { 4, 6, 8 };
+	actor.previousPosition = { 3, 4, 5 };
+	tspritetype sprite = {};
+	sprite.setspritetexture(tripbomb);
+	sprite.sectp = &testSector;
+	sprite.pos = DVector3(4, 6, 8);
+	sprite.scale = DVector2(0.25, 0.25);
+	sprite.cstat = CSTAT_SPRITE_ALIGNMENT_WALL | CSTAT_SPRITE_ONE_SIDE;
+	SurfaceRef wall;
+	if (!BuildSurface(view, sprite, actor, false, 0, wall) || wall.vertices.size() != 4 ||
+		!(wall.material.flags & MaterialFlag_OneWay) || wall.provenance.actorIndex != actor.actorIndex)
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=tripbomb-wall\n"); return;
+	}
+	const auto originalUV = wall.vertices[0].uv[0];
+	sprite.cstat |= CSTAT_SPRITE_XFLIP;
+	SurfaceRef flipped;
+	if (!BuildSurface(view, sprite, actor, false, 0, flipped) || flipped.vertices[0].uv[0] == originalUV)
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=tripbomb-flip\n"); return;
+	}
+	for (const auto& vertex : flipped.vertices)
+	{
+		if (vertex.position[0] - vertex.prevPosition[0] != 1.0f ||
+			vertex.position[1] - vertex.prevPosition[1] != -3.0f ||
+			vertex.position[2] - vertex.prevPosition[2] != -2.0f)
+		{
+			Printf("Actor sprite descriptor self-test: result=fail reason=motion-space\n"); return;
+		}
+	}
+	actor.alpha = 1;
+	if (BuildSurface(view, sprite, actor, false, 0, flipped))
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=alpha-hidden\n"); return;
+	}
+	actor.alpha = 0;
+	sprite.setspritetexture(explosion);
+	sprite.cstat = 0;
+	sprite.shade = -127;
+	SurfaceRef effect;
+	if (!BuildSurface(view, sprite, actor, true, 0, effect) || effect.material.shade != -127 ||
+		!(effect.material.flags & MaterialFlag_FacingBillboard) || !(effect.material.flags & MaterialFlag_AlphaClip))
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=explosion-fullbright\n"); return;
+	}
+	sprite.scale = DVector2(0, 0);
+	if (BuildSurface(view, sprite, actor, true, 0, effect))
+	{
+		Printf("Actor sprite descriptor self-test: result=fail reason=zero-scale\n"); return;
+	}
+	Printf("Actor sprite descriptor self-test: result=pass cases=6\n");
 }
 }

@@ -1,5 +1,6 @@
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
+#include "nri_voxel_compute_allocation.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 #include "../system/nri_renderdevice.h"
@@ -83,6 +84,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     uint32_t candidatePercent = uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200));
     auto budget = GetPersistentVoxelBudgetSnapshot(true);
     NRIPersistentVoxelAllocationBudget peak;
+    NRIVoxelComputeProviderForecast provider;
     const auto report = [&](const char* decision, Result result)
     {
         if (PerfAuditActive())
@@ -90,20 +92,29 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             char fields[1024];
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
                 "\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
-                "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,"
+                "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
                 "\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"growth_percent\":%u,"
-                "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"cpu_ms\":%.6f",
+                "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,\"cpu_ms\":%.6f",
                 mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision,
                 (unsigned long long)mesh.resourceKey, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
-                (unsigned long long)reserve, (unsigned long long)predictedBytes, (unsigned long long)actualBytes,
+                (unsigned long long)reserve, (unsigned long long)NRIVoxelComputeSaturatingAdd(predictedBytes, provider.bytes),
+                (unsigned long long)predictedBytes, (unsigned long long)actualBytes,
                 (unsigned long long)peak.projectedBytes, candidatePercent,
-                (unsigned long long)oldArenaBytes, (unsigned long long)newArenaBytes,
+                (unsigned long long)oldArenaBytes, (unsigned long long)newArenaBytes, (unsigned long long)provider.bytes,
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
             PerfAuditWriteEvent("voxel_allocation_transaction", PerfAuditCurrentToken(), fields);
         }
         return result;
     };
+    if (!privateBuildInputs)
+    {
+        const auto forecast = ForecastNRIVoxelComputeProviderAllocations(BuildResourceContext(), mesh.sourceModel, provider);
+        if (forecast != Result::Ready) return report("defer-provider-forecast", forecast);
+    }
+    // Re-preparation replaces this owner's promise; other pending jobs remain reserved.
+    budget.usageBytes = NRIVoxelComputeUsageAfterOwnerCredit(budget.usageBytes,
+        budget.computeReservedBytes, mesh.computeProviderReservation.Total());
     auto geometry = Geometry(vertexCount, indexCount);
     nri::AccelerationStructureDesc asDesc = {};
     asDesc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
@@ -179,8 +190,10 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 if (!AddBytes(oldArenaBytes, targets[i]->memorySize) || !AddBytes(newArenaBytes, requirements.size)) return false;
             }
         }
-        peak = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, budget.budgetBytes, predictedBytes, reserve);
-        return predictedBytes == 0 || peak.fits;
+        uint64_t combined = predictedBytes;
+        if (!AddBytes(combined, provider.bytes)) return false;
+        peak = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, budget.budgetBytes, combined, reserve);
+        return combined == 0 || peak.fits;
     };
     // Preferred spare capacity is optional. Retry the exact footprint before
     // denying an otherwise affordable actor representation.
@@ -251,9 +264,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     // footprint even if the driver's accounting lags the committed allocations.
     const auto postBudget = GetPersistentVoxelBudgetSnapshot(true);
     auto floor = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, postBudget.budgetBytes, actualBytes, 0);
-    peak = BuildNRIPersistentVoxelAllocationBudget(std::max(floor.projectedBytes, postBudget.usageBytes),
-        postBudget.budgetBytes, 0, reserve);
-    if (actualBytes != 0 && (floor.overflow || !peak.fits))
+    const uint64_t postUsage = NRIVoxelComputeUsageAfterOwnerCredit(postBudget.usageBytes,
+        postBudget.computeReservedBytes, mesh.computeProviderReservation.Total());
+    peak = BuildNRIPersistentVoxelAllocationBudget(std::max(floor.projectedBytes, postUsage),
+        postBudget.budgetBytes, provider.bytes, reserve);
+    if ((actualBytes != 0 || provider.bytes != 0) && (floor.overflow || !peak.fits))
     { discard(); return report("defer-post-budget", Result::DeferredBudget); }
 
     NRIScopedGpuTiming admissionTiming(mFrameBuffer, NRIGpuTimingScope::VoxelAdmission);
@@ -310,6 +325,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         mesh.accelerationStructure = unpublishedAs;
         unpublishedAs = {};
     }
+    mesh.computeProviderReservation = provider.reservation;
     arena.MarkMaintenanceMutation();
     return report("reserved", Result::Ready);
 }

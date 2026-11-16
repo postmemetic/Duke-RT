@@ -1032,6 +1032,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						voxelMaintenance.pressureResourceRowsScannedLast;
 				}
 			}
+			mActorRepresentations.PrepareTextures(mFrameIndex, mPersistentVoxels, *mFrameBuffer, mSceneTextures,
+				this, [](void* user, nri_scene::SceneView& scene, nri_scene::MaterialBridgeData& materials)
+				{
+					static_cast<NRIRenderer*>(user)->BuildMaterialsWithActorOverrides(scene, materials, "actor_fallback_preflight");
+				});
 			return EnsurePersistentVoxelBatch();
 		}();
 

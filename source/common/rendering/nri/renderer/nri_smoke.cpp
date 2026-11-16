@@ -9,6 +9,7 @@
 #include "gamecontrol.h"
 #include "lightoverlay.h"
 #include "printf.h"
+#include "perf_audit.h"
 
 #include <algorithm>
 #include <cmath>
@@ -2291,7 +2292,6 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	const bool filteredTexturesReady = renderer.mCurrentSceneTextureDescriptors.size() >= smokeSceneTextureDescriptorCount && renderer.mCurrentSceneTextureDescriptors[0] != nullptr;
 	const NRIWorldTlasFrameSlot& worldTlasFrameSlot = renderer.GetCurrentWorldTlasFrameSlot();
 	const nri::Descriptor* worldTlasDescriptor = worldTlasFrameSlot.accelerationStructure.descriptor;
-	const bool shadowReady = worldTlasDescriptor != nullptr;
 	const nri::Descriptor* indirectSceneBuffers[] = {
 		renderer.mSceneDataDescriptors[16], renderer.mSceneDataDescriptors[17], renderer.mSceneDataDescriptors[18]
 	};
@@ -2307,6 +2307,13 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		extendedSceneBuffers[kSmokeEmissiveSceneBufferCount + i] = indirectSceneBuffers[i] != nullptr ? indirectSceneBuffers[i] : emissiveSceneBuffers[0];
 	const bool extendedSceneBuffersReady = emissiveBuffersReady;
 	const bool filteredResourcesReady = filteredBuffersReady && filteredTexturesReady && skyResourceReady && extendedSceneBuffersReady;
+	const bool actorIndirectSprites = renderer.mActorRepresentations.HasIndirectSprites(renderer.mFrameIndex);
+	// A force-opaque ray cannot enforce an indirect carrier's shadow exclusion.
+	// If its filtering resources are unavailable, leave smoke unshadowed for
+	// this frame rather than publishing a contradictory actor shadow.
+	const bool shadowReady = worldTlasDescriptor != nullptr && (!actorIndirectSprites || filteredResourcesReady);
+	if (actorIndirectSprites && !filteredResourcesReady && PerfAuditActive())
+		PerfAuditWriteEvent("actor_sprite_smoke_shadow_deferred", PerfAuditCurrentToken(), "\"reason\":\"filter-resources-unavailable\"");
 	const bool emissiveResourcesReady = filteredResourcesReady && emissiveBuffersReady && renderer.mBoundEmissivePrimitiveCount > 0u;
 	const bool indirectResourcesReady = filteredResourcesReady && shadowReady && sectorLightResourcesReady && skyResourceReady;
 	std::array<const nri::Descriptor*, smokeSceneTextureDescriptorCount> smokeSceneTextures = {};
@@ -2435,6 +2442,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		constants.lightSourceFlags |= 0x800u; // Smoke-aware motion/opacity history, not legacy radiance reuse.
 	if (mHasTranslucentEffects && filteredResourcesReady)
 		constants.lightSourceFlags |= NRISmokeSceneTranslucentEffects;
+	if (actorIndirectSprites && filteredResourcesReady)
+		constants.lightSourceFlags |= NRISmokeSceneActorIndirectSprites;
 	const bool filteredVisibilityEffective = constants.lightMode >= 2u && mSettings.filteredVisibility && filteredResourcesReady && shadowReady;
 	const uint32_t requestedEmissivePointCandidates = std::clamp(mSettings.emissivePointCandidates, 1u, 8u);
 	const uint32_t effectiveEmissivePointCandidates = mSettings.emissiveReference ? 1u : requestedEmissivePointCandidates;

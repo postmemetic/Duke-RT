@@ -27,6 +27,7 @@ struct ActorSpriteFallbackCandidate
 	bool capturedThisFrame = false;
 	bool descriptorCurrent = false;
 	bool animationCurrent = false;
+	bool presentationHidden = false;
 	bool indirectOnly = false;
 	bool transientVoxel = false;
 	bool transientGeometryCaptured = false;

@@ -30,6 +30,7 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
     }
     if (forceRefresh) mPersistentVoxels.MarkMaintenanceMutation();
     mVoxelBudgetSnapshot.trackedBytes = GetMemoryTelemetry().totalTrackedBytes;
+    mVoxelBudgetSnapshot.computeReservedBytes = 0;
     if (forceRefresh)
     {
         // General renderer telemetry excludes pending voxel jobs and retired
@@ -43,6 +44,7 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
         const auto voxels = mPersistentVoxels.GetMemoryUsage();
         add(voxels.admissionTransientBufferBytes);
         add(voxels.admissionTransientAsBytes);
+        mVoxelBudgetSnapshot.computeReservedBytes = voxels.admissionProviderReservedBytes;
         for (const auto& frame : mResidentUploadScratchFrames)
         {
             for (const auto& buffer : frame.retiredBuffers)
@@ -55,19 +57,28 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
         add(compute.transientInputDeviceBytes);
         add(compute.transientGeneratedBytes);
         add(compute.diagnosticAsBytes);
+        // Conservatively budget upload/readback backing too; providers may use
+        // local host-visible heaps, and their exact placement is backend-owned.
+        add(compute.rawUploadBytes);
+        add(compute.transientInputUploadBytes);
+        add(compute.statusReadbackBytes);
+        add(compute.geometryReadbackBufferBytes);
     }
     mVoxelBudgetSnapshot.usageBytes = std::max(mVoxelBudgetSnapshot.trackedBytes,
         mVoxelBudgetSnapshot.liveAvailable ? mVoxelBudgetSnapshot.liveUsageBytes : 0);
+    mVoxelBudgetSnapshot.usageBytes = mVoxelBudgetSnapshot.computeReservedBytes > UINT64_MAX - mVoxelBudgetSnapshot.usageBytes ?
+        UINT64_MAX : mVoxelBudgetSnapshot.usageBytes + mVoxelBudgetSnapshot.computeReservedBytes;
     if (refresh && PerfAuditActive())
     {
-        char fields[512];
+        char fields[640];
         snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"live_available\":%s,"
             "\"tracked_bytes\":%llu,\"live_usage_bytes\":%llu,\"live_budget_bytes\":%llu,"
-            "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d,\"allocation_refresh\":%s",
+            "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d,\"allocation_refresh\":%s,\"reserved_provider_bytes\":%llu",
             mFrameIndex, (unsigned long long)mMapWorld.buildSerial, mVoxelBudgetSnapshot.liveAvailable ? "true" : "false",
             (unsigned long long)mVoxelBudgetSnapshot.trackedBytes, (unsigned long long)mVoxelBudgetSnapshot.liveUsageBytes,
             (unsigned long long)mVoxelBudgetSnapshot.liveBudgetBytes, (unsigned long long)mVoxelBudgetSnapshot.usageBytes,
-            (unsigned long long)mVoxelBudgetSnapshot.budgetBytes, testBudget, forceRefresh ? "true" : "false");
+            (unsigned long long)mVoxelBudgetSnapshot.budgetBytes, testBudget, forceRefresh ? "true" : "false",
+            (unsigned long long)mVoxelBudgetSnapshot.computeReservedBytes);
         PerfAuditWriteEvent("voxel_residency_budget", PerfAuditCurrentToken(), fields);
     }
     return mVoxelBudgetSnapshot;
