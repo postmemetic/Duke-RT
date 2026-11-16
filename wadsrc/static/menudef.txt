@@ -1227,6 +1227,8 @@ OptionMenu "NRIOptions" protected
 	Slider "Highlight Shoulder",				"nri_pthdrshoulder",			0.50, 1.50, 0.05, 2
 	Slider "Shadow Toe",						"nri_pthdrtoe",					0.50, 1.50, 0.05, 2
 	Slider "Paper White",						"nri_ptpaperwhite",				80.0, 400.0, 5.0, 1
+	Slider "Peak Brightness (nits)",			"nri_pthdrpeaknits",				0.0, 10000.0, 10.0, 0
+	StaticText "Peak brightness: 0 = display-reported (automatic)."
 	Option "Auto Exposure",						"nri_pthdrautoexposure",		"OnOff"
 	Slider "Auto Exposure Target",				"nri_pthdrautoexposuretarget",	0.02, 1.00, 0.01, 2
 	Slider "Auto Exposure Bias",				"nri_pthdrautoexposurebias",	0.125, 8.0, 0.125, 3

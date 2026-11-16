@@ -7959,8 +7959,9 @@ NRIPTOutputPolicy NRIRenderDevice::GetPathTracingOutputPolicy() const
 	policy.displayMinLuminance = mHasSwapChainDisplayDesc ? mSwapChainDisplayDesc.minLuminance : 0.0f;
 	policy.displayInfoAvailable = mHasSwapChainDisplayDesc;
 	policy.displayHdrSupported = mHasSwapChainDisplayDesc && mSwapChainDisplayDesc.isHDR;
-	policy.displayMaxLuminance = mHasSwapChainDisplayDesc ? mSwapChainDisplayDesc.maxLuminance : 80.0f;
+	policy.reportedDisplayMaxLuminance = mHasSwapChainDisplayDesc ? mSwapChainDisplayDesc.maxLuminance : 80.0f;
 	policy.displaySdrLuminance = mHasSwapChainDisplayDesc ? mSwapChainDisplayDesc.sdrLuminance : 80.0f;
+	ApplyNRIPTHdrPeakCalibration(policy, (float)nri_pthdrpeaknits);
 	policy.offscreenHdrTarget = true;
 
 	return policy;
@@ -8283,7 +8284,7 @@ void NRIRenderDevice::PrintSwapChainStatus() const
 		CountSetBits(mObservedSwapChainPresentMask),
 		(uint32_t)mSwapChainTextureCount,
 		presentedImages.GetChars());
-	Printf("NRI PT swapchain output: requested_mode=%s resolved_mode=%s control_block=%s requested_format=%s created_format=%s resolved_texture_format=%s tonemap=%s exposure=%.3f contrast=%.3f saturation=%.3f shoulder=%.3f toe=%.3f paper_white=%.1f hdr_paper_scale=%.3f hdr_headroom=%.3f hdr_max_scale=%.3f display_info=%s display_hdr=%s display_sdr_nits=%.1f display_max_nits=%.1f display_desc_result=%s reason=%s\n",
+	Printf("NRI PT swapchain output: requested_mode=%s resolved_mode=%s control_block=%s requested_format=%s created_format=%s resolved_texture_format=%s tonemap=%s exposure=%.3f contrast=%.3f saturation=%.3f shoulder=%.3f toe=%.3f paper_white=%.1f hdr_paper_scale=%.3f hdr_headroom=%.3f hdr_max_scale=%.3f display_info=%s display_hdr=%s display_sdr_nits=%.1f display_max_nits=%.1f display_reported_max_nits=%.1f peak_source=%s display_desc_result=%s reason=%s\n",
 		GetNRIPTOutputModeName(outputPolicy.requestedMode),
 		GetNRIPTOutputModeName(outputPolicy.resolvedMode),
 		GetNRIPTOutputControlBlockName(outputPolicy),
@@ -8304,6 +8305,8 @@ void NRIRenderDevice::PrintSwapChainStatus() const
 		outputPolicy.displayHdrSupported ? "yes" : "no",
 		outputPolicy.displaySdrLuminance,
 		outputPolicy.displayMaxLuminance,
+		outputPolicy.reportedDisplayMaxLuminance,
+		GetNRIPTOutputPeakSourceName(outputPolicy),
 		GetNriResultName(mSwapChainDisplayDescResult),
 		mSwapChainOutputResolveReason.IsEmpty() ? "unknown" : mSwapChainOutputResolveReason.GetChars());
 	Printf("NRI PT ui output: present_contract=%s gamma=%.3f hdr_scale=%.3f active_target=%s framegen_ui_target=%s\n",

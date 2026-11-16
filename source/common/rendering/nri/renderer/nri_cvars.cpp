@@ -2,6 +2,7 @@
 
 #include "nri_scene_lights.h"
 #include "nri_settings_availability.h"
+#include "../nri_output.h"
 #include "../scene/nri_map_builder.h"
 #include "../system/nri_renderdevice.h"
 #include "printf.h"
@@ -1162,6 +1163,15 @@ CUSTOM_CVAR(Float, nri_ptpaperwhite, 201.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	else if (self > 400.0f)
 	{
 		self = 400.0f;
+	}
+}
+
+CUSTOM_CVAR(Float, nri_pthdrpeaknits, 0.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	const float peakNits = SanitizeNRIPTHdrPeakNits((float)self);
+	if (self != peakNits)
+	{
+		self = peakNits;
 	}
 }
 

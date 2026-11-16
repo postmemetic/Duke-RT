@@ -372,7 +372,7 @@ void NRIRenderer::PrintStatus()
 		mOutputHeight,
 		mHasPreviousCameraState ? "yes" : "no",
 		mResetHistory ? "yes" : "no");
-	Printf("NRI PT output: requested_mode=%s resolved_mode=%s control_block=%s tonemap=%s exposure=%.3f contrast=%.3f saturation=%.3f shoulder=%.3f toe=%.3f paper_white=%.1f offscreen_hdr=%s hdr_swapchain=%s display_info=%s display_hdr=%s display_sdr_nits=%.1f display_max_nits=%.1f\n",
+	Printf("NRI PT output: requested_mode=%s resolved_mode=%s control_block=%s tonemap=%s exposure=%.3f contrast=%.3f saturation=%.3f shoulder=%.3f toe=%.3f paper_white=%.1f offscreen_hdr=%s hdr_swapchain=%s display_info=%s display_hdr=%s display_sdr_nits=%.1f display_max_nits=%.1f display_reported_max_nits=%.1f peak_source=%s\n",
 		GetNRIPTOutputModeName(outputPolicy.requestedMode),
 		GetNRIPTOutputModeName(outputPolicy.resolvedMode),
 		GetNRIPTOutputControlBlockName(outputPolicy),
@@ -388,7 +388,9 @@ void NRIRenderer::PrintStatus()
 		outputPolicy.displayInfoAvailable ? "yes" : "no",
 		outputPolicy.displayHdrSupported ? "yes" : "no",
 		outputPolicy.displaySdrLuminance,
-		outputPolicy.displayMaxLuminance);
+		outputPolicy.displayMaxLuminance,
+		outputPolicy.reportedDisplayMaxLuminance,
+		GetNRIPTOutputPeakSourceName(outputPolicy));
 	Printf("NRI PT auto exposure: enabled=%s control_block=%s freeze=%s stats=%s resources=%s state_textures=%s meter_source=%s meter_mode=%s histogram_bins=%u sample_step=%u target=%.3f range=%.3f..%.3f bias=%.3f percentiles=%.2f..%.2f hist_log_range=%.1f..%.1f adapt=%.3f/%.3f fallback_manual=%.3f resource_render=%ux%u memory=%llu alloc_serial=%u reset_pending=%s reset_serial=%llu reset_request_frame=%llu reset_consumed_frame=%llu reset_reason=%s\n",
 		YesNo(autoExposureSettings.enabled),
 		autoExposureSettings.hdrControlsActive ? "hdr" : "sdr",

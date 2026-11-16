@@ -32,13 +32,38 @@ struct NRIPTOutputPolicy
 	float toe = 1.0f;
 	float paperWhiteNits = 200.0f;
 	float displayMinLuminance = 0.0f;
+	float reportedDisplayMaxLuminance = 80.0f;
 	float displayMaxLuminance = 80.0f;
 	float displaySdrLuminance = 80.0f;
 	bool displayInfoAvailable = false;
 	bool displayHdrSupported = false;
 	bool hdrSwapChainActive = false;
+	bool hdrPeakOverrideActive = false;
 	bool offscreenHdrTarget = true;
 };
+
+inline float SanitizeNRIPTHdrPeakNits(float requestedPeakNits)
+{
+	if (!NriHdrIsFinite(requestedPeakNits) || requestedPeakNits <= 0.0f)
+		return 0.0f;
+	if (requestedPeakNits < 1.0f)
+		return 1.0f;
+	return requestedPeakNits > 10000.0f ? 10000.0f : requestedPeakNits;
+}
+
+inline void ApplyNRIPTHdrPeakCalibration(NRIPTOutputPolicy& policy, float requestedPeakNits)
+{
+	const float peakNits = SanitizeNRIPTHdrPeakNits(requestedPeakNits);
+	policy.hdrPeakOverrideActive = policy.hdrSwapChainActive && peakNits > 0.0f;
+	// Preserve automatic metadata exactly; existing consumers sanitize it where
+	// needed. A calibrated peak replaces it only for active native HDR output.
+	policy.displayMaxLuminance = policy.hdrPeakOverrideActive ? peakNits : policy.reportedDisplayMaxLuminance;
+}
+
+inline const char* GetNRIPTOutputPeakSourceName(const NRIPTOutputPolicy& policy)
+{
+	return policy.hdrPeakOverrideActive ? "manual" : "auto";
+}
 
 inline float GetNRIPTOutputSafeDisplaySdrLuminance(float displaySdrLuminance)
 {
