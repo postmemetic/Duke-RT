@@ -43,8 +43,11 @@ void NRIPersistentVoxelResidency::RefreshEnemyRepresentations(uint32_t frame,
         enemyPolicy.Reconcile(snapshot.worldEpoch, live);
     }
     ReleaseEnemyMaterialCommits(enemyPolicy.TakeReleasedMaterialKeys(), services);
-    if (enemyFamilyFrame != frame)
-    { enemyFamilyResidency.clear(); enemyFamilyFrame = frame; }
+    ReconcileEnemyFamilyStaging();
+    // A second admission pump can publish resources within the same renderer
+    // frame. Refresh the bounded family cache at each pump, before staging and
+    // any reclaim decisions; later texture/selection consumers share it.
+    enemyFamilyResidency.clear(); enemyFamilyFrame = frame;
     if ((bool)nri_ptenemyrepresentationtrace && snapshot.complete)
     {
         const auto settings = BuildNRIPersistentVoxelSettingsFromCVars();
@@ -55,6 +58,7 @@ void NRIPersistentVoxelResidency::RefreshEnemyRepresentations(uint32_t frame,
 
 void NRIPersistentVoxelResidency::ResetEnemyRepresentationsForLevelTransition()
 {
+    enemyFamilyStaging.Reset(); enemyStagingFrame = UINT32_MAX;
     nri_scene::ResetEnemyVoxelSources();
     enemyPolicy.Reset();
     const auto released = enemyPolicy.TakeReleasedMaterialKeys();
@@ -225,7 +229,9 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
         }
     }
     const auto& choice = enemyPolicy.Commit(owner, candidate.identityKey, family.family, family.signature, frame,
-        voxel, reason, std::move(meshes), std::move(materials), continuityFailure);
+        voxel, reason, std::move(meshes), std::move(materials), continuityFailure,
+        authority->spriteAnimation.enemyVoxelFamily && authority->spriteAnimation.enemyVoxelFamily->complete);
+    enemyFamilyStaging.ReleaseOwner(owner);
     nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, voxel);
     TraceChoice(frame, candidate, choice);
     if (!voxel)

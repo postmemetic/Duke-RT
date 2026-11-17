@@ -4,6 +4,7 @@
 #include "nri_persistent_voxel_actor_index.h"
 #include "nri_persistent_voxel_actor_demand.h"
 #include "nri_enemy_representation.h"
+#include "nri_enemy_family_staging.h"
 #include "nri_persistent_voxel_admission_reclaim.h"
 #include "nri_voxel_publication_order.h"
 
@@ -1062,6 +1063,13 @@ public:
     void ReleaseEnemyMaterialCommits(const std::vector<uint64_t>& keys, const NRIPersistentVoxelResetServices& services,
         bool authoritativeEmptyAfterWait = false);
     NRIEnemyRepresentationPolicy enemyPolicy;
+    NRIEnemyFamilyStaging enemyFamilyStaging;
+    void ReconcileEnemyFamilyStaging();
+    void UpdateEnemyFamilyStaging(uint32_t frame, const NRIPersistentVoxelSettings& settings,
+        uint64_t usageBytes, uint64_t budgetBytes);
+    uint32_t enemyStagingFrame = UINT32_MAX;
+    uint64_t enemyStagingUsage = 0, enemyStagingBudget = 0;
+    std::vector<uint64_t> enemyStagingReadyKeys;
     std::unordered_set<uint64_t> enemyMaterialReleasePending;
     std::unordered_map<uint64_t, NRIEnemyFamilyResidency> enemyFamilyResidency;
     std::vector<nri_scene::PersistentVoxelCacheEntryView> enemyPublicationEntries;
@@ -1082,7 +1090,7 @@ public:
     NRIVoxelAdmissionReclaim admissionReclaim;
     uint64_t reclaimGeometryRevision = 0;
     bool CollectCachePins(const NRIPersistentVoxelSettings& settings, NRIVoxelCachePins& pins,
-        size_t maximum = SIZE_MAX, bool authoritativeEmptyAfterWait = false) const;
+        size_t maximum = SIZE_MAX, bool authoritativeEmptyAfterWait = false, bool includeEnemyStaging = true) const;
     bool EvictInactiveMesh(uint64_t key, const NRIPersistentVoxelResetServices& services);
     uint32_t PruneOrphanedTerminalAdmissions(const NRIVoxelCachePins& pins, const NRIPersistentVoxelResetServices& services);
     void ProcessAdmissionReclaim(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings,

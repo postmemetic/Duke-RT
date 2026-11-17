@@ -11,7 +11,7 @@
 #include <set>
 
 bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSettings& settings,
-    NRIVoxelCachePins& pins, size_t maximum, bool authoritativeEmptyAfterWait) const
+    NRIVoxelCachePins& pins, size_t maximum, bool authoritativeEmptyAfterWait, bool includeEnemyStaging) const
 {
     // Include the committed frame and current source authority. Source entries
     // include retained offscreen actors and desiredPending bindings. Admission
@@ -26,6 +26,8 @@ bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSetti
     for (const auto& pair : activeMaterialReferences) if (pair.second) pinnedMaterials.insert(pair.first);
     for (const auto& pair : enemyPolicy.MeshPins()) if (pair.second) pinnedMeshes.insert(pair.first);
     for (const auto& pair : enemyPolicy.MaterialPins()) if (pair.second) pinnedMaterials.insert(pair.first);
+    if (includeEnemyStaging && !authoritativeEmptyAfterWait)
+        pinnedMeshes.insert(enemyFamilyStaging.MeshPins().begin(), enemyFamilyStaging.MeshPins().end());
     std::vector<nri_scene::PersistentVoxelCacheEntryView> current;
     if (authoritativeEmptyAfterWait && (!batch.actors.empty() || !instances.empty() || !admissionQueue.empty())) return false;
     if (!authoritativeEmptyAfterWait && !nri_scene::BuildPersistentVoxelCacheEntries(current, maximum))

@@ -35,11 +35,16 @@ void NRIEnemyRepresentationPolicy::Release(NRIEnemyRepresentationCommitment& com
 
 void NRIEnemyRepresentationPolicy::Reconcile(uint64_t world, const std::vector<NRIEnemyRepresentationOwner>& live)
 {
+    if (counters.world != world) { Reset(); counters.world = world; }
     std::unordered_set<NRIEnemyRepresentationOwner, Hash> authority(live.begin(), live.end());
     for (auto it = owners.begin(); it != owners.end();)
     {
         if (it->first.world != world || !authority.count(it->first))
-        { Release(it->second); it = owners.erase(it); }
+        {
+            if (it->second.mode == NRIEnemyRepresentationMode::Voxel) --counters.liveVoxel;
+            else --counters.liveSprite;
+            Release(it->second); it = owners.erase(it);
+        }
         else ++it;
     }
 }
@@ -48,6 +53,9 @@ void NRIEnemyRepresentationPolicy::Reset()
 {
     for (auto& entry : owners) Release(entry.second);
     owners.clear();
+    // Repeated disabled-frame resets do not manufacture new census epochs.
+    const uint64_t epoch = counters.epoch + (counters.world != 0 || counters.firstSprite != 0 || counters.firstVoxel != 0);
+    counters = {}; counters.epoch = epoch;
 }
 
 const NRIEnemyRepresentationCommitment* NRIEnemyRepresentationPolicy::Find(NRIEnemyRepresentationOwner owner) const
@@ -58,8 +66,9 @@ const NRIEnemyRepresentationCommitment* NRIEnemyRepresentationPolicy::Find(NRIEn
 
 const NRIEnemyRepresentationCommitment& NRIEnemyRepresentationPolicy::Commit(NRIEnemyRepresentationOwner owner,
     uint64_t identity, uint32_t family, uint64_t signature, uint32_t frame, bool voxel,
-    const char* reason, std::vector<uint64_t> meshes, std::vector<uint64_t> materials, bool awaitingSprite)
+    const char* reason, std::vector<uint64_t> meshes, std::vector<uint64_t> materials, bool awaitingSprite, bool supported)
 {
+    if (counters.world != owner.world) { Reset(); counters.world = owner.world; }
     auto result = owners.try_emplace(owner);
     if (!result.second) return result.first->second; // No opportunistic promotion.
     auto& commitment = result.first->second;
@@ -68,6 +77,10 @@ const NRIEnemyRepresentationCommitment& NRIEnemyRepresentationPolicy::Commit(NRI
     commitment.sinceFrame = frame; commitment.reason = reason;
     commitment.awaitingSprite = !voxel && awaitingSprite;
     commitment.emergency = commitment.awaitingSprite;
+    commitment.supported = supported;
+    if (voxel) { ++counters.firstVoxel; ++counters.liveVoxel; counters.supportedFirstVoxel += supported; }
+    else { ++counters.firstSprite; ++counters.liveSprite; counters.supportedFirstSprite += supported; }
+    counters.emergencies += commitment.emergency;
     if (voxel || commitment.awaitingSprite)
     {
         Unique(meshes); Unique(materials);
@@ -94,6 +107,7 @@ bool NRIEnemyRepresentationPolicy::Downgrade(NRIEnemyRepresentationOwner owner, 
     if (found == owners.end() || found->second.mode != NRIEnemyRepresentationMode::Voxel) return false;
     Release(found->second);
     found->second.mode = NRIEnemyRepresentationMode::Sprite;
+    --counters.liveVoxel; ++counters.liveSprite; ++counters.emergencies;
     found->second.emergency = true;
     found->second.reason = reason;
     return true;

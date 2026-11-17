@@ -59,8 +59,10 @@ private:
 		int32_t descriptorTexture = -1;
 		bool descriptorCurrent = false, captured = false, animationCurrent = false, recipeCertified = false;
 		bool voxelReady = false, textureReady = false;
+		bool enemy = false, supportedEnemy = false;
 	};
 	uint32_t mFrameIndex = UINT32_MAX;
+	mutable uint64_t mAssemblyOrdinal = 0;
 	std::vector<Decision> mDecisions;
 	std::vector<uint32_t> mPriorityMaterials;
 	std::unordered_map<int32_t, SelectedSprite> mSelected;

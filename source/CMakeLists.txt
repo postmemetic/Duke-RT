@@ -1017,6 +1017,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_actor_representation.cpp
 	common/rendering/nri/renderer/nri_enemy_representation.cpp
 	common/rendering/nri/renderer/nri_enemy_representation_policy.cpp
+	common/rendering/nri/renderer/nri_enemy_family_staging.cpp
+	common/rendering/nri/renderer/nri_enemy_representation_census.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_enemy_staging.cpp
 	common/rendering/nri/renderer/nri_voxel_preload_budget.cpp
 	common/rendering/nri/renderer/nri_actor_representation_textures.cpp
 	common/rendering/nri/scene/nri_actor_sprite_fallback.cpp

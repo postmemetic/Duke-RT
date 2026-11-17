@@ -2,6 +2,8 @@
 #include "nri_actor_representation_selection.h"
 #include "nri_actor_occurrence_policy.h"
 #include "nri_persistent_voxels.h"
+#include "nri_enemy_representation_census.h"
+#include "actor_presentation_snapshot.h"
 #include "../scene/nri_actor_sprite_fallback.h"
 #include "../scene/nri_scene_stats.h"
 #include "c_cvars.h"
@@ -18,6 +20,7 @@ CVAR(Int, nri_ptactorholdframes, 8, 0)
 CVAR(Int, nri_ptactorspriteforce, -1, 0)
 CVAR(Bool, nri_ptactorrepresentationtrace, false, 0)
 CVAR(Int, nri_ptactorrepresentationactor, -1, 0)
+EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
 
 namespace
 {
@@ -199,6 +202,14 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			candidate.animationCurrent, candidate.recipeCertified, ready,
 			(bool)nri_ptactorrepresentationtrace && voxels.spriteFallbackReadyFrame == frameIndex &&
 				voxels.spriteFallbackReadyActors.count(candidate.identityKey) != 0});
+		const auto* authority = PerfAuditActive() ?
+			nri_scene::LookupActorSpriteFallbackAuthority(candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration) : nullptr;
+		if (authority)
+		{
+			mDecisions.back().enemy = authority->spriteAnimation.enemy;
+			mDecisions.back().supportedEnemy = authority->spriteAnimation.enemy && authority->spriteAnimation.enemyVoxelFamily &&
+				authority->spriteAnimation.enemyVoxelFamily->complete;
+		}
 
 		if ((bool)nri_ptactorrepresentationtrace && traced < 128u &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == candidate.actorIndex))
@@ -250,6 +261,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 	}
 	uint32_t spritesPublished = 0, voxelsPublished = 0, absent = 0, duplicates = 0, suppressedPublished = 0, traced = 0;
 	uint32_t missingTraced = 0;
+	NRIEnemyBodyCensus enemyBodies;
 	for (const auto& row : mDecisions)
 	{
 		const uint32_t slot = voxels.batch.actorIndex.Find(row.identity);
@@ -259,6 +271,9 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		const bool spritePublished = ready && carrierPrimitives[row.actorIndex] != 0 &&
 			materialPrimitives[row.actorIndex] == carrierPrimitives[row.actorIndex];
 		const bool intendedBody = std::strcmp(row.selection, "suppressed") != 0 && std::strcmp(row.selection, "existing-dynamic") != 0;
+		const auto* enemy = voxels.enemyPolicy.Find({row.world, row.lifetime});
+		enemyBodies.Observe(row.enemy, enemy ? enemy->supported : row.supportedEnemy,
+			enemy != nullptr, intendedBody, voxelPublished, spritePublished);
 		spritesPublished += spritePublished;
 		voxelsPublished += voxelPublished;
 		absent += intendedBody && !spritePublished && !voxelPublished;
@@ -301,6 +316,9 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		spritesPublished, voxelsPublished, absent, duplicates, suppressedPublished, (unsigned long long)mStats.vertexBytes,
 		(unsigned long long)mStats.indexBytes, (unsigned long long)mStats.primitiveBytes);
 	PerfAuditWriteEvent("actor_representation_frame", PerfAuditCurrentToken(), fields);
+	RecordNRIEnemyRepresentationCensus(frameIndex, GetActorPresentationSnapshot().worldEpoch, ++mAssemblyOrdinal,
+		(bool)nri_ptenemystablerepresentation, (bool)nri_ptactorspritefallback,
+		voxels.enemyPolicy.Counters(), voxels.enemyFamilyStaging.Stats(), enemyBodies);
 	if ((bool)nri_ptactorrepresentationtrace && absent > 0)
 	{
 		char coverage[192];

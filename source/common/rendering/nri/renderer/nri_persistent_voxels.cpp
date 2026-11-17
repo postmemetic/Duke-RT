@@ -4472,6 +4472,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	}
 	for (const auto& pin : enemyPolicy.MeshPins()) if (pin.second) admissionMeshes.insert(pin.first);
 	for (const auto& pin : enemyPolicy.MaterialPins()) if (pin.second) admissionMaterials.insert(pin.first);
+	admissionMeshes.insert(enemyFamilyStaging.MeshPins().begin(), enemyFamilyStaging.MeshPins().end());
 	const bool materialReleaseQuiescent =
 		!admissionIndex.HasActiveWork() &&
 		PersistentVoxelAdmissionSchedulerQuiescent(admissionScheduler.GetSnapshot());
@@ -4783,6 +4784,8 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		RefreshEnemyRepresentations(frameIndex, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::ActorDemand);
 		RefreshActorDemand(frameIndex, settings, resetServices);
+		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::EnemyPolicy);
+		UpdateEnemyFamilyStaging(frameIndex, settings, totalTrackedBytes, adapterLocalBudget);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::Reclaim);
 		ProcessAdmissionReclaim(frameIndex, settings, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
@@ -10045,6 +10048,7 @@ void NRIPersistentVoxelResidency::Reset(
 	actorDemand.Reset();
 	warmRetentionPressure = {};
 	enemyPolicy.Reset();
+	enemyFamilyStaging.Reset(); enemyStagingFrame = UINT32_MAX;
 	enemyPolicy.TakeReleasedMaterialKeys(); // All bindings below retire together.
 	enemyMaterialReleasePending.clear();
 	enemyFamilyResidency.clear();
