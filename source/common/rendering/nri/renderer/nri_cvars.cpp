@@ -303,12 +303,14 @@ CUSTOM_CVAR(Int, nri_ptscenedataringmaxbytes, 0, 0)
 CVAR(Bool, nri_voxelstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(Bool, nri_ptvoxelpublication, true, 0)
-CVAR(Bool, nri_ptvoxelallocationbudget, false, 0)
-CVAR(Bool, nri_ptvoxelallocationretrybackoff, false, 0)
+// The low-memory test branch enables the validated residency/continuity policy
+// without changing device selection, render resolution or upscaler settings.
+CVAR(Bool, nri_ptvoxelallocationbudget, true, 0)
+CVAR(Bool, nri_ptvoxelallocationretrybackoff, true, 0)
 CVAR(Bool, nri_ptvoxeladmissiontiming, false, 0)
-CVAR(Bool, nri_ptvoxeladmissionreclaim, false, 0)
+CVAR(Bool, nri_ptvoxeladmissionreclaim, true, 0)
 CVAR(Int, nri_ptvoxelallocationreservemb, 128, 0)
-CVAR(Int, nri_ptvoxelarenagrowthpercent, 200, 0)
+CVAR(Int, nri_ptvoxelarenagrowthpercent, 125, 0)
 CVAR(Int, nri_ptvoxelarenastartuppercent, 100, 0)
 CVAR(Int, nri_ptvoxelarenastartupmaxmb, 0, 0)
 CVAR(Int, nri_ptvoxelpublicationvalidate, 0, 0)

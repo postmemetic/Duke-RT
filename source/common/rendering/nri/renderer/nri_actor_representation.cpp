@@ -14,7 +14,7 @@
 #include <limits>
 #include <unordered_set>
 
-CVAR(Bool, nri_ptactorspritefallback, false, 0)
+CVAR(Bool, nri_ptactorspritefallback, true, 0)
 CVAR(Int, nri_ptactorholdframes, 8, 0)
 // Session-only fault injection. A valid sprite must exist before hiding a voxel.
 CVAR(Int, nri_ptactorspriteforce, -1, 0)

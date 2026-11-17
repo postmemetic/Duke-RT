@@ -5,9 +5,9 @@
 #include <algorithm>
 #include <cstdio>
 
-CVAR(Bool, nri_ptvoxelactoradmission, false, 0)
-CVAR(Bool, nri_ptvoxelcoalesce, false, 0)
-CVAR(Bool, nri_ptvoxelwarmretention, false, 0)
+CVAR(Bool, nri_ptvoxelactoradmission, true, 0)
+CVAR(Bool, nri_ptvoxelcoalesce, true, 0)
+CVAR(Bool, nri_ptvoxelwarmretention, true, 0)
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
 EXTERN_CVAR(Int, nri_ptactorholdframes)
 

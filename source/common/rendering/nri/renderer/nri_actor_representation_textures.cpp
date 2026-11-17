@@ -13,7 +13,7 @@
 #include <vector>
 
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
-CVAR(Bool, nri_ptactororderedtextures, false, 0)
+CVAR(Bool, nri_ptactororderedtextures, true, 0)
 
 void NRIActorRepresentations::PrepareTextures(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
     const NRIPersistentVoxelSettings& settings, NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,

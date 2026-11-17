@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 
-CVAR(Bool, nri_ptenemystablerepresentation, false, 0)
+CVAR(Bool, nri_ptenemystablerepresentation, true, 0)
 CVAR(Bool, nri_ptenemyrepresentationtrace, false, 0)
 
 namespace
