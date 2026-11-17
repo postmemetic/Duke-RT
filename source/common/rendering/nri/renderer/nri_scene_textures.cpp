@@ -862,6 +862,9 @@ bool NRISceneTextureResidency::ResolveTextureDescriptor(
 
 	if (cacheIndex != UINT32_MAX)
 	{
+		// Priority actor uploads retain their completion fence, but their copy
+		// and barrier may already precede this consumer on the graphics queue.
+		if (TryResolveOrderedActorTexture(device, cacheIndex, false, outResult)) return true;
 		NRISceneTextureClosureResult closureResult = {};
 		const CachedTextureReadiness readiness = PollCachedTexture(device, cacheIndex, closureResult);
 		if (readiness == CachedTextureReadiness::Abandoned)
@@ -923,7 +926,7 @@ nri::Descriptor* NRISceneTextureResidency::FindStableSlotDescriptor(
 		return nullptr;
 	}
 	const StableSlotDescriptorCacheEntry& entry = mStableSlotDescriptors[handle.slot];
-	return entry.key == key && entry.handle == handle ? entry.descriptor : nullptr;
+	return entry.key == key && entry.handle == handle && FindReadyCacheIndex(key) != UINT32_MAX ? entry.descriptor : nullptr;
 }
 
 void NRISceneTextureResidency::StoreStableSlotDescriptor(
@@ -931,7 +934,7 @@ void NRISceneTextureResidency::StoreStableSlotDescriptor(
 	NRISceneTextureSlotHandle handle,
 	nri::Descriptor* descriptor)
 {
-	if (!handle)
+	if (!handle || descriptor == nullptr || FindReadyCacheIndex(key) == UINT32_MAX)
 	{
 		return;
 	}
@@ -951,7 +954,7 @@ void NRISceneTextureResidency::PopulateStableSlotDescriptors(
 		const StableSlotDescriptorCacheEntry& entry = mStableSlotDescriptors[slot];
 		const size_t descriptorIndex = (size_t)descriptorOffset + slot;
 		if (entry.descriptor != nullptr && descriptorIndex < descriptors.size() &&
-			mSlotTable.Owns(entry.key, entry.handle))
+			mSlotTable.Owns(entry.key, entry.handle) && FindReadyCacheIndex(entry.key) != UINT32_MAX)
 		{
 			descriptors[descriptorIndex] = entry.descriptor;
 		}
@@ -987,9 +990,12 @@ uint32_t NRISceneTextureResidency::TransitionInputsForCompute(NRIRenderDevice& d
 			auditPending += cached.uploadFenceValue != 0 ? 1u : 0u;
 		}
 		NRISceneTextureClosureResult closureResult = {};
-		if (PollCachedTexture(device, cacheIndex, closureResult) == CachedTextureReadiness::Ready)
+		const auto readiness = PollCachedTexture(device, cacheIndex, closureResult);
+		SceneTextureResolveResult orderedRead;
+		if (readiness == CachedTextureReadiness::Ready ||
+			TryResolveOrderedActorTexture(device, cacheIndex, false, orderedRead))
 		{
-			readyVisits++;
+			readyVisits += readiness == CachedTextureReadiness::Ready ? 1u : 0u;
 			transitionCount++;
 			device.TransitionTexture(mTextureCache[cacheIndex].resource, NRIComputeShaderResourceState());
 		}
@@ -1370,10 +1376,12 @@ bool NRIRenderer::EnsureSceneTextures(
 	}
 
 	const bool combinedMaterialSet = &materials == &mSceneMaterialFrameCache.Materials();
-	if (mWallDecals.MaterialChanged())
+	const bool orderedActorUploadsPending = mSceneTextures.RefreshOrderedActorTextureUploads(*mFrameBuffer);
+	if (mWallDecals.MaterialChanged() || orderedActorUploadsPending)
 	{
 		// The frame product's texture-source key does not contain decal art.
-		// Drop its descriptor template whenever that independent owner changes.
+		// Drop its descriptor template whenever that independent owner changes,
+		// or uploads used through graphics ordering have not actually completed.
 		mSceneTextureFrameCache.Reset();
 	}
 	const bool combinedUsesResidentStaticBuffer =
@@ -1389,6 +1397,7 @@ bool NRIRenderer::EnsureSceneTextures(
 			mStaticMapScene.gpuMaterialsUseStableTextureSlots : mSceneTextureStableSlotsActive;
 	const bool reuseOwnerEligible =
 		!preserveMaterialTextureNamespace &&
+		!orderedActorUploadsPending &&
 		!mWallDecals.MaterialChanged() &&
 		reuseInputs != nullptr &&
 		reuseInputs->allowReuse &&
@@ -1738,7 +1747,8 @@ bool NRIRenderer::EnsureSceneTextures(
 				const uint32_t descriptorSlot = mSceneTextureStableSlotsActive ? stableHandle.slot : i;
 				pendingTextureSlots.insert(descriptorSlot);
 			}
-			else if (mSceneTextureStableSlotsActive && !dynamicDescriptor && textureResult.descriptor != nullptr)
+			else if (mSceneTextureStableSlotsActive && !dynamicDescriptor && textureResult.descriptor != nullptr &&
+				!textureResult.graphicsOrderedReady)
 			{
 				mSceneTextures.StoreStableSlotDescriptor(upload.key, stableHandle, textureResult.descriptor);
 				mSceneTextures.CacheStats().stableDescriptorMissesLastBuild++;
@@ -2261,6 +2271,8 @@ void NRISceneTextureResidency::InvalidateCachedTexture(NRIRenderDevice& device, 
 	{
 		mTextureCacheKeyIndex.erase(indexed);
 	}
+	for (auto& descriptor : mStableSlotDescriptors)
+		if (descriptor.key == cached.key) descriptor = {};
 	device.RetireTextureResource(cached.resource);
 	cached = {};
 	PerfAuditAdd(PerfAuditMetric::TextureInvalidations);
@@ -2334,4 +2346,5 @@ void NRISceneTextureResidency::ClearCachedTextures(NRIRenderDevice* device)
 	mTextureCacheKeyIndex.clear();
 	mStableSlotDescriptors.clear();
 	mLiveResources.clear();
+	mHasOrderedActorUploads = false;
 }

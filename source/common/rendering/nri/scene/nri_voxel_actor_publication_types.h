@@ -56,5 +56,6 @@ struct PersistentVoxelCacheEntryView
 	bool sharedVariantSurface = false;
 	bool desiredPending = false;
 	bool directOnlyAdmission = false;
+	bool enemyStableMaterialBinding = false;
 };
 }

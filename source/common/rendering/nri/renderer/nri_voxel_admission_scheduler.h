@@ -229,6 +229,8 @@ public:
 	uint64_t FindMeshOwner(const NRIVoxelAdmissionMeshIdentity& identity) const;
 	uint64_t FindTlasPending(const NRIVoxelAdmissionMeshIdentity& identity) const;
 	uint64_t FindPairOwner(const NRIVoxelAdmissionPairIdentity& identity) const;
+	// Poll live lane ownership without copying retained terminal-token history.
+	bool IsDirectBlasLaneBlocked(uint64_t tokenId, bool exclusive) const;
 	bool GetTokenSnapshot(uint64_t tokenId, NRIVoxelAdmissionTokenSnapshot& snapshot) const;
 	std::vector<NRIVoxelAdmissionTokenSnapshot> GetTokenSnapshots() const;
 	NRIVoxelAdmissionSnapshot GetSnapshot() const;

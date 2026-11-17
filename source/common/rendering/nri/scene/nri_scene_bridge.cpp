@@ -1,5 +1,9 @@
 #include "nri_scene_bridge.h"
 #include "nri_actor_sprite_fallback.h"
+#include "nri_enemy_material_key.h"
+#include "nri_enemy_family_preload_policy.h"
+#include "nri_enemy_startup_publication_policy.h"
+#include "nri_enemy_voxel_retained.h"
 #include "nri_material_color_audit.h"
 #include "nri_material_average_color_cache.h"
 #include "nri_voxel_publication_diagnostic_status.h"
@@ -29,6 +33,7 @@
 #include "filesystem.h"
 #include "files.h"
 #include "gamecontrol.h"
+#include "gamestruct.h"
 #include "hw_portal.h"
 #include "hw_voxels.h"
 #include "image.h"
@@ -54,6 +59,9 @@
 #include <unordered_set>
 #include <typeinfo>
 #include <vector>
+
+EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
+EXTERN_CVAR(Bool, nri_ptenemyrepresentationtrace)
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -292,6 +300,7 @@ namespace
 		LoadingVoxelRequestSource_MountedVoxelPreloadGlobal = 1u << 4,
 		LoadingVoxelRequestSource_MountedVoxelPreloadGame = 1u << 5,
 		LoadingVoxelRequestSource_MountedVoxelPreloadMap = 1u << 6,
+		LoadingVoxelRequestSource_EnemyFamily = PrecachedVoxelSourceBit_EnemyFamily,
 	};
 
 	struct LoadingVoxelTextureCandidate
@@ -301,6 +310,7 @@ namespace
 		LoadingVoxelRequestPriority priority = LoadingVoxelRequestPriority::Normal;
 		bool gpuForce = false;
 		bool gpuPrefer = false;
+		uint32_t enemyFamilyOrder = UINT32_MAX;
 	};
 
 	struct LoadingVoxelMaterialContext
@@ -326,6 +336,7 @@ namespace
 		LoadingVoxelRequestPriority priority = LoadingVoxelRequestPriority::Normal;
 		bool gpuForce = false;
 		bool gpuPrefer = false;
+		uint32_t enemyFamilyOrder = UINT32_MAX;
 		uint32_t primitiveCount = 0;
 		std::vector<LoadingVoxelMaterialContext> materialContexts;
 	};
@@ -2243,15 +2254,17 @@ namespace
 			(state.cstat2 & CSTAT2_SPRITE_NOMODEL) == 0;
 	}
 
-	bool TryBuildVoxelActorIdentity(const HWSprite& sprite, VoxelActorCacheLookup& lookup)
+	bool TryBuildVoxelActorIdentity(const HWSprite& sprite, VoxelActorCacheLookup& lookup,
+		const ActorPresentationState* snapshotAuthority = nullptr)
 	{
-		if (sprite.Sprite == nullptr || sprite.Sprite->ownerActor == nullptr || sprite.voxel == nullptr || sprite.voxel->model == nullptr)
+		if (sprite.Sprite == nullptr || (snapshotAuthority == nullptr && sprite.Sprite->ownerActor == nullptr) ||
+			sprite.voxel == nullptr || sprite.voxel->model == nullptr)
 		{
 			return false;
 		}
 
 		const ActorPresentationState* authority =
-			LookupActorPresentationByActor(sprite.Sprite->ownerActor);
+			snapshotAuthority != nullptr ? snapshotAuthority : LookupActorPresentationByActor(sprite.Sprite->ownerActor);
 		if (authority == nullptr || !authority->owner.IsValid() || authority->actorIndex < 0)
 		{
 			return false;
@@ -2272,7 +2285,7 @@ namespace
 		lookup.physicalSectorIndex = authority->physicalSectorIndex;
 		lookup.authorityCurrent = authority->authorityCurrent;
 		lookup.publicationEligible = IsActorPresentationVoxelCacheOwner(*authority);
-		lookup.indirectOnly = IsLocalPlayerActor(sprite.Sprite->ownerActor);
+		lookup.indirectOnly = snapshotAuthority == nullptr && IsLocalPlayerActor(sprite.Sprite->ownerActor);
 		lookup.voxelPtr = (uintptr_t)sprite.voxel;
 		lookup.voxelModelPtr = (uintptr_t)sprite.voxel->model;
 		lookup.sourcePicnum = sprite.Sprite->spritetexture().GetIndex();
@@ -3490,6 +3503,7 @@ namespace
 		append(LoadingVoxelRequestSource_MountedVoxelPreloadMap, "mounted-map");
 		append(LoadingVoxelRequestSource_MountedVoxelPreloadGame, "mounted-game");
 		append(LoadingVoxelRequestSource_MountedVoxelPreloadGlobal, "mounted-global");
+		append(LoadingVoxelRequestSource_EnemyFamily, "enemy-family");
 		return result.empty() ? "none" : result;
 	}
 
@@ -3538,6 +3552,9 @@ namespace
 
 	int LoadingVoxelAdmissionRank(const LoadingVoxelPreloadRequest& request)
 	{
+		// Complete small families get a chance before broad effect manifests.
+		// Ordering grants no allocation exemption and never sets gpuForce.
+		if (request.enemyFamilyOrder != UINT32_MAX) return -10000 + (int)request.enemyFamilyOrder;
 		return (int)request.priority * 10000 + LoadingVoxelSourceRank(request.sourceBits) * 100 + LoadingVoxelGpuIntentRank(request);
 	}
 
@@ -3547,8 +3564,9 @@ namespace
 		{
 			return false;
 		}
+		if ((request.sourceBits & LoadingVoxelRequestSource_EnemyFamily) != 0) return true;
 		const bool explicitGpu =
-			(request.sourceBits & LoadingVoxelRequestSource_MountedVoxelPreload) != 0 &&
+			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | LoadingVoxelRequestSource_EnemyFamily)) != 0 &&
 			(request.gpuForce || request.gpuPrefer);
 		if (explicitGpu)
 		{
@@ -3568,6 +3586,7 @@ namespace
 	{
 		std::sort(graph.requests.begin(), graph.requests.end(), [](const LoadingVoxelPreloadRequest& a, const LoadingVoxelPreloadRequest& b)
 		{
+			if (a.enemyFamilyOrder != b.enemyFamilyOrder) return a.enemyFamilyOrder < b.enemyFamilyOrder;
 			if (a.priority != b.priority)
 			{
 				return (uint8_t)a.priority < (uint8_t)b.priority;
@@ -3725,6 +3744,7 @@ namespace
 			request.sourceBits |= candidate.sourceBits;
 			request.gpuForce = request.gpuForce || candidate.gpuForce;
 			request.gpuPrefer = request.gpuPrefer || candidate.gpuPrefer;
+			request.enemyFamilyOrder = (std::min)(request.enemyFamilyOrder, candidate.enemyFamilyOrder);
 			request.materialContexts.push_back(materialContext);
 			if ((uint8_t)candidate.priority < (uint8_t)request.priority)
 			{
@@ -3748,6 +3768,7 @@ namespace
 		request.priority = candidate.priority;
 		request.gpuForce = candidate.gpuForce;
 		request.gpuPrefer = candidate.gpuPrefer;
+		request.enemyFamilyOrder = candidate.enemyFamilyOrder;
 		request.materialContexts.push_back(materialContext);
 		graph.requestByMeshVariant.emplace(meshVariantHash, graph.requests.size());
 		graph.requests.push_back(request);
@@ -4378,6 +4399,7 @@ namespace
 		}
 
 		std::vector<LoadingVoxelTextureCandidate> candidateTexids;
+		std::vector<EnemyFamilyPreloadSet> enemyFamilies;
 		AddMountedVoxelPreloadRequests(graph);
 
 		TSpriteIterator<DCoreActor> it;
@@ -4389,6 +4411,21 @@ namespace
 			}
 
 			BuildLoadingActorTextureCandidates(actor, candidateTexids);
+			if ((bool)nri_ptenemystablerepresentation && gi != nullptr)
+			{
+				ActorSpriteAnimationState animation;
+				gi->CaptureActorSpriteAnimation(*actor, animation);
+				const auto& family = animation.enemyVoxelFamily;
+				if (animation.enemy && family && family->complete)
+				{
+					EnemyFamilyPreloadSet candidate;
+					candidate.family = family->id;
+					candidate.signature = family->signature;
+					candidate.actor = actor;
+					candidate.textures = family->textureIds;
+					enemyFamilies.push_back(std::move(candidate));
+				}
+			}
 			bool countedActor = false;
 			for (const LoadingVoxelTextureCandidate& candidate : candidateTexids)
 			{
@@ -4398,6 +4435,38 @@ namespace
 					countedActor = true;
 				}
 			}
+		}
+		const auto prioritizedFamilies = SelectEnemyFamilyPreloadSets(enemyFamilies,
+			[](int32_t texture, uint64_t& bytes, bool& known)
+			{
+				FTextureID texid;
+				texid.SetIndex(texture);
+				FVoxelModel* model = ResolveVoxelTextureModel(texid);
+				if (model == nullptr) return false;
+				FVoxelRawMeshStats raw;
+				known = QueryNRIVoxelComputeRawSourceArchiveStats(model, raw);
+				if (known) bytes = uint64_t(raw.adjacencySurfaceVertexCount) * sizeof(SceneVertex) +
+					uint64_t(raw.adjacencySurfaceIndexCount) * sizeof(uint32_t) +
+					uint64_t(raw.adjacencySurfaceFaceCount) * 2 * sizeof(PrimitiveData);
+				return true;
+			});
+		for (uint32_t order = 0; order < prioritizedFamilies.size(); ++order)
+		{
+			const auto& family = prioritizedFamilies[order];
+			for (int32_t texture : family.textures)
+			{
+				LoadingVoxelTextureCandidate candidate;
+				candidate.texid.SetIndex(texture);
+				candidate.sourceBits = LoadingVoxelRequestSource_EnemyFamily;
+				candidate.priority = LoadingVoxelRequestPriority::High;
+				candidate.gpuPrefer = true;
+				candidate.enemyFamilyOrder = order;
+				AddLoadingVoxelPreloadRequest(graph, family.actor, candidate);
+			}
+			if ((bool)nri_ptenemyrepresentationtrace)
+				Printf("NRI enemy family preload: family=%u poses=%u live_actors=%u order=%u cost_known=%u estimated_geometry_bytes=%llu force=0\n",
+					family.family, uint32_t(family.textures.size()), family.liveActors, order, family.costKnown ? 1u : 0u,
+					(unsigned long long)family.estimatedGeometryBytes);
 		}
 		SortLoadingVoxelPreloadRequests(graph);
 	}
@@ -4453,6 +4522,60 @@ namespace
 		outPosition[0] = (float)actor.position.x;
 		outPosition[1] = (float)-actor.position.y;
 		outPosition[2] = (float)-actor.position.z;
+	}
+
+	const SurfaceRef* GetReadyVoxelMeshVariantSurface(uint64_t meshVariantHash);
+
+	bool PublishRetainedEnemyVoxelSource(const ActorPresentationState& authority, HWSprite& sprite)
+	{
+		VoxelActorCacheLookup lookup = {};
+		if (!TryBuildVoxelActorIdentity(sprite, lookup, &authority)) return false;
+		const auto found = gVoxelActorCache.find(lookup.identityKey);
+		if (found == gVoxelActorCache.end()) return false;
+		lookup.entry = &found->second;
+		if (lookup.entry->lastSeenFrame == gVoxelActorCacheFrame) return true;
+		FGameTexture* palette = TexMan.GetGameTexture(sprite.voxel->model->GetPaletteTexture());
+		if (!palette || !palette->isValid()) return false;
+		const auto material = MakeVoxelPaletteMaterialRef(sprite.voxel->model, lookup.sourcePicnum,
+			palette, GetVoxelReplacementEmissiveSourceTexture(sprite), sprite.palette, sprite.shade, sprite.alpha, MaterialFlag_Sprite);
+		const auto mesh = BuildVoxelMeshVariantKey(sprite);
+		lookup.meshKeyHash = lookup.geometrySignature = lookup.meshVariantHash = BuildVoxelMeshVariantKeyHash(mesh);
+		lookup.materialKeyHash = lookup.materialSignature = lookup.materialVariantHash =
+			BuildVoxelMaterialVariantKeyHash(BuildVoxelMaterialVariantKey(palette, material));
+		lookup.signature = BuildVoxelActorSignature(lookup.geometrySignature, lookup.materialSignature);
+		lookup.surfaceSignature = BuildVoxelActorSurfaceSignature(sprite);
+		lookup.transformBasisSignature = BuildVoxelActorTransformBasisSignature(sprite);
+		lookup.meshBakeSpace = VoxelMeshBakeSpace::LocalSpace;
+		lookup.resolvedVoxelIndex = mesh.resolvedVoxelIndex;
+		lookup.stability = VoxelActorStability::Changed;
+		CopyVoxelActorTranslation(sprite, lookup.currentTranslation);
+		CopyVoxelActorTransform(sprite, lookup.currentTransform);
+		CopyActorPresentationCacheBasisPosition(authority, lookup.actorScenePosition);
+		lookup.hasActorScenePosition = true;
+		const bool direct = ShouldDirectPublishNRIVoxelComputeMeshing();
+		FVoxelRawMeshStats raw = {};
+		// Read-only closure: the classifier must never request an absent archive.
+		if (direct && (bool)nri_ptvoxelcomputerawarchive &&
+			!QueryNRIVoxelComputeRawSourceArchiveStats(sprite.voxel->model, raw)) return false;
+		const auto routing = ClassifyDynamicVoxelCaptureRouting(DynamicVoxelCaptureMode::Authoritative,
+			false, true, direct, lookup, sprite.voxel->model);
+		SurfaceRef light;
+		light.material = material; light.materialRowSpan = GetVoxelPaletteMaterialRowSpan(material);
+		light.provenance = MakeSpriteProvenance(sprite, SurfaceSourceType::VoxelProxySprite, GLDL_MODELS, material.flags);
+		light.provenance.actorIndex = authority.actorIndex; light.provenance.sectorIndex = authority.physicalSectorIndex;
+		const uint64_t capturedFrame = lookup.entry->lastSeenFrame;
+		if (routing.directOnlyAdmission && routing.primitiveCount != 0)
+			MarkVoxelActorVariantPending(lookup, VoxelActorPendingReason::MeshDeferred, &material, &light.provenance, routing.primitiveCount);
+		else
+		{
+			const auto* canonical = GetReadyVoxelMeshVariantSurface(lookup.meshVariantHash);
+			if (!canonical) return false;
+			SceneDebugStats ignored = {};
+			StoreVoxelActorCacheSurface(lookup, *canonical, light, VoxelMeshBakeSpace::LocalSpace, true, ignored);
+		}
+		// Recipe refresh is authoritative source work, not a new camera capture.
+		lookup.entry->lastSeenFrame = capturedFrame;
+		return true;
 	}
 
 	bool SyncRetainedVoxelActorAuthority(
@@ -7031,6 +7154,7 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 	if (voxelCaptureMode == DynamicVoxelCaptureMode::Authoritative)
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.voxelFrameMs);
+		if (rootVoxelCacheFrame) RefreshEnemyVoxelSources(di, gVoxelActorCacheFrame, PublishRetainedEnemyVoxelSource);
 		EndVoxelActorCacheFrame(outView.stats, rootVoxelCacheFrame);
 		if (rootVoxelCacheFrame) RefreshActorSpriteFallbacksAfterCapture(di, outView);
 	}
@@ -7173,6 +7297,7 @@ uint64_t GetPersistentVoxelCacheSerial()
 
 void ResetPersistentVoxelActorCache(const char* reason)
 {
+	ResetEnemyVoxelSources();
 	ResetActorSpriteFallbackCandidates();
 	gVoxelPublicationDiagnosticCapture = {};
 	gVoxelActorPublication.Reset();
@@ -7278,13 +7403,32 @@ bool BuildPersistentVoxelCacheSceneView(SceneView& outView)
 
 namespace
 {
+bool IsCertifiedEnemyStartupPublication(const VoxelActorCacheEntry& cached)
+{
+	if (!(bool)nri_ptenemystablerepresentation || !gVoxelActorStartupTransientMode ||
+		gVoxelActorCacheCaptureDepth != 0)
+		return false;
+	const auto& snapshot = GetActorPresentationSnapshot();
+	const auto& journal = GetActorLifecycleJournal();
+	if (!snapshot.complete || snapshot.worldEpoch != journal.WorldEpoch() ||
+		snapshot.simulationGeneration != GetGameUpdateSnapshot().simulationGeneration ||
+		snapshot.lifecycleSerial != journal.LatestSerial())
+		return false;
+	const auto* authority = LookupActorSpriteFallbackAuthority(cached.ownerWorldEpoch, cached.ownerLifetimeGeneration);
+	const EnemyStartupPublicationSource source = { cached.ownerWorldEpoch, cached.ownerLifetimeGeneration,
+		cached.placementGeneration, cached.placementStateHash, cached.lastSeenFrame, cached.actorIndex, cached.sourcePicnum };
+	return IsCurrentCertifiedEnemyStartupPublication(source, gVoxelActorCacheFrame, authority) &&
+		BuildActorPresentationBasisStateHash(*authority) == cached.presentationBasisStateHash;
+}
+
 bool BuildVoxelActorPublicationEntry(uint64_t identity, PersistentVoxelCacheEntryView& view)
 {
 	view = {};
-	if (gVoxelActorStartupTransientMode) return false;
 	const auto found = gVoxelActorCache.find(identity);
 	if (found == gVoxelActorCache.end()) return false;
 	const VoxelActorCacheEntry& cached = found->second;
+	const bool certifiedStartup = IsCertifiedEnemyStartupPublication(cached);
+	if (gVoxelActorStartupTransientMode && !certifiedStartup) return false;
 	const bool publicationCurrent =
 		cached.ownerWorldEpoch != 0 &&
 		cached.placementGeneration != 0 &&
@@ -7297,7 +7441,12 @@ bool BuildVoxelActorPublicationEntry(uint64_t identity, PersistentVoxelCacheEntr
 	{
 		return false;
 	}
-	const bool currentReady = cached.hasSurface && cached.persistentReady && !cached.startupPending;
+	// A complete, current source recipe can enter admission before the first
+	// present. GPU family/current/material readiness is still proved downstream.
+	// Keep ordinary startup rows and unstable CPU surface promotion unchanged.
+	const bool currentReady = cached.hasSurface &&
+		((cached.persistentReady && !cached.startupPending) ||
+		 (certifiedStartup && CanPromoteVoxelActorCacheEntry(cached)));
 	const bool desiredDirectPending =
 		ShouldDirectPublishNRIVoxelComputeMeshing() &&
 		cached.pendingReason != (uint8_t)VoxelActorPendingReason::None &&
@@ -7369,6 +7518,17 @@ bool BuildVoxelActorPublicationEntry(uint64_t identity, PersistentVoxelCacheEntr
 	view.actorIndex = cached.actorIndex;
 	view.physicalSectorIndex = cached.physicalSectorIndex;
 	view.sourcePicnum = cached.sourcePicnum;
+	if ((bool)nri_ptenemystablerepresentation)
+	{
+		const auto* authority = LookupActorSpriteFallbackAuthority(view.ownerWorldEpoch, view.ownerLifetimeGeneration);
+		if (authority && authority->spriteAnimation.enemy && authority->spriteAnimation.enemyVoxelFamily &&
+			authority->spriteAnimation.enemyVoxelFamily->complete)
+		{
+			view.materialKeyHash = BuildEnemyStableMaterialKey(view.ownerWorldEpoch,
+				view.ownerLifetimeGeneration, view.sourcePicnum);
+			view.enemyStableMaterialBinding = view.materialKeyHash != 0;
+		}
+	}
 	view.resolvedVoxelIndex = cached.resolvedVoxelIndex;
 	view.primitiveCount = desiredDirectPending ? cached.desiredPrimitiveCount : cached.primitiveCount;
 	view.lastSeenFrame = cached.lastSeenFrame;
@@ -7459,14 +7619,18 @@ VoxelPublicationDiagnosticStatus InspectPersistentVoxelEmptyPublication()
 	for (const auto& pair : gVoxelActorCache)
 	{
 		const auto& cached = pair.second;
+		const bool certifiedStartup = IsCertifiedEnemyStartupPublication(cached);
+		if (certifiedStartup) result.startupSuppressed = false;
 		VoxelPublicationEntryDiagnosticFacts facts;
-		facts.startupSuppressed = result.startupSuppressed;
+		facts.startupSuppressed = gVoxelActorStartupTransientMode && !certifiedStartup;
 		facts.validPlacement = cached.ownerWorldEpoch != 0 && cached.placementGeneration != 0 &&
 			cached.placementStateHash != 0 && cached.physicalSectorIndex >= 0;
 		facts.authorityCurrent = cached.authorityCurrent;
 		facts.publicationEligible = cached.publicationEligible;
 		facts.pendingRemoval = cached.pendingRemoval;
-		facts.currentReady = cached.hasSurface && cached.persistentReady && !cached.startupPending;
+		facts.currentReady = cached.hasSurface &&
+			((cached.persistentReady && !cached.startupPending) ||
+			 (certifiedStartup && CanPromoteVoxelActorCacheEntry(cached)));
 		facts.desiredDirectPending = direct &&
 			cached.pendingReason != (uint8_t)VoxelActorPendingReason::None &&
 			cached.hasDesiredMaterialSurface && cached.desiredMeshKeyHash != 0 &&
@@ -7743,7 +7907,7 @@ bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& out
 			(uint64_t)surface->indices.size() * (uint64_t)sizeof(uint32_t) +
 			(uint64_t)primitiveCount * (uint64_t)sizeof(PrimitiveData);
 		const bool explicitGpu =
-			(request.sourceBits & LoadingVoxelRequestSource_MountedVoxelPreload) != 0 &&
+			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | LoadingVoxelRequestSource_EnemyFamily)) != 0 &&
 			(request.gpuForce || request.gpuPrefer);
 		const bool forcedGpu = explicitGpu && request.gpuForce;
 		const bool preferredGpu = explicitGpu && request.gpuPrefer && !request.gpuForce;
@@ -7979,7 +8143,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 		const bool cpuSurfaceReady = IsVoxelMeshVariantSurfaceReady(request.meshVariantHash);
 		const bool legacyGpuCandidate = IsLoadingVoxelRequestGpuCandidate(request);
 		const bool explicitGpu =
-			(request.sourceBits & LoadingVoxelRequestSource_MountedVoxelPreload) != 0 &&
+			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | LoadingVoxelRequestSource_EnemyFamily)) != 0 &&
 			(request.gpuForce || request.gpuPrefer);
 		const bool forcedGpu = explicitGpu && request.gpuForce;
 		const bool preferredGpu = explicitGpu && request.gpuPrefer && !request.gpuForce;
@@ -8070,6 +8234,75 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 	return !outEntries.empty();
 }
 
+bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
+	std::vector<PrecachedVoxelRawManifestView>& outEntries)
+{
+	outEntries.clear();
+	const auto& family = actor.spriteAnimation.enemyVoxelFamily;
+	if (!actor.owner.IsValid() || !family || !family->complete || family->textureIds.empty() || family->textureIds.size() > 64) return false;
+	float alpha = 1.0f;
+	if ((actor.cstat & CSTAT_SPRITE_TRANSLUCENT) != 0)
+		alpha = GetAlphaFromBlend((actor.cstat & CSTAT_SPRITE_TRANS_FLIP) ? DAMETH_TRANS2 : DAMETH_TRANS1, 0);
+	alpha *= 1.0f - actor.alpha;
+	for (int32_t texture : family->textureIds)
+	{
+		FGameTexture* art = TexMan.GameByIndex(texture);
+		int voxelIndex = -1;
+		FVoxelModel* model = art ? ResolveVoxelTextureModel(art->GetID(), &voxelIndex) : nullptr;
+		if (!model) { outEntries.clear(); return false; }
+		FVoxelRawMeshStats raw = {};
+		const bool rawStatsReady = QueryNRIVoxelComputeRawSourceArchiveStats(model, raw);
+		const bool directPublish = ShouldDirectPublishNRIVoxelComputeMeshing();
+		// Do not let the classifier request raw-source work during this read-only
+		// inventory. With this route a missing archive cannot certify a future pose.
+		if (directPublish && (bool)nri_ptvoxelcomputerawarchive && !rawStatsReady)
+		{ outEntries.clear(); return false; }
+		const auto mesh = BuildLoadingVoxelMeshVariantKey(art->GetID(), model, voxelIndex);
+		const uint64_t meshVariantHash = BuildVoxelMeshVariantKeyHash(mesh);
+		VoxelActorCacheLookup lookup;
+		lookup.identityKey = BuildVoxelActorIdentityKey(actor.owner);
+		lookup.meshVariantHash = meshVariantHash;
+		const auto routing = ClassifyDynamicVoxelCaptureRouting(DynamicVoxelCaptureMode::Authoritative,
+			false, true, directPublish, lookup, model);
+		VoxelGeometryContentHashes hashes;
+		uint32_t primitiveCount = 0;
+		if (routing.directOnlyAdmission)
+		{
+			hashes = BuildRawVoxelGeometryContentHashes(raw, texture, voxelIndex);
+			primitiveCount = routing.primitiveCount;
+		}
+		else
+		{
+			// CPU canonical payload hashes differ from raw direct-compute hashes.
+			// Select the same new-pose route as actor capture, never any resident key.
+			const auto* surface = GetReadyVoxelMeshVariantSurface(meshVariantHash);
+			if (surface && GetReadyVoxelMeshVariantContentHashes(meshVariantHash,
+				hashes.geometryContentHash, hashes.renderPrimitiveHash))
+				primitiveCount = CountSurfacePrimitives(*surface);
+		}
+		if (!hashes.geometryContentHash || !hashes.renderPrimitiveHash || !primitiveCount)
+		{ outEntries.clear(); return false; }
+		FGameTexture* palette = TexMan.GetGameTexture(model->GetPaletteTexture());
+		if (!palette || !palette->isValid()) { outEntries.clear(); return false; }
+		PrecachedVoxelRawManifestView view;
+		view.meshKeyHash = view.meshVariantHash = meshVariantHash;
+		view.geometryContentHash = hashes.geometryContentHash;
+		view.renderPrimitiveHash = hashes.renderPrimitiveHash;
+		view.sourcePicnum = texture; view.resolvedVoxelIndex = voxelIndex; view.model = model;
+		view.primitiveCount = primitiveCount;
+		view.rawBytes = raw.rawByteCount; view.rawSlabCount = raw.slabCount;
+		view.rawStatsReady = view.rawSourceResident = rawStatsReady;
+		view.material = MakeVoxelPaletteMaterialRef(model, texture, palette, art,
+			actor.spriteAnimation.recipePalette, actor.spriteAnimation.recipeShade,
+			alpha, MaterialFlag_Sprite);
+		view.materialVariantHash = view.materialKeyHash = BuildVoxelMaterialVariantKeyHash(
+			BuildVoxelMaterialVariantKey(palette, view.material));
+		view.materialContextReady = view.materialKeyHash != 0;
+		outEntries.push_back(std::move(view));
+	}
+	return true;
+}
+
 bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 {
 	SceneViewCaptureAudit audit(outView, PerfAuditMetric::SceneCaptureFullNs, PerfAuditMetric::SceneCaptureFullCalls);
@@ -8096,6 +8329,7 @@ bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 	CaptureFacingSprites(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueSprites);
 	CaptureModelSprites(di, di.drawlists[GLDL_MODELS], GLDL_MODELS, outView.opaqueSprites, outView.stats, DynamicVoxelCaptureMode::Authoritative);
 	CapturePortalViews(di, outView);
+	if (rootVoxelCacheFrame) RefreshEnemyVoxelSources(di, gVoxelActorCacheFrame, PublishRetainedEnemyVoxelSource);
 	EndVoxelActorCacheFrame(outView.stats, rootVoxelCacheFrame);
 	if (rootVoxelCacheFrame) RefreshActorSpriteFallbacksAfterCapture(di, outView);
 

@@ -3,6 +3,7 @@
 #include "nri_voxel_admission_scheduler.h"
 #include "nri_persistent_voxel_actor_index.h"
 #include "nri_persistent_voxel_actor_demand.h"
+#include "nri_enemy_representation.h"
 #include "nri_persistent_voxel_admission_reclaim.h"
 #include "nri_voxel_publication_order.h"
 
@@ -177,6 +178,8 @@ struct PersistentVoxelMeshVariantResource
 
 struct PersistentVoxelMaterialVariantResource
 {
+	bool enemyStableMaterialBinding = false;
+	bool enemyMaterialReservationOnly = false;
 	uint64_t materialKeyHash = 0;
 	uint64_t materialSignature = 0;
 	uint64_t materialPayloadHash = 0;
@@ -1047,6 +1050,25 @@ struct NRIPersistentVoxelPreloadStatus
 class NRIPersistentVoxelResidency
 {
 public:
+    void RefreshEnemyRepresentations(uint32_t frameIndex, const NRIPersistentVoxelResetServices& services);
+    void ResetEnemyRepresentationsForLevelTransition();
+    bool IsEnemySpriteCommitted(uint64_t world, uint64_t lifetime) const;
+    void FilterEnemyPublicationEntries(const std::vector<nri_scene::PersistentVoxelCacheEntryView>*& entries);
+    const NRIEnemyFamilyResidency& InspectEnemyFamily(const ActorPresentationState& authority,
+        uint32_t frameIndex, const NRIPersistentVoxelSettings& settings);
+    NRIEnemyRepresentationChoice SelectEnemyRepresentation(const nri_scene::ActorSpriteFallbackCandidate& candidate,
+        uint32_t frameIndex, const NRIPersistentVoxelSettings& settings, bool exactReady, bool spriteReady);
+    bool PrepareEnemyMaterialCommit(const ActorPresentationState& authority);
+    void ReleaseEnemyMaterialCommits(const std::vector<uint64_t>& keys, const NRIPersistentVoxelResetServices& services,
+        bool authoritativeEmptyAfterWait = false);
+    NRIEnemyRepresentationPolicy enemyPolicy;
+    std::unordered_set<uint64_t> enemyMaterialReleasePending;
+    std::unordered_map<uint64_t, NRIEnemyFamilyResidency> enemyFamilyResidency;
+    std::vector<nri_scene::PersistentVoxelCacheEntryView> enemyPublicationEntries;
+    uint32_t enemyFamilyFrame = UINT32_MAX;
+    uint32_t enemyMaterialTexturesReadyFrame = UINT32_MAX;
+    std::unordered_set<uint64_t> enemyMaterialTexturesReadyActors;
+    std::unordered_map<uint64_t, const char*> enemyMaterialTextureReasons;
     void RefreshActorDemand(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings,
         const NRIPersistentVoxelResetServices& services);
     void NotifyActorRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,

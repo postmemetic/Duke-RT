@@ -83,15 +83,35 @@ bool NRIPersistentVoxelAllocationWaitCanContinue(const char* reason, bool hasOwn
          std::strcmp(reason, "compute-provider-budget-retry") == 0);
 }
 
+void NRIPersistentVoxelAllocationBudgetCeiling::SetBackoffEnabled(bool enabled)
+{
+    if (backoffEnabled == enabled) return;
+    backoffEnabled = enabled;
+    // Changing the optional policy cannot leave an extended stale deadline.
+    // Preserve the most recent actual ceiling under the original short hold.
+    holdTicks = HoldTicks;
+    contractionStreak = 0;
+    lastDeniedBudgetBytes = 0;
+    recoveryConfirmed = false;
+}
+
 void NRIPersistentVoxelAllocationBudgetCeiling::BeginTick(uint64_t epoch, uint64_t tick)
 {
     if (mapEpoch != epoch || tick < lastTick)
     {
+        const bool enabled = backoffEnabled;
         *this = {};
         mapEpoch = epoch;
+        backoffEnabled = enabled;
     }
     lastTick = tick;
-    if (ceilingBytes && tick - deniedTick >= HoldTicks) ceilingBytes = 0;
+    if (ceilingBytes && tick - deniedTick >= holdTicks) ceilingBytes = 0;
+    if (lastDeniedBudgetBytes && tick - deniedTick >= HistoryTicks)
+    {
+        lastDeniedBudgetBytes = 0;
+        contractionStreak = 0;
+        holdTicks = HoldTicks;
+    }
 }
 
 uint64_t NRIPersistentVoxelAllocationBudgetCeiling::Apply(uint64_t epoch, uint64_t tick, uint64_t freshBudget)
@@ -104,7 +124,7 @@ uint64_t NRIPersistentVoxelAllocationBudgetCeiling::Apply(uint64_t epoch, uint64
 uint64_t NRIPersistentVoxelAllocationBudgetCeiling::Remaining(uint64_t epoch, uint64_t tick)
 {
     BeginTick(epoch, tick);
-    return ceilingBytes ? HoldTicks - (tick - deniedTick) : 0;
+    return ceilingBytes ? holdTicks - (tick - deniedTick) : 0;
 }
 
 void NRIPersistentVoxelAllocationBudgetCeiling::ObservePostDenial(
@@ -112,8 +132,46 @@ void NRIPersistentVoxelAllocationBudgetCeiling::ObservePostDenial(
 {
     BeginTick(epoch, tick);
     if (!afterBudget || afterBudget >= beforeBudget) return;
+    if (backoffEnabled)
+    {
+        // Small normal OS-budget variation is still the same contraction
+        // episode. A materially higher admitted budget starts a fresh episode.
+        const uint64_t margin = std::max<uint64_t>(16ull * 1024 * 1024, lastDeniedBudgetBytes / 64);
+        const uint64_t comparableBudget = lastDeniedBudgetBytes > UINT64_MAX - margin ? UINT64_MAX : lastDeniedBudgetBytes + margin;
+        const bool repeated = lastDeniedBudgetBytes && afterBudget <= comparableBudget;
+        if (!repeated) contractionStreak = 1;
+        else if (tick != deniedTick) contractionStreak = std::min(contractionStreak + 1u, 4u);
+        holdTicks = HoldTicks << (std::max(contractionStreak, 1u) - 1u);
+    }
+    else holdTicks = HoldTicks;
     ceilingBytes = ceilingBytes ? std::min(ceilingBytes, afterBudget) : afterBudget;
+    lastDeniedBudgetBytes = afterBudget;
     deniedTick = tick;
+    recoveryConfirmed = false;
+}
+
+void NRIPersistentVoxelAllocationBudgetCeiling::ObserveSuccess(uint64_t epoch, uint64_t tick,
+    uint64_t actualAllocationBytes, uint64_t observedPhysicalUsageBytes, uint64_t freshBudgetBytes)
+{
+    BeginTick(epoch, tick);
+    // A small successful AS/texture/provider allocation says nothing about
+    // whether the failed larger footprint is sustainable. Only fresh physical
+    // usage above the remembered ceiling demonstrates recovery; unspent
+    // provider promises and a projected reserve cannot manufacture that proof.
+    if (!backoffEnabled || !lastDeniedBudgetBytes || !actualAllocationBytes ||
+        observedPhysicalUsageBytes <= lastDeniedBudgetBytes || observedPhysicalUsageBytes > freshBudgetBytes) return;
+    ceilingBytes = lastDeniedBudgetBytes = 0;
+    holdTicks = HoldTicks;
+    contractionStreak = 0;
+    recoveryConfirmed = true;
+}
+
+const char* NRIPersistentVoxelAllocationBudgetCeiling::Reason() const
+{
+    if (!backoffEnabled) return ceilingBytes ? "fixed-hold" : "fixed-probe";
+    if (ceilingBytes) return "bounded-hold";
+    if (lastDeniedBudgetBytes) return "periodic-probe";
+    return recoveryConfirmed ? "recovery-confirmed" : "unobserved";
 }
 
 void NRIPersistentVoxelAllocationRetry::BeginTick(uint64_t mapEpoch, uint64_t tick)

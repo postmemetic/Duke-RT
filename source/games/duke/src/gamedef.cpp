@@ -47,6 +47,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "conlabel.h"
 #include "conlabeldef.h"
 #include "gi.h"
+#include "enemy_voxel_family.h"
 
 extern TArray<TPointer<MapRecord>> mapList;
 
@@ -1088,6 +1089,7 @@ int ConCompiler::parsecommand()
 		checking_ifelse = 0;
 		auto origtptr = textptr;
 		auto textstring = GetStringFromLump(fni);
+		RecordEnemyVoxelFamilyConSource(parsebuffer.Data(), textstring.GetChars(), textstring.Len(), false);
 		textptr = textstring.GetChars();
 
 		do
@@ -3106,6 +3108,7 @@ void ConCompiler::compilecon(const char *filenam)
 	}
 	Printf("Compiling: '%s'.\n", filenam);
 	auto textstring = GetStringFromLump(currentsourcefile);
+	RecordEnemyVoxelFamilyConSource(filenam, textstring.GetChars(), textstring.Len(), true);
 	textptr = textstring.GetChars();
 
 	line_number = 1;
@@ -3195,6 +3198,7 @@ void ConCompiler::setmusic()
 
 void loadcons()
 {
+	ResetEnemyVoxelFamilyContentCertificate();
 	memset(&gs, 0, sizeof(gs));
 	gs.respawnactortime = 768;
 	gs.bouncemineblastradius = 2500;

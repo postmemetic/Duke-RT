@@ -236,6 +236,8 @@ NRIPersistentVoxelAllocationResult ReserveNRIVoxelComputeBuffers(NRIRenderer& re
         *requests[i].target = pending[i];
         pending[i] = {};
     }
+    renderer.mPersistentVoxels.allocationBudgetCeiling.ObserveSuccess(renderer.mMapWorld.buildSerial,
+        GetNRIVoxelAdmissionRetryClock(), actualBytes, post.liveAvailable ? post.liveUsageBytes : 0, post.rawBudgetBytes);
     materialized();
     return report("reserved", Result::Ready);
 }

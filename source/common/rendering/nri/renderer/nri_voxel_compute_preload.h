@@ -182,6 +182,13 @@ struct NRIVoxelComputePreloadClosureStats
 
 NRIVoxelComputePreloadSettings BuildNRIVoxelComputePreloadSettingsFromCVars();
 
+// Latches a guarded selection for one map build, shared by planning and enqueue.
+void SelectNRIVoxelComputePreloadForBudget(
+	std::vector<nri_scene::PrecachedVoxelVariantView>& variants,
+	std::vector<nri_scene::PrecachedVoxelRawManifestView>& rawVariants,
+	const NRIVoxelComputePreloadSettings& settings, uint64_t buildSerial,
+	uint64_t currentTrackedBytes, uint64_t localMemoryBudgetBytes);
+
 void BuildNRIVoxelComputePreloadDirectVariants(
 	const std::vector<nri_scene::PrecachedVoxelRawManifestView>& rawVariants,
 	const NRIVoxelComputePreloadSettings& settings,

@@ -872,6 +872,16 @@ uint64_t NRIVoxelAdmissionScheduler::FindPairOwner(const NRIVoxelAdmissionPairId
 	return found == m_pairOwners.end() ? 0 : found->second;
 }
 
+bool NRIVoxelAdmissionScheduler::IsDirectBlasLaneBlocked(uint64_t tokenId, bool exclusive) const
+{
+	// Submission/ready/cancellation transitions maintain these live owners.
+	// Preserve the admission poll's older-exclusive-compute ordering and its
+	// self exception for an already-owned exclusive BLAS lane.
+	return (exclusive && m_snapshot.blasInFlight != 0) ||
+		(exclusive && m_oversizedComputeToken != 0 && m_oversizedComputeToken < tokenId) ||
+		(m_oversizedBlasToken != 0 && m_oversizedBlasToken != tokenId);
+}
+
 NRIVoxelAdmissionScheduler::Token* NRIVoxelAdmissionScheduler::FindToken(uint64_t tokenId)
 {
 	auto found = m_tokens.find(tokenId);

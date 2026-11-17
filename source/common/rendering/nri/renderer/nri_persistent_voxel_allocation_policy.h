@@ -33,17 +33,30 @@ bool NRIPersistentVoxelAllocationWaitCanContinue(const char* reason, bool hasOwn
 // across geometry/providers briefly; usage and raw budget are always refreshed.
 // Queries/preflight denials never prolong this interval. After expiry the next
 // fitting allocation can probe the current budget and re-arm on a new denial.
+// Optional bounded backoff applies only to repeated observed contractions;
+// smaller work that fits the remembered ceiling remains eligible immediately.
 struct NRIPersistentVoxelAllocationBudgetCeiling
 {
     static constexpr uint64_t HoldTicks = 120;
+    static constexpr uint64_t MaximumHoldTicks = 960;
+    static constexpr uint64_t HistoryTicks = MaximumHoldTicks * 4;
     uint64_t mapEpoch = 0;
     uint64_t lastTick = UINT64_MAX;
     uint64_t deniedTick = 0;
     uint64_t ceilingBytes = 0;
+    uint64_t holdTicks = HoldTicks;
+    uint64_t lastDeniedBudgetBytes = 0;
+    uint32_t contractionStreak = 0;
+    bool backoffEnabled = false;
+    bool recoveryConfirmed = false;
+    void SetBackoffEnabled(bool enabled);
     void BeginTick(uint64_t epoch, uint64_t tick);
     uint64_t Apply(uint64_t epoch, uint64_t tick, uint64_t freshBudget);
     uint64_t Remaining(uint64_t epoch, uint64_t tick);
     void ObservePostDenial(uint64_t epoch, uint64_t tick, uint64_t beforeBudget, uint64_t afterBudget);
+    void ObserveSuccess(uint64_t epoch, uint64_t tick, uint64_t actualAllocationBytes,
+        uint64_t observedPhysicalUsageBytes, uint64_t freshBudgetBytes);
+    const char* Reason() const;
 };
 
 // A live budget can contract while speculative arena backing is allocated.

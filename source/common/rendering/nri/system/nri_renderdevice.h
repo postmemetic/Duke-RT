@@ -109,6 +109,8 @@ public:
 	bool IsFrameFenceValueComplete(uint64_t fenceValue);
 	bool IsCommandFenceValueComplete(uint64_t fenceValue);
 	bool IsCommandFenceValueAbandoned(uint64_t fenceValue) const;
+	// Read-after-copy ordering only. Never use this to retire an upload/resource.
+	bool IsCommandUploadOrderedBeforeCurrentRecording(uint64_t fenceValue) const;
 	nri::CoreInterface* GetCoreInterface() { return &mCore; }
 	nri::Device* GetDevice() const { return mDevice; }
 	nri::CommandBuffer* GetCurrentCommandBuffer() const { return mCommandBuffer; }
@@ -476,6 +478,7 @@ private:
 	uint64_t mFrameIndex = 0;
 	uint64_t mSubmittedFenceValue = 0;
 	uint64_t mRecordingCommandFenceValue = 0;
+	uint64_t mLastSubmittedCommandFenceValue = 0;
 	uint64_t mNextCommandFenceValue = 1;
 	std::unordered_set<uint64_t> mAbandonedCommandFenceValues;
 	bool mFrameBegun = false;

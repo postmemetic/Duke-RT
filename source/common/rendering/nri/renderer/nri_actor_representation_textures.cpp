@@ -1,5 +1,6 @@
 #include "nri_scene_textures.h"
 #include "nri_actor_representation.h"
+#include "nri_enemy_representation_textures.h"
 #include "nri_persistent_voxels.h"
 #include "../scene/nri_actor_sprite_fallback.h"
 #include "../scene/nri_material_bridge.h"
@@ -12,13 +13,15 @@
 #include <vector>
 
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
+CVAR(Bool, nri_ptactororderedtextures, false, 0)
 
 void NRIActorRepresentations::PrepareTextures(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
-    NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
+    const NRIPersistentVoxelSettings& settings, NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
     void (*buildMaterials)(void*, nri_scene::SceneView&, nri_scene::MaterialBridgeData&))
 {
     voxels.spriteFallbackReadyActors.clear();
     voxels.spriteFallbackReadyFrame = frameIndex;
+	NRIPrepareEnemyFamilyTextures(frameIndex, voxels, settings, device, textures);
     if (!(bool)nri_ptactorspritefallback || !buildMaterials) return;
     const bool trace = PerfAuditActive();
     const auto begin = trace ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
@@ -63,6 +66,7 @@ bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& d
 {
     result = {};
     const auto begin = std::chrono::steady_clock::now();
+	const bool ordered = (bool)nri_ptactororderedtextures;
     std::vector<uint32_t> rows = selectedMaterialIndices;
     std::sort(rows.begin(), rows.end());
     rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
@@ -93,17 +97,38 @@ bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& d
     for (uint32_t index : textures)
     {
         const auto& upload = materials.textures[index];
-        const uint32_t beforeIndex = FindCacheIndex(upload.key);
+		uint32_t beforeIndex = FindCacheIndex(upload.key);
         NRISceneTextureClosureResult previous;
         QueryRuntimeClosure(device, upload.key, previous);
         // The established synchronous resolver retires a pending async upload
         // before replacing it. Never wait directly on an unsubmitted frame's
         // future fence here. Keep the overlapping retirement cost explicit.
-        const bool pending = previous.state == NRISceneTextureClosureState::Pending && beforeIndex < CachedTextures().size();
-        const uint64_t pendingBytes = pending ? CachedTextures()[beforeIndex].resource.memorySize : 0;
-        const auto pendingResource = pending ? CachedTextures()[beforeIndex].resource.texture : nullptr;
+		bool pending = previous.state == NRISceneTextureClosureState::Pending && beforeIndex < CachedTextures().size();
+		uint64_t pendingBytes = pending ? CachedTextures()[beforeIndex].resource.memorySize : 0;
+		auto pendingResource = pending ? CachedTextures()[beforeIndex].resource.texture : nullptr;
         SceneTextureResolveResult resolved;
-        const bool resolvedReady = ResolveTextureDescriptor(device, upload, true, NRISceneTextureMissPolicy::Synchronous, resolved);
+		bool resolvedReady = ordered && ResolveActorTextureOrdered(device, upload, true, resolved);
+		if (!resolvedReady)
+		{
+			if (ordered)
+			{
+				++result.emergencySync;
+				// A failed order proof may leave a newly recorded pending entry.
+				// Track its actual replacement rather than only the original lookup.
+				beforeIndex = FindCacheIndex(upload.key);
+				QueryRuntimeClosure(device, upload.key, previous);
+				pending = previous.state == NRISceneTextureClosureState::Pending && beforeIndex < CachedTextures().size();
+				pendingBytes = pending ? CachedTextures()[beforeIndex].resource.memorySize : 0;
+				pendingResource = pending ? CachedTextures()[beforeIndex].resource.texture : nullptr;
+			}
+			const auto syncBegin = std::chrono::steady_clock::now();
+			resolvedReady = ResolveTextureDescriptor(device, upload, true, NRISceneTextureMissPolicy::Synchronous, resolved);
+			const double syncMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - syncBegin).count();
+			++result.syncCalls;
+			result.syncInserts += resolved.inserted;
+			result.syncMs += syncMs;
+			if (ordered) result.emergencySyncMs += syncMs;
+		}
         const uint32_t afterIndex = FindCacheIndex(upload.key);
         const auto afterResource = afterIndex < CachedTextures().size() ? CachedTextures()[afterIndex].resource.texture : nullptr;
         if (pending && pendingResource != afterResource)
@@ -116,6 +141,13 @@ bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& d
             ++result.inserted;
             if (afterIndex < CachedTextures().size()) result.insertedDeviceBytes += CachedTextures()[afterIndex].resource.memorySize;
         }
+		if (resolved.graphicsOrderedReady)
+		{
+			++result.orderedReady;
+			result.orderedInserts += resolved.inserted;
+			if (resolved.inserted) result.orderedUploadBytes += resolved.orderedUploadBytes;
+			if (afterIndex < CachedTextures().size()) result.orderedPendingBytes += CachedTextures()[afterIndex].resource.memorySize;
+		}
         if (!resolvedReady || resolved.pending || resolved.activeCanvasSelfReference || resolved.descriptor == nullptr)
         {
             ++result.failures;
@@ -142,13 +174,19 @@ bool NRISceneTextureResidency::EnsurePriorityMaterialTextures(NRIRenderDevice& d
     result.cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
     if (PerfAuditActive())
     {
-        char fields[640];
+		char fields[1024];
         std::snprintf(fields, sizeof(fields), "\"materials\":%u,\"textures\":%u,\"ready\":%u,\"inserted\":%u,"
             "\"pending_replacements\":%u,\"failures\":%u,\"inserted_device_bytes\":%llu,"
-            "\"pending_retirement_bytes\":%llu,\"cpu_ms\":%.6f,\"resource_views_ready\":%s",
+			"\"pending_retirement_bytes\":%llu,\"cpu_ms\":%.6f,\"resource_views_ready\":%s,"
+			"\"ordered_enabled\":%s,\"ordered_ready\":%u,\"ordered_inserts\":%u,\"ordered_upload_bytes\":%llu,"
+			"\"ordered_pending_bytes\":%llu,\"sync_calls\":%u,\"sync_inserts\":%u,\"sync_ms\":%.6f,"
+			"\"emergency_sync\":%u,\"emergency_sync_ms\":%.6f",
             result.materials, result.textures, result.ready, result.inserted, result.pendingReplacements, result.failures,
             (unsigned long long)result.insertedDeviceBytes, (unsigned long long)result.pendingRetirementBytes,
-            result.cpuMs, result.failures == 0 ? "true" : "false");
+			result.cpuMs, result.failures == 0 ? "true" : "false", ordered ? "true" : "false",
+			result.orderedReady, result.orderedInserts, (unsigned long long)result.orderedUploadBytes,
+			(unsigned long long)result.orderedPendingBytes, result.syncCalls, result.syncInserts, result.syncMs,
+			result.emergencySync, result.emergencySyncMs);
         PerfAuditWriteEvent("actor_representation_textures", PerfAuditCurrentToken(), fields);
     }
     return result.failures == 0;

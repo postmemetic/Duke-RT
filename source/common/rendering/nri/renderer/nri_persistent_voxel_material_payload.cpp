@@ -18,10 +18,16 @@ bool SameRange(NRIPersistentVoxelMaterialRangeHandle a, NRIPersistentVoxelMateri
 
 bool NRIVoxelMaterialPayloadOwner::AcquireBinding(uint64_t key, const NRIVoxelMaterialSharingCertificate& certificate,
 	const nri_scene::MaterialBridgeData& source, NRIPersistentVoxelMaterialRangeAllocator& allocator,
-	NRIPersistentVoxelMaterialRangeHandle& result, NRIPersistentVoxelMaterialRangeHandle& retired)
+	NRIPersistentVoxelMaterialRangeHandle& result, NRIPersistentVoxelMaterialRangeHandle& retired,
+	uint32_t minimumPrivateCapacity)
 {
 	result = {}; retired = {};
-	if (!key || source.materials.empty() || source.materials.size() > UINT32_MAX) return false;
+	if (!key || source.materials.empty() || source.materials.size() > UINT32_MAX ||
+		(minimumPrivateCapacity && certificate.invariant)) return false;
+	// CPU range planning is separate from the caller's later proof that real
+	// GPU backing can retain every required pose. A one-row current payload may
+	// still need the full palette span for future material changes.
+	const uint32_t requiredCapacity = (std::max)(uint32_t(source.materials.size()), minimumPrivateCapacity);
 	// Direct owner clients retain legacy raw behavior unless configured first.
 	if (!digestModeLatched) ObserveDigestMode(false);
 	++counters.lookups;
@@ -29,10 +35,14 @@ bool NRIVoxelMaterialPayloadOwner::AcquireBinding(uint64_t key, const NRIVoxelMa
 	if (previous != bindings.end())
 	{
 		auto& payload = payloads.at(previous->second);
+		// A committed enemy reservation cannot silently become a shared payload
+		// or grow beyond the material capacity proved before commitment.
+		if (payload.capacityReserved && (certificate.invariant || requiredCapacity > payload.range.capacity)) return false;
 		// A private binding is the sole authority for its existing range. Keep
 		// the original same-size reuse behavior without duplicating its CPU bridge.
 		const bool privateReuse = !payload.certificate.invariant && !certificate.invariant &&
-			payload.aliases == 1 && payload.range.capacity == source.materials.size();
+			payload.aliases == 1 && (payload.range.capacity == requiredCapacity ||
+				(payload.capacityReserved && payload.range.capacity >= requiredCapacity));
 		bool equivalent = false;
 		if (!privateReuse && SameCertificate(payload.certificate, certificate))
 		{
@@ -100,7 +110,7 @@ bool NRIVoxelMaterialPayloadOwner::AcquireBinding(uint64_t key, const NRIVoxelMa
 	if (!identity)
 	{
 		if (!nextIdentity || nextIdentity == UINT64_MAX) return false;
-		const auto range = allocator.Allocate((uint32_t)source.materials.size());
+		const auto range = allocator.Allocate(requiredCapacity);
 		if (!range) return false; // The old alias is still valid on failure.
 		Payload payload;
 		payload.range = range;
@@ -131,6 +141,41 @@ NRIPersistentVoxelMaterialRangeHandle NRIVoxelMaterialPayloadOwner::FindBinding(
 {
 	const auto binding = bindings.find(key);
 	return binding == bindings.end() ? NRIPersistentVoxelMaterialRangeHandle{} : payloads.at(binding->second).range;
+}
+
+bool NRIVoxelMaterialPayloadOwner::ReservePrivateBinding(uint64_t key, int32_t actorIndex,
+	uint32_t capacity, uint32_t maximumRows, NRIPersistentVoxelMaterialRangeAllocator& allocator,
+	NRIPersistentVoxelMaterialRangeHandle& result, bool& created)
+{
+	result = {}; created = false;
+	if (!key || actorIndex < 0 || !capacity) return false;
+	const auto previous = bindings.find(key);
+	if (previous != bindings.end())
+	{
+		auto& payload = payloads.at(previous->second);
+		if (payload.certificate.invariant || payload.aliases != 1 || bindingActors.at(key) != actorIndex ||
+			payload.range.capacity < capacity || uint64_t(payload.range.offset) + payload.range.capacity > maximumRows ||
+			!allocator.Owns(payload.range)) return false;
+		payload.capacityReserved = true;
+		result = payload.range;
+		return true;
+	}
+	if (!nextIdentity || nextIdentity == UINT64_MAX) return false;
+	const auto range = allocator.AllocateWithin(capacity, maximumRows);
+	if (!range) return false;
+	Payload payload;
+	payload.range = range;
+	payload.aliases = 1;
+	payload.capacityReserved = true;
+	const uint64_t identity = nextIdentity++;
+	payloads.emplace(identity, std::move(payload));
+	ranges.emplace(range.generation, identity);
+	bindings.emplace(key, identity);
+	bindingActors.emplace(key, actorIndex);
+	actorBindings[actorIndex].insert(key);
+	result = range;
+	created = true;
+	return true;
 }
 
 NRIPersistentVoxelMaterialRangeHandle NRIVoxelMaterialPayloadOwner::ReleaseBinding(uint64_t key)

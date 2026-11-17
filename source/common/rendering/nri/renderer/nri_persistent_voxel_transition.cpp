@@ -18,6 +18,9 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
     services.cacheRetirementAllowed = [](void*) { return true; };
     mVoxelBudgetSnapshotFrame = UINT32_MAX;
     const auto budget = GetPersistentVoxelBudgetSnapshot();
+    // Scheduling reset dropped old lifetime promises. Empty source authority
+    // is proven by this waited level boundary, not by an ordinary empty view.
+    cache.ReleaseEnemyMaterialCommits({}, services, true);
     cache.RetirePendingMaterialRanges(services);
     cache.MaintainInactiveCache("transition", mFrameIndex, BuildNRIPersistentVoxelSettingsFromCVars(),
         budget.usageBytes, budget.budgetBytes, services, true);

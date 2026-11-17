@@ -24,6 +24,8 @@ bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSetti
         if (actor.active) pinnedPairs.emplace(actor.meshResourceKey, actor.materialKeyHash);
     for (const auto& pair : activeMeshReferences) if (pair.second) pinnedMeshes.insert(pair.first);
     for (const auto& pair : activeMaterialReferences) if (pair.second) pinnedMaterials.insert(pair.first);
+    for (const auto& pair : enemyPolicy.MeshPins()) if (pair.second) pinnedMeshes.insert(pair.first);
+    for (const auto& pair : enemyPolicy.MaterialPins()) if (pair.second) pinnedMaterials.insert(pair.first);
     std::vector<nri_scene::PersistentVoxelCacheEntryView> current;
     if (authoritativeEmptyAfterWait && (!batch.actors.empty() || !instances.empty() || !admissionQueue.empty())) return false;
     if (!authoritativeEmptyAfterWait && !nri_scene::BuildPersistentVoxelCacheEntries(current, maximum))
@@ -33,6 +35,7 @@ bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSetti
     }
     for (const auto& actor : current)
     {
+        if (IsEnemySpriteCommitted(actor.ownerWorldEpoch, actor.ownerLifetimeGeneration)) continue;
         const uint64_t meshKey = BuildPersistentVoxelMeshResourceKey(actor, settings);
         pinnedMeshes.insert(meshKey);
         pinnedMaterials.insert(actor.materialKeyHash);

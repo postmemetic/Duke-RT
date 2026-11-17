@@ -1,4 +1,6 @@
 #include "nri_voxel_compute_preload.h"
+#include "nri_voxel_preload_budget.h"
+#include "perf_audit.h"
 
 #include "nri_persistent_voxel_geometry_arena_policy.h"
 
@@ -8,8 +10,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
+
+EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
+EXTERN_CVAR(Bool, nri_ptenemyrepresentationtrace)
 
 namespace
 {
@@ -20,20 +28,12 @@ namespace
 
 	bool IsRequiredComputePreloadVariant(const nri_scene::PrecachedVoxelVariantView& variant)
 	{
-		return
-			variant.priority <= 0 &&
-			(variant.sourceBits & nri_scene::PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 &&
-			(variant.gpuForce ||
-				(variant.gpuPrefer && (variant.sourceBits & nri_scene::PrecachedVoxelSourceBit_MountedPreloadMap) != 0));
+		return nri_scene::IsRequiredVoxelPreload(variant.sourceBits, variant.priority, variant.gpuForce, variant.gpuPrefer);
 	}
 
 	bool IsRequiredComputePreloadRawVariant(const nri_scene::PrecachedVoxelRawManifestView& variant)
 	{
-		return
-			variant.priority <= 0 &&
-			(variant.sourceBits & nri_scene::PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 &&
-			(variant.gpuForce ||
-				(variant.gpuPrefer && (variant.sourceBits & nri_scene::PrecachedVoxelSourceBit_MountedPreloadMap) != 0));
+		return nri_scene::IsRequiredVoxelPreload(variant.sourceBits, variant.priority, variant.gpuForce, variant.gpuPrefer);
 	}
 
 	uint64_t EstimateVariantGeometryBytes(const nri_scene::PrecachedVoxelVariantView& variant)
@@ -62,7 +62,8 @@ namespace
 
 	bool ShouldEmitPreloadTrace(const NRIVoxelComputePreloadSettings& settings)
 	{
-		return settings.traceLevel >= 1 || (int)nri_ptloadingtrace >= 1 || (int)nri_ptvoxelcomputetrace >= 1;
+		return settings.traceLevel >= 1 || (int)nri_ptloadingtrace >= 1 || (int)nri_ptvoxelcomputetrace >= 1 ||
+			(bool)nri_ptenemyrepresentationtrace;
 	}
 
 	uint64_t HashValue(uint64_t hash, uint64_t value)
@@ -390,6 +391,106 @@ NRIVoxelComputePreloadSettings BuildNRIVoxelComputePreloadSettingsFromCVars()
 	settings.peakEstimatePercent = (uint32_t)std::max(100, (int)nri_ptvoxelcomputepreloadpeakpercent);
 	settings.minimumLocalMemoryReserveBytes = (uint64_t)std::max(0, (int)nri_ptvoxelcomputepreloadminreservemb) * 1024ull * 1024ull;
 	return settings;
+}
+
+void SelectNRIVoxelComputePreloadForBudget(
+	std::vector<nri_scene::PrecachedVoxelVariantView>& variants,
+	std::vector<nri_scene::PrecachedVoxelRawManifestView>& rawVariants,
+	const NRIVoxelComputePreloadSettings& settings, uint64_t buildSerial,
+	uint64_t currentTrackedBytes, uint64_t localMemoryBudgetBytes)
+{
+	if (!(bool)nri_ptenemystablerepresentation || !settings.enabled || settings.dryRun ||
+		!buildSerial || !localMemoryBudgetBytes) return;
+	using Pair = std::pair<uint64_t, uint64_t>;
+	struct Selection
+	{
+		uint64_t build = 0;
+		bool filtered = false;
+		std::set<Pair> pairs;
+		std::unordered_set<uint64_t> variants;
+	};
+	static Selection selection;
+	if (selection.build != buildSerial)
+	{
+		if (std::none_of(rawVariants.begin(), rawVariants.end(), [](const auto& raw)
+			{ return (raw.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) != 0; })) return;
+		selection = {};
+		selection.build = buildSerial;
+		// Use actual planner eligibility, explicit caps and runtime withholding.
+		// A family is not complete if any of its rows failed those earlier gates.
+		const RawPlanResult fullPlan = BuildRawPlan(rawVariants, settings);
+		const uint64_t originalPeak = EstimateNRIVoxelPreloadPeak(fullPlan.uniqueGeometryBytes,
+			fullPlan.runtimeWithheldUniqueGeometryBytes, fullPlan.uniqueSourceBytes,
+			fullPlan.largestUniqueGeometryBytes, settings.peakEstimatePercent, settings.strict);
+		const bool originalGuard = currentTrackedBytes > localMemoryBudgetBytes ||
+			settings.minimumLocalMemoryReserveBytes > localMemoryBudgetBytes - (std::min)(currentTrackedBytes, localMemoryBudgetBytes) ||
+			originalPeak > localMemoryBudgetBytes - (std::min)(currentTrackedBytes, localMemoryBudgetBytes) -
+				(std::min)(settings.minimumLocalMemoryReserveBytes, localMemoryBudgetBytes - (std::min)(currentTrackedBytes, localMemoryBudgetBytes));
+		NRIVoxelPreloadBudgetSelection chosen;
+		std::vector<NRIVoxelPreloadBudgetGroup> groups;
+		std::vector<std::vector<size_t>> rows;
+		if (originalGuard)
+		{
+			std::map<Pair, bool> planned;
+			for (const auto& direct : fullPlan.directVariants)
+				planned.emplace(Pair{BuildPersistentVoxelVariantMeshResourceKey(direct), direct.materialKeyHash}, direct.preloadGeometry);
+			std::map<int32_t, size_t> familyGroups;
+			for (size_t index = 0; index < rawVariants.size(); ++index)
+			{
+				const auto& raw = rawVariants[index];
+				const uint64_t mesh = BuildPersistentVoxelVariantMeshResourceKey(BuildDirectVariant(raw));
+				const auto admitted = planned.find({mesh, raw.materialKeyHash});
+				const bool family = (raw.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) != 0;
+				if (!family && admitted == planned.end()) continue;
+				size_t group = groups.size();
+				if (family)
+				{
+					const auto inserted = familyGroups.emplace(raw.admissionRank, group);
+					group = inserted.first->second;
+				}
+				if (group == groups.size())
+				{ NRIVoxelPreloadBudgetGroup item; item.family = family; item.order = raw.admissionRank; groups.push_back(item); rows.emplace_back(); }
+				rows[group].push_back(index);
+				if (admitted == planned.end()) { groups[group].eligible = false; continue; }
+				const uint64_t source = raw.resolvedVoxelIndex >= 0 ? uint64_t(uint32_t(raw.resolvedVoxelIndex)) + 1 :
+					(raw.geometryContentHash ? raw.geometryContentHash : raw.meshKeyHash);
+				groups[group].resources.push_back({mesh, EstimateRawVariantGeometryBytes(raw), source, raw.rawBytes, admitted->second});
+			}
+			chosen = SelectNRIVoxelPreloadBudgetGroups(groups, {currentTrackedBytes, localMemoryBudgetBytes,
+				settings.minimumLocalMemoryReserveBytes, settings.peakEstimatePercent, settings.strict});
+			selection.filtered = chosen.applied;
+			for (uint32_t group : chosen.selected) for (size_t index : rows[group])
+			{
+				const auto& raw = rawVariants[index];
+				selection.pairs.emplace(BuildPersistentVoxelVariantMeshResourceKey(BuildDirectVariant(raw)), raw.materialKeyHash);
+				selection.variants.insert(raw.meshVariantHash);
+			}
+		}
+		if ((bool)nri_ptenemyrepresentationtrace)
+		{
+			char fields[768];
+			std::snprintf(fields, sizeof(fields), "\"build_serial\":%llu,\"usage_bytes\":%llu,\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"peak_percent\":%u,\"strict\":%s,\"original_guard\":%s,\"original_geometry_bytes\":%llu,\"original_source_bytes\":%llu,\"original_peak_additional_bytes\":%llu,\"filtered\":%s,\"selected_geometry_bytes\":%llu,\"selected_peak_additional_bytes\":%llu,\"selected_groups\":%zu",
+				(unsigned long long)buildSerial, (unsigned long long)currentTrackedBytes, (unsigned long long)localMemoryBudgetBytes,
+				(unsigned long long)settings.minimumLocalMemoryReserveBytes, settings.peakEstimatePercent, settings.strict ? "true" : "false",
+				originalGuard ? "true" : "false", (unsigned long long)fullPlan.uniqueGeometryBytes, (unsigned long long)fullPlan.uniqueSourceBytes,
+				(unsigned long long)originalPeak, selection.filtered ? "true" : "false", (unsigned long long)chosen.geometryBytes,
+				(unsigned long long)chosen.peakAdditional, chosen.selected.size());
+			PerfAuditWriteEvent("enemy_preload_budget_selection", PerfAuditCurrentToken(), fields);
+			for (size_t index = 0; index < groups.size(); ++index) if (groups[index].family)
+			{
+				const bool selected = std::find(chosen.selected.begin(), chosen.selected.end(), uint32_t(index)) != chosen.selected.end();
+				std::snprintf(fields, sizeof(fields), "\"build_serial\":%llu,\"family_order\":%d,\"admission_rank\":%d,\"rows\":%zu,\"selected\":%s,\"reason\":\"%s\"",
+					(unsigned long long)buildSerial, groups[index].order + 10000, groups[index].order, rows[index].size(), selected ? "true" : "false",
+					selected ? "fits-unchanged-guard" : groups[index].eligible ? "family-exceeds-headroom" : "family-prior-plan-incomplete");
+				PerfAuditWriteEvent("enemy_preload_family_selection", PerfAuditCurrentToken(), fields);
+			}
+		}
+	}
+	if (!selection.filtered) return;
+	rawVariants.erase(std::remove_if(rawVariants.begin(), rawVariants.end(), [&](const auto& raw)
+		{ return !selection.pairs.count({BuildPersistentVoxelVariantMeshResourceKey(BuildDirectVariant(raw)), raw.materialKeyHash}); }), rawVariants.end());
+	variants.erase(std::remove_if(variants.begin(), variants.end(), [&](const auto& variant)
+		{ return !selection.variants.count(variant.meshVariantHash); }), variants.end());
 }
 
 void BuildNRIVoxelComputePreloadDirectVariants(
@@ -725,28 +826,9 @@ NRIVoxelComputePreloadStats PlanNRIVoxelComputePreload(
 	stats.currentTrackedBytes = currentTrackedBytes;
 	stats.localMemoryBudgetBytes = localMemoryBudgetBytes;
 	stats.minimumLocalMemoryReserveBytes = settings.minimumLocalMemoryReserveBytes;
-	stats.estimatedPeakAdditionalBytes =
-		(rawPlan.uniqueGeometryBytes * (uint64_t)settings.peakEstimatePercent + 99ull) / 100ull +
-		rawPlan.uniqueSourceBytes;
-	if (settings.strict)
-	{
-		const NRIPersistentVoxelGeometryArenaPlan arenaPlan =
-			BuildNRIPersistentVoxelGeometryArenaPlan(
-				rawPlan.uniqueGeometryBytes,
-				rawPlan.runtimeWithheldUniqueGeometryBytes,
-				rawPlan.largestUniqueGeometryBytes);
-		if (arenaPlan.overflow || arenaPlan.targetGeometryBytes >
-			std::numeric_limits<uint64_t>::max() - rawPlan.uniqueSourceBytes)
-		{
-			stats.estimatedPeakAdditionalBytes = std::numeric_limits<uint64_t>::max();
-		}
-		else
-		{
-			stats.estimatedPeakAdditionalBytes = std::max(
-				stats.estimatedPeakAdditionalBytes,
-				arenaPlan.targetGeometryBytes + rawPlan.uniqueSourceBytes);
-		}
-	}
+	stats.estimatedPeakAdditionalBytes = EstimateNRIVoxelPreloadPeak(rawPlan.uniqueGeometryBytes,
+		rawPlan.runtimeWithheldUniqueGeometryBytes, rawPlan.uniqueSourceBytes,
+		rawPlan.largestUniqueGeometryBytes, settings.peakEstimatePercent, settings.strict);
 	stats.estimatedPeakTotalBytes =
 		stats.estimatedPeakAdditionalBytes > std::numeric_limits<uint64_t>::max() - currentTrackedBytes ?
 		std::numeric_limits<uint64_t>::max() :

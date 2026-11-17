@@ -50,7 +50,13 @@ public:
 	bool DigestModeRequested() const { return digestModeRequested; }
 	bool AcquireBinding(uint64_t key, const NRIVoxelMaterialSharingCertificate& certificate,
 		const nri_scene::MaterialBridgeData& source, NRIPersistentVoxelMaterialRangeAllocator& allocator,
-		NRIPersistentVoxelMaterialRangeHandle& result, NRIPersistentVoxelMaterialRangeHandle& retired);
+		NRIPersistentVoxelMaterialRangeHandle& result, NRIPersistentVoxelMaterialRangeHandle& retired,
+		uint32_t minimumPrivateCapacity = 0);
+	// Reserve a private mutable occurrence binding without publishing a payload.
+	// The caller proves backing capacity and owns cleanup of unused reservations.
+	bool ReservePrivateBinding(uint64_t key, int32_t actorIndex, uint32_t capacity, uint32_t maximumRows,
+		NRIPersistentVoxelMaterialRangeAllocator& allocator,
+		NRIPersistentVoxelMaterialRangeHandle& result, bool& created);
 	NRIPersistentVoxelMaterialRangeHandle FindBinding(uint64_t key) const;
 	std::vector<uint64_t> BindingsForActor(int32_t actorIndex) const;
 	bool BindingIsShared(uint64_t key) const;
@@ -70,6 +76,7 @@ private:
 		NRIVoxelMaterialSharingCertificate certificate;
 		nri_scene::MaterialBridgeData bridge;
 		uint64_t hash = 0, aliases = 0;
+		bool capacityReserved = false;
 	};
 	HashFn hashFunction = nullptr;
 	bool digestModeLatched = false, digestModeEnabled = false, digestModeRequested = false;

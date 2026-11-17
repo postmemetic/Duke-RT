@@ -15,6 +15,7 @@
 #include "hw_renderstate.h"
 #include "hw_cvars.h"
 #include "coreactor.h"
+#include "hw_voxel_transform.h"
 
 #ifdef _MSC_VER
 #pragma warning(disable:4244) // this gets a bit annoying in the renderer...
@@ -360,6 +361,8 @@ public:
 	bool PrepareFacingSprite(HWDrawInfo* di, tspritetype* thing, sectortype* sector, const float* actorAlpha = nullptr,
 		bool allowViewOverlap = false, bool* primaryHidden = nullptr);
 	bool PrepareVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate);
+	bool PrepareVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate,
+		const HWVoxelActorInputs& actorInputs);
 	bool ProcessVoxel(HWDrawInfo* di, voxmodel_t* voxel, tspritetype* tspr, sectortype* sector, bool rotate);
 
 	void DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent);

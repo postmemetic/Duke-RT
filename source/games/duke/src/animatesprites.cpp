@@ -34,6 +34,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 
 #include "buildtiles.h"
 #include "actor_presentation_snapshot.h"
+#include "enemy_voxel_family.h"
 #include "vm.h"
 #include "c_dispatch.h"
 #include <unordered_map>
@@ -359,6 +360,8 @@ void GameInterface::CaptureActorSpriteAnimation(const DCoreActor& actor, ActorSp
 	if (!actor.IsKindOf(RUNTIME_CLASS(DDukeActor))) return;
 	const auto& h = static_cast<const DDukeActor&>(actor);
 	CaptureSpriteAction(h, out);
+	CaptureEnemyVoxelFamily(h, out);
+	out.voxelPoseInterpolated = !(h.flags1 & SFLAG_NOINTERPOLATE);
 	// Player-specific view/weapon copies and Redneck's additional native rules
 	// require their own recipes. Keep their freshly captured descriptors usable,
 	// without certifying an arbitrary old presentation for a later tick.
@@ -574,6 +577,38 @@ static bool ApplySpritePresentationRecipe(const ActorPresentationState& state, t
 	}
 	if (hidden) sprite.scale = DVector2(0, 0);
 	else if (animation.recipeHideYOnly) sprite.scale.Y = 0;
+	return true;
+}
+
+bool GameInterface::ResolveActorRetainedVoxelFrame(const ActorPresentationState& state, tspritetype& sprite,
+	double interpolation) const
+{
+	const auto& animation = state.spriteAnimation;
+	const auto& family = animation.enemyVoxelFamily;
+	if (!animation.enemy || !family || !family->complete || !animation.recipeCertified) return false;
+	sprite.ownerActor = nullptr;
+	sprite.pos = DVector3(state.position.x, state.position.y, state.position.z);
+	sprite.Angles.Yaw = DAngle::fromDeg(state.angles.yawDegrees);
+	if (animation.voxelPoseInterpolated)
+	{
+		sprite.pos = interpolatedvalue(DVector3(state.previousPosition.x, state.previousPosition.y, state.previousPosition.z),
+			sprite.pos, interpolation);
+		sprite.Angles.Yaw = interpolatedvalue(DAngle::fromDeg(state.previousAngles.yawDegrees), sprite.Angles.Yaw, interpolation);
+	}
+	sprite.scale = DVector2(state.scale.x, state.scale.y);
+	sprite.xoffset = state.spriteXOffset; sprite.yoffset = state.spriteYOffset;
+	sprite.cstat = ESpriteFlags::FromInt(uint16_t(state.cstat)); sprite.cstat2 = state.cstat2;
+	sprite.statnum = state.statNumber;
+	FTextureID base; base.SetIndex(state.textureId); sprite.setspritetexture(base);
+	if (!ApplySpritePresentationRecipe(state, sprite)) return false;
+	// The ordinary mounted-voxel path suppresses directional ART selection.
+	// Reuse its action resolver; do not run Animate or any gameplay callback.
+	if (animation.forcedRotation != 0 || (sprite.clipdist & (TSPR_ROTATE8FRAMES | TSPR_ROTATE12FRAMES)))
+		sprite.cstat &= ~CSTAT_SPRITE_XFLIP;
+	if (animation.recipeFloorPalette >= 0 && !(sprite.clipdist & TSPR_NOFLOORPAL)) sprite.pal = animation.recipeFloorPalette;
+	if (!animation.recipeHandled) ResolveSpriteAnimationFrame(&sprite, animation, {}, {}, true);
+	if (animation.heatVision) { sprite.pal = 6; sprite.shade = 0; }
+	if (animation.recipeNativeHidden) sprite.scale = DVector2(0, 0);
 	return true;
 }
 

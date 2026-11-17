@@ -6,15 +6,26 @@
 
 class NRIPersistentVoxelResidency;
 struct NRIPersistentVoxelAdmissionDiagnosticState;
+struct NRIVoxelAdmissionTimingState;
 
-// Correctness capture only. Disabled scopes never inspect the queue or allocate.
-// Observed scheduler stages are CPU bookkeeping, not GPU completion timestamps.
+enum class NRIVoxelAdmissionTimingStage : uint8_t
+{
+    None, MaterialRetirement, MaterialSharing, MapSync, EnemyPolicy,
+    ActorDemand, Reclaim, PressurePolicy, CacheMaintenance, Count
+};
+
+// Independent correctness capture and bounded wall-time observation.
+// Disabled scopes never inspect the queue, read a clock or allocate.
+// Wall durations can include driver/GPU waits; these are not GPU timestamps.
 class NRIVoxelAdmissionDiagnosticScope
 {
 public:
     NRIVoxelAdmissionDiagnosticScope(NRIPersistentVoxelResidency& owner, uint32_t frame, const char* phase);
     ~NRIVoxelAdmissionDiagnosticScope();
     bool Active() const { return state != nullptr; }
+    void AfterMapSync();
+    void TimingStage(NRIVoxelAdmissionTimingStage stage);
+    void CandidateCount(uint32_t count);
     void BeginBudget();
     double ElapsedMs(double rawElapsedMs) const;
     void Budgets(uint32_t variants, uint64_t bytes, uint32_t blas, double ms);
@@ -30,6 +41,7 @@ private:
     // Audit I/O can synchronously disable auditing; later callbacks may clear
     // the owner history while this pump still unwinds. Keep its lifetime pinned.
     std::shared_ptr<NRIPersistentVoxelAdmissionDiagnosticState> stateOwner;
+    std::unique_ptr<NRIVoxelAdmissionTimingState> timing;
     NRIPersistentVoxelAdmissionDiagnosticState* state = nullptr;
     uint32_t frame;
     const char* phase;

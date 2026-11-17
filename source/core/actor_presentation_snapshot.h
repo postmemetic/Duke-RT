@@ -1,10 +1,24 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 class DCoreActor;
+
+// A bounded, immutable set of original voxel animation texture identities.
+// Game presentation supplies this without executing scripts. Renderer policy
+// must still resolve mounted geometry and prove residency before commitment.
+struct ActorEnemyVoxelFamily
+{
+	uint32_t id = 0;
+	uint64_t signature = 0;
+	const char* name = "unsupported";
+	const char* reason = "unsupported-family";
+	bool complete = false;
+	std::vector<int32_t> textureIds;
+};
 
 struct ActorPresentationOwnerKey
 {
@@ -43,6 +57,9 @@ struct ActorPresentationAngles
 // Script callbacks are deliberately not evaluated by renderer refreshes.
 struct ActorSpriteAnimationState
 {
+	bool enemy = false;
+	bool voxelPoseInterpolated = false;
+	std::shared_ptr<const ActorEnemyVoxelFamily> enemyVoxelFamily;
 	bool available = false;
 	bool enabled = false;
 	bool actionActive = false;

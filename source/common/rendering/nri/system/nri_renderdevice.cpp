@@ -1,4 +1,5 @@
 #include "nri_renderdevice.h"
+#include "nri_command_order_policy.h"
 #include "common/platform/startup_progress.h"
 #include "../scene/nri_sector_color_policy.h"
 #include "nri_gpu_timing.h"
@@ -3905,6 +3906,13 @@ bool NRIRenderDevice::IsFrameFenceValueComplete(uint64_t fenceValue)
 	return completedFenceValue >= fenceValue;
 }
 
+bool NRIRenderDevice::IsCommandUploadOrderedBeforeCurrentRecording(uint64_t fenceValue) const
+{
+	return NRICommandUploadPrecedesRecording(fenceValue, mRecordingCommandFenceValue,
+		mLastSubmittedCommandFenceValue, mCommandBufferOpen && mCommandBuffer != nullptr && mGraphicsQueue != nullptr,
+		IsCommandFenceValueAbandoned(fenceValue), mTerminalDeviceLoss);
+}
+
 bool NRIRenderDevice::IsCommandFenceValueAbandoned(uint64_t fenceValue) const
 {
 	return fenceValue != 0 && mAbandonedCommandFenceValues.find(fenceValue) != mAbandonedCommandFenceValues.end();
@@ -3968,6 +3976,7 @@ bool NRIRenderDevice::SubmitAndWaitCurrentCommandBuffer(bool continueGpuTimingSc
 	const nri::Result submitResult = mCore.QueueSubmit(*mGraphicsQueue, submitDesc);
 	if (submitResult == nri::Result::SUCCESS)
 	{
+		mLastSubmittedCommandFenceValue = (std::max)(mLastSubmittedCommandFenceValue, mRecordingCommandFenceValue);
 		mRecordingCommandFenceValue = 0;
 	}
 	else
@@ -10541,6 +10550,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 	}
 	if (submitResult == nri::Result::SUCCESS)
 	{
+		mLastSubmittedCommandFenceValue = (std::max)(mLastSubmittedCommandFenceValue, mRecordingCommandFenceValue);
 		mRecordingCommandFenceValue = 0;
 	}
 	else
@@ -11240,6 +11250,7 @@ bool NRIRenderDevice::CopyTextureToTexture(NRITextureResource& destination, NRIT
 		waitSucceeded = WaitForFenceValue(*copyFence, frameFence.value, "Wait(CopyTextureFence)");
 		if (waitSucceeded)
 		{
+			mLastSubmittedCommandFenceValue = (std::max)(mLastSubmittedCommandFenceValue, mRecordingCommandFenceValue);
 			mRecordingCommandFenceValue = 0;
 			if (mGpuTiming != nullptr) mGpuTiming->RetireSlot(mCore, mCurrentQueuedFrameIndex);
 		}

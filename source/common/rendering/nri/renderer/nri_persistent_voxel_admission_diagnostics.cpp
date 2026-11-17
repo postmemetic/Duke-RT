@@ -4,6 +4,7 @@
 #include "perf_audit.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -99,6 +100,126 @@ struct NRIPersistentVoxelAdmissionDiagnosticState
     uint64_t epoch = 0, nextPump = 0, nextEpisode = 0, pairOverflow = 0;
     uint32_t map = 0;
     std::unordered_map<uint64_t, Pair> pairs;
+};
+
+// Separate optional observer: bounded storage and output without enabling the
+// expensive per-pair correctness history. These are enclosing wall times,
+// which may include driver/GPU waits, not claims about pure CPU execution.
+struct NRIVoxelAdmissionTimingState
+{
+    struct Visit
+    {
+        uint64_t pair = 0, mesh = 0, material = 0, elapsed = 0, beforeAttempt = 0;
+        uint32_t beforeState = 0, afterState = 0;
+        int32_t picnum = -1, voxel = -1;
+        bool attempted = false;
+        const char* reason = "none";
+    };
+    uint64_t start = PerfAuditClockNs(), budgetStart = 0, visitStart = 0, attemptStart = 0;
+    uint64_t maintenance = 0, setup = 0, candidatesNs = 0, visitsNs = 0, beforeAttemptNs = 0;
+    uint64_t stageStart = start;
+    NRIVoxelAdmissionTimingStage stage = NRIVoxelAdmissionTimingStage::None;
+    std::array<uint64_t, size_t(NRIVoxelAdmissionTimingStage::Count)> stages = {};
+    uint32_t candidates = 0, visited = 0, attempted = 0;
+    bool firstVisit = true, activeVisit = false, maintenanceComplete = false;
+    Visit current;
+    std::array<Visit, 4> top = {};
+
+    void Stage(NRIVoxelAdmissionTimingStage next, uint64_t now)
+    {
+        if (stage != NRIVoxelAdmissionTimingStage::None) stages[size_t(stage)] += now - stageStart;
+        stage = next; stageStart = now;
+    }
+    void EndMaintenance()
+    {
+        const uint64_t now = PerfAuditClockNs();
+        Stage(NRIVoxelAdmissionTimingStage::None, now);
+        maintenance = now - start;
+        maintenanceComplete = true;
+    }
+
+    void VisitBegin(NRIPersistentVoxelResidency& owner, uint64_t pair)
+    {
+        visitStart = PerfAuditClockNs();
+        if (firstVisit && budgetStart) candidatesNs = visitStart - budgetStart;
+        firstVisit = false; activeVisit = true; attemptStart = 0; ++visited;
+        current = {}; current.pair = pair;
+        const auto found = owner.admissionQueue.find(pair);
+        if (found == owner.admissionQueue.end()) return;
+        const auto& entry = found->second;
+        current.mesh = BuildPersistentVoxelVariantMeshResourceKey(entry.variant);
+        current.material = entry.variant.materialKeyHash;
+        current.picnum = entry.variant.sourcePicnum;
+        current.voxel = entry.variant.resolvedVoxelIndex;
+        current.beforeState = uint32_t(entry.state);
+    }
+    void VisitEnd(NRIPersistentVoxelResidency& owner)
+    {
+        if (!activeVisit) return;
+        const uint64_t now = PerfAuditClockNs();
+        current.elapsed = now - visitStart;
+        current.beforeAttempt = attemptStart ? attemptStart - visitStart : current.elapsed;
+        current.attempted = attemptStart != 0;
+        visitsNs += current.elapsed; beforeAttemptNs += current.beforeAttempt;
+        const auto found = owner.admissionQueue.find(current.pair);
+        if (found != owner.admissionQueue.end())
+        {
+            current.afterState = uint32_t(found->second.state);
+            current.reason = Safe(found->second.lastReason);
+        }
+        for (auto& entry : top)
+            if (current.elapsed > entry.elapsed) std::swap(entry, current);
+        activeVisit = false;
+    }
+    void Emit(NRIPersistentVoxelResidency& owner, uint32_t frame, const char* phase, const char* stop)
+    {
+        VisitEnd(owner);
+        const uint64_t finish = PerfAuditClockNs();
+        Stage(NRIVoxelAdmissionTimingStage::None, finish);
+        const uint64_t total = finish - start;
+        if (!maintenanceComplete) maintenance = total;
+        if (firstVisit && budgetStart) candidatesNs = finish - budgetStart;
+        const uint64_t accounted = maintenance + setup + candidatesNs + visitsNs;
+        const uint64_t remainder = total > accounted ? total - accounted : 0;
+        uint64_t staged = 0;
+        for (auto duration : stages) staged += duration;
+        const auto stageMs = [&](NRIVoxelAdmissionTimingStage value) { return double(stages[size_t(value)]) / 1e6; };
+        char fields[2304];
+        std::snprintf(fields, sizeof(fields),
+            "\"action\":\"summary\",\"renderer_frame\":%u,\"map_generation\":%u,\"phase\":\"%s\",\"stop\":\"%s\","
+            "\"scope_begin\":\"pump-entry\",\"wall_time_includes_waits\":true,\"detail_validator_enabled\":%s,"
+            "\"total_ms\":%.6f,\"maintenance_ms\":%.6f,\"budget_setup_ms\":%.6f,\"candidate_preparation_ms\":%.6f,"
+            "\"visits_ms\":%.6f,\"visit_before_attempt_ms\":%.6f,\"visit_after_attempt_ms\":%.6f,\"unclassified_ms\":%.6f,"
+            "\"candidates\":%u,\"visited\":%u,\"attempted\":%u,\"registry_entries\":%llu,\"active_entries\":%u,\"top_visit_limit\":4,"
+            "\"material_retirement_begin_ms\":%.6f,\"material_sharing_ms\":%.6f,\"map_sync_ms\":%.6f,\"enemy_policy_ms\":%.6f,"
+            "\"actor_demand_ms\":%.6f,\"reclaim_ms\":%.6f,\"pressure_policy_ms\":%.6f,\"cache_maintenance_ms\":%.6f,\"pre_budget_unclassified_ms\":%.6f",
+            frame, owner.residencyMapGeneration, Safe(phase), Safe(stop), Bool((bool)nri_ptvoxelcachevalidate),
+            double(total)/1e6, double(maintenance)/1e6, double(setup)/1e6, double(candidatesNs)/1e6,
+            double(visitsNs)/1e6, double(beforeAttemptNs)/1e6, double(visitsNs - beforeAttemptNs)/1e6, double(remainder)/1e6,
+            candidates, visited, attempted, U64(owner.admissionQueue.size()), owner.admissionIndex.ActiveCount(),
+            stageMs(NRIVoxelAdmissionTimingStage::MaterialRetirement), stageMs(NRIVoxelAdmissionTimingStage::MaterialSharing),
+            stageMs(NRIVoxelAdmissionTimingStage::MapSync), stageMs(NRIVoxelAdmissionTimingStage::EnemyPolicy),
+            stageMs(NRIVoxelAdmissionTimingStage::ActorDemand), stageMs(NRIVoxelAdmissionTimingStage::Reclaim),
+            stageMs(NRIVoxelAdmissionTimingStage::PressurePolicy), stageMs(NRIVoxelAdmissionTimingStage::CacheMaintenance),
+            double(maintenance > staged ? maintenance - staged : 0) / 1e6);
+        PerfAuditWriteEvent("voxel_admission_work_timing", PerfAuditCurrentToken(), fields);
+        // A complete aggregate is emitted for every pump. Detailed rows are
+        // intentionally a top-four sample only for slow diagnostic pumps.
+        if (total < 5000000) return;
+        for (const auto& entry : top)
+        {
+            if (!entry.elapsed) continue;
+            std::snprintf(fields, sizeof(fields),
+                "\"action\":\"visit\",\"renderer_frame\":%u,\"map_generation\":%u,\"phase\":\"%s\","
+                "\"pair_key\":%llu,\"mesh_key\":%llu,\"material_key\":%llu,\"source_picnum\":%d,\"voxel_index\":%d,"
+                "\"before_state\":%u,\"after_state\":%u,\"attempted\":%s,\"reason\":\"%s\","
+                "\"visit_ms\":%.6f,\"before_attempt_ms\":%.6f,\"after_attempt_ms\":%.6f,\"sample\":\"top-four-slow-pump\"",
+                frame, owner.residencyMapGeneration, Safe(phase), U64(entry.pair), U64(entry.mesh), U64(entry.material),
+                entry.picnum, entry.voxel, entry.beforeState, entry.afterState, Bool(entry.attempted), Safe(entry.reason),
+                double(entry.elapsed)/1e6, double(entry.beforeAttempt)/1e6, double(entry.elapsed-entry.beforeAttempt)/1e6);
+            PerfAuditWriteEvent("voxel_admission_work_timing", PerfAuditCurrentToken(), fields);
+        }
+    }
 };
 
 namespace
@@ -216,6 +337,13 @@ void Observe(NRIPersistentVoxelResidency& owner, NRIPersistentVoxelAdmissionDiag
 NRIVoxelAdmissionDiagnosticScope::NRIVoxelAdmissionDiagnosticScope(NRIPersistentVoxelResidency& value,
     uint32_t valueFrame, const char* valuePhase) : owner(value), frame(valueFrame), phase(Safe(valuePhase))
 {
+    if ((bool)nri_ptvoxeladmissiontiming && PerfAuditActive()) timing = std::make_unique<NRIVoxelAdmissionTimingState>();
+}
+void NRIVoxelAdmissionDiagnosticScope::AfterMapSync()
+{
+    TimingStage(NRIVoxelAdmissionTimingStage::None);
+    // Keep correctness history attached to the newly synchronized map, as
+    // before the timing observer moved to the entry of the enclosing pump.
     state = State(owner);
     if (state)
     {
@@ -225,9 +353,22 @@ NRIVoxelAdmissionDiagnosticScope::NRIVoxelAdmissionDiagnosticScope(NRIPersistent
 }
 void NRIVoxelAdmissionDiagnosticScope::BeginBudget()
 {
+    if (timing)
+    {
+        timing->budgetStart = PerfAuditClockNs();
+        timing->setup = timing->budgetStart - timing->start - timing->maintenance;
+    }
     if (!state) return;
     budgetObserverStart = diagnosticWorkNs;
     budgetWallStart = PerfAuditClockNs();
+}
+void NRIVoxelAdmissionDiagnosticScope::TimingStage(NRIVoxelAdmissionTimingStage stage)
+{
+    if (timing) timing->Stage(stage, PerfAuditClockNs());
+}
+void NRIVoxelAdmissionDiagnosticScope::CandidateCount(uint32_t count)
+{
+    if (timing) timing->candidates = count;
 }
 double NRIVoxelAdmissionDiagnosticScope::ElapsedMs(double rawElapsedMs) const
 {
@@ -236,6 +377,7 @@ double NRIVoxelAdmissionDiagnosticScope::ElapsedMs(double rawElapsedMs) const
 }
 void NRIVoxelAdmissionDiagnosticScope::Budgets(uint32_t variants, uint64_t bytes, uint32_t blas, double ms)
 {
+    if (timing) timing->EndMaintenance();
     variantBudget = variants; byteBudget = bytes; blasBudget = blas; msBudget = ms;
 }
 void NRIVoxelAdmissionDiagnosticScope::Candidate(uint64_t key, uint32_t position)
@@ -252,6 +394,7 @@ void NRIVoxelAdmissionDiagnosticScope::Candidate(uint64_t key, uint32_t position
 }
 void NRIVoxelAdmissionDiagnosticScope::Visit(uint64_t key)
 {
+    if (timing) timing->VisitBegin(owner, key);
     if (!state) return;
     DiagnosticWork overhead;
     currentPair = key; disposition = "visited"; ++visited;
@@ -274,6 +417,7 @@ void NRIVoxelAdmissionDiagnosticScope::Transition(uint64_t key, const char* even
 }
 void NRIVoxelAdmissionDiagnosticScope::Attempt()
 {
+    if (timing) { timing->attemptStart = PerfAuditClockNs(); ++timing->attempted; }
     if (!state) return;
     DiagnosticWork overhead;
     ++attempted;
@@ -286,6 +430,7 @@ void NRIVoxelAdmissionDiagnosticScope::Attempt()
 }
 void NRIVoxelAdmissionDiagnosticScope::EndVisit()
 {
+    if (timing) timing->VisitEnd(owner);
     if (!state || !currentPair) return;
     Observe(owner, *state, currentPair, frame, disposition);
     lastVisitedPair = currentPair; lastDisposition = disposition;
@@ -302,6 +447,7 @@ void NRIVoxelAdmissionDiagnosticScope::Finish(const char* valueStop, uint32_t va
 }
 NRIVoxelAdmissionDiagnosticScope::~NRIVoxelAdmissionDiagnosticScope()
 {
+    if (timing) timing->Emit(owner, frame, phase, stop);
     if (!state) return;
     EndVisit();
     for (uint64_t key : candidates)

@@ -13,6 +13,11 @@ uint64_t RangeEnd(uint32_t offset, uint32_t capacity)
 
 NRIPersistentVoxelMaterialRangeHandle NRIPersistentVoxelMaterialRangeAllocator::Allocate(uint32_t capacity)
 {
+	return AllocateWithin(capacity, std::numeric_limits<uint32_t>::max());
+}
+
+NRIPersistentVoxelMaterialRangeHandle NRIPersistentVoxelMaterialRangeAllocator::AllocateWithin(uint32_t capacity, uint32_t maximumRows)
+{
 	if (capacity == 0 || nextGeneration == 0)
 	{
 		return {};
@@ -21,7 +26,7 @@ NRIPersistentVoxelMaterialRangeHandle NRIPersistentVoxelMaterialRangeAllocator::
 	size_t bestIndex = freeRanges.size();
 	for (size_t i = 0; i < freeRanges.size(); i++)
 	{
-		if (freeRanges[i].capacity < capacity)
+		if (freeRanges[i].capacity < capacity || RangeEnd(freeRanges[i].offset, capacity) > maximumRows)
 		{
 			continue;
 		}
@@ -47,7 +52,7 @@ NRIPersistentVoxelMaterialRangeHandle NRIPersistentVoxelMaterialRangeAllocator::
 	}
 	else
 	{
-		if (capacity > std::numeric_limits<uint32_t>::max() - stats.cursorRows)
+		if (stats.cursorRows > maximumRows || capacity > uint64_t(maximumRows) - stats.cursorRows)
 		{
 			return {};
 		}

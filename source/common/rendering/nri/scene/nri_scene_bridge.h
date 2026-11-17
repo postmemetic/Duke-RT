@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_scene_surface_types.h"
+#include "nri_voxel_preload_policy.h"
 #include "nri_voxel_actor_publication_types.h"
 #include "nri_voxel_actor_publication.h"
 
@@ -15,6 +16,7 @@
 
 class FGameTexture;
 class FVoxelModel;
+struct ActorPresentationState;
 
 namespace nri_scene
 {
@@ -338,6 +340,7 @@ struct PersistentVoxelActorAuthorityView
 
 struct PrecachedVoxelVariantView
 {
+	bool enemyStableMaterialBinding = false;
 	uint64_t meshKeyHash = 0;
 	uint64_t materialKeyHash = 0;
 	uint64_t geometrySignature = 0;
@@ -405,8 +408,6 @@ struct PrecachedVoxelRawManifestView
 	MaterialRef material;
 };
 
-static constexpr uint32_t PrecachedVoxelSourceBit_MountedVoxelPreload = 1u << 3;
-static constexpr uint32_t PrecachedVoxelSourceBit_MountedPreloadMap = 1u << 6;
 
 enum class DynamicVoxelCaptureMode : uint8_t
 {
@@ -457,6 +458,10 @@ bool GetPersistentVoxelActorAuthority(
 PersistentVoxelActorCacheStats GetPersistentVoxelActorCacheStats();
 bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& outEntries);
 bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestView>& outEntries, PrecachedVoxelRawManifestStats* outStats = nullptr);
+// Read-only family inventory. Does not load raw sources, generate geometry or
+// enqueue work. An incomplete mounted mapping clears output and fails closed.
+bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
+	std::vector<PrecachedVoxelRawManifestView>& outEntries);
 uint64_t GetPersistentVoxelCacheSerial();
 void ResetPersistentVoxelActorCache(const char* reason);
 void SetPersistentVoxelActorStartupTransientMode(bool active, const char* reason);

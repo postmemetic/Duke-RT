@@ -1,4 +1,5 @@
 #include "nri_actor_sprite_fallback.h"
+#include "nri_enemy_voxel_retained.h"
 
 #include "nri_scene_bridge.h"
 #include "nri_surface_builder.h"
@@ -165,6 +166,7 @@ namespace
 
 void BeginActorSpriteFallbackFrame(uint64_t frame)
 {
+	BeginEnemyVoxelSourceFrame();
 	const bool enabled = (bool)nri_ptactorspritefallback && (bool)r_voxels;
 	SetActorSpriteFallbackRecipesRequested(enabled);
 	if (!enabled)
@@ -204,6 +206,7 @@ bool CaptureActorSpriteFallbackCandidate(HWDrawInfo& di, const HWSprite& source,
 	// Capture read-only metadata for offset normalization, never replay Animate.
 	if (!next.authority.spriteAnimation.available && gi != nullptr)
 		gi->CaptureActorSpriteAnimation(*source.Sprite->ownerActor, next.authority.spriteAnimation);
+	CaptureEnemyVoxelSource(di, source, next.authority, gFrame);
 	next.sprite = *source.Sprite;
 	next.sprite.ApplySpriteFallbackFrame();
 	next.luminous = source.Sprite->ownerActor->spr.shade <= -127;
@@ -242,6 +245,21 @@ void MarkActorSpriteFallbackTransientGeometry(uint64_t identityKey)
 {
 	for (auto& item : gSprites)
 		if (item.candidate.identityKey == identityKey) item.candidate.transientGeometryCaptured = true;
+}
+
+const ActorPresentationState* LookupActorSpriteFallbackAuthority(uint64_t world, uint64_t lifetime)
+{
+	const auto* current = LookupActorPresentationByOwnerKey({world, int64_t(lifetime)});
+	if (!current || current->spriteAnimation.available) return current;
+	for (const auto& retained : gSprites)
+	{
+		const auto& enriched = retained.authority;
+		if (retained.candidate.capturedThisFrame && enriched.owner == current->owner &&
+			enriched.placementGeneration == current->placementGeneration &&
+			enriched.placementStateHash == current->placementStateHash && enriched.spriteAnimation.available)
+			return &enriched;
+	}
+	return current;
 }
 
 void DiscardRetainedActorSpriteFallbackCandidate(int32_t actorIndex)

@@ -73,27 +73,31 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
     auto snapshot = mVoxelBudgetSnapshot;
     snapshot.rawBudgetBytes = snapshot.budgetBytes;
     const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
+    auto& ceiling = mPersistentVoxels.allocationBudgetCeiling;
     if (forceRefresh && (bool)nri_ptvoxelallocationbudget)
     {
-        auto& ceiling = mPersistentVoxels.allocationBudgetCeiling;
+        ceiling.SetBackoffEnabled((bool)nri_ptvoxelallocationretrybackoff);
         snapshot.budgetBytes = ceiling.Apply(mMapWorld.buildSerial, retryTick, snapshot.rawBudgetBytes);
         snapshot.allocationCeilingBytes = ceiling.ceilingBytes;
         snapshot.allocationCeilingRemainingTicks = ceiling.Remaining(mMapWorld.buildSerial, retryTick);
     }
     if (refresh && PerfAuditActive())
     {
-        char fields[1024];
+        char fields[1280];
         snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"live_available\":%s,"
             "\"tracked_bytes\":%llu,\"live_usage_bytes\":%llu,\"live_budget_bytes\":%llu,"
             "\"effective_usage_bytes\":%llu,\"effective_budget_bytes\":%llu,\"test_budget_bytes\":%d,\"allocation_refresh\":%s,\"reserved_provider_bytes\":%llu,"
-            "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\"",
+            "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\","
+            "\"allocation_backoff_enabled\":%s,\"allocation_hold_ticks\":%llu,\"allocation_contraction_streak\":%u,\"allocation_probe_reason\":\"%s\"",
             mFrameIndex, (unsigned long long)mMapWorld.buildSerial, snapshot.liveAvailable ? "true" : "false",
             (unsigned long long)snapshot.trackedBytes, (unsigned long long)snapshot.liveUsageBytes,
             (unsigned long long)snapshot.liveBudgetBytes, (unsigned long long)snapshot.usageBytes,
             (unsigned long long)snapshot.budgetBytes, testBudget, forceRefresh ? "true" : "false",
             (unsigned long long)snapshot.computeReservedBytes, (unsigned long long)snapshot.rawBudgetBytes,
             (unsigned long long)snapshot.allocationCeilingBytes, (unsigned long long)snapshot.allocationCeilingRemainingTicks,
-            (unsigned long long)retryTick);
+            (unsigned long long)retryTick, ceiling.backoffEnabled ? "true" : "false",
+            (unsigned long long)ceiling.holdTicks, ceiling.contractionStreak,
+            forceRefresh ? ceiling.Reason() : "not-allocation-refresh");
         PerfAuditWriteEvent("voxel_residency_budget", PerfAuditCurrentToken(), fields);
     }
     return snapshot;

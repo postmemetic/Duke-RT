@@ -19,6 +19,8 @@
 #include <cstring>
 #include <unordered_map>
 
+EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
+
 namespace
 {
 	bool PersistentVoxelArenaCopyRequired(
@@ -1391,6 +1393,14 @@ public:
 		{
 			nri_scene::BuildPrecachedVoxelVariantViews(variants);
 			hasCacheEntries = nri_scene::BuildPersistentVoxelCacheEntries(cacheEntries);
+		}
+		if ((bool)nri_ptenemystablerepresentation)
+		{
+			const auto memory = renderer.GetMemoryTelemetry();
+			const auto adapter = renderer.mFrameBuffer != nullptr ?
+				renderer.mFrameBuffer->GetAdapterMemoryTelemetry() : NRIAdapterMemoryTelemetry{};
+			SelectNRIVoxelComputePreloadForBudget(variants, rawVariants, computePreloadSettings,
+				renderer.mMapWorld.buildSerial, std::max(memory.totalTrackedBytes, adapter.localUsageBytes), adapter.localBudgetBytes);
 		}
 
 		struct ComputePreloadTimeline

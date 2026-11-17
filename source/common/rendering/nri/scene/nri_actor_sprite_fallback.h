@@ -7,6 +7,7 @@
 
 struct HWDrawInfo;
 class HWSprite;
+struct ActorPresentationState;
 
 namespace nri_scene
 {
@@ -46,6 +47,9 @@ void MarkActorSpriteFallbackTransientGeometry(uint64_t identityKey);
 void DiscardRetainedActorSpriteFallbackCandidate(int32_t actorIndex);
 void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& rootView);
 const std::vector<ActorSpriteFallbackCandidate>& GetActorSpriteFallbackCandidates();
+// Includes read-only first-capture animation metadata when the first snapshot
+// preceded recipe demand. Never substitutes another lifetime or placement.
+const ActorPresentationState* LookupActorSpriteFallbackAuthority(uint64_t world, uint64_t lifetime);
 bool HasCurrentActorSpriteFallbackCandidate(uint64_t identityKey, uint64_t worldEpoch, uint64_t lifetimeGeneration);
 void ResetActorSpriteFallbackCandidates();
 }

@@ -721,6 +721,7 @@ set( NOT_COMPILED_SOURCE_FILES
 	games/duke/src/actors_lava.cpp
 	games/duke/src/actors_r.cpp
 	games/duke/src/animatesprites.cpp
+	games/duke/src/enemy_voxel_family.cpp
 	games/duke/src/animatesprites_d.cpp
 	games/duke/src/animatesprites_r.cpp
 	games/duke/src/bowling.cpp
@@ -996,6 +997,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_material_payload.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_sharing_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_bindings.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_enemy_materials.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_validation.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_bridge.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_material_upload.cpp
@@ -1013,8 +1015,13 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_actor_occurrence_ledger.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_policy.cpp
 	common/rendering/nri/renderer/nri_actor_representation.cpp
+	common/rendering/nri/renderer/nri_enemy_representation.cpp
+	common/rendering/nri/renderer/nri_enemy_representation_policy.cpp
+	common/rendering/nri/renderer/nri_voxel_preload_budget.cpp
 	common/rendering/nri/renderer/nri_actor_representation_textures.cpp
 	common/rendering/nri/scene/nri_actor_sprite_fallback.cpp
+	common/rendering/nri/scene/nri_enemy_family_preload_policy.cpp
+	common/rendering/nri/scene/nri_enemy_voxel_retained.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_allocation.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_allocation.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_allocation_policy.cpp
@@ -1088,6 +1095,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_material_product_policy.cpp
 	common/rendering/nri/renderer/nri_scene_material_texture_slots.cpp
 	common/rendering/nri/renderer/nri_scene_texture_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_texture_ordered.cpp
+	common/rendering/nri/renderer/nri_enemy_representation_textures.cpp
+	common/rendering/nri/renderer/nri_enemy_material_bootstrap.cpp
 	common/rendering/nri/renderer/nri_scene_texture_slot_table.cpp
 	common/rendering/nri/renderer/nri_scene_textures.cpp
 	common/rendering/nri/renderer/nri_sky_environment.cpp

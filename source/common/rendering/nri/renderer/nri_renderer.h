@@ -2570,6 +2570,7 @@ private:
 	bool PreloadMaterialResources();
 	bool PreGrowLevelSceneResourcesForLoading();
 	bool EnsurePersistentVoxelBatch();
+	void PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& settings);
 	bool UploadPersistentVoxelArenaMaterialBuffers(
 		const std::vector<nri_scene::MaterialData>& materials,
 		bool validateActiveMaterialPayloads = false);

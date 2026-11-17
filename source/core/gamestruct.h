@@ -146,6 +146,7 @@ struct GameInterface
 	virtual void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) = 0;
 	virtual void CaptureActorSpriteAnimation(const DCoreActor&, ActorSpriteAnimationState&) const {}
 	virtual bool ResolveActorSpriteFallbackFrame(const ActorPresentationState&, tspritetype&, const DVector2&, DAngle) const { return false; }
+	virtual bool ResolveActorRetainedVoxelFrame(const ActorPresentationState&, tspritetype&, double) const { return false; }
 	virtual void UpdateCameras(double smoothratio) {}
 	virtual void EnterPortal(DCoreActor* viewer, int type) {}
 	virtual void LeavePortal(DCoreActor* viewer, int type) {}

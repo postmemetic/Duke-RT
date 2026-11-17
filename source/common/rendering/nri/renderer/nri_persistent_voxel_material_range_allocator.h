@@ -29,6 +29,9 @@ class NRIPersistentVoxelMaterialRangeAllocator
 {
 public:
 	NRIPersistentVoxelMaterialRangeHandle Allocate(uint32_t capacity);
+	// Reserve only within existing physical row capacity. Failure changes no
+	// allocator state; an out-of-bounds hole is not eligible for this request.
+	NRIPersistentVoxelMaterialRangeHandle AllocateWithin(uint32_t capacity, uint32_t maximumRows);
 	bool Reallocate(
 		const NRIPersistentVoxelMaterialRangeHandle& current,
 		uint32_t capacity,

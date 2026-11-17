@@ -170,7 +170,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
         if (PerfAuditActive())
         {
-            char fields[2048];
+            char fields[2304];
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
                 "\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
                 "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
@@ -179,7 +179,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 "\"post_usage_bytes\":%llu,\"post_budget_bytes\":%llu,\"minimum_after_post_denial\":%s,\"shared_retry_frames\":%u,"
                 "\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\",\"cpu_ms\":%.6f,"
                 "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,"
-                "\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu",
+                "\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu,"
+                "\"observed_budget_hold_ticks\":%llu,\"observed_budget_contraction_streak\":%u,\"observed_budget_probe_reason\":\"%s\"",
                 mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision,
                 (unsigned long long)mesh.resourceKey, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
@@ -194,7 +195,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
                 (unsigned long long)budget.rawBudgetBytes, (unsigned long long)budget.allocationCeilingBytes,
                 (unsigned long long)budget.allocationCeilingRemainingTicks, (unsigned long long)postRawBudgetBytes,
-                (unsigned long long)arena.allocationBudgetCeiling.ceilingBytes);
+                (unsigned long long)arena.allocationBudgetCeiling.ceilingBytes,
+                (unsigned long long)arena.allocationBudgetCeiling.holdTicks,
+                arena.allocationBudgetCeiling.contractionStreak, arena.allocationBudgetCeiling.Reason());
             PerfAuditWriteEvent("voxel_allocation_transaction", PerfAuditCurrentToken(), fields);
         }
         return result;
@@ -412,6 +415,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     }
 
     NRIScopedGpuTiming admissionTiming(mFrameBuffer, NRIGpuTimingScope::VoxelAdmission);
+    arena.allocationBudgetCeiling.ObserveSuccess(mMapWorld.buildSerial, retryTick,
+        actualBytes, postBudget.liveAvailable ? postBudget.liveUsageBytes : 0, postBudget.rawBudgetBytes);
     NRIScopedGpuTiming copyTiming(mFrameBuffer, NRIGpuTimingScope::VoxelArenaCopy);
     for (size_t i = 0; i != targets.size(); ++i)
     {

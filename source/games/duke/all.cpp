@@ -1,5 +1,6 @@
 #include "src/actors.cpp"
 #include "src/animatesprites.cpp"
+#include "src/enemy_voxel_family.cpp"
 #include "src/ccmds.cpp"
 #include "src/cheats.cpp"
 #include "src/d_menu.cpp"

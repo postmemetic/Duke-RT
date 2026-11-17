@@ -466,8 +466,19 @@ bool HWSprite::PrepareFacingSprite(HWDrawInfo* di, tspritetype* spr, sectortype*
 
 bool HWSprite::PrepareVoxel(HWDrawInfo* di, voxmodel_t* vox, tspritetype* spr, sectortype* sector, bool rotate)
 {
+	if (spr == nullptr || spr->ownerActor == nullptr) return false;
+	const auto& owner = *spr->ownerActor;
+	const HWVoxelActorInputs actorInputs = {
+		owner.sprext.rot, owner.sprext.position_offset, (int)owner.spr.cstat, owner.sprext.alpha };
+	return PrepareVoxel(di, vox, spr, sector, rotate, actorInputs);
+}
+
+bool HWSprite::PrepareVoxel(HWDrawInfo* di, voxmodel_t* vox, tspritetype* spr, sectortype* sector, bool rotate,
+	const HWVoxelActorInputs& actorInputs)
+{
+	if (di == nullptr || vox == nullptr || spr == nullptr || sector == nullptr ||
+		(spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR) return false;
 	Sprite = spr;
-	auto ownerActor = spr->ownerActor;
 
 	texture = nullptr;
 	modelframe = -1;
@@ -478,78 +489,35 @@ bool HWSprite::PrepareVoxel(HWDrawInfo* di, voxmodel_t* vox, tspritetype* spr, s
 	visibility = sectorVisibility(sector);
 	voxel = vox;
 
-	auto ang = spr->Angles.Yaw + ownerActor->sprext.rot.Yaw;
-	if ((spr->clipdist & TSPR_MDLROTATE) || rotate)
-	{
-		int myclock = (PlayClock << 3) + MulScale(4 << 3, (int)di->Viewpoint.TicFrac, 16);
-		ang += DAngle::fromBuild(myclock);
-	}
-
-
-	if (!vox || (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR) return false;
-
-	SetSpriteTranslucency(spr, alpha, RenderStyle);
-
-
-	FVector3 scalevec = { voxel->scale, voxel->scale, voxel->scale };
-	FVector3 translatevec = { 0, 0, voxel->zadd * voxel->scale };
-
-	float basescale = voxel->bscale;
-	float sprxscale = (float)spr->scale.X * 0.8f * basescale;
-	if ((spr->ownerActor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_WALL)
-	{
-		sprxscale *= 1.25f;
-		auto rvec = ownerActor->sprext.rot.Yaw.ToVector();
-		translatevec.Y -= spr->xoffset * rvec.X / 64;
-		translatevec.X += spr->xoffset * rvec.Y / 64;
-	}
-
-	if (spr->cstat & CSTAT_SPRITE_YFLIP) 
-	{ 
-		scalevec.Z = -scalevec.Z; 
-		translatevec.Z = -translatevec.Z; 
-	}
-	if (spr->cstat & CSTAT_SPRITE_XFLIP)
-	{
-		scalevec.X = -scalevec.X;
-		translatevec.X = -translatevec.X;
-		translatevec.Y = -translatevec.Y;
-	}
-
-	scalevec.X *= sprxscale; 
-	translatevec.X *= sprxscale; 
-	scalevec.Y *= sprxscale; 
-	translatevec.Y *= sprxscale;
-	float sprzscale = (float)spr->scale.Y * basescale;
-	scalevec.Z *= sprzscale; 
-	translatevec.Z *= sprzscale;
-
-	float zpos = (float)(spr->pos.Z + ownerActor->sprext.position_offset.Z);
-	float zscale = ((spr->cstat & CSTAT_SPRITE_YFLIP) && (spr->ownerActor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != 0) ? -1.f : 1.f;
-	zpos -= (spr->yoffset * spr->scale.Y) * zscale * basescale;
-
-	x = (spr->pos.X + ownerActor->sprext.position_offset.X);
-	z = -zpos;
-	y = -(spr->pos.Y + ownerActor->sprext.position_offset.Y);
-
-	float zoff = voxel->siz.Z * .5f;
-	if (!(spr->cstat & CSTAT_SPRITE_YCENTER))
-		zoff += voxel->piv.Z;
-	else if ((spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_SLAB)
-	{
-		zoff += voxel->piv.Z;
-		zoff -= voxel->siz.Z * .5f;
-	}
-	if (spr->cstat & CSTAT_SPRITE_YFLIP) zoff = voxel->siz.Z - zoff;
-
-	rotmat.loadIdentity();
-	rotmat.translate(x + translatevec.X, z - translatevec.Z, y - translatevec.Y);
-	rotmat.rotate(ang.Degrees() - 90., 0, 1, 0);
-	rotmat.scale(scalevec.X, scalevec.Z, scalevec.Y);
-	// Apply pivot last
-	rotmat.translate(-voxel->piv.X, zoff, voxel->piv.Y);
-
-
+	// An explicit alpha avoids consulting a live owner in retained preparation.
+	SetSpriteTranslucency(spr, alpha, RenderStyle, &actorInputs.alpha);
+	HWVoxelTransformInputs inputs;
+	inputs.position = spr->pos;
+	inputs.modelPositionOffset = actorInputs.modelPositionOffset;
+	inputs.spriteScale = spr->scale;
+	inputs.spriteYaw = spr->Angles.Yaw;
+	inputs.modelYaw = actorInputs.modelRotation.Yaw;
+	inputs.pivot = vox->piv;
+	inputs.height = vox->siz.Z;
+	inputs.xOffset = spr->xoffset;
+	inputs.yOffset = spr->yoffset;
+	inputs.voxelScale = vox->scale;
+	inputs.baseScale = vox->bscale;
+	inputs.zAdd = vox->zadd;
+	inputs.rotate = (spr->clipdist & TSPR_MDLROTATE) || rotate;
+	if (inputs.rotate)
+		inputs.rotationClock = (PlayClock << 3) + MulScale(4 << 3, (int)di->Viewpoint.TicFrac, 16);
+	inputs.wallAlignedOwner = (actorInputs.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_WALL;
+	inputs.alignedOwner = (actorInputs.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != 0;
+	inputs.xFlip = (spr->cstat & CSTAT_SPRITE_XFLIP) != 0;
+	inputs.yFlip = (spr->cstat & CSTAT_SPRITE_YFLIP) != 0;
+	inputs.yCenter = (spr->cstat & CSTAT_SPRITE_YCENTER) != 0;
+	inputs.slabAligned = (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_SLAB;
+	const auto transform = BuildHWVoxelTransform(inputs);
+	x = transform.x;
+	y = transform.y;
+	z = transform.z;
+	ApplyHWVoxelTransform(rotmat, transform);
 
 	auto vp = di->Viewpoint;
 	depth = (float)((x - vp.Pos.X) * vp.TanCos + (y - vp.Pos.Y) * vp.TanSin);

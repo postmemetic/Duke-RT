@@ -34,6 +34,9 @@ struct NRISceneCachedTexture
 	uint64_t firstUseRequestFrame = 0;
 	uint64_t estimatedUploadBytes = 0;
 	uint32_t firstUseQueuedSlot = UINT32_MAX;
+	// This cache entry may be read after its recorded graphics upload. Its
+	// uploadFenceValue still owns actual completion and retirement.
+	bool actorGraphicsOrderedRead = false;
 	NRITextureResource resource;
 };
 
@@ -115,6 +118,8 @@ struct SceneTextureResolveResult
 	bool inserted = false;
 	bool pending = false;
 	bool activeCanvasSelfReference = false;
+	bool graphicsOrderedReady = false;
+	uint64_t orderedUploadBytes = 0;
 	NRISceneTextureClosureState closureState = NRISceneTextureClosureState::Ready;
 	NRISceneTextureClosureFailure closureFailure = NRISceneTextureClosureFailure::None;
 	double lookupMs = 0.0;
@@ -159,8 +164,13 @@ struct NRIActorRepresentationTextureResult
 {
     std::vector<uint32_t> unavailableMaterials;
     uint32_t materials = 0, textures = 0, ready = 0, inserted = 0, pendingReplacements = 0, failures = 0;
+    uint32_t orderedReady = 0, orderedInserts = 0, emergencySync = 0;
+    uint32_t syncCalls = 0, syncInserts = 0;
     uint64_t insertedDeviceBytes = 0, pendingRetirementBytes = 0;
+    uint64_t orderedUploadBytes = 0, orderedPendingBytes = 0;
     double cpuMs = 0.0;
+    double emergencySyncMs = 0.0;
+    double syncMs = 0.0;
 };
 
 class NRISceneTextureResidency
@@ -197,6 +207,11 @@ public:
 	bool WarmMaterialTextures(NRIRenderDevice& device, const nri_scene::MaterialBridgeData& materials, NRIMaterialTextureWarmupResult& outResult);
 	bool WarmMaterialTexturesBudgeted(NRIRenderDevice& device, const nri_scene::MaterialBridgeData& materials, const NRIMaterialTextureWarmupOptions& options, NRIMaterialTextureWarmupCursor& cursor, NRIMaterialTextureWarmupResult& outResult);
 	bool ResolveTextureDescriptor(NRIRenderDevice& device, const nri_scene::TextureUpload& upload, bool tracePerf, NRISceneTextureMissPolicy missPolicy, SceneTextureResolveResult& outResult);
+    // Priority actor carriers can consume an upload recorded before their draw
+    // on the same graphics queue, without claiming CPU-observed completion.
+    bool ResolveActorTextureOrdered(NRIRenderDevice& device, const nri_scene::TextureUpload& upload,
+        bool tracePerf, SceneTextureResolveResult& outResult);
+    bool RefreshOrderedActorTextureUploads(NRIRenderDevice& device);
     // Selected cheap actor carriers must not become transparent async proxies.
     // This establishes resource-view readiness; the ordinary scene pass still
     // owns slot assignment, descriptor publication and material upload.
@@ -235,6 +250,8 @@ private:
 	uint32_t FindCompatibleCacheIndex(const nri_scene::TextureUpload& upload) const;
 	uint32_t FindCompatibleReadyCacheIndex(const nri_scene::TextureUpload& upload) const;
 	void InvalidateCachedTexture(NRIRenderDevice& device, uint32_t cacheIndex);
+    bool TryResolveOrderedActorTexture(NRIRenderDevice& device, uint32_t cacheIndex,
+        bool authorizeActorRead, SceneTextureResolveResult& outResult);
 
 	NRITextureResource mPaletteTexture;
 	uint64_t mPalettePayloadSignature = 0;
@@ -246,4 +263,5 @@ private:
 	NRISceneTextureSlotTable mSlotTable{ NRI_MAX_SCENE_TEXTURES };
 	std::vector<StableSlotDescriptorCacheEntry> mStableSlotDescriptors;
 	bool mLimitLogPrinted = false;
+    bool mHasOrderedActorUploads = false;
 };

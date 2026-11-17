@@ -4466,9 +4466,12 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	}
 	for (const auto& entry : currentSourceEntries)
 	{
+		if (IsEnemySpriteCommitted(entry.ownerWorldEpoch, entry.ownerLifetimeGeneration)) continue;
 		admissionMeshes.insert(BuildPersistentVoxelMeshResourceKey(entry, settings));
 		admissionMaterials.insert(entry.materialKeyHash);
 	}
+	for (const auto& pin : enemyPolicy.MeshPins()) if (pin.second) admissionMeshes.insert(pin.first);
+	for (const auto& pin : enemyPolicy.MaterialPins()) if (pin.second) admissionMaterials.insert(pin.first);
 	const bool materialReleaseQuiescent =
 		!admissionIndex.HasActiveWork() &&
 		PersistentVoxelAdmissionSchedulerQuiescent(admissionScheduler.GetSnapshot());
@@ -4694,8 +4697,12 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	const NRIPersistentVoxelResetServices& resetServices,
 	const NRIPersistentVoxelAdmissionServices& admissionServices)
 {
+	NRIVoxelAdmissionDiagnosticScope diagnostic(*this, frameIndex, phase);
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::MaterialRetirement);
 	NRIVoxelMaterialRetirementScope retireMaterials(*this, resetServices);
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::MaterialSharing);
 	if (!PrepareMaterialSharing(buildSerial, frameIndex)) return false;
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
 	const bool loadingPhase = phase != nullptr && std::strcmp(phase, "loading") == 0;
 	const bool traceLevel1 = loadingTraceLevel >= 1 || voxelStatsEnabled;
 	const bool traceLevel2 = loadingTraceLevel >= 2 || voxelStatsEnabled;
@@ -4762,17 +4769,23 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 				(unsigned long long)materialRangeCompactedRows);
 		}
 	};
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::MapSync);
 	SyncMapGeneration(
 		buildSerial,
 		"pump-map-generation",
 		traceLevel1,
 		resetServices);
-	NRIVoxelAdmissionDiagnosticScope diagnostic(*this, frameIndex, phase);
+	diagnostic.AfterMapSync();
 	const auto actorPolicy = GetNRIVoxelAdmissionPolicySettings();
 	if (!loadingPhase)
 	{
+		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::EnemyPolicy);
+		RefreshEnemyRepresentations(frameIndex, resetServices);
+		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::ActorDemand);
 		RefreshActorDemand(frameIndex, settings, resetServices);
+		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::Reclaim);
 		ProcessAdmissionReclaim(frameIndex, settings, resetServices);
+		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
 	}
 	if (loadingPhase)
 	{
@@ -4783,6 +4796,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	{
 		MarkMaintenanceMutation();
 	}
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::PressurePolicy);
 	ApplyPressurePolicy(
 		phase,
 		frameIndex,
@@ -4791,7 +4805,9 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		adapterLocalBudget,
 		traceLevel1,
 		resetServices);
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::CacheMaintenance);
 	MaintainInactiveCache(phase, frameIndex, settings, totalTrackedBytes, adapterLocalBudget, resetServices);
+	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
 	const uint32_t variantBudget = loadingPhase ?
 		settings.admissionLoadVariants :
 		settings.admissionRuntimeVariants;
@@ -5082,6 +5098,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		return left->pairKey < right->pairKey;
 	});
 
+	diagnostic.CandidateCount(uint32_t(candidates.size()));
 	if (diagnostic.Active())
 		for (uint32_t position = 0; position < candidates.size(); ++position)
 			diagnostic.Candidate(candidates[position]->pairKey, position);
@@ -5739,30 +5756,6 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 		return false;
 	};
-	auto directBlasLaneBlocked = [&](bool exclusive) -> bool
-	{
-		const NRIVoxelAdmissionSnapshot scheduler = admissionScheduler.GetSnapshot();
-		if (exclusive && scheduler.blasInFlight != 0)
-		{
-			return true;
-		}
-		for (const NRIVoxelAdmissionTokenSnapshot& token : admissionScheduler.GetTokenSnapshots())
-		{
-			if (exclusive && token.tokenId != entry.schedulerTokenId &&
-				token.stage == NRIVoxelAdmissionStage::ComputeSubmitted &&
-				token.oversizedExclusive && token.tokenId < entry.schedulerTokenId)
-			{
-				return true;
-			}
-			if (token.tokenId != entry.schedulerTokenId &&
-				token.stage == NRIVoxelAdmissionStage::BlasSubmitted &&
-				token.oversizedExclusive)
-			{
-				return true;
-			}
-		}
-		return false;
-	};
 	if ((bool)nri_ptvoxelallocationbudget && retryTick < entry.allocationRetryTick &&
         (!(bool)nri_ptvoxeladmissionreclaim || !admissionReclaim.RetryAllowed(BuildPersistentVoxelVariantMeshResourceKey(entry.variant))) &&
 		!entry.directComputeRequested && !entry.uploadPrepared && !existingMeshResourceReady())
@@ -6007,7 +6000,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			entry.lastReason = "direct-blas-shared-owner";
 			return true;
 		}
-		if (directBlasLaneBlocked(isolateBlasBuild))
+		if (admissionScheduler.IsDirectBlasLaneBlocked(entry.schedulerTokenId, isolateBlasBuild))
 		{
 			outInProgress = true;
 			entry.lastReason = isolateBlasBuild ? "direct-blas-exclusive-lane" : "direct-blas-exclusive-owner";
@@ -6426,6 +6419,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			}
 			entry.uploadMaterialResource = {};
 			entry.uploadMaterialResource.materialKeyHash = variant.materialKeyHash;
+			entry.uploadMaterialResource.enemyStableMaterialBinding = variant.enemyStableMaterialBinding;
 			entry.uploadMaterialResource.materialSignature = validatedMaterialSignature;
 			entry.uploadMaterialResource.materialBridge = std::move(builtMaterials);
 			entry.uploadMaterialResource.materialBridgeBuildSerial = residencyLastBuildSerial;
@@ -7186,6 +7180,14 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 			publicationBatchReady = false;
 		}
 	}
+	FilterEnemyPublicationEntries(sourceEntries);
+	if (sourceEntries == &enemyPublicationEntries)
+	{
+		// The source cursor continues tracking complete authority. Its batch
+		// fast path cannot apply a representation-filtered consumer view.
+		usePublication = false;
+		publicationBatchReady = false;
+	}
 	NRIVoxelPublicationEntryRange cacheEntries(*sourceEntries);
 	const bool hasPersistentVoxelCacheEntries = !sourceEntries->empty();
 	auto tracePublication = [&]()
@@ -7795,6 +7797,8 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				// Keep the previous resource coherent if a replacement range cannot be acquired.
 				PersistentVoxelMaterialVariantResource candidate = materialResource;
 				candidate.materialKeyHash = cacheEntry.materialKeyHash;
+				candidate.enemyStableMaterialBinding = cacheEntry.enemyStableMaterialBinding;
+				candidate.enemyMaterialReservationOnly = false;
 				candidate.materialSignature = validatedMaterialSignature;
 				candidate.materialBridge = std::move(builtMaterials);
 				candidate.materialBridgeBuildSerial = residencyLastBuildSerial;
@@ -8155,6 +8159,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				nri_scene::PrecachedVoxelVariantView admissionVariant = {};
 				admissionVariant.meshKeyHash = admissionTransformKeyed ? baseMeshResourceKey : cacheEntry.meshKeyHash;
 				admissionVariant.materialKeyHash = cacheEntry.materialKeyHash;
+				admissionVariant.enemyStableMaterialBinding = cacheEntry.enemyStableMaterialBinding;
 				admissionVariant.geometrySignature = cacheEntry.geometrySignature;
 				admissionVariant.geometryContentHash = admissionTransformKeyed ? 0ull : cacheEntry.geometryContentHash;
 				admissionVariant.renderPrimitiveHash = admissionTransformKeyed ? 0ull : cacheEntry.renderPrimitiveHash;
@@ -10039,6 +10044,15 @@ void NRIPersistentVoxelResidency::Reset(
 	}
 	actorDemand.Reset();
 	warmRetentionPressure = {};
+	enemyPolicy.Reset();
+	enemyPolicy.TakeReleasedMaterialKeys(); // All bindings below retire together.
+	enemyMaterialReleasePending.clear();
+	enemyFamilyResidency.clear();
+	enemyFamilyFrame = UINT32_MAX;
+	enemyPublicationEntries.clear();
+	enemyMaterialTexturesReadyActors.clear();
+	enemyMaterialTextureReasons.clear();
+	enemyMaterialTexturesReadyFrame = UINT32_MAX;
 	admissionReclaim.Reset();
 	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
@@ -10118,6 +10132,7 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 	bool traceReset,
 	const NRIPersistentVoxelResetServices& services)
 {
+	ResetEnemyRepresentationsForLevelTransition();
 	actorDemand.Reset();
 	warmRetentionPressure = {};
 	admissionReclaim.Reset();
@@ -11982,13 +11997,8 @@ bool NRIPersistentVoxelResidency::IsSharedVariantReady(uint64_t meshResourceKey,
 
 bool NRIPersistentVoxelResidency::IsRequiredAdmission(const PersistentVoxelAdmissionEntry& entry) const
 {
-	return
-		entry.mapGeneration == residencyMapGeneration &&
-		!entry.runtimeRequested &&
-		entry.priority <= 0 &&
-		(entry.sourceBits & nri_scene::PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 &&
-		(entry.gpuForce ||
-			(entry.gpuPrefer && (entry.sourceBits & nri_scene::PrecachedVoxelSourceBit_MountedPreloadMap) != 0));
+	return entry.mapGeneration == residencyMapGeneration && !entry.runtimeRequested &&
+		nri_scene::IsRequiredVoxelPreload(entry.sourceBits, entry.priority, entry.gpuForce, entry.gpuPrefer);
 }
 
 NRIPersistentVoxelAdmissionBucket NRIPersistentVoxelResidency::GetAdmissionBucket(

@@ -1,6 +1,7 @@
 #include "nri_persistent_voxels.h"
 #include "nri_persistent_voxel_material_bindings.h"
 #include "nri_cvars.h"
+#include "../scene/nri_voxel_material_slots.h"
 #include "perf_audit.h"
 #include "printf.h"
 
@@ -52,10 +53,14 @@ bool NRIPersistentVoxelResidency::AcquireMaterialBinding(
 		{
 			PerfAuditScope certify(PerfAuditMetric::VoxelMaterialSharingCertifyNs);
 			certificate = materialSharingPolicy.Certify(resource.materialBridge);
+			// Stable enemy rows are mutable per-owner bindings. Their content
+			// signature is validated separately; never alias them with another actor.
+			if (resource.enemyStableMaterialBinding) certificate.invariant = false;
 		}
 		const bool acquired = materialPayloads.AcquireBinding(resource.materialKeyHash,
 			certificate, resource.materialBridge,
-			materialRangeAllocator, range, retired);
+			materialRangeAllocator, range, retired,
+			resource.enemyStableMaterialBinding ? nri_scene::VoxelPaletteMaterialSlotCount : 0u);
 		const auto& after = materialPayloads.Counters();
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingLookups, after.lookups - before.lookups);
 		PerfAuditAdd(PerfAuditMetric::VoxelMaterialSharingHits, after.hits - before.hits);

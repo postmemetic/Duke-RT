@@ -109,11 +109,39 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			++mStats.duplicates;
 			continue;
 		}
+		const bool spriteReady = candidate.descriptorCurrent && candidate.ownerWorldEpoch != 0 && candidate.surface.vertices.size() >= 3 &&
+			voxels.spriteFallbackReadyFrame == frameIndex && voxels.spriteFallbackReadyActors.count(candidate.identityKey) != 0;
+		const auto currentDemand = voxels.actorDemand.GetActor(candidate.identityKey, candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration, frameIndex);
+		NRIActorExactBindingFacts exact = {};
+		exact.voxelReady = ready;
+		exact.demandCurrent = currentDemand.found;
+		exact.desiredMesh = currentDemand.desiredMesh;
+		exact.desiredMaterial = currentDemand.desiredMaterial;
+		if (sameOwner)
+		{
+			exact.selectedMesh = actor->meshResourceKey;
+			exact.selectedMaterial = actor->materialKeyHash;
+			exact.actorMaterialSignature = actor->materialSignature;
+			const auto instance = voxels.instances.find(candidate.identityKey);
+			if (instance != voxels.instances.end())
+			{
+				const auto& current = instance->second;
+				exact.instanceCurrent = current.identityKey == candidate.identityKey &&
+					current.ownerWorldEpoch == candidate.ownerWorldEpoch && current.ownerLifetimeGeneration == candidate.ownerLifetimeGeneration &&
+					current.active && current.authorityCurrent && current.publicationEligible && !current.pendingRemoval &&
+					current.lastSeenFrame == frameIndex && current.meshResourceKey == actor->meshResourceKey &&
+					current.materialKeyHash == actor->materialKeyHash && current.bindingGeneration == actor->bindingGeneration;
+				exact.instancePending = current.pending;
+				exact.instanceMaterialSignature = current.materialSignature;
+			}
+		}
+		const bool exactReady = IsNRIActorBindingExact(exact);
+		const auto enemy = !intentionalAbsence && !candidate.transientGeometryCaptured && candidate.actorIndex != separateReflectionActor ?
+			voxels.SelectEnemyRepresentation(candidate, frameIndex, settings, exactReady, spriteReady) : NRIEnemyRepresentationChoice{};
 		const auto selected = SelectNRIActorRepresentation({intentionalAbsence,
 			candidate.transientGeometryCaptured || candidate.actorIndex == separateReflectionActor,
-			ready, candidate.descriptorCurrent && candidate.ownerWorldEpoch != 0 && candidate.surface.vertices.size() >= 3 &&
-				voxels.spriteFallbackReadyFrame == frameIndex && voxels.spriteFallbackReadyActors.count(candidate.identityKey) != 0,
-			ForceSprite(candidate.actorIndex)});
+			ready && !(enemy.managed && enemy.sprite), spriteReady,
+			ForceSprite(candidate.actorIndex) || (enemy.managed && enemy.sprite)});
 		// Retained emissive surfaces are not a lifetime-qualified actor body.
 		// A current voxel candidate owns this actor's body; replace any old
 		// cached sprite aliases even when the chosen voxel is already ready.
@@ -161,9 +189,9 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 		}
 		else ++mStats.unavailable;
 
-		const auto demand = voxels.actorDemand.GetActor(candidate.identityKey, candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration, frameIndex);
+		const auto& demand = currentDemand;
 		if (selected == NRIActorSelection::Voxel)
-			selection = demand.found && actor->meshResourceKey == demand.desiredMesh && actor->materialKeyHash == demand.desiredMaterial ? "exact" : "held";
+			selection = exactReady ? "exact" : "held";
 		mDecisions.push_back({candidate.identityKey, candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration,
 			demand.desiredMesh, demand.desiredMaterial, sameOwner ? actor->meshResourceKey : 0,
 			sameOwner ? actor->materialKeyHash : 0, demand.exactMissingAge, candidate.actorIndex, selection,
