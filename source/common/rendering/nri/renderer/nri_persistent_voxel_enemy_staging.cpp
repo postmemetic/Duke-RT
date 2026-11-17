@@ -8,6 +8,7 @@
 
 EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
 EXTERN_CVAR(Bool, nri_ptenemyrepresentationtrace)
+EXTERN_CVAR(Int, nri_ptvoxelallocationreservemb)
 
 namespace
 {
@@ -69,10 +70,18 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
         readyKeys.push_back(family.signature); readyKeys.push_back(family.meshes.size());
         for (const auto& mesh : family.meshes) readyKeys.push_back(mesh.key);
     }
+    // Prospective families rank below current/committed ownership, but above
+    // the ordinary cache's preferred warm-headroom target. Use the same hard
+    // safety reserve as allocation admission, plus the existing pressure margin.
+    // This does not change either cache maintenance or allocation admission.
+    const uint64_t margin = std::max<uint64_t>(budgetBytes / 64, 16ull * 1024 * 1024);
+    const uint64_t reserve = Add(uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024, margin);
+    const bool reserveRecovered = enemyFamilyStaging.Stats().requiredReclaimBytes != 0 &&
+        budgetBytes >= reserve && usageBytes <= budgetBytes - reserve;
     constexpr uint64_t GrowthRefresh = 16ull * 1024 * 1024;
     if (enemyStagingFrame != UINT32_MAX && frame >= enemyStagingFrame && frame - enemyStagingFrame < 60 &&
         readyKeys == enemyStagingReadyKeys && budgetBytes >= enemyStagingBudget &&
-        usageBytes <= Add(enemyStagingUsage, GrowthRefresh)) return;
+        usageBytes <= Add(enemyStagingUsage, GrowthRefresh) && !reserveRecovered) return;
     enemyStagingFrame = frame; enemyStagingUsage = usageBytes; enemyStagingBudget = budgetBytes;
     NRIVoxelCachePins basePins;
     // Current, pending and committed ownership is non-negotiable. Staging alone
@@ -103,8 +112,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
             else mesh = found->second;
         }
     }
-    const uint64_t margin = std::max<uint64_t>(budgetBytes / 64, 16ull * 1024 * 1024);
-    enemyFamilyStaging.Select(families, {usageBytes, budgetBytes, Add(settings.residentMinHeadroomBytes, margin), coldPhysical});
+    enemyFamilyStaging.Select(families, {usageBytes, budgetBytes, reserve, coldPhysical});
     // No allocation or immediate freed-memory claim follows this selection.
     // Ordinary retirement and allocation admission retain their fence/budget gates.
     if ((bool)nri_ptenemyrepresentationtrace && PerfAuditActive())
@@ -118,7 +126,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
             frame, (unsigned long long)state.world, state.families, state.owners, state.meshes,
             (unsigned long long)state.geometryBytes, (unsigned long long)state.physicalBytes, (unsigned long long)state.chargedBytes,
             (unsigned long long)state.limitBytes, (unsigned long long)usageBytes, (unsigned long long)budgetBytes,
-            (unsigned long long)Add(settings.residentMinHeadroomBytes, margin), (unsigned long long)state.requiredReclaimBytes,
+            (unsigned long long)reserve, (unsigned long long)state.requiredReclaimBytes,
             (unsigned long long)state.otherColdPhysicalBytes, (unsigned long long)state.capRefusalsTotal, (unsigned long long)state.pressureDropsTotal);
         PerfAuditWriteEvent("enemy_family_staging", PerfAuditCurrentToken(), fields);
         for (const auto& decision : enemyFamilyStaging.Decisions())
