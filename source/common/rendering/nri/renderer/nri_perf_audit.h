@@ -1,6 +1,7 @@
 #pragma once
 
 #include "perf_audit.h"
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -21,6 +22,43 @@ struct NRITraceAuditCapture
 };
 
 bool NRITraceAuditRequested();
+
+// Exclusive CPU spans for one geometry reservation. Record timings only while
+// the native audit is active. The graphics fence samples are nonblocking.
+struct NRIVoxelAllocationTiming
+{
+    struct Resource
+    {
+        uint64_t bytes = 0;
+        uint64_t createNs = 0;
+        uint64_t viewNs = 0;
+        uint64_t discardNs = 0;
+    };
+    // Vertex/index/primitive arenas, private vertex/index, scratch, then BLAS.
+    std::array<Resource, 7> resources{};
+    uint64_t budgetBeforeNs = 0, preflightNs = 0, budgetAfterNs = 0;
+    uint64_t copyRecordNs = 0, copyBytes = 0, retireNs = 0;
+    uint64_t recordingFence = 0, submittedFence = 0;
+    uint64_t completedBefore = UINT64_MAX, completedAfter = UINT64_MAX;
+    const bool active = PerfAuditActive();
+    bool attempted = false;
+
+    template<class Operation>
+    auto Measure(uint64_t& ns, Operation&& operation) const -> decltype(operation())
+    {
+        if (!active) return operation();
+        struct Timer
+        {
+            uint64_t& total;
+            uint64_t start;
+            ~Timer() { total += PerfAuditClockNs() - start; }
+        } timer{ns, PerfAuditClockNs()};
+        return operation();
+    }
+};
+
+void NRIAuditVoxelAllocationTiming(const NRIVoxelAllocationTiming& timing, uint32_t frame,
+    uint64_t meshKey, const char* decision);
 NRITraceAuditCapture NRIBeginTraceAudit(bool diagnostic, bool conflictingProbe, uint64_t rendererFrame, uint64_t fence);
 void NRITraceAuditLoss(const NRITraceAuditCapture& capture, uint64_t rendererFrame, uint64_t fence, const char* reason, bool abandoned = false);
 void NRIPublishTraceAudit(const NRITraceAuditCapture& capture, uint64_t rendererFrame, uint64_t fence,

@@ -39,6 +39,46 @@ bool NRITraceAuditRequested()
     return PerfAuditActive() && nri_ptperfauditgpu && PerfAuditCensusRequested();
 }
 
+void NRIAuditVoxelAllocationTiming(const NRIVoxelAllocationTiming& timing, uint32_t frame,
+    uint64_t meshKey, const char* decision)
+{
+    if (!timing.active || !timing.attempted) return;
+    static constexpr const char* roles[] = {
+        "arena_vertex", "arena_index", "arena_primitive", "private_vertex", "private_index", "scratch", "blas"
+    };
+    Json json;
+    json.Add("\"renderer_frame\":%u,\"mesh_key\":%llu,\"decision\":\"%s\","
+        "\"budget_before_ns\":%llu,\"preflight_ns\":%llu,\"budget_after_ns\":%llu,"
+        "\"copy_record_ns\":%llu,\"copy_bytes\":%llu,\"retire_ns\":%llu,"
+        "\"recording_fence\":%llu,\"submitted_fence\":%llu,",
+        frame, (unsigned long long)meshKey, decision,
+        (unsigned long long)timing.budgetBeforeNs, (unsigned long long)timing.preflightNs,
+        (unsigned long long)timing.budgetAfterNs,
+        (unsigned long long)timing.copyRecordNs, (unsigned long long)timing.copyBytes,
+        (unsigned long long)timing.retireNs, (unsigned long long)timing.recordingFence,
+        (unsigned long long)timing.submittedFence);
+    const auto addCompleted = [&](const char* name, uint64_t value)
+    {
+        if (value == UINT64_MAX) json.Add("\"%s\":null,", name);
+        else json.Add("\"%s\":%llu,", name, (unsigned long long)value);
+    };
+    addCompleted("completed_before", timing.completedBefore);
+    addCompleted("completed_after", timing.completedAfter);
+    json.Add("\"resources\":[");
+    bool first = true;
+    for (size_t i = 0; i < timing.resources.size(); ++i)
+    {
+        const auto& r = timing.resources[i];
+        if (!r.bytes) continue;
+        json.Add("%s{\"role\":\"%s\",\"requested_bytes\":%llu,\"create_ns\":%llu,\"view_ns\":%llu,\"discard_ns\":%llu}",
+            first ? "" : ",", roles[i], (unsigned long long)r.bytes, (unsigned long long)r.createNs,
+            (unsigned long long)r.viewNs, (unsigned long long)r.discardNs);
+        first = false;
+    }
+    json.Add("]");
+    PerfAuditWriteEvent("voxel_allocation_phases", PerfAuditCurrentToken(), json.data);
+}
+
 void NRIAuditResidentArenaGrowth(uint32_t rendererFrame, uint32_t stride,
     uint64_t oldSize, uint64_t oldMemory, uint64_t oldUsed, uint64_t required,
     uint64_t newSize, uint64_t newMemory, uint64_t copied, bool retiredToSlot,

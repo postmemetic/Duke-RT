@@ -132,7 +132,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200)));
     uint64_t postUsageBytes = 0, postBudgetBytes = 0, postRawBudgetBytes = 0;
     uint32_t retryFrames = 0;
-    auto budget = GetPersistentVoxelBudgetSnapshot(true);
+    NRIVoxelAllocationTiming timing;
+    auto budget = timing.Measure(timing.budgetBeforeNs, [&] { return GetPersistentVoxelBudgetSnapshot(true); });
+    const uint64_t preflightStart = timing.active ? PerfAuditClockNs() : 0;
     NRIPersistentVoxelAllocationBudget peak;
     NRIVoxelComputeProviderForecast provider;
     uint64_t reclaimSignature = 0;
@@ -198,6 +200,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 (unsigned long long)arena.allocationBudgetCeiling.ceilingBytes,
                 (unsigned long long)arena.allocationBudgetCeiling.holdTicks,
                 arena.allocationBudgetCeiling.contractionStreak, arena.allocationBudgetCeiling.Reason());
+            if (timing.attempted && mFrameBuffer->mCommandCompletionFence)
+                timing.completedAfter = core.GetFenceValue(*mFrameBuffer->mCommandCompletionFence);
+            NRIAuditVoxelAllocationTiming(timing, mFrameIndex, mesh.resourceKey, decision);
             PerfAuditWriteEvent("voxel_allocation_transaction", PerfAuditCurrentToken(), fields);
         }
         return result;
@@ -336,10 +341,24 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     std::array<NRIBufferResource, 6> unpublished = {};
     std::array<double, 6> allocationMs = {};
     NRIAccelerationStructureResource unpublishedAs;
+    if (timing.active && predictedBytes != 0)
+    {
+        timing.attempted = true;
+        timing.preflightNs = PerfAuditClockNs() - preflightStart;
+        timing.recordingFence = mFrameBuffer->GetRecordingCommandFenceValue();
+        timing.submittedFence = mFrameBuffer->mLastSubmittedCommandFenceValue;
+        if (mFrameBuffer->mCommandCompletionFence)
+            timing.completedBefore = core.GetFenceValue(*mFrameBuffer->mCommandCompletionFence);
+    }
     const auto discard = [&]()
     {
-        for (auto& resource : unpublished) DestroyBufferResource(resource);
-        DestroyAccelerationStructureResource(unpublishedAs);
+        for (size_t i = 0; i < unpublished.size(); ++i)
+        {
+            if (unpublished[i].buffer)
+                timing.Measure(timing.resources[i].discardNs, [&] { DestroyBufferResource(unpublished[i]); });
+        }
+        if (unpublishedAs.accelerationStructure)
+            timing.Measure(timing.resources.back().discardNs, [&] { DestroyAccelerationStructureResource(unpublishedAs); });
     };
     for (size_t i = 0; i != targets.size(); ++i)
     {
@@ -347,7 +366,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         auto& resource = unpublished[i];
         const auto& desc = descriptors[i];
         const auto allocationStart = std::chrono::steady_clock::now();
-        if (!CreateBufferWithoutViewAtLocation(resource, desc.size, desc.structureStride, desc.usage, nri::MemoryLocation::DEVICE))
+        auto& resourceTiming = timing.resources[i];
+        resourceTiming.bytes = predicted[i];
+        if (!timing.Measure(resourceTiming.createNs, [&] {
+            return CreateBufferWithoutViewAtLocation(resource, desc.size, desc.structureStride, desc.usage, nri::MemoryLocation::DEVICE);
+        }))
         { discard(); return report("buffer-allocation-failed", Result::AllocationFailed); }
         if (i != 5)
         {
@@ -356,12 +379,12 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             view.type = nri::BufferView::STRUCTURED_BUFFER;
             view.size = nri::WHOLE_SIZE;
             view.structureStride = desc.structureStride;
-            if (core.CreateBufferView(view, resource.shaderView) != nri::Result::SUCCESS)
+            if (timing.Measure(resourceTiming.viewNs, [&] { return core.CreateBufferView(view, resource.shaderView); }) != nri::Result::SUCCESS)
             { discard(); return report("view-allocation-failed", Result::AllocationFailed); }
             if (NRIResourceUsageIncludes(desc.usage, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE))
             {
                 view.type = nri::BufferView::STORAGE_STRUCTURED_BUFFER;
-                if (core.CreateBufferView(view, resource.storageView) != nri::Result::SUCCESS)
+                if (timing.Measure(resourceTiming.viewNs, [&] { return core.CreateBufferView(view, resource.storageView); }) != nri::Result::SUCCESS)
                 { discard(); return report("storage-view-allocation-failed", Result::AllocationFailed); }
             }
         }
@@ -372,8 +395,12 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     }
     if (!reuseAs)
     {
-        if (rt.CreateCommittedAccelerationStructure(*mFrameBuffer->mDevice, nri::MemoryLocation::DEVICE,
-            0.0f, asDesc, unpublishedAs.accelerationStructure) != nri::Result::SUCCESS)
+        auto& asTiming = timing.resources.back();
+        asTiming.bytes = asBytes;
+        if (timing.Measure(asTiming.createNs, [&] {
+            return rt.CreateCommittedAccelerationStructure(*mFrameBuffer->mDevice, nri::MemoryLocation::DEVICE,
+                0.0f, asDesc, unpublishedAs.accelerationStructure);
+        }) != nri::Result::SUCCESS)
         { discard(); return report("as-allocation-failed", Result::AllocationFailed); }
         nri::MemoryDesc requirements = {};
         rt.GetAccelerationStructureMemoryDesc(*unpublishedAs.accelerationStructure, nri::MemoryLocation::DEVICE, requirements);
@@ -392,7 +419,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
 
     // Locals are not yet in renderer telemetry. Include their complete physical
     // footprint even if the driver's accounting lags the committed allocations.
-    const auto postBudget = GetPersistentVoxelBudgetSnapshot(true);
+    const auto postBudget = timing.Measure(timing.budgetAfterNs, [&] { return GetPersistentVoxelBudgetSnapshot(true); });
     postUsageBytes = postBudget.usageBytes;
     postBudgetBytes = postBudget.budgetBytes;
     postRawBudgetBytes = postBudget.rawBudgetBytes;
@@ -431,6 +458,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         const uint64_t copied = i < 3 && old.buffer ? std::min(old.usedSize, next.size) : 0;
         if (copied)
         {
+            const uint64_t copyStart = timing.active ? PerfAuditClockNs() : 0;
             nri::BufferBarrierDesc before[2] = {};
             before[0].buffer = old.buffer;
             before[0].before = NRIResourceComputeShaderResourceAccess();
@@ -449,6 +477,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             barrier.buffers = &after;
             barrier.bufferNum = 1;
             core.CmdBarrier(*mFrameBuffer->mCommandBuffer, barrier);
+            if (timing.active)
+            {
+                timing.copyRecordNs += PerfAuditClockNs() - copyStart;
+                timing.copyBytes += copied;
+            }
         }
         if (i < 3)
         {
@@ -459,14 +492,14 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             NRIAuditResidentArenaGrowth(mFrameIndex, strides[i], old.size, old.memorySize, old.usedSize,
                 required[i], next.size, next.memorySize, copied, old.buffer != nullptr, allocationMs[i], allocationMs[i]);
         }
-        RetireResidentBufferResource(old);
+        timing.Measure(timing.retireNs, [&] { RetireResidentBufferResource(old); });
         old = next;
         next = {};
     }
     PerfAuditSet(PerfAuditMetric::VoxelGeometryArenaOverlapBytes, oldArenaBytes + newArenaBytes);
     if (!reuseAs)
     {
-        RetireResidentAccelerationStructure(mesh.accelerationStructure);
+        timing.Measure(timing.retireNs, [&] { RetireResidentAccelerationStructure(mesh.accelerationStructure); });
         mesh.accelerationStructure = unpublishedAs;
         unpublishedAs = {};
     }
