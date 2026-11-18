@@ -36,6 +36,13 @@ struct NRIVoxelAllocationTiming
     };
     // Vertex/index/primitive arenas, private vertex/index, scratch, then BLAS.
     std::array<Resource, 7> resources{};
+    struct InterimBudget
+    {
+        int mode = 0; // Populated only at an eligible checkpoint.
+        bool liveAvailable = false, wouldDefer = false;
+        uint64_t queryNs = 0, liveUsage = 0, liveBudget = 0, effectiveBudget = 0;
+        uint64_t committed = 0, remaining = 0, projected = 0;
+    } interim;
     uint64_t budgetBeforeNs = 0, preflightNs = 0, budgetAfterNs = 0;
     uint64_t copyRecordNs = 0, copyBytes = 0, retireNs = 0;
     uint64_t recordingFence = 0, submittedFence = 0;

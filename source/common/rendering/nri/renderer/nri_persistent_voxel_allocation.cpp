@@ -360,8 +360,55 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         if (unpublishedAs.accelerationStructure)
             timing.Measure(timing.resources.back().discardNs, [&] { DestroyAccelerationStructureResource(unpublishedAs); });
     };
+    const auto deferCommitted = [&](const char* decision, uint64_t rawBudget)
+    {
+        // No commands reference these resources. Preserve the finite retry,
+        // exact-footprint retry and reclaim handoff of a final budget denial.
+        arena.allocationGrowthRetry.ObservePostDenial(candidatePercent, oldArenaBytes, newArenaBytes);
+        if (actualBytes)
+            arena.allocationBudgetCeiling.ObservePostDenial(mMapWorld.buildSerial, retryTick,
+                budget.rawBudgetBytes, rawBudget);
+        discard();
+        return report(decision, Result::DeferredBudget);
+    };
+    const int interimMode = std::clamp((int)nri_ptvoxelinterimbudget, 0, 2);
     for (size_t i = 0; i != targets.size(); ++i)
     {
+        // The first three targets are the shared arenas. Only probe an existing
+        // arena replacement with at least 1 MiB of real native work still avoidable.
+        // Reused resources, provider promises and the safety reserve do not qualify.
+        if (i == 3 && interimMode && budget.liveAvailable && oldArenaBytes &&
+            predictedBytes - actualBytes >= 1024 * 1024)
+        {
+            auto& mid = timing.interim;
+            mid.mode = interimMode;
+            mid.committed = actualBytes;
+            mid.remaining = predictedBytes - actualBytes;
+            // No renderer state or ownership changes during the unpublished
+            // transaction. Query the adapter directly to keep observation passive.
+            const auto live = timing.Measure(mid.queryNs, [&] { return mFrameBuffer->GetAdapterMemoryTelemetry(); });
+            mid.liveAvailable = live.liveUsageAvailable && live.localBudgetBytes != 0;
+            if (mid.liveAvailable)
+            {
+                mid.liveUsage = live.localUsageBytes;
+                mid.liveBudget = live.localBudgetBytes;
+                const uint64_t overrideLimit = uint64_t(std::max(0, (int)nri_ptvoxelbudgettestbytes));
+                const uint64_t raw = overrideLimit ? std::min(overrideLimit, mid.liveBudget) : mid.liveBudget;
+                mid.effectiveBudget = budget.allocationCeilingBytes ? std::min(raw, budget.allocationCeilingBytes) : raw;
+                const uint64_t usage = NRIVoxelComputeUsageAfterOwnerCredit(
+                    NRIVoxelComputeSaturatingAdd(mid.liveUsage, budget.computeReservedBytes),
+                    budget.computeReservedBytes, mesh.computeProviderReservation.Total());
+                const auto forecast = ForecastNRIPartiallyCommittedVoxelBudget(budget.usageBytes, usage,
+                    mid.committed, mid.remaining, provider.bytes, reserve, mid.effectiveBudget);
+                mid.projected = forecast.projectedBytes;
+                mid.wouldDefer = !forecast.fits;
+                if (interimMode == 2 && mid.wouldDefer)
+                {
+                    peak = forecast;
+                    return deferCommitted("defer-interim-budget", raw);
+                }
+            }
+        }
         if (!replace[i]) continue;
         auto& resource = unpublished[i];
         const auto& desc = descriptors[i];
@@ -423,23 +470,12 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     postUsageBytes = postBudget.usageBytes;
     postBudgetBytes = postBudget.budgetBytes;
     postRawBudgetBytes = postBudget.rawBudgetBytes;
-    auto floor = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, postBudget.budgetBytes, actualBytes, 0);
     const uint64_t postUsage = NRIVoxelComputeUsageAfterOwnerCredit(postBudget.usageBytes,
         postBudget.computeReservedBytes, mesh.computeProviderReservation.Total());
-    peak = BuildNRIPersistentVoxelAllocationBudget(std::max(floor.projectedBytes, postUsage),
-        postBudget.budgetBytes, provider.bytes, reserve);
-    if ((actualBytes != 0 || provider.bytes != 0) && (floor.overflow || !peak.fits))
-    {
-        // Unpublished resources have no command references. The caller rolls
-        // back its provisional range and retains the usual 30-frame cooldown.
-        // A later retry must not allocate the same rejected speculative slack.
-        arena.allocationGrowthRetry.ObservePostDenial(candidatePercent, oldArenaBytes, newArenaBytes);
-        if (actualBytes)
-            arena.allocationBudgetCeiling.ObservePostDenial(mMapWorld.buildSerial, retryTick,
-                budget.rawBudgetBytes, postBudget.rawBudgetBytes);
-        discard();
-        return report("defer-post-budget", Result::DeferredBudget);
-    }
+    peak = ForecastNRIPartiallyCommittedVoxelBudget(budget.usageBytes, postUsage, actualBytes, 0,
+        provider.bytes, reserve, postBudget.budgetBytes);
+    if ((actualBytes != 0 || provider.bytes != 0) && !peak.fits)
+        return deferCommitted("defer-post-budget", postBudget.rawBudgetBytes);
 
     NRIScopedGpuTiming admissionTiming(mFrameBuffer, NRIGpuTimingScope::VoxelAdmission);
     arena.allocationBudgetCeiling.ObserveSuccess(mMapWorld.buildSerial, retryTick,

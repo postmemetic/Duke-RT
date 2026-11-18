@@ -19,6 +19,11 @@ struct NRIPersistentVoxelAllocationBudget
 // subtracted until the resource owner has actually retired them.
 NRIPersistentVoxelAllocationBudget BuildNRIPersistentVoxelAllocationBudget(
     uint64_t usageBytes, uint64_t budgetBytes, uint64_t allocationBytes, uint64_t reserveBytes);
+// Driver usage may already include some or all unpublished physical resources.
+// Both usage inputs include unrelated provider reservations and exclude the owner's old promise.
+NRIPersistentVoxelAllocationBudget ForecastNRIPartiallyCommittedVoxelBudget(
+    uint64_t startingUsage, uint64_t observedUsage, uint64_t committed, uint64_t remaining,
+    uint64_t provider, uint64_t reserve, uint64_t budget);
 uint64_t GetNRIPersistentVoxelGrowthCapacity(uint64_t currentBytes,
     uint64_t requiredBytes, uint32_t stride, uint32_t growthPercent);
 uint64_t GetNRIPersistentVoxelStartupTarget(uint64_t plannedBytes,

@@ -28,6 +28,19 @@ NRIPersistentVoxelAllocationBudget BuildNRIPersistentVoxelAllocationBudget(
     return result;
 }
 
+NRIPersistentVoxelAllocationBudget ForecastNRIPartiallyCommittedVoxelBudget(
+    uint64_t startingUsage, uint64_t observedUsage, uint64_t committed, uint64_t remaining,
+    uint64_t provider, uint64_t reserve, uint64_t budget)
+{
+    bool overflow = false;
+    const uint64_t physicalFloor = Add(startingUsage, committed, overflow);
+    const uint64_t outstanding = Add(remaining, provider, overflow);
+    auto result = BuildNRIPersistentVoxelAllocationBudget(
+        std::max(physicalFloor, observedUsage), budget, outstanding, reserve);
+    if (overflow) { result.overflow = true; result.fits = false; }
+    return result;
+}
+
 uint64_t GetNRIPersistentVoxelGrowthCapacity(uint64_t currentBytes,
     uint64_t requiredBytes, uint32_t stride, uint32_t growthPercent)
 {

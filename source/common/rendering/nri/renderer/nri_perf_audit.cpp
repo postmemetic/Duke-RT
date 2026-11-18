@@ -64,6 +64,17 @@ void NRIAuditVoxelAllocationTiming(const NRIVoxelAllocationTiming& timing, uint3
     };
     addCompleted("completed_before", timing.completedBefore);
     addCompleted("completed_after", timing.completedAfter);
+    const auto& mid = timing.interim;
+    if (mid.mode)
+    {
+        json.Add("\"interim\":{\"mode\":%d,\"live_available\":%s,\"would_defer\":%s,"
+            "\"query_ns\":%llu,\"live_usage_bytes\":%llu,\"live_budget_bytes\":%llu,"
+            "\"effective_budget_bytes\":%llu,\"committed_bytes\":%llu,\"remaining_bytes\":%llu,\"projected_bytes\":%llu},",
+            mid.mode, mid.liveAvailable ? "true" : "false", mid.wouldDefer ? "true" : "false",
+            (unsigned long long)mid.queryNs, (unsigned long long)mid.liveUsage, (unsigned long long)mid.liveBudget,
+            (unsigned long long)mid.effectiveBudget, (unsigned long long)mid.committed,
+            (unsigned long long)mid.remaining, (unsigned long long)mid.projected);
+    }
     json.Add("\"resources\":[");
     bool first = true;
     for (size_t i = 0; i < timing.resources.size(); ++i)
