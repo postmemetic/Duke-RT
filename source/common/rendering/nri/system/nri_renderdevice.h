@@ -6,6 +6,7 @@
 #include "nri_frame_shell.h"
 #include "nri_capture_color.h"
 #include "nri_local.h"
+#include "nri_raster_texture_sets.h"
 #include "Extensions/NRIWrapperD3D12.h"
 
 #include <chrono>
@@ -318,7 +319,8 @@ private:
 	nri::GraphicsAPI GetLiveAPI() const;
 	NRISamplerMode GetSamplerMode(int clampMode) const;
 	nri::DescriptorSet* GetSamplerSet(NRISamplerMode mode) const;
-	nri::DescriptorSet* CreateTextureSet(nri::Descriptor* shaderView);
+	nri::DescriptorSet* EnsureRasterTextureSet(NRITextureResource& resource);
+	void ReportTextureCreateFailure(const char* stage, nri::Result result);
 	bool RenderPathTracingSanityFrame();
 	void PrintFrameBoundaryStatus() const;
 	void PrintFrameSequenceStatus() const;
@@ -442,6 +444,8 @@ private:
 	FGameTexture* mFrameGenerationUiTexture = nullptr;
 	FGameTexture* mViewSnapshotTexture = nullptr;
 	nri::DescriptorSet* mWhiteTextureSet = nullptr;
+	NRIRasterTextureSets mRasterTextureSets;
+	uint32_t mTextureCreateFailures = 0;
 	NRIHardwareTexture* mWhiteTexture = nullptr;
 
 	std::vector<uint8_t> mVertexShaderBlob;

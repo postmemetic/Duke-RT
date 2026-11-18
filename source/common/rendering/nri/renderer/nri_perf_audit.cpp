@@ -252,12 +252,14 @@ void NRIRenderDevice::CapturePerfAuditMemoryCensus() const
     PerfAuditSet(PerfAuditMetric::TextureRetiredBytes, retiredBytes);
     char fields[1024];
     snprintf(fields, sizeof(fields),
-        "\"renderer_frame\":%llu,\"adapter_live_usage_available\":%s,\"tracked_renderer_subtotal_bytes\":%llu,\"tracked_renderer_complete\":false,\"device_retired_texture_bytes\":%llu,\"device_retired_texture_count\":%llu,\"device_retired_vector_capacity\":%llu,\"shell_texture_bytes\":%llu,\"texture_2d_bytes\":%llu,\"oldest_retire_fence\":%llu,\"recording_fence\":%llu",
+        "\"renderer_frame\":%llu,\"adapter_live_usage_available\":%s,\"tracked_renderer_subtotal_bytes\":%llu,\"tracked_renderer_complete\":false,\"device_retired_texture_bytes\":%llu,\"device_retired_texture_count\":%llu,\"device_retired_vector_capacity\":%llu,\"shell_texture_bytes\":%llu,\"texture_2d_bytes\":%llu,\"oldest_retire_fence\":%llu,\"recording_fence\":%llu,"
+        "\"raster_texture_sets_allocated\":%u,\"raster_texture_sets_available\":%u,\"raster_texture_set_reuses\":%llu,\"device_texture_create_failures\":%u",
         (unsigned long long)mFrameIndex, adapter.liveUsageAvailable ? "true" : "false",
         (unsigned long long)renderer.totalTrackedBytes, (unsigned long long)retiredBytes,
         (unsigned long long)mRetiredTextureResources.size(), (unsigned long long)mRetiredTextureResources.capacity(),
         (unsigned long long)(mSceneTarget.memorySize + mSaveTarget.memorySize), (unsigned long long)mTexture2DDebugStats.residentBytes,
-        (unsigned long long)oldestRetireFence, (unsigned long long)GetRecordingCommandFenceValue());
+        (unsigned long long)oldestRetireFence, (unsigned long long)GetRecordingCommandFenceValue(),
+        mRasterTextureSets.Allocated(), mRasterTextureSets.Available(), (unsigned long long)mRasterTextureSets.Reuses(), mTextureCreateFailures);
     PerfAuditWriteEvent("renderer_memory", PerfAuditCurrentToken(), fields);
 }
 

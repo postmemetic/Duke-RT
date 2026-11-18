@@ -450,10 +450,8 @@ void NRIRenderState::Apply(int dt, bool indexed, int firstIndex, int count)
 			{
 				mPerfTraceStats.textureEnsureMs += I_msTimeF() - stageStartMs;
 			}
-			if (hwTexture->GetResource().textureSet != nullptr)
-			{
-				textureSet = hwTexture->GetResource().textureSet;
-			}
+			if (auto* materialSet = mFrameBuffer->EnsureRasterTextureSet(hwTexture->GetResource()))
+				textureSet = materialSet;
 		}
 	}
 

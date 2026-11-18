@@ -8403,6 +8403,8 @@ void NRIRenderDevice::RecordFrameSequence(uint32_t releaseSemaphoreIndex, uint64
 void NRIRenderDevice::Print2DTextureStatus() const
 {
 	const auto& stats = mTexture2DDebugStats;
+	Printf("NRI raster texture sets: allocated=%u available=%u reuses=%llu texture_create_failures=%u\n",
+		mRasterTextureSets.Allocated(), mRasterTextureSets.Available(), (unsigned long long)mRasterTextureSets.Reuses(), mTextureCreateFailures);
 	Printf("NRI 2D textures: frame=%llu ensure=%u canvas=%u hits=%u misses=%u uploads=%u failures=%u create=%u recreate=%u bytes=%llu total_bytes=%llu resident_bytes=%llu peak_resident=%llu\n",
 		(unsigned long long)stats.frameNumber,
 		stats.ensureCalls,
@@ -10029,6 +10031,7 @@ void NRIRenderDevice::DestroyQueuedFrames()
 
 bool NRIRenderDevice::CreateRenderResources()
 {
+	mTextureCreateFailures = 0;
 	mDiagnosticTraceAuditVariants = 0;
 	mShaderVariantWarningEmitted = false;
 	mShaderVariantSelectionEmitted = false;
@@ -10142,7 +10145,7 @@ bool NRIRenderDevice::CreateRenderResources()
 	mWhiteTexture = new NRIHardwareTexture(this, 4);
 	uint32_t whitePixel = 0xffffffffu;
 	mWhiteTexture->CreateTexture((unsigned char*)&whitePixel, 1, 1, 0, false, "WhiteTexture");
-	mWhiteTextureSet = mWhiteTexture->GetResource().textureSet;
+	mWhiteTextureSet = EnsureRasterTextureSet(mWhiteTexture->GetResource());
 	return mWhiteTextureSet != nullptr;
 }
 
@@ -10170,6 +10173,7 @@ void NRIRenderDevice::DestroyRenderResources()
 
 	if (mDescriptorPool != nullptr)
 	{
+		mRasterTextureSets = {};
 		mCore.DestroyDescriptorPool(mDescriptorPool);
 		mDescriptorPool = nullptr;
 	}
@@ -10832,6 +10836,7 @@ void NRIRenderDevice::FinishTargetRendering(NRITextureResource& target, nri::Acc
 
 void NRIRenderDevice::DestroyTextureResource(NRITextureResource& resource)
 {
+	mRasterTextureSets.Recycle(resource);
 	if (resource.colorAttachmentView != nullptr)
 	{
 		mCore.DestroyDescriptor(resource.colorAttachmentView);
@@ -10949,29 +10954,13 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 
 	if ((usage & (uint32_t)nri::TextureUsageBits::SHADER_RESOURCE) != 0)
 	{
-		if (mCore.CreateTextureView(shaderViewDesc, resource.shaderView) != nri::Result::SUCCESS)
+		const auto result = mCore.CreateTextureView(shaderViewDesc, resource.shaderView);
+		if (result != nri::Result::SUCCESS)
 		{
+			ReportTextureCreateFailure("create-shader-view", result);
 			return false;
 		}
 
-		if (resource.textureSet == nullptr)
-		{
-			resource.textureSet = CreateTextureSet(resource.shaderView);
-			if (resource.textureSet == nullptr)
-			{
-				return false;
-			}
-		}
-		else
-		{
-			const nri::Descriptor* descriptor = resource.shaderView;
-			nri::UpdateDescriptorRangeDesc updateDesc = {};
-			updateDesc.descriptorSet = resource.textureSet;
-			updateDesc.rangeIndex = 0;
-			updateDesc.descriptors = &descriptor;
-			updateDesc.descriptorNum = 1;
-			mCore.UpdateDescriptorRanges(&updateDesc, 1);
-		}
 	}
 
 	if ((usage & (uint32_t)nri::TextureUsageBits::SHADER_RESOURCE_STORAGE) != 0)
@@ -10988,8 +10977,10 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 			storageViewDesc.format = nri::Format::RGBA8_UNORM;
 		}
 		storageViewDesc.type = nri::TextureView::STORAGE_TEXTURE;
-		if (mCore.CreateTextureView(storageViewDesc, resource.storageView) != nri::Result::SUCCESS)
+		const auto result = mCore.CreateTextureView(storageViewDesc, resource.storageView);
+		if (result != nri::Result::SUCCESS)
 		{
+			ReportTextureCreateFailure("create-storage-view", result);
 			return false;
 		}
 	}
@@ -10999,8 +10990,10 @@ bool NRIRenderDevice::CreateTextureViews(NRITextureResource& resource)
 		nri::TextureViewDesc colorViewDesc = shaderViewDesc;
 		colorViewDesc.mipNum = 1;
 		colorViewDesc.type = nri::TextureView::COLOR_ATTACHMENT;
-		if (mCore.CreateTextureView(colorViewDesc, resource.colorAttachmentView) != nri::Result::SUCCESS)
+		const auto result = mCore.CreateTextureView(colorViewDesc, resource.colorAttachmentView);
+		if (result != nri::Result::SUCCESS)
 		{
+			ReportTextureCreateFailure("create-color-view", result);
 			return false;
 		}
 	}
@@ -11026,11 +11019,18 @@ bool NRIRenderDevice::CreateOwnedTexture(NRITextureResource& resource, uint32_t 
 	textureDesc.layerNum = layerNum;
 	textureDesc.sampleNum = 1;
 
-	if (mCore.CreateCommittedTexture(*mDevice, nri::MemoryLocation::DEVICE, 0.0f, textureDesc, resource.texture) != nri::Result::SUCCESS)
+	nri::Texture* texture = nullptr;
+	const auto result = mCore.CreateCommittedTexture(*mDevice, nri::MemoryLocation::DEVICE, 0.0f, textureDesc, texture);
+	if (result != nri::Result::SUCCESS)
 	{
+		ReportTextureCreateFailure("create-committed-texture", result);
+		// The backend can create the wrapper before its memory allocation fails.
+		if (texture != nullptr)
+			mCore.DestroyTexture(texture);
 		return false;
 	}
 
+	resource.texture = texture;
 	resource.width = width;
 	resource.height = height;
 	resource.mipCount = mipCount;
@@ -11045,7 +11045,11 @@ bool NRIRenderDevice::CreateOwnedTexture(NRITextureResource& resource, uint32_t 
 	resource.usage = usage;
 	resource.owned = true;
 	resource.state = {};
-	return CreateTextureViews(resource);
+	if (CreateTextureViews(resource))
+		return true;
+
+	DestroyTextureResource(resource);
+	return false;
 }
 
 bool NRIRenderDevice::UploadTextureData(NRITextureResource& resource, const void* data, uint32_t width, uint32_t height, uint32_t rowPitch)
@@ -11545,22 +11549,25 @@ nri::DescriptorSet* NRIRenderDevice::GetSamplerSet(NRISamplerMode mode) const
 	return mSamplerSets[(size_t)mode];
 }
 
-nri::DescriptorSet* NRIRenderDevice::CreateTextureSet(nri::Descriptor* shaderView)
+nri::DescriptorSet* NRIRenderDevice::EnsureRasterTextureSet(NRITextureResource& resource)
 {
-	nri::DescriptorSet* set = nullptr;
-	if (mCore.AllocateDescriptorSets(*mDescriptorPool, *mPipelineLayout, 1, &set, 1, 0) != nri::Result::SUCCESS)
+	if (resource.textureSet != nullptr || resource.shaderView == nullptr)
+		return resource.textureSet;
+	const auto result = mRasterTextureSets.Acquire(mCore, *mDescriptorPool, *mPipelineLayout, *resource.shaderView, resource.textureSet);
+	if (result != nri::Result::SUCCESS)
 	{
-		return nullptr;
+		ReportTextureCreateFailure("allocate-raster-texture-set", result);
 	}
+	return resource.textureSet;
+}
 
-	const nri::Descriptor* descriptor = shaderView;
-	nri::UpdateDescriptorRangeDesc updateDesc = {};
-	updateDesc.descriptorSet = set;
-	updateDesc.rangeIndex = 0;
-	updateDesc.descriptors = &descriptor;
-	updateDesc.descriptorNum = 1;
-	mCore.UpdateDescriptorRanges(&updateDesc, 1);
-	return set;
+void NRIRenderDevice::ReportTextureCreateFailure(const char* stage, nri::Result result)
+{
+	++mTextureCreateFailures;
+	if (mTextureCreateFailures > 8 && (mTextureCreateFailures & (mTextureCreateFailures - 1)) != 0)
+		return;
+	Printf(TEXTCOLOR_RED "NRI texture creation failed: stage=%s result=%s code=%d raster_sets_allocated=%u failures=%u\n",
+		stage, GetNriResultName(result), (int)result, mRasterTextureSets.Allocated(), mTextureCreateFailures);
 }
 
 void NRIRenderDevice::ResetFrameTracking(bool presentedAcquiredImage)

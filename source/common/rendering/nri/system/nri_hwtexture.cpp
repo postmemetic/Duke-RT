@@ -276,11 +276,8 @@ void NRIHardwareTexture::CreateTextureResource(uint32_t width, uint32_t height, 
 
 	const bool recreated = mResource.texture != nullptr;
 	const uint64_t oldBytes = mResource.memorySize;
-	if (recreated)
-	{
-		mFrameBuffer->WaitForCommands(true);
-	}
-	mFrameBuffer->DestroyTextureResource(mResource);
+	// A draw in the open command list may still sample the old view and set.
+	mFrameBuffer->RetireTextureResource(mResource);
 	if (mFrameBuffer->CreateOwnedTexture(mResource, width, height, format, usage))
 	{
 		mFrameBuffer->Note2DTextureResourceCreate(recreated);
