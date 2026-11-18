@@ -1385,8 +1385,8 @@ bool nri_static_scene::DestroyLiveStaticMapSceneCache(
 		input.staticIndexBuffer->buffer != nullptr ||
 		input.staticPrimitiveBuffer->buffer != nullptr ||
 		input.staticMaterialBuffer->buffer != nullptr;
-	if (hasResidentStaticSceneResources && services.completeResourceUses != nullptr &&
-		!services.completeResourceUses(services.user, reason))
+	if (hasResidentStaticSceneResources && (services.completeResourceUses == nullptr ||
+		!services.completeResourceUses(services.user, reason)))
 	{
 		// Keep every owner intact so a later frame can retry teardown.
 		staticScene.valid = false;
