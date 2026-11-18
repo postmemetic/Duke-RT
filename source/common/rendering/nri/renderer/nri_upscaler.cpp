@@ -9,6 +9,7 @@
 #include <cstring>
 #include <limits>
 
+CVAR(Bool, nri_ptupscalermemorytrace, false, 0)
 
 namespace
 {
@@ -42,6 +43,19 @@ namespace
 		case nri::UpscalerType::DLRR: return "DLRR";
 		default: return "unknown";
 		}
+	}
+
+	void ReportUpscalerMemoryChange(const NRIRenderDevice& device, nri::UpscalerType type,
+		const char* operation, nri::Result result, const NRIAdapterMemoryTelemetry& before)
+	{
+		const auto after = device.GetAdapterMemoryTelemetry();
+		Printf("NRI PT upscaler memory: provider=%s operation=%s result=%u scope=dxgi_process "
+			"before_available=%u after_available=%u local_before=%llu local_after=%llu "
+			"nonlocal_before=%llu nonlocal_after=%llu\n",
+			GetUpscalerTypeName(type), operation, unsigned(result),
+			unsigned(before.liveUsageAvailable), unsigned(after.liveUsageAvailable),
+			(unsigned long long)before.localUsageBytes, (unsigned long long)after.localUsageBytes,
+			(unsigned long long)before.nonLocalUsageBytes, (unsigned long long)after.nonLocalUsageBytes);
 	}
 }
 
@@ -321,7 +335,7 @@ bool NRIUpscalerContext::EnsureUpscaler(
 			return false;
 		}
 	}
-	DestroyUpscaler(frameBuffer, slot.instance);
+	DestroyUpscaler(frameBuffer, type, slot.instance);
 	slot.mode = mode;
 	slot.upscaleWidth = upscaleWidth;
 	slot.upscaleHeight = upscaleHeight;
@@ -340,7 +354,11 @@ bool NRIUpscalerContext::EnsureUpscaler(
 	upscalerDesc.commandBuffer = frameBuffer.mCommandBuffer;
 	upscalerDesc.flags = flags;
 
+	const bool traceMemory = nri_ptupscalermemorytrace;
+	const auto before = traceMemory ? frameBuffer.GetAdapterMemoryTelemetry() : NRIAdapterMemoryTelemetry{};
 	const nri::Result result = frameBuffer.mUpscaler.CreateUpscaler(*frameBuffer.mDevice, upscalerDesc, slot.instance);
+	if (traceMemory)
+		ReportUpscalerMemoryChange(frameBuffer, type, "create", result, before);
 	if (result != nri::Result::SUCCESS)
 	{
 		slot.instance = nullptr;
@@ -526,21 +544,32 @@ bool NRIUpscalerContext::DispatchPostSharpen(NRIRenderDevice& frameBuffer, NRIPo
 	return true;
 }
 
-void NRIUpscalerContext::DestroyUpscaler(NRIRenderDevice& frameBuffer, nri::Upscaler*& upscaler)
+void NRIUpscalerContext::PrintContextStatus() const
+{
+	Printf("NRI PT resident upscaler contexts: FSR=%u NIS=%u DLSR=%u DLRR=%u private_bytes=unavailable\n",
+		unsigned(mFsr.instance != nullptr), unsigned(mNis.instance != nullptr),
+		unsigned(mDlsr.instance != nullptr), unsigned(mDlrr.instance != nullptr));
+}
+
+void NRIUpscalerContext::DestroyUpscaler(NRIRenderDevice& frameBuffer, nri::UpscalerType type, nri::Upscaler*& upscaler)
 {
 	if (upscaler != nullptr)
 	{
+		const bool traceMemory = nri_ptupscalermemorytrace;
+		const auto before = traceMemory ? frameBuffer.GetAdapterMemoryTelemetry() : NRIAdapterMemoryTelemetry{};
 		frameBuffer.mUpscaler.DestroyUpscaler(upscaler);
 		upscaler = nullptr;
+		if (traceMemory)
+			ReportUpscalerMemoryChange(frameBuffer, type, "destroy", nri::Result::SUCCESS, before);
 	}
 }
 
 void NRIUpscalerContext::Shutdown(NRIRenderDevice& frameBuffer)
 {
-	DestroyUpscaler(frameBuffer, mNis.instance);
-	DestroyUpscaler(frameBuffer, mDlsr.instance);
-	DestroyUpscaler(frameBuffer, mDlrr.instance);
-	DestroyUpscaler(frameBuffer, mFsr.instance);
+	DestroyUpscaler(frameBuffer, nri::UpscalerType::NIS, mNis.instance);
+	DestroyUpscaler(frameBuffer, nri::UpscalerType::DLSR, mDlsr.instance);
+	DestroyUpscaler(frameBuffer, nri::UpscalerType::DLRR, mDlrr.instance);
+	DestroyUpscaler(frameBuffer, nri::UpscalerType::FSR, mFsr.instance);
 	mNis = {};
 	mDlsr = {};
 	mDlrr = {};
@@ -622,6 +651,8 @@ NRIPostSharpenKind NRIRenderer::ResolvePostSharpenKind(bool logFallback)
 {
 	NRISyncLegacyUpscalerConfig(logFallback);
 	const NRIPostSharpenKind requested = GetSelectedPostSharpenKind();
+	if (requested == NRIPostSharpenKind::Off)
+		return requested;
 	const NRIMainUpscalerKind resolvedMain = ResolveMainUpscalerKind(false);
 	const bool disabledForFsr = requested == NRIPostSharpenKind::NIS && resolvedMain == NRIMainUpscalerKind::FSR;
 	NRIPostSharpenKind resolved = requested;

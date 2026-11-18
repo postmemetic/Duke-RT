@@ -715,6 +715,10 @@ void NRIRenderer::PrintStatus()
 		default: break;
 		}
 	}
+	mUpscaler.PrintContextStatus();
+	Printf("NRI PT NRD texture pools: resident=%u permanent_bytes=%llu transient_bytes=%llu\n",
+		unsigned(mNrd.IsReady()), (unsigned long long)mNrd.GetPermanentTexturePoolBytes(),
+		(unsigned long long)mNrd.GetTransientTexturePoolBytes());
 	Printf("NRI PT NRD: integration=%s requested=%s validation_output=%s denoiser=%s motion=%s prev_position=%s extra_debugs=%s\n",
 		mNrd.IsReady() ? "ready" : "cold",
 		nri_denoise ? "on" : "off",

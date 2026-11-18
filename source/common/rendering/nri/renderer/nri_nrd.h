@@ -66,6 +66,9 @@ public:
 	bool Denoise(const NRINrdDispatchDesc& desc);
 	void Shutdown();
 	bool IsReady() const { return mInitialized; }
+	// The integration sums device memory requirements for its own texture pools.
+	uint64_t GetPermanentTexturePoolBytes() const { return uint64_t(mIntegration.GetPersistentMemoryUsageInMb() * 1048576.0); }
+	uint64_t GetTransientTexturePoolBytes() const { return uint64_t(mIntegration.GetAliasableMemoryUsageInMb() * 1048576.0); }
 
 private:
 	static nrd::Resource MakeResource(NRITextureResource& texture);

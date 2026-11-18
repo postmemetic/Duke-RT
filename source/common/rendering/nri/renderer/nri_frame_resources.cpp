@@ -29,12 +29,15 @@ bool NRIFrameResources::CreateFrameTexture(NRIRenderer& renderer, uint32_t slot,
 		return false;
 	}
 
-	return renderer.mFrameBuffer->CreateOwnedTexture(
-		renderer.GetFrameTexture((NRIRenderer::FrameTextureSlot)slot),
-		width,
-		height,
-		format,
-		NRIResourceFlags(nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureUsageBits::SHADER_RESOURCE_STORAGE));
+	auto& texture = renderer.GetFrameTexture((NRIRenderer::FrameTextureSlot)slot);
+	if (!renderer.mFrameBuffer->CreateOwnedTexture(texture, width, height, format,
+		NRIResourceFlags(nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureUsageBits::SHADER_RESOURCE_STORAGE)))
+	{
+		// View creation can fail after allocating the texture. Leave the slot empty for retry.
+		renderer.mFrameBuffer->DestroyTextureResource(texture);
+		return false;
+	}
+	return true;
 }
 
 nri::Format NRIFrameResources::ResolveFinalSceneFormat(const NRIRenderer& renderer)
@@ -127,9 +130,22 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 			renderer.GetFrameTexture(NRIRenderer::FrameTextureSlot::RrVolumeInput).texture != nullptr)) &&
 		renderer.GetFrameTexture(NRIRenderer::FrameTextureSlot::Final).texture != nullptr;
 
+	auto ensurePostSharpenOutput = [&]() {
+		const auto slot = NRIRenderer::FrameTextureSlot::PostSharpenOutput;
+		auto& target = renderer.GetFrameTexture(slot);
+		if (renderer.ResolvePostSharpenKind(false) == NRIPostSharpenKind::Off)
+		{
+			if (target.texture != nullptr)
+				renderer.mFrameBuffer->RetireTextureResource(target);
+			return true;
+		}
+		return target.texture != nullptr || CreateFrameTexture(renderer, (uint32_t)slot,
+			outputWidth, outputHeight, nri::Format::RGBA16_SFLOAT);
+	};
+
 	if (upToDate)
 	{
-		return true;
+		return ensurePostSharpenOutput();
 	}
 
 	// Frame-resource rebuilds on resize/upscaler mode changes can retire textures that the current
@@ -228,7 +244,6 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::RrGuideSpecularHitDistance, renderWidth, renderHeight, rrGuideSpecHitDistanceFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::RrGuideNormalRoughness, renderWidth, renderHeight, rrGuideNormalRoughnessFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::VendorOutput, outputWidth, outputHeight, colorFormat) &&
-		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::PostSharpenOutput, outputWidth, outputHeight, colorFormat) &&
 		smokeOutputReady &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::PostBloomOutput, outputWidth, outputHeight, colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::BloomPyramid0, BloomPyramidExtent(outputWidth, 0), BloomPyramidExtent(outputHeight, 0), colorFormat) &&
@@ -239,5 +254,6 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::BloomPyramid5, BloomPyramidExtent(outputWidth, 5), BloomPyramidExtent(outputHeight, 5), colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::BloomPyramid6, BloomPyramidExtent(outputWidth, 6), BloomPyramidExtent(outputHeight, 6), colorFormat) &&
 		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::BloomPyramid7, BloomPyramidExtent(outputWidth, 7), BloomPyramidExtent(outputHeight, 7), colorFormat) &&
-		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::Final, targetWidth, targetHeight, finalFormat);
+		CreateFrameTexture(renderer, (uint32_t)NRIRenderer::FrameTextureSlot::Final, targetWidth, targetHeight, finalFormat) &&
+		ensurePostSharpenOutput();
 }

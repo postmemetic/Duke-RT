@@ -325,7 +325,8 @@ bool ExecuteNRIFrameGraph(
 		ptDebugMode == (int)nri_diag::PtDebugIndirectLobeSelection;
 	context.mHistoryInputSlot = (context.mFrame.mainTemporalSerial & 1u) == 0 ? FrameTextureSlot::TaaHistoryPing : FrameTextureSlot::TaaHistoryPong;
 	context.mHistoryOutputSlot = (context.mFrame.mainTemporalSerial & 1u) == 0 ? FrameTextureSlot::TaaHistoryPong : FrameTextureSlot::TaaHistoryPing;
-	context.mUpscaledInputSlot = FrameTextureSlot::PostSharpenOutput;
+	// Final binds this input even on routes that skip the upscale chain.
+	context.mUpscaledInputSlot = context.mHistoryOutputSlot;
 	context.mUseUpscaledInFinal = false;
 	context.mUseDenoisedCompositionInputs = false;
 	const bool directionalLightShadowEnabled = context.mDirectionalLightState.enabled && context.mDirectionalLightState.shadow;
