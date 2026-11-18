@@ -2,10 +2,43 @@
 
 #include "nri_static_scene.h"
 #include "../scene/nri_map_world.h"
+#include "printf.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <unordered_map>
 #include <unordered_set>
+
+void TraceStaticSceneReleaseResources(const nri::CoreInterface& core, const nri::RayTracingInterface& rt,
+	const NRIStaticSceneLiveCacheDestroyInput& input, uint64_t recordingFence)
+{
+	const auto trace = [&](nri::Buffer* buffer, const char* owner, uint32_t index)
+	{
+		if (buffer == nullptr)
+			return;
+		char name[96];
+		std::snprintf(name, sizeof(name), "Raze.StaticScene.%llu.%s[%u]",
+			(unsigned long long)input.staticScene->contentBuildSerial, owner, index);
+		core.SetDebugName(reinterpret_cast<nri::Object*>(buffer), name);
+		Printf("NRI PT static scene release resource: name=%s object=0x%llX va=0x%llX bytes=%llu recording_fence=%llu\n",
+			name, (unsigned long long)core.GetBufferNativeObject(buffer), (unsigned long long)core.GetBufferDeviceAddress(*buffer),
+			(unsigned long long)core.GetBufferDesc(*buffer).size, (unsigned long long)recordingFence);
+	};
+	trace(input.staticVertexBuffer->buffer, "vertices", 0);
+	trace(input.staticIndexBuffer->buffer, "indices", 0);
+	trace(input.staticPrimitiveBuffer->buffer, "primitives", 0);
+	trace(input.staticMaterialBuffer->buffer, "materials", 0);
+	for (const auto& chunk : input.staticScene->chunks)
+	{
+		if (auto* blas = chunk.accelerationStructure.accelerationStructure)
+			trace(rt.GetAccelerationStructureBuffer(*blas), "chunkBLAS", chunk.chunkIndex);
+	}
+	for (const auto& segment : input.staticScene->segmentBlasCache.entries)
+	{
+		if (auto* blas = segment.accelerationStructure.accelerationStructure)
+			trace(rt.GetAccelerationStructureBuffer(*blas), "segmentBLAS", segment.firstChunkListIndex);
+	}
+}
 
 namespace
 {
