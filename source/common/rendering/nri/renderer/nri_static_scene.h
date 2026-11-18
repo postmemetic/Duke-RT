@@ -453,7 +453,7 @@ struct NRIStaticSceneLiveCacheDestroyInput
 struct NRIStaticSceneLiveCacheDestroyServices
 {
 	void* user = nullptr;
-	void (*waitForCommandsTracked)(void* user) = nullptr;
+	bool (*completeResourceUses)(void* user, const char* reason) = nullptr;
 	void (*destroyBufferResource)(void* user, NRIBufferResource& resource) = nullptr;
 	void (*destroyAccelerationStructureResource)(void* user, NRIAccelerationStructureResource& resource) = nullptr;
 	void (*resetPersistentDynamicEmissiveCache)(void* user) = nullptr;
@@ -461,6 +461,10 @@ struct NRIStaticSceneLiveCacheDestroyServices
 	void (*resetRuntimeMutationCacheAndFrameForStaticScene)(void* user) = nullptr;
 	void (*resetResidentMapChunkRegistry)(void* user) = nullptr;
 };
+
+// Name and report the live D3D12 resources before release for DRED correlation.
+void TraceStaticSceneReleaseResources(const nri::CoreInterface& core, const nri::RayTracingInterface& rt,
+	const NRIStaticSceneLiveCacheDestroyInput& input, uint64_t recordingFence);
 
 struct NRIStaticSceneEnsureInput
 {
@@ -481,7 +485,7 @@ struct NRIStaticSceneEnsureServices
 {
 	void* user = nullptr;
 	NRIStaticSceneCacheBuildServices cacheBuildServices = {};
-	void (*destroyStaticMapSceneCache)(void* user, const char* reason) = nullptr;
+	bool (*destroyStaticMapSceneCache)(void* user, const char* reason) = nullptr;
 	bool (*refreshStaticMapAnimatedMaterials)(void* user) = nullptr;
 	bool (*ensurePaletteTexture)(void* user, const nri_scene::MaterialBridgeData& materials) = nullptr;
 	bool (*ensureSceneTextures)(
@@ -573,10 +577,10 @@ bool RefreshStaticMapSceneMaterialLighting(
 		const NRIStaticSceneLiveAccelerationBuildInput& input,
 		const NRIStaticSceneLiveAccelerationBuildServices& services);
 
-	void DestroyLiveStaticMapSceneCache(
+	bool DestroyLiveStaticMapSceneCache(
 		const NRIStaticSceneLiveCacheDestroyInput& input,
 		const NRIStaticSceneLiveCacheDestroyServices& services,
-		bool waitForCommands);
+		const char* reason);
 
 	bool EnsureStaticMapScene(
 		const NRIStaticSceneEnsureInput& input,

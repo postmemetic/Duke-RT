@@ -733,6 +733,14 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				residentStaticWorldGeometryChanged = runtimeMutationFrame.residentStaticSceneChanged;
 				return hasOverlay;
 			}();
+			// Recovery can defer a static rebuild while it finishes GPU work.
+			// The scene selected before mutation is no longer publishable.
+			if (!mStaticMapScene.valid)
+			{
+				if (preserveHistory)
+					RestoreRenderSceneHistorySnapshot(history);
+				return false;
+			}
 			mLastPerfShellTraceStats.sceneReusePresentationGeneration = inputs.presentationGeneration;
 			mLastPerfShellTraceStats.sceneReuseSimulationGeneration = inputs.simulationGeneration;
 			mLastPerfShellTraceStats.sceneReuseEngineGeneration = inputs.engineUpdateGeneration;

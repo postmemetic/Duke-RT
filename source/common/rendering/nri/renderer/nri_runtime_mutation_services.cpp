@@ -483,9 +483,8 @@ NRIRuntimeMutationResidentSceneRefreshServices BuildNRIRuntimeMutationResidentSc
 			chunk.fixedLayoutVertexBytes = 0;
 			chunk.fixedLayoutPrimitiveBytes = 0;
 		}
-		renderer->DestroyStaticMapSceneCache(reason != nullptr ? reason : "runtime-mutation-resident-refresh-failed");
-		renderer->mStaticMapScene = {};
-		renderer->mStaticAccelerationBuildSerial = 0;
+		if (!renderer->DestroyStaticMapSceneCache(reason != nullptr ? reason : "runtime-mutation-resident-refresh-failed"))
+			return false;
 		renderer->mSkyEnvironment.PreservedStaticMapSky() = {};
 		return renderer->EnsureStaticMapScene();
 	};

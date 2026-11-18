@@ -452,9 +452,6 @@ void NRIRenderer::InvalidateStaticMapSceneForMaterialLighting()
 		// Fall back to a full resident-scene rebuild on the next frame if the
 		// targeted material refresh path fails for any reason.
 		DestroyStaticMapSceneCache("material-lighting-refresh-failed");
-		mStaticMapScene = {};
-		mStaticAccelerationBuildSerial = 0;
-		return;
 	}
 }
 
@@ -553,9 +550,8 @@ bool NRIRenderer::RefreshStaticMapAnimatedMaterials()
 	services.recoverStaticScene = [](void* user, const char* reason)
 	{
 		NRIRenderer* renderer = static_cast<NRIRenderer*>(user);
-		renderer->DestroyStaticMapSceneCache(reason);
-		renderer->mStaticMapScene = {};
-		renderer->mStaticAccelerationBuildSerial = 0;
+		if (!renderer->DestroyStaticMapSceneCache(reason))
+			return false;
 		renderer->mSkyEnvironment.PreservedStaticMapSky() = {};
 		return renderer->EnsureStaticMapScene();
 	};
@@ -635,7 +631,7 @@ bool NRIRenderer::EnsureStaticMapScene()
 	services.cacheBuildServices = staticSceneCacheBuildServices;
 	services.destroyStaticMapSceneCache = [](void* user, const char* reason)
 	{
-		static_cast<NRIRenderer*>(user)->DestroyStaticMapSceneCache(reason);
+		return static_cast<NRIRenderer*>(user)->DestroyStaticMapSceneCache(reason);
 	};
 	services.refreshStaticMapAnimatedMaterials = [](void* user)
 	{
@@ -1361,10 +1357,10 @@ void nri_static_scene::DestroyStaticMapSceneResources(
 	staticResources = {};
 }
 
-void nri_static_scene::DestroyLiveStaticMapSceneCache(
+bool nri_static_scene::DestroyLiveStaticMapSceneCache(
 	const NRIStaticSceneLiveCacheDestroyInput& input,
 	const NRIStaticSceneLiveCacheDestroyServices& services,
-	bool waitForCommands)
+	const char* reason)
 {
 	if (input.staticScene == nullptr ||
 		input.atlas == nullptr ||
@@ -1378,26 +1374,29 @@ void nri_static_scene::DestroyLiveStaticMapSceneCache(
 		input.boundDynamicMaterialCount == nullptr ||
 		input.boundPortalCount == nullptr)
 	{
-		return;
+		return false;
+	}
+
+	StaticMapSceneCache& staticScene = *input.staticScene;
+	const bool hasResidentStaticSceneResources =
+		!staticScene.chunks.empty() ||
+		!staticScene.segmentBlasCache.entries.empty() ||
+		input.staticVertexBuffer->buffer != nullptr ||
+		input.staticIndexBuffer->buffer != nullptr ||
+		input.staticPrimitiveBuffer->buffer != nullptr ||
+		input.staticMaterialBuffer->buffer != nullptr;
+	if (hasResidentStaticSceneResources && services.completeResourceUses != nullptr &&
+		!services.completeResourceUses(services.user, reason))
+	{
+		// Keep every owner intact so a later frame can retry teardown.
+		staticScene.valid = false;
+		return false;
 	}
 
 	if (services.resetPersistentDynamicEmissiveCache != nullptr)
 	{
 		services.resetPersistentDynamicEmissiveCache(services.user);
 	}
-
-	StaticMapSceneCache& staticScene = *input.staticScene;
-	const bool hasResidentStaticSceneResources =
-		!staticScene.chunks.empty() ||
-		input.staticVertexBuffer->buffer != nullptr ||
-		input.staticIndexBuffer->buffer != nullptr ||
-		input.staticPrimitiveBuffer->buffer != nullptr ||
-		input.staticMaterialBuffer->buffer != nullptr;
-	if (waitForCommands && hasResidentStaticSceneResources && services.waitForCommandsTracked != nullptr)
-	{
-		services.waitForCommandsTracked(services.user);
-	}
-
 	if (services.destroyAccelerationStructureResource != nullptr)
 	{
 		DestroyStaticSegmentBlasCacheResources(staticScene.segmentBlasCache, services);
@@ -1435,6 +1434,7 @@ void nri_static_scene::DestroyLiveStaticMapSceneCache(
 	{
 		services.resetResidentMapChunkRegistry(services.user);
 	}
+	return true;
 }
 
 bool nri_static_scene::EnsureStaticMapScene(
@@ -1471,12 +1471,6 @@ bool nri_static_scene::EnsureStaticMapScene(
 	if (staticScene.buildSerial != mapWorld.buildSerial)
 	{
 		rebuildReason = "build-serial-mismatch";
-		if (services.destroyStaticMapSceneCache != nullptr)
-		{
-			services.destroyStaticMapSceneCache(services.user, "ensure-static-scene-build-serial-mismatch");
-		}
-		staticScene = {};
-		*input.staticAccelerationBuildSerial = 0;
 		clearPreservedSky();
 	}
 
@@ -1503,6 +1497,14 @@ bool nri_static_scene::EnsureStaticMapScene(
 			!staticScene.buffersResident ? "buffers-not-resident" :
 			!staticScene.accelerationResident ? "acceleration-not-resident" :
 			"resident-rebuild";
+	}
+	// A failed build can already own chunk BLASes. Release them before the
+	// cache builder replaces the chunk array, including on a same-map retry.
+	if (staticScene.buildSerial != mapWorld.buildSerial || !staticScene.chunks.empty())
+	{
+		if (services.destroyStaticMapSceneCache == nullptr ||
+			!services.destroyStaticMapSceneCache(services.user, rebuildReason))
+			return false;
 	}
 	if (input.traceSceneStats)
 	{
@@ -2307,7 +2309,7 @@ void NRIRenderer::DestroyStaticMapSceneResources(StaticMapSceneCache& staticScen
 		&staticScene == &mStaticMapScene);
 }
 
-void NRIRenderer::DestroyStaticMapSceneCache(const char* reason)
+bool NRIRenderer::DestroyStaticMapSceneCache(const char* reason)
 {
 	mStaticSceneDiagnostics.Invalidate();
 	mSurfaceLightOverlayCache.Reset();
@@ -2338,11 +2340,28 @@ void NRIRenderer::DestroyStaticMapSceneCache(const char* reason)
 	input.boundDynamicMaterialCount = &mBoundDynamicMaterialCount;
 	input.boundPortalCount = &mBoundPortalCount;
 
+	if (nri_dred && nri_ptscenestats && GetRecordingCommandFenceValue() &&
+		mFrameBuffer->GetLiveAPI() == nri::GraphicsAPI::D3D12)
+		TraceStaticSceneReleaseResources(mFrameBuffer->mCore, mFrameBuffer->mRayTracing, input, GetRecordingCommandFenceValue());
+
 	NRIStaticSceneLiveCacheDestroyServices services = {};
 	services.user = this;
-	services.waitForCommandsTracked = [](void* user)
+	services.completeResourceUses = [](void* user, const char* reason)
 	{
-		static_cast<NRIRenderer*>(user)->WaitForCommandsTracked();
+		auto* renderer = static_cast<NRIRenderer*>(user);
+		const uint64_t recordingFence = renderer->GetRecordingCommandFenceValue();
+		if (recordingFence == 0)
+		{
+			renderer->WaitForCommandsTracked(reason);
+			return true;
+		}
+		// Idle waits only cover submitted GPU work. Mutation can already have
+		// recorded copies or AS builds that still reference the outgoing scene.
+		const bool completed = renderer->mFrameBuffer->SubmitWaitAndRestartCommandList("static-map-scene-release");
+		if (nri_ptscenestats || !completed)
+			Printf("NRI PT static scene release: reason=%s frame=%u recording_fence=%llu result=%s\n",
+				reason, renderer->mFrameIndex, (unsigned long long)recordingFence, completed ? "completed" : "deferred");
+		return completed;
 	};
 	services.destroyBufferResource = [](void* user, NRIBufferResource& resource)
 	{
@@ -2369,7 +2388,11 @@ void NRIRenderer::DestroyStaticMapSceneCache(const char* reason)
 		static_cast<NRIRenderer*>(user)->ResetResidentMapChunkRegistry();
 	};
 
-	nri_static_scene::DestroyLiveStaticMapSceneCache(input, services, mFrameBuffer != nullptr);
+	if (!nri_static_scene::DestroyLiveStaticMapSceneCache(input, services, reason))
+		return false;
+	mStaticMapScene = {};
+	mStaticAccelerationBuildSerial = 0;
+	return true;
 }
 
 void NRIRenderer::PrintStaticMapSceneStatus() const

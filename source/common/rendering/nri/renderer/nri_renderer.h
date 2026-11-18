@@ -2730,7 +2730,7 @@ private:
 	void DestroyCachedTextures();
 	void DestroySceneBuffers();
 	void DestroyAccelerationStructures();
-	void DestroyStaticMapSceneCache(const char* reason = nullptr);
+	bool DestroyStaticMapSceneCache(const char* reason);
 	void DestroyStaticMapSceneResources(StaticMapSceneCache& staticScene, StaticMapSceneResources& staticResources, bool waitForCommands);
 	void DestroyBufferResource(NRIBufferResource& resource);
 	void DestroyAccelerationStructureResource(NRIAccelerationStructureResource& resource);

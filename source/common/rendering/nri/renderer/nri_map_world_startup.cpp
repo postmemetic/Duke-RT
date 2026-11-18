@@ -335,9 +335,8 @@ bool NRIRenderer::ApplyStartupMapWorldCorrectionIfNeeded(const char* trigger)
 		return true;
 	}
 
-	DestroyStaticMapSceneCache("startup-world-correction");
-	mStaticMapScene = {};
-	mStaticAccelerationBuildSerial = 0;
+	if (!DestroyStaticMapSceneCache("startup-world-correction"))
+		return false;
 	mSkyEnvironment.PreservedStaticMapSky() = {};
 	mMapWorld = std::move(correctedWorld);
 	mObservedMapWorldBuildSerial = nri_scene::GetPendingLevelGeometryBuildSerial();

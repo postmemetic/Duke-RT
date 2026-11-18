@@ -1938,8 +1938,6 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	mPortalPayloadCount = 0;
 
 	DestroyStaticMapSceneCache("level-unload");
-	mStaticMapScene = {};
-	mStaticAccelerationBuildSerial = 0;
 	mSkyEnvironment.PreservedStaticMapSky() = {};
 
 	mMapWorld = {};

@@ -12,6 +12,10 @@
 #include <cstddef>
 #include <unordered_map>
 
+// Exercise cache recovery after a real resident geometry update has recorded
+// its copies and BLAS work. Consumed once, and never saved to the user's config.
+CVAR(Bool, nri_ptteststaticrecovery, false, 0)
+
 namespace
 {
  namespace followup = nri_scene::mutation_followup_audit;
@@ -1046,6 +1050,14 @@ bool NRIRuntimeMutationSystem::CommitResidentSceneRefresh(
 				residentRefreshFailureReason = "runtime-mutation-resident-blas-refresh-failed";
 			}
 		}
+	}
+
+	if (residentRefreshOkay && request.geometryDirty && (bool)nri_ptteststaticrecovery)
+	{
+		nri_ptteststaticrecovery = false;
+		residentRefreshOkay = false;
+		residentRefreshFailureReason = "runtime-mutation-test-recovery";
+		Printf("NRI PT static scene recovery test: triggering after resident geometry refresh.\n");
 	}
 
 	if (residentRefreshOkay)
