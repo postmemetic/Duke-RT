@@ -527,6 +527,10 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             arena.allocationBudgetCeiling.ObservePostDenial(mMapWorld.buildSerial, retryTick,
                 budget.rawBudgetBytes, rawBudget);
         discard();
+        // The postcheck sampled the adapter while the unpublished buffers
+        // were live. Retention needs a new reading after their destruction.
+        // The measured contraction still governs retries for this allocation.
+        if (actualBytes) mVoxelBudgetSnapshotFrame = UINT32_MAX;
         if (finalLiveCheck && replacement.streamMask)
         {
             const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();

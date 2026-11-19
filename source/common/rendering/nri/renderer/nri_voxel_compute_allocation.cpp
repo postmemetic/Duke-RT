@@ -225,6 +225,7 @@ NRIPersistentVoxelAllocationResult ReserveNRIVoxelComputeBuffers(NRIRenderer& re
         renderer.mPersistentVoxels.allocationBudgetCeiling.ObservePostDenial(renderer.mMapWorld.buildSerial,
             GetNRIVoxelAdmissionRetryClock(), budget.rawBudgetBytes, post.rawBudgetBytes);
         discard();
+        if (actualBytes) renderer.mVoxelBudgetSnapshotFrame = UINT32_MAX;
         return report("defer-post-budget", Result::DeferredBudget);
     }
     for (uint32_t i = 0; i != count; ++i)
