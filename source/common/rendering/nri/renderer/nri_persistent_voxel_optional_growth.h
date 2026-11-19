@@ -15,23 +15,34 @@ struct NRIVoxelGeometryAdmissionIntent
     uint8_t origins = 0;
     bool force = false, prefer = false, ownsWork = false, requiredPreload = false;
     bool runtimePump = false, afterHandoff = false;
+    nri_scene::VoxelPreloadInputHints inputHints;
 
     bool RuntimeActor() const { return (origins & uint8_t(NRIVoxelAdmissionOrigin::RuntimeActor)) != 0; }
     bool PreferredManifest() const
     { return nri_scene::IsOptionalPreferredVoxelPreload(sourceBits, priority, force, prefer); }
     bool SyntheticWarmupForce() const
     { return !requiredPreload && force && (origins & uint8_t(NRIVoxelAdmissionOrigin::WarmupActor)) != 0; }
+    bool MergedPreference() const
+    {
+        // A global force-priority preference and a map high-priority preference
+        // can together rank as map-required, although neither requested that.
+        return requiredPreload && (origins & uint8_t(NRIVoxelAdmissionOrigin::Preload)) != 0 &&
+            prefer && inputHints.OnlyOptionalPreference() && !(sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) &&
+            (!force || (origins & uint8_t(NRIVoxelAdmissionOrigin::WarmupActor)) != 0);
+    }
     bool Required() const
     {
-        if (SyntheticWarmupForce() && runtimePump && afterHandoff) return false;
+        if (inputHints.HasObligation()) return true;
+        if (runtimePump && afterHandoff && (SyntheticWarmupForce() || MergedPreference())) return false;
         return requiredPreload || force || nri_scene::IsRequiredVoxelPreload(sourceBits, priority, force, prefer);
     }
     bool MayYield() const
-    { return runtimePump && !ownsWork && !Required() && (RuntimeActor() || PreferredManifest() || SyntheticWarmupForce()); }
+    { return runtimePump && !ownsWork && !Required() && (RuntimeActor() || PreferredManifest() || SyntheticWarmupForce() || MergedPreference()); }
     const char* Kind() const
     {
         if (!origins) return "actor-batch";
         if (ownsWork) return "owned-work";
+        if (MergedPreference() && runtimePump && afterHandoff) return "handed-off-merged-preference";
         if (SyntheticWarmupForce()) return runtimePump && afterHandoff ? "handed-off-warmup-actor" : "warmup-forced";
         if (Required()) return "required-or-forced";
         if (PreferredManifest()) return "preferred-manifest";
@@ -74,14 +85,21 @@ struct NRIVoxelOptionalGrowth
     uint64_t sampleTick = UINT64_MAX, usage = 0, budget = 0;
     std::unordered_map<uint64_t, Owner> owners;
 
+    static const char* PressureBasis(uint64_t floor, uint64_t available, uint64_t recent)
+    {
+        if (recent && floor > recent) return "recent-post-commit-budget";
+        if (available && floor > NRIVoxelCacheLowTarget(available)) return "live-budget-low-target";
+        return nullptr;
+    }
     Decision Consider(uint64_t mesh, uint64_t tick, const Footprint& footprint,
-        uint64_t floor, uint64_t availableBudget, uint64_t observedCeiling)
+        uint64_t floor, uint64_t availableBudget, uint64_t observedCeiling, uint64_t recentCeiling = 0)
     {
         if (!availableBudget) return {false, "live-unavailable"};
-        if (floor <= NRIVoxelCacheLowTarget(availableBudget)) return {false, "headroom"};
         // Let the ordinary transaction verify its auxiliary costs against
         // actual previously observed room, including an equality fit.
-        if (observedCeiling && floor <= observedCeiling) return {false, "fits-observed-ceiling"};
+        const uint64_t measured = observedCeiling ? observedCeiling : recentCeiling;
+        if (measured && floor <= measured) return {false, "fits-observed-ceiling"};
+        if (!PressureBasis(floor, availableBudget, recentCeiling)) return {false, "headroom"};
         auto prior = owners.find(mesh);
         if (prior == owners.end())
         {

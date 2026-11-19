@@ -22,4 +22,24 @@ inline bool IsOptionalPreferredVoxelPreload(uint32_t sourceBits, int32_t priorit
     return (sourceBits & PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 && gpuPrefer && !gpuForce &&
         !IsRequiredVoxelPreload(sourceBits, priority, gpuForce, gpuPrefer);
 }
+
+// Retain what each input requested before the graph merges priority and
+// source bits across declarations and material contexts for the same mesh.
+struct VoxelPreloadInputHints
+{
+    enum : uint8_t { Seen = 1, Preferred = 2, Required = 4, Forced = 8, EnemyFamily = 16, Unknown = 32 };
+    uint8_t bits = 0;
+
+    void Observe(uint32_t sources, int32_t priority, bool force, bool prefer)
+    {
+        bits |= Seen;
+        if ((sources & PrecachedVoxelSourceBit_MountedVoxelPreload) && prefer) bits |= Preferred;
+        if (IsRequiredVoxelPreload(sources, priority, force, prefer)) bits |= Required;
+        if (force) bits |= Forced;
+        if (sources & PrecachedVoxelSourceBit_EnemyFamily) bits |= EnemyFamily;
+    }
+    bool HasObligation() const { return (bits & (Required | Forced | EnemyFamily)) != 0; }
+    bool OnlyOptionalPreference() const
+    { return (bits & (Seen | Preferred | Unknown)) == (Seen | Preferred) && !HasObligation(); }
+};
 }

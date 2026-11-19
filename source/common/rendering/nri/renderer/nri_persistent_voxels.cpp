@@ -5791,7 +5791,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		const bool afterHandoff = runtimePump && !loadingWarmupActive && !preloadPending &&
 			preloadHandoff.yielded && preloadHandoff.mapEpoch == residencyLastBuildSerial;
 		return NRIVoxelGeometryAdmissionIntent{entry.sourceBits, entry.priority, entry.admissionOrigins,
-			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff};
+			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff, entry.preloadInputHints};
 	};
 	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
 		const NRIPersistentVoxelGeometryRangeHandle& oldRange, NRIPersistentVoxelAllocationResult result)
@@ -10830,6 +10830,12 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	const NRIPersistentVoxelResetServices& services)
 {
 	const bool runtimeRequested = origin == NRIVoxelAdmissionOrigin::RuntimeActor;
+	nri_scene::VoxelPreloadInputHints inputHints;
+	if (origin == NRIVoxelAdmissionOrigin::Preload)
+	{
+		inputHints = variant.inputHints;
+		if (!inputHints.bits) inputHints.bits = nri_scene::VoxelPreloadInputHints::Unknown;
+	}
 	const char* sourceLabel = origin == NRIVoxelAdmissionOrigin::Preload ? "preload" : "runtime-actor";
 	// Warmup requests synthesize mounted/force flags. Preserve the actual
 	// preload obligation before requests for the same material pair merge.
@@ -11028,6 +11034,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 			admissionPayloadChanged = true;
 		}
 		entry.admissionOrigins |= uint8_t(origin);
+		entry.preloadInputHints.bits |= inputHints.bits;
 		entry.requiredPreload |= requiredPreload;
 		entry.sourceBits |= variant.sourceBits;
 		entry.priority = std::min(entry.priority, variant.priority);
@@ -11111,6 +11118,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		PersistentVoxelAdmissionState::Ready :
 		PersistentVoxelAdmissionState::Pending;
 	entry.admissionOrigins = uint8_t(origin);
+	entry.preloadInputHints = inputHints;
 	entry.requiredPreload = requiredPreload;
 	entry.sourceBits = variant.sourceBits;
 	entry.priority = variant.priority;

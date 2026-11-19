@@ -332,6 +332,7 @@ namespace
 		FVoxelModel* model = nullptr;
 		int32_t resolvedVoxelIndex = -1;
 		uint64_t meshVariantHash = 0;
+		VoxelPreloadInputHints inputHints;
 		uint32_t sourceBits = LoadingVoxelRequestSource_None;
 		LoadingVoxelRequestPriority priority = LoadingVoxelRequestPriority::Normal;
 		bool gpuForce = false;
@@ -3737,10 +3738,13 @@ namespace
 		materialContext.gpuForce = candidate.gpuForce;
 		materialContext.gpuPrefer = candidate.gpuPrefer;
 
+		VoxelPreloadInputHints input;
+		input.Observe(candidate.sourceBits, int32_t(candidate.priority), candidate.gpuForce, candidate.gpuPrefer);
 		auto found = graph.requestByMeshVariant.find(meshVariantHash);
 		if (found != graph.requestByMeshVariant.end())
 		{
 			LoadingVoxelPreloadRequest& request = graph.requests[found->second];
+			request.inputHints.bits |= input.bits;
 			request.sourceBits |= candidate.sourceBits;
 			request.gpuForce = request.gpuForce || candidate.gpuForce;
 			request.gpuPrefer = request.gpuPrefer || candidate.gpuPrefer;
@@ -3764,6 +3768,7 @@ namespace
 		request.model = model;
 		request.resolvedVoxelIndex = voxelIndex;
 		request.meshVariantHash = meshVariantHash;
+		request.inputHints = input;
 		request.sourceBits = candidate.sourceBits;
 		request.priority = candidate.priority;
 		request.gpuForce = candidate.gpuForce;
@@ -8014,6 +8019,7 @@ bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& out
 			view.renderPrimitiveHash = renderPrimitiveHash;
 			view.meshVariantHash = request.meshVariantHash;
 			view.materialVariantHash = materialVariantHash;
+			view.inputHints = request.inputHints;
 			view.sourceBits = request.sourceBits | context.sourceBits;
 			view.priority = (int32_t)request.priority;
 			view.admissionRank = LoadingVoxelAdmissionRank(request);
@@ -8209,6 +8215,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 			view.renderPrimitiveHash = renderPrimitiveHash;
 			view.meshVariantHash = request.meshVariantHash;
 			view.materialVariantHash = materialVariantHash;
+			view.inputHints = request.inputHints;
 			view.sourceBits = request.sourceBits | context.sourceBits;
 			view.priority = (int32_t)request.priority;
 			view.admissionRank = LoadingVoxelAdmissionRank(request);
@@ -8285,6 +8292,7 @@ bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 		FGameTexture* palette = TexMan.GetGameTexture(model->GetPaletteTexture());
 		if (!palette || !palette->isValid()) { outEntries.clear(); return false; }
 		PrecachedVoxelRawManifestView view;
+		view.inputHints.Observe(PrecachedVoxelSourceBit_EnemyFamily, int32_t(LoadingVoxelRequestPriority::High), false, true);
 		view.meshKeyHash = view.meshVariantHash = meshVariantHash;
 		view.geometryContentHash = hashes.geometryContentHash;
 		view.renderPrimitiveHash = hashes.renderPrimitiveHash;

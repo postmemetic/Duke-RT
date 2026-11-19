@@ -348,6 +348,7 @@ struct PrecachedVoxelVariantView
 	uint64_t renderPrimitiveHash = 0;
 	uint64_t meshVariantHash = 0;
 	uint64_t materialVariantHash = 0;
+	VoxelPreloadInputHints inputHints;
 	uint32_t sourceBits = 0;
 	int32_t priority = 0;
 	int32_t admissionRank = 0;
@@ -388,6 +389,7 @@ struct PrecachedVoxelRawManifestView
 	uint64_t renderPrimitiveHash = 0;
 	uint64_t meshVariantHash = 0;
 	uint64_t materialVariantHash = 0;
+	VoxelPreloadInputHints inputHints;
 	uint32_t sourceBits = 0;
 	int32_t priority = 0;
 	int32_t admissionRank = 0;

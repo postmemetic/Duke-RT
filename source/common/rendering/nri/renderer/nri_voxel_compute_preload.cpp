@@ -83,6 +83,7 @@ namespace
 		variant.renderPrimitiveHash = rawVariant.renderPrimitiveHash;
 		variant.meshVariantHash = rawVariant.meshVariantHash;
 		variant.materialVariantHash = rawVariant.materialVariantHash;
+		variant.inputHints = rawVariant.inputHints;
 		variant.sourceBits = rawVariant.sourceBits;
 		variant.priority = rawVariant.priority;
 		variant.admissionRank = rawVariant.admissionRank;

@@ -80,10 +80,10 @@ namespace
     {
         snprintf(fields, sizeof(fields), "\"growth_intent\":\"%s\",\"admission_origins\":%u,\"source_bits\":%u,"
             "\"priority\":%d,\"gpu_force\":%s,\"gpu_prefer\":%s,\"runtime_requested\":%s,\"owns_geometry_work\":%s,"
-            "\"required_hint\":%s,\"required_preload\":%s,\"runtime_pump\":%s,\"after_handoff\":%s,\"optional_manifest\":%s",
+            "\"required_hint\":%s,\"required_preload\":%s,\"preload_input_hints\":%u,\"runtime_pump\":%s,\"after_handoff\":%s,\"optional_manifest\":%s",
             intent.Kind(), unsigned(intent.origins), intent.sourceBits, intent.priority, intent.force ? "true" : "false",
             intent.prefer ? "true" : "false", intent.RuntimeActor() ? "true" : "false", intent.ownsWork ? "true" : "false",
-            intent.Required() ? "true" : "false", intent.requiredPreload ? "true" : "false",
+            intent.Required() ? "true" : "false", intent.requiredPreload ? "true" : "false", unsigned(intent.inputHints.bits),
             intent.runtimePump ? "true" : "false", intent.afterHandoff ? "true" : "false",
             intent.PreferredManifest() && !intent.ownsWork ? "true" : "false");
     }
@@ -129,26 +129,35 @@ namespace
         }
         const uint64_t testBudget = uint64_t(std::max(0, (int)nri_ptvoxelbudgettestbytes));
         const uint64_t budget = testBudget ? std::min(policy.budget, testBudget) : policy.budget;
-        arena.allocationBudgetCeiling.BeginTick(map, tick);
-        const uint64_t ceiling = arena.allocationBudgetCeiling.ceilingBytes;
+        auto& history = arena.allocationBudgetCeiling;
+        history.SetBackoffEnabled((bool)nri_ptvoxelallocationretrybackoff);
+        history.BeginTick(map, tick);
+        const uint64_t ceiling = history.ceilingBytes;
+        // The ordinary cap has a short hold. Under backoff, its longer
+        // same-map observation also expires on proven physical recovery.
+        const uint64_t recent = intent.afterHandoff && history.backoffEnabled ? history.lastDeniedBudgetBytes : 0;
         const uint64_t floor = NRIVoxelComputeSaturatingAdd(policy.usage, NRIVoxelComputeSaturatingAdd(footprint.bytes, reserve));
-        const auto result = policy.Consider(mesh, tick, footprint, floor, budget, ceiling);
+        const auto result = policy.Consider(mesh, tick, footprint, floor, budget, ceiling, recent);
         if (audit)
         {
             char fields[1408], origin[384];
             FormatAdmissionIntent(origin, intent);
             const char* action = result.defer ? (result.first ? "defer" : "repeat") : "probe";
+            const char* pressure = NRIVoxelOptionalGrowth::PressureBasis(floor, budget, recent);
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\","
                 "\"action\":\"%s\",\"reason\":\"%s\",%s,\"current_demand_authority\":true,"
                 "\"requested_consumers\":%u,\"active_references\":%u,\"family_pinned\":%u,\"family_staged\":%u,"
                 "\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu,\"projected_floor_bytes\":%llu,\"reserve_bytes\":%llu,"
                 "\"live_usage_bytes\":%llu,\"budget_bytes\":%llu,\"observed_ceiling_bytes\":%llu,\"budget_query\":%s,"
+                "\"recent_denied_budget_bytes\":%llu,\"denial_age_presentations\":%llu,\"pressure_basis\":\"%s\","
                 "\"maximum_probe_ticks\":%llu,\"minimum_copy_bytes\":%llu,\"cpu_ns\":%llu",
                 frame, (unsigned long long)mesh, (unsigned long long)tick, action, result.reason, origin,
                 demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
                 (unsigned long long)oldBytes, (unsigned long long)footprint.bytes, (unsigned long long)floor,
                 (unsigned long long)reserve, (unsigned long long)policy.usage, (unsigned long long)budget, (unsigned long long)ceiling,
-                query ? "true" : "false", (unsigned long long)NRIVoxelOptionalGrowth::ProbeTicks,
+                query ? "true" : "false", (unsigned long long)recent, (unsigned long long)(recent ? tick - history.deniedTick : 0),
+                pressure ? pressure : "none",
+                (unsigned long long)NRIVoxelOptionalGrowth::ProbeTicks,
                 (unsigned long long)NRIVoxelOptionalGrowth::MinimumCopyBytes, (unsigned long long)(PerfAuditClockNs() - start));
             PerfAuditWriteEvent("voxel_optional_arena_growth", PerfAuditCurrentToken(), fields);
         }

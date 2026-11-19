@@ -224,6 +224,7 @@ struct PersistentVoxelAdmissionEntry
 	nri_scene::PrecachedVoxelVariantView variant;
 	PersistentVoxelAdmissionState state = PersistentVoxelAdmissionState::Pending;
 	uint8_t admissionOrigins = 0;
+	nri_scene::VoxelPreloadInputHints preloadInputHints;
 	bool requiredPreload = false;
 	uint32_t sourceBits = 0;
 	int32_t priority = 0;
