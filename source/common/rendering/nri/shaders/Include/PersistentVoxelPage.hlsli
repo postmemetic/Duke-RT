@@ -1,6 +1,9 @@
 #ifndef NRI_PERSISTENT_VOXEL_PAGE_HLSLI
 #define NRI_PERSISTENT_VOXEL_PAGE_HLSLI
 
+#include "SceneShadowContracts.hlsli"
+#include "EmissiveLightContracts.hlsli"
+
 // The BLAS uses physical, page-local vertex/index offsets. Only published
 // primitive addresses and the vertex addresses returned to ray shaders carry
 // this bit. Material rows and instance identity are shared with the arena.
