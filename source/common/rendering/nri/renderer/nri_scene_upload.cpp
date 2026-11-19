@@ -2918,6 +2918,7 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		}
 	}
 	renderer.mBoundSceneInstances = sceneInstances;
+	renderer.mPersistentVoxels.BindOverflowPageForScene(sceneInstances);
 
 	const bool portalNeedsUpload =
 		!renderer.mPortalPayloadCacheValid ||

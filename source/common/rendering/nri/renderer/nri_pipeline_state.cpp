@@ -4,6 +4,7 @@
 #include "nri_cvars.h"
 #include "nri_shader_contracts.h"
 #include "nri_startup_pipeline_report.h"
+#include "nri_trace_shader_variant.h"
 #include "../system/nri_renderdevice.h"
 #include "printf.h"
 
@@ -126,13 +127,14 @@ bool NRIPipelineStateManager::CreatePipelineLayout(NRIRenderer& renderer)
 	return renderer.mFrameBuffer->mCore.CreatePipelineLayout(*renderer.mFrameBuffer->mDevice, desc, renderer.mPipelineLayout) == nri::Result::SUCCESS;
 }
 
-bool NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(NRIRenderer& renderer)
+bool NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(NRIRenderer& renderer, bool page)
 {
 	if (renderer.mFrameBuffer == nullptr || renderer.mFrameBuffer->mDevice == nullptr)
 	{
 		return false;
 	}
-	if (renderer.mPipelines[(size_t)NRIRenderer::PipelineSlot::TraceOpaqueCache] != nullptr)
+	const auto slot = page ? NRIRenderer::PipelineSlot::TraceOpaqueCachePage : NRIRenderer::PipelineSlot::TraceOpaqueCache;
+	if (renderer.GetPipeline(slot) != nullptr)
 	{
 		return true;
 	}
@@ -238,37 +240,9 @@ bool NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(NRIRenderer& r
 	}
 
 	const bool d3d12 = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
-	const char* cacheStem = renderer.mSpatialAbsenceFormat == 1u ? "TraceOpaqueTypedCache.cs." :
-		(renderer.mSpatialAbsenceFormat == 2u ? "variants/diagnostic/TraceOpaqueCompareCache.cs." : "TraceOpaqueCache.cs.");
-	const std::string fileName = std::string(cacheStem) + (d3d12 ? "dxil" : "spirv");
-	std::vector<uint8_t> shaderBlob;
-	if (!renderer.mFrameBuffer->LoadShaderBlob(fileName.c_str(), shaderBlob))
-	{
-		Printf("NRI PT pipeline create failed: shader=%s reason=load\n", fileName.c_str());
-		return false;
-	}
-
-	nri::ShaderDesc shader = {};
-	shader.stage = nri::StageBits::COMPUTE_SHADER;
-	shader.bytecode = shaderBlob.data();
-	shader.size = shaderBlob.size();
-	shader.entryPointName = "main";
-	nri::ComputePipelineDesc pipeline = {};
-	pipeline.pipelineLayout = renderer.mIndirectRadianceCachePipelineLayout;
-	pipeline.shader = shader;
-	const nri::Result result = renderer.mFrameBuffer->mCore.CreateComputePipeline(
-		*renderer.mFrameBuffer->mDevice,
-		pipeline,
-		renderer.mPipelines[(size_t)NRIRenderer::PipelineSlot::TraceOpaqueCache]);
-	if (result != nri::Result::SUCCESS)
-	{
-		Printf("NRI PT pipeline create failed: shader=%s slot=%u result=%d\n",
-			fileName.c_str(),
-			(unsigned)NRIRenderer::PipelineSlot::TraceOpaqueCache,
-			(int)result);
-		return false;
-	}
-	return true;
+	const auto file = NRITraceShaderFile(NRITraceShaderFamily::Cache, renderer.mSpatialAbsenceFormat, page, d3d12);
+	return CreateComputePipeline(renderer, file.c_str(), "Preparing cached ray-traced lighting",
+		slot, renderer.mIndirectRadianceCachePipelineLayout);
 }
 
 bool NRIPipelineStateManager::CreateTaaPipelineLayout(NRIRenderer& renderer)
@@ -514,53 +488,93 @@ bool NRIPipelineStateManager::CreateVoxelComputePipelineLayout(NRIRenderer& rend
 	return renderer.mFrameBuffer->mCore.CreatePipelineLayout(*renderer.mFrameBuffer->mDevice, desc, renderer.mVoxelComputePipelineLayout) == nri::Result::SUCCESS;
 }
 
+bool NRIPipelineStateManager::CreateComputePipeline(NRIRenderer& renderer, const char* fileName, const char* label,
+	NRIRenderer::PipelineSlot slot, nri::PipelineLayout* layout)
+{
+	NRIStartupPipelineReport report(fileName, label, renderer.mFrameBuffer->GetSelectedAPI());
+	std::vector<uint8_t> shaderBlob;
+	if (!report.Read([&]() { return renderer.mFrameBuffer->LoadShaderBlob(fileName, shaderBlob); }, shaderBlob))
+	{
+		Printf("NRI PT pipeline create failed: shader=%s reason=load\n", fileName);
+		return false;
+	}
+
+	nri::ShaderDesc shader = {};
+	shader.stage = nri::StageBits::COMPUTE_SHADER;
+	shader.bytecode = shaderBlob.data();
+	shader.size = shaderBlob.size();
+	shader.entryPointName = "main";
+
+	nri::ComputePipelineDesc pipelineDesc = {};
+	pipelineDesc.pipelineLayout = layout;
+	pipelineDesc.shader = shader;
+	if ((int)nri_ptvoxelcomputetrace > 0 && fileName != nullptr && std::strncmp(fileName, "VoxelCompute", 12) == 0)
+	{
+		Printf("NRI PT voxel pipeline create: shader=%s slot=%u event=begin\n", fileName, (unsigned)slot);
+	}
+	const nri::Result result = report.Create([&]()
+	{
+		return renderer.mFrameBuffer->mCore.CreateComputePipeline(
+			*renderer.mFrameBuffer->mDevice,
+			pipelineDesc,
+			renderer.mPipelines[(size_t)slot]);
+	});
+	if (result != nri::Result::SUCCESS)
+	{
+		Printf("NRI PT pipeline create failed: shader=%s slot=%u result=%d\n", fileName, (unsigned)slot, (int)result);
+		return false;
+	}
+	return true;
+}
+
+void NRIPipelineStateManager::PrepareVoxelPageTracePipelines(NRIRenderer& renderer)
+{
+	using State = NRIPersistentVoxelResidency::PageTraceState;
+	auto& state = renderer.mPersistentVoxels.pageTraceState;
+	const int mode = nri_ptvoxeloverflowpage;
+	if ((mode != 1 && mode != 2) || !renderer.mPipelineLayout ||
+		state == State::Ready || state == State::Unavailable) return;
+
+	// Build all selectable families at a loading boundary. A later cache/debug
+	// toggle must never have to compile a page shader during traversal.
+	const bool d3d12 = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
+	const auto format = renderer.mSpatialAbsenceFormat;
+	const auto full = NRITraceShaderFile(NRITraceShaderFamily::Full, format, true, d3d12);
+	const auto lean = NRITraceShaderFile(NRITraceShaderFamily::Lean, 0, true, d3d12);
+	const bool hadCacheLayout = renderer.mIndirectRadianceCachePipelineLayout != nullptr;
+	const bool ready = CreateComputePipeline(renderer, full.c_str(), "Preparing paged voxel lighting",
+			NRIRenderer::PipelineSlot::TraceOpaquePage, renderer.mPipelineLayout) &&
+		(format != 0 || CreateComputePipeline(renderer, lean.c_str(), "Preparing paged voxel debug views",
+			NRIRenderer::PipelineSlot::TraceOpaqueLeanDebugPage, renderer.mPipelineLayout)) &&
+		EnsureIndirectRadianceCachePipeline(renderer, true);
+	if (!ready)
+	{
+		for (auto slot : {NRIRenderer::PipelineSlot::TraceOpaquePage, NRIRenderer::PipelineSlot::TraceOpaqueLeanDebugPage,
+			NRIRenderer::PipelineSlot::TraceOpaqueCachePage})
+		{
+			auto& pipeline = renderer.mPipelines[(size_t)slot];
+			if (pipeline) renderer.mFrameBuffer->mCore.DestroyPipeline(pipeline);
+			pipeline = nullptr;
+		}
+		if (!hadCacheLayout && renderer.mIndirectRadianceCachePipelineLayout)
+		{
+			renderer.mFrameBuffer->mCore.DestroyPipelineLayout(renderer.mIndirectRadianceCachePipelineLayout);
+			renderer.mIndirectRadianceCachePipelineLayout = nullptr;
+		}
+	}
+	state = ready ? State::Ready : State::Unavailable;
+	Printf("NRI PT voxel page pipelines: state=%s full=%s admission=%s\n",
+		ready ? "prepared" : "unavailable", full.c_str(), ready ? "page-eligible" : "ordinary");
+}
+
 bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 {
-	auto createPipeline = [&renderer](const char* fileName, const char* label, NRIRenderer::PipelineSlot slot, nri::PipelineLayout* layout)
-	{
-		NRIStartupPipelineReport report(fileName, label, renderer.mFrameBuffer->GetSelectedAPI());
-		std::vector<uint8_t> shaderBlob;
-		if (!report.Read([&]() { return renderer.mFrameBuffer->LoadShaderBlob(fileName, shaderBlob); }, shaderBlob))
-		{
-			Printf("NRI PT pipeline create failed: shader=%s reason=load\n", fileName);
-			return false;
-		}
-
-		nri::ShaderDesc shader = {};
-		shader.stage = nri::StageBits::COMPUTE_SHADER;
-		shader.bytecode = shaderBlob.data();
-		shader.size = shaderBlob.size();
-		shader.entryPointName = "main";
-
-		nri::ComputePipelineDesc pipelineDesc = {};
-		pipelineDesc.pipelineLayout = layout;
-		pipelineDesc.shader = shader;
-		if ((int)nri_ptvoxelcomputetrace > 0 && fileName != nullptr && std::strncmp(fileName, "VoxelCompute", 12) == 0)
-		{
-			Printf("NRI PT voxel pipeline create: shader=%s slot=%u event=begin\n", fileName, (unsigned)slot);
-		}
-		const nri::Result result = report.Create([&]()
-		{
-			return renderer.mFrameBuffer->mCore.CreateComputePipeline(
-				*renderer.mFrameBuffer->mDevice,
-				pipelineDesc,
-				renderer.mPipelines[(size_t)slot]);
-		});
-		if (result != nri::Result::SUCCESS)
-		{
-			Printf("NRI PT pipeline create failed: shader=%s slot=%u result=%d\n", fileName, (unsigned)slot, (int)result);
-			return false;
-		}
-		return true;
-	};
 
 	const bool d3d12 = renderer.mFrameBuffer->GetSelectedAPI() == nri::GraphicsAPI::D3D12;
 	const std::string suffix = d3d12 ? "dxil" : "spirv";
 
-	const char* traceStem = renderer.mSpatialAbsenceFormat == 1u ? "TraceOpaqueTyped.cs." :
-		(renderer.mSpatialAbsenceFormat == 2u ? "variants/diagnostic/TraceOpaqueCompare.cs." : "TraceOpaque.cs.");
-	const std::string trace = traceStem + suffix;
-	const std::string traceLeanDebug = "TraceOpaqueLeanDebug.cs." + suffix;
+	const auto trace = NRITraceShaderFile(NRITraceShaderFamily::Full, renderer.mSpatialAbsenceFormat, false, d3d12);
+	const auto traceLeanDebug = NRITraceShaderFile(NRITraceShaderFamily::Lean, 0, false, d3d12);
 	const std::string composition = "Composition.cs." + suffix;
 	const std::string traceTransparent = "TraceTransparent.cs." + suffix;
 	const std::string taa = "Taa.cs." + suffix;
@@ -625,11 +639,15 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 	uint32_t taskCount = 0;
 	for (const PipelineTask& task : tasks)
 		taskCount += task.enabled ? 1u : 0u;
+	const int pageMode = nri_ptvoxeloverflowpage;
+	if (pageMode == 1 || pageMode == 2)
+		taskCount += renderer.mSpatialAbsenceFormat == 0 ? 3u : 2u;
 	StartupProgress::BeginTasks("Preparing graphics", taskCount);
 	for (const PipelineTask& task : tasks)
 	{
-		if (task.enabled && !createPipeline(task.fileName, task.label, task.slot, task.layout))
+		if (task.enabled && !CreateComputePipeline(renderer, task.fileName, task.label, task.slot, task.layout))
 			return false;
 	}
+	PrepareVoxelPageTracePipelines(renderer);
 	return true;
 }

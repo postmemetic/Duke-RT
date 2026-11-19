@@ -271,7 +271,7 @@ NRIPassDispatchContext NRIRenderer::BuildPassDispatchContext(bool mainViewEligib
 					BuildNRIIndirectRadianceCacheServices(*renderer), false, {});
 			}
 			if (!renderer->mTraceShaderStats.Ensure(renderer->BuildResourceServices()) ||
-				!NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(*renderer))
+				!NRIPipelineStateManager::EnsureIndirectRadianceCachePipeline(*renderer, renderer->mPersistentVoxels.SceneUsesOverflowPage()))
 			{
 				return {};
 			}

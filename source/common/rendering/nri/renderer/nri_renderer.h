@@ -2183,36 +2183,7 @@ public:
 		float presentExposure = 1.0f;
 	};
 
-	enum class PipelineSlot : uint32_t
-	{
-		TraceOpaque,
-		TraceOpaqueCache,
-		TraceOpaqueLeanDebug,
-		Composition,
-		TraceTransparent,
-		ExposureHistogramClear,
-		ExposureHistogramBuild,
-		ExposureResolve,
-		Taa,
-		TemporalReactiveCombine,
-		RawPresent,
-		FinalPresent,
-		DlssSrBefore,
-		DlssBefore,
-		DlssAfter,
-		Final,
-		BloomCopy,
-		VoxelComputeCount,
-		VoxelComputeEmit,
-		VoxelComputeClassify,
-		VoxelComputeScan,
-		VoxelComputeEmitParallel,
-		VoxelComputeFinalize,
-		BloomDownsample,
-		BloomUpsample,
-		BloomComposite,
-		Count
-	};
+	using PipelineSlot = NRIPipelineSlot;
 
 	uint64_t GetRecordingFrameFenceValue() const;
 	bool IsFrameFenceValueComplete(uint64_t fenceValue) const;

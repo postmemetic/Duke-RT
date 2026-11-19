@@ -55,8 +55,9 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     const NRIPersistentVoxelSettings& settings, const NRIPersistentVoxelResetServices& services)
 {
     const auto policy = GetNRIVoxelAdmissionPolicySettings();
+    const bool allowOverflowPage = EffectiveOverflowPageMode() != 0;
     if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames &&
-        !(bool)nri_ptvoxeladmissionreclaim && !(int)nri_ptvoxeloverflowpage)
+        !(bool)nri_ptvoxeladmissionreclaim && !allowOverflowPage)
     {
         actorDemand.Reset();
         return;
@@ -95,7 +96,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         }
         inputs.push_back(input);
     }
-    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs, (bool)nri_ptvoxeladmissionreclaim || (int)nri_ptvoxeloverflowpage != 0);
+    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs, (bool)nri_ptvoxeladmissionreclaim || allowOverflowPage != 0);
     uint32_t coalesced = 0;
     if (policy.coalesce)
     {

@@ -19,6 +19,7 @@
 
 #include "../framegen/nri_framegen.h"
 #include "../renderer/nri_renderer.h"
+#include "../renderer/nri_trace_shader_variant.h"
 #include "../renderer/nri_renderstate.h"
 #include "../scene/nri_voxel_palette_policy.h"
 #include "../scene/nri_motion_projection.h"
@@ -11376,16 +11377,9 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 	const bool perfAuditRequested = startupShaderVariant != nullptr ?
 		FString(startupShaderVariant).CompareNoCase("perf-audit") == 0 :
 		FString(nri_shadervariant).CompareNoCase("perf-audit") == 0;
-	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
-		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.dxil") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.spirv") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueCache.cs.dxil") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueCache.cs.spirv") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueTyped.cs.dxil") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueTyped.cs.spirv") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueTypedCache.cs.dxil") == 0 ||
-		std::strcmp(fileName, "TraceOpaqueTypedCache.cs.spirv") == 0 ||
+	const char* stem = explicitDiagnosticPath ? fileName + std::strlen(diagnosticPrefix) : fileName;
+	const uint32_t auditFamily = NRITraceShaderFileAuditBit(stem);
+	const bool diagnosticCandidate = auditFamily != 0 ||
 		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.dxil") == 0 ||
 		std::strcmp(fileName, "SmokeViewWorkProjectTiles.cs.spirv") == 0;
 	FString shaderPath = progdir;
@@ -11472,13 +11466,6 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 	// Track the actual loaded Trace family separately from the legacy global
 	// 'some diagnostic shader was loaded' flag. A production fallback in one
 	// family must never authorize audit copies for that production pipeline.
-	const char* stem = explicitDiagnosticPath ? fileName + std::strlen(diagnosticPrefix) : fileName;
-	uint32_t auditFamily = 0;
-	if (std::strncmp(stem, "TraceOpaqueLeanDebug.", 21) == 0) auditFamily = 4u;
-	else if (std::strncmp(stem, "TraceOpaqueCache.", 17) == 0 || std::strncmp(stem, "TraceOpaqueTypedCache.", 22) == 0 ||
-		std::strncmp(stem, "TraceOpaqueCompareCache.", 24) == 0) auditFamily = 2u;
-	else if (std::strncmp(stem, "TraceOpaque.", 12) == 0 || std::strncmp(stem, "TraceOpaqueTyped.", 17) == 0 ||
-		std::strncmp(stem, "TraceOpaqueCompare.", 19) == 0) auditFamily = 1u;
 	if (auditFamily != 0)
 	{
 		mDiagnosticTraceAuditVariants &= ~auditFamily;
@@ -11486,6 +11473,12 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 			mDiagnosticTraceAuditVariants |= auditFamily;
 	}
 	return loaded;
+}
+
+bool NRIRenderDevice::UsesDiagnosticTraceShaderVariant(bool cache, bool lean, bool page) const
+{
+	const auto family = cache ? NRITraceShaderFamily::Cache : lean ? NRITraceShaderFamily::Lean : NRITraceShaderFamily::Full;
+	return (mDiagnosticTraceAuditVariants & NRITraceAuditBit(family, page)) != 0;
 }
 
 const void* NRIRenderDevice::GetVertexShaderBytecode(size_t& size) const

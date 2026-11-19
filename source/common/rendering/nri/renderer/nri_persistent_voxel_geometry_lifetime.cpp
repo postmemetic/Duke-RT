@@ -1,6 +1,8 @@
 #include "nri_persistent_voxels.h"
 #include "perf_audit.h"
+#include "printf.h"
 #include "nri_cvars.h"
+#include "nri_diagnostic_names.h"
 #include <cstdio>
 #include <algorithm>
 
@@ -94,10 +96,46 @@ bool NRIPersistentVoxelResidency::HasOverflowNoFit(uint64_t mesh) const
         record.request.epoch == residencyMapGeneration && record.processedRevision == reclaimGeometryRevision;
 }
 
+void NRIPersistentVoxelResidency::BindOverflowPageForScene(const std::vector<SceneInstanceData>& instances)
+{
+    const uint64_t previous = boundOverflowGeneration;
+    boundOverflowGeneration = overflowPage.PublishedGeneration();
+    if (boundOverflowGeneration)
+    {
+        // Primary and secondary-ray occurrences use this same bound payload.
+        const bool reachable = std::any_of(instances.begin(), instances.end(), [](const SceneInstanceData& instance)
+        {
+            return instance.dataSource == nri_diag::SceneDataSourcePersistentVoxel &&
+                (instance.primitiveBase & NRIPersistentVoxelGeometryRangeHandle::PageTag) != 0;
+        });
+        if (!reachable) boundOverflowGeneration = 0;
+    }
+    if (previous != boundOverflowGeneration && PerfAuditActive())
+    {
+        char fields[156];
+        snprintf(fields, sizeof(fields), "\"selected\":\"%s\",\"page_generation\":%llu,\"previous_generation\":%llu",
+            boundOverflowGeneration ? "page" : "ordinary", (unsigned long long)boundOverflowGeneration,
+            (unsigned long long)previous);
+        PerfAuditWriteEvent("voxel_trace_pipeline", PerfAuditCurrentToken(), fields);
+    }
+}
+
+int NRIPersistentVoxelResidency::EffectiveOverflowPageMode()
+{
+    const int mode = nri_ptvoxeloverflowpage;
+    if (mode != 1 && mode != 2) return 0;
+    if (pageTraceState == PageTraceState::Cold)
+    {
+        pageTraceState = PageTraceState::WaitingForLoad;
+        Printf("NRI PT voxel page pipelines: state=waiting-for-level-load admission=ordinary\n");
+    }
+    return pageTraceState == PageTraceState::Ready ? mode : 0;
+}
+
 bool NRIPersistentVoxelResidency::TryReserveOverflowPage(PersistentVoxelMeshVariantResource& resource,
     uint64_t mesh, uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime)
 {
-    const int mode = nri_ptvoxeloverflowpage;
+    const int mode = EffectiveOverflowPageMode();
     if ((mode != 1 && mode != 2) || !(bool)nri_ptvoxelallocationbudget ||
         mesh != NRIVoxelOverflowPage::TelescopeMesh || retentionQuarantined || overflowPage.Lease()) return false;
     if (!runtime || !actorDemand.Upgrade(mesh, frame).requestedConsumers) return false;

@@ -1806,6 +1806,7 @@ void NRIRenderer::Shutdown()
 	mLastFrameGenerationRequestedEnabled = false;
 	mLastFrameGenerationResolvedUiMode = NRIFrameGenerationUiMode::Auto;
 
+	mPersistentVoxels.pageTraceState = NRIPersistentVoxelResidency::PageTraceState::Cold;
 	for (nri::Pipeline*& pipeline : mPipelines)
 	{
 		if (pipeline != nullptr)

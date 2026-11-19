@@ -5791,7 +5791,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	};
 	if ((bool)nri_ptvoxelallocationbudget && retryTick < entry.allocationRetryTick &&
         (!(bool)nri_ptvoxeladmissionreclaim || !admissionReclaim.RetryAllowed(meshResourceKey)) &&
-        !((int)nri_ptvoxeloverflowpage == 1 && HasOverflowNoFit(meshResourceKey) &&
+        !(EffectiveOverflowPageMode() == 1 && HasOverflowNoFit(meshResourceKey) &&
             admissionReclaim.Records().at(meshResourceKey).lastPlanTick == retryTick) &&
 		!entry.directComputeRequested && !entry.uploadPrepared && !existingMeshResourceReady())
 	{
@@ -6676,7 +6676,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");
 			meshResource.sourceModel = variant.model;
 			meshResource.resourceKey = meshResourceKey;
-			if (!oldRange && (int)nri_ptvoxeloverflowpage)
+			if (!oldRange && EffectiveOverflowPageMode())
 				TryReserveOverflowPage(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity,
 					directPrimitiveCapacity, frameIndex, runtimePump);
 			const auto allocation = services.PrepareGeometryAllocation(meshResource,

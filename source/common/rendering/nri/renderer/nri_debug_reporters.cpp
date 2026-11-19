@@ -679,6 +679,10 @@ void NRIRenderer::PrintStatus()
 		NRIGetPostSharpenName(resolvedPost),
 		resolvedPost == NRIPostSharpenKind::Off ? "pre-post" : "post-sharpen-output",
 		mLastHistoryResetReason.c_str());
+	Printf("NRI PT voxel trace pipeline: selected=%s requested=%d prepared=%s page_generation=%llu\n",
+		mPersistentVoxels.SceneUsesOverflowPage() ? "page" : "ordinary", (int)nri_ptvoxeloverflowpage,
+		YesNo(mPersistentVoxels.pageTraceState == NRIPersistentVoxelResidency::PageTraceState::Ready),
+		(unsigned long long)mPersistentVoxels.overflowPage.PublishedGeneration());
 	Printf("NRI PT tracing: direct_scene_fallback=%s light_bounces=%u mirror_bounces=%u portal_depth=%u surface_probe=%d ceiling_nudge=%s ceiling_nudge_distance=%.4f\n",
 		nri_ptdirectscene ? "on" : "off",
 		traceSettings.lightBounceCount,

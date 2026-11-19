@@ -1447,6 +1447,13 @@ public:
 	uint64_t schedulerRetirementEpoch = 1;
 	std::vector<NRIPersistentVoxelSchedulerRetirement> quarantinedSchedulerReservations;
 	NRIPersistentVoxelGeometryRanges geometryRanges;
+	enum class PageTraceState { Cold, WaitingForLoad, Ready, Unavailable };
+	PageTraceState pageTraceState = PageTraceState::Cold;
+	int EffectiveOverflowPageMode();
+	void BindOverflowPageForScene(const std::vector<SceneInstanceData>& instances);
+	bool SceneUsesOverflowPage() const
+	{ return boundOverflowGeneration != 0 && boundOverflowGeneration == overflowPage.PublishedGeneration(); }
+	uint64_t boundOverflowGeneration = 0;
 	NRIVoxelOverflowPage overflowPage;
 	NRIBufferResource overflowVertex, overflowIndex, overflowPrimitive; // Stable addresses for queued compute requests.
 	bool OwnsGeometryRange(const NRIPersistentVoxelGeometryRangeHandle& range) const

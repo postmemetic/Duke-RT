@@ -2,6 +2,7 @@
 #include "nri_renderer.h"
 #include "nri_cvars.h"
 #include "nri_frame_resources.h"
+#include "nri_pipeline_state.h"
 #include "nri_renderer_settings.h"
 #include "nri_sky_environment.h"
 #include "nri_voxel_compute_meshing.h"
@@ -916,6 +917,7 @@ bool NRIPreloadCoordinator::Run(NRIRenderer& renderer, const NRIPreloadLevelScen
 		return true;
 	}
 
+	NRIPipelineStateManager::PrepareVoxelPageTracePipelines(renderer);
 	TraceBegin(renderer, context);
 	if (!EnsureFrameResources(renderer, context))
 	{

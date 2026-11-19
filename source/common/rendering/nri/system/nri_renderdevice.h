@@ -209,10 +209,7 @@ public:
 	uint64_t BeginGpuTimingScope(NRIGpuTimingScope scope);
 	void EndGpuTimingScope(uint64_t scopeId);
 	bool UsesDiagnosticShaderVariant() const;
-	bool UsesDiagnosticTraceShaderVariant(bool cache, bool lean) const
-	{
-		return (mDiagnosticTraceAuditVariants & (cache ? 2u : lean ? 4u : 1u)) != 0;
-	}
+	bool UsesDiagnosticTraceShaderVariant(bool cache, bool lean, bool page = false) const;
 
 private:
 	static constexpr uint32_t FrameSequenceHistorySize = NRIFrameShell::FrameSequenceHistorySize;

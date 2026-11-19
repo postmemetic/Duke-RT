@@ -404,6 +404,7 @@ void NRIRenderer::DestroySceneBuffers()
 	mBoundEmissiveDominantPower = 0.0f;
 	mBoundEmissivePrimitiveRecords.clear();
 	mBoundSceneInstances.clear();
+	mPersistentVoxels.boundOverflowGeneration = 0;
 	mBoundSectorLightSectorCount = 0;
 	mBoundSectorLightActiveCount = 0;
 	mBoundSectorLightPulsingCount = 0;
