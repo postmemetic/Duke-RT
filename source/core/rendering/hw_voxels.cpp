@@ -67,6 +67,12 @@ int voxDefine(int voxindex, const char* filename)
 	return i < 0 ? -1 : 0;
 }
 
+bool voxUsesFile(int voxindex, const char* filename)
+{
+	return (unsigned)voxindex < MAXVOXELS && voxlumps[voxindex] > 0 &&
+		voxlumps[voxindex] == fileSystem.FindFile(filename);
+}
+
 static voxmodel_t* voxload(int lumpnum)
 {
 	FVoxel* voxel = R_LoadKVX(lumpnum);

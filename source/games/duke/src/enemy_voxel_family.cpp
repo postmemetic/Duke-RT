@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <map>
 #include <unordered_map>
 
 EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
@@ -188,6 +189,7 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
     family->reason = "action-table-mismatch";
     const int base = tileGetTextureID(spec.baseTile).GetIndex();
     if (base < 0) return family;
+    std::map<int32_t, const char*> poses;
     // DukeGreenSlime.Tick writes the current world image from its class sprite
     // set, independently of CON and of the first-person overlay.
     if (spec.spriteSetSize)
@@ -199,7 +201,7 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
         {
             const auto* art = TexMan.GetGameTexture(texture);
             if (!texture.isValid() || !art || !art->isValid()) return family;
-            family->textureIds.push_back(texture.GetIndex());
+            poses.try_emplace(texture.GetIndex(), "class-sprite-set");
         }
     }
     for (size_t index = 0; index < spec.count; ++index)
@@ -223,14 +225,17 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
             for (int back = 0; art && !art->isValid() && shape.rotation > 0 && back < 256; ++back)
             { texture -= shape.rotation; art = TexMan.GameByIndex(texture); }
             if (!art || !art->isValid()) { family->reason = "missing-original-art"; return family; }
-            family->textureIds.push_back(texture);
+            poses.try_emplace(texture, shape.name);
         }
     }
-    std::sort(family->textureIds.begin(), family->textureIds.end());
-    family->textureIds.erase(std::unique(family->textureIds.begin(), family->textureIds.end()), family->textureIds.end());
-    if (family->textureIds.empty() || family->textureIds.size() > 64) return family;
+    if (poses.empty() || poses.size() > 64) return family;
     uint64_t hash = UINT64_C(1469598103934665603) ^ spec.id;
-    for (int32_t texture : family->textureIds) hash = (hash ^ uint32_t(texture)) * UINT64_C(1099511628211);
+    for (const auto& [texture, source] : poses)
+    {
+        family->textureIds.push_back(texture);
+        family->poseSources.push_back(source);
+        hash = (hash ^ uint32_t(texture)) * UINT64_C(1099511628211);
+    }
     family->signature = hash;
     family->complete = true;
     family->reason = spec.spriteSetSize ? "stock-sprite-set" : "stock-action-set";

@@ -105,14 +105,16 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
     if (prior != enemyFamilyResidency.end()) return prior->second;
     auto& result = enemyFamilyResidency[cacheKey];
     if (family) { result.family = family->id; result.poses = uint32_t(family->textureIds.size()); result.signature = signature; result.reason = family->reason; }
+    nri_scene::EnemyVoxelPoseFailure failure;
     const auto finish = [&]() -> const NRIEnemyFamilyResidency&
     {
         if ((bool)nri_ptenemyrepresentationtrace)
         {
             char fields[512];
-            std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"family\":%u,\"name\":\"%s\",\"poses\":%u,\"ready\":%u,\"logical_geometry_bytes\":%llu,\"physical_bytes\":%llu,\"material_reservation_rows_per_owner\":%u,\"reason\":\"%s\"",
+            std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"family\":%u,\"name\":\"%s\",\"poses\":%u,\"ready\":%u,\"logical_geometry_bytes\":%llu,\"physical_bytes\":%llu,\"material_reservation_rows_per_owner\":%u,\"reason\":\"%s\",\"failed_tile\":%d,\"failed_texture\":%d,\"failed_voxel_index\":%d,\"pose_source\":\"%s\"",
                 frame, result.family, family ? family->name : "unsupported", result.poses, result.ready,
-                (unsigned long long)result.logicalGeometryBytes, (unsigned long long)result.physicalBytes, result.poses * 256u, result.reason);
+                (unsigned long long)result.logicalGeometryBytes, (unsigned long long)result.physicalBytes, result.poses * 256u, result.reason,
+                failure.buildTile, failure.textureId, failure.voxelIndex, failure.source);
             PerfAuditWriteEvent("enemy_family_residency", PerfAuditCurrentToken(), fields);
         }
         return result;
@@ -120,7 +122,7 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
     std::vector<nri_scene::PrecachedVoxelRawManifestView> views;
     if (!family || !family->complete) return finish();
     if (settings.transformKeyed) { result.reason = "transform-keyed"; return finish(); }
-    if (!nri_scene::BuildEnemyVoxelFamilyViews(authority, views)) { result.reason = "missing-mounted-pose"; return finish(); }
+    if (!nri_scene::BuildEnemyVoxelFamilyViews(authority, views, &failure)) { result.reason = failure.reason; return finish(); }
     std::unordered_set<uint64_t> unique;
     for (const auto& view : views)
     {

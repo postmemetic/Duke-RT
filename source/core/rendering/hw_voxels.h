@@ -25,3 +25,4 @@ extern FixedBitArray<MAXVOXELS> voxrotate;
 void voxInit();
 void voxClear();
 int voxDefine(int voxindex, const char* filename);
+bool voxUsesFile(int voxindex, const char* filename);

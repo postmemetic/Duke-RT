@@ -44,6 +44,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "vm.h"
 #include "thingdef.h"
 #include "tilesetbuilder.h"
+#include "hw_voxels.h"
 #include "concmd.h"
 
 BEGIN_DUKE_NS
@@ -284,6 +285,23 @@ void GameInterface::SetupSpecialTextures(TilesetBuildInfo& info)
 {
 	// set up all special tiles here, before we fully hook up with the texture manager.
 	info.Delete(FOF);	// portal marker
+
+	if (isWorldTour())
+	{
+		// This overlay starts the wounded Commander sequence one tile late.
+		// Hold its first wounded voxel for the two opening death frames.
+		// Keep the original ART, explicit replacements and other packs intact.
+		auto& first = info.tile[1950];
+		const auto& second = info.tile[1951];
+		if (first.extinfo.tiletovox < 0 && !first.imported && !second.imported &&
+			voxUsesFile(second.extinfo.tiletovox, "voxels/monsters/COMMANDER/1951_COMM.kvx") &&
+			uint32_t(tileGetCRC32(first.tileimage)) == 0x9a07e37cu &&
+			uint32_t(tileGetCRC32(second.tileimage)) == 0x8a613dd8u)
+		{
+			first.extinfo.tiletovox = second.extinfo.tiletovox;
+			Printf("Duke voxel mapping: Commander death tile 1950 uses the mounted wounded pose 1951.\n");
+		}
+	}
 
 	FImageSource* viewscreen;
 	if (!isRR())

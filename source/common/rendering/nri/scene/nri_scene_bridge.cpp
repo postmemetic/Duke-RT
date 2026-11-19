@@ -8247,28 +8247,45 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 }
 
 bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
-	std::vector<PrecachedVoxelRawManifestView>& outEntries)
+	std::vector<PrecachedVoxelRawManifestView>& outEntries, EnemyVoxelPoseFailure* failure)
 {
 	outEntries.clear();
+	if (failure) *failure = {};
 	const auto& family = actor.spriteAnimation.enemyVoxelFamily;
 	if (!actor.owner.IsValid() || !family || !family->complete || family->textureIds.empty() || family->textureIds.size() > 64) return false;
 	float alpha = 1.0f;
 	if ((actor.cstat & CSTAT_SPRITE_TRANSLUCENT) != 0)
 		alpha = GetAlphaFromBlend((actor.cstat & CSTAT_SPRITE_TRANS_FLIP) ? DAMETH_TRANS2 : DAMETH_TRANS1, 0);
 	alpha *= 1.0f - actor.alpha;
-	for (int32_t texture : family->textureIds)
+	for (size_t pose = 0; pose < family->textureIds.size(); ++pose)
 	{
+		const int32_t texture = family->textureIds[pose];
 		FGameTexture* art = TexMan.GameByIndex(texture);
 		int voxelIndex = -1;
-		FVoxelModel* model = art ? ResolveVoxelTextureModel(art->GetID(), &voxelIndex) : nullptr;
-		if (!model) { outEntries.clear(); return false; }
+		const auto reject = [&](const char* reason)
+		{
+			outEntries.clear();
+			if (failure)
+			{
+				failure->reason = reason;
+				failure->source = pose < family->poseSources.size() ? family->poseSources[pose] : "none";
+				failure->textureId = texture;
+				if (texture >= firstarttile && texture < firstarttile + maxarttile)
+					failure->buildTile = texture - firstarttile;
+				failure->voxelIndex = voxelIndex;
+			}
+			return false;
+		};
+		if (!art || !art->isValid()) return reject("missing-original-art");
+		FVoxelModel* model = ResolveVoxelTextureModel(art->GetID(), &voxelIndex);
+		if (!model) return reject(voxelIndex < 0 ? "missing-voxel-binding" : "voxel-model-unavailable");
 		FVoxelRawMeshStats raw = {};
 		const bool rawStatsReady = QueryNRIVoxelComputeRawSourceArchiveStats(model, raw);
 		const bool directPublish = ShouldDirectPublishNRIVoxelComputeMeshing();
 		// Do not let the classifier request raw-source work during this read-only
 		// inventory. With this route a missing archive cannot certify a future pose.
 		if (directPublish && (bool)nri_ptvoxelcomputerawarchive && !rawStatsReady)
-		{ outEntries.clear(); return false; }
+			return reject("raw-archive-unavailable");
 		const auto mesh = BuildLoadingVoxelMeshVariantKey(art->GetID(), model, voxelIndex);
 		const uint64_t meshVariantHash = BuildVoxelMeshVariantKeyHash(mesh);
 		VoxelActorCacheLookup lookup;
@@ -8292,10 +8309,10 @@ bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 				hashes.geometryContentHash, hashes.renderPrimitiveHash))
 				primitiveCount = CountSurfacePrimitives(*surface);
 		}
-		if (!hashes.geometryContentHash || !hashes.renderPrimitiveHash || !primitiveCount)
-		{ outEntries.clear(); return false; }
+		if (!primitiveCount) return reject(routing.directOnlyAdmission ? "raw-primitives-unavailable" : "cpu-surface-unavailable");
+		if (!hashes.geometryContentHash || !hashes.renderPrimitiveHash) return reject("geometry-key-unavailable");
 		FGameTexture* palette = TexMan.GetGameTexture(model->GetPaletteTexture());
-		if (!palette || !palette->isValid()) { outEntries.clear(); return false; }
+		if (!palette || !palette->isValid()) return reject("voxel-palette-unavailable");
 		PrecachedVoxelRawManifestView view;
 		view.inputHints.Observe(PrecachedVoxelSourceBit_EnemyFamily, int32_t(LoadingVoxelRequestPriority::High), false, true);
 		view.meshKeyHash = view.meshVariantHash = meshVariantHash;

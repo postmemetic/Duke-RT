@@ -18,6 +18,9 @@ struct ActorEnemyVoxelFamily
 	const char* reason = "unsupported-family";
 	bool complete = false;
 	std::vector<int32_t> textureIds;
+	// Same order as the unique poses. The first stock action using a pose
+	// identifies its source in family validation diagnostics.
+	std::vector<const char*> poseSources;
 };
 
 struct ActorPresentationOwnerKey

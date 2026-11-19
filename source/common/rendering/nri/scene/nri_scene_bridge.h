@@ -460,10 +460,17 @@ bool GetPersistentVoxelActorAuthority(
 PersistentVoxelActorCacheStats GetPersistentVoxelActorCacheStats();
 bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& outEntries);
 bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestView>& outEntries, PrecachedVoxelRawManifestStats* outStats = nullptr);
+struct EnemyVoxelPoseFailure
+{
+	const char* reason = "invalid-family";
+	const char* source = "none";
+	int textureId = -1, buildTile = -1, voxelIndex = -1;
+};
+
 // Read-only family inventory. Does not load raw sources, generate geometry or
 // enqueue work. An incomplete mounted mapping clears output and fails closed.
 bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
-	std::vector<PrecachedVoxelRawManifestView>& outEntries);
+	std::vector<PrecachedVoxelRawManifestView>& outEntries, EnemyVoxelPoseFailure* failure = nullptr);
 uint64_t GetPersistentVoxelCacheSerial();
 void ResetPersistentVoxelActorCache(const char* reason);
 void SetPersistentVoxelActorStartupTransientMode(bool active, const char* reason);
