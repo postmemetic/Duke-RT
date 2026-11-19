@@ -15,6 +15,27 @@ EXTERN_CVAR(Int, nri_ptvoxelallocationreservemb)
 namespace
 {
 uint64_t Add(uint64_t a, uint64_t b) { return b > UINT64_MAX - a ? UINT64_MAX : a + b; }
+
+bool IsUncommittedEnemyOwner(const ActorPresentationState& actor, uint64_t world, const NRIEnemyRepresentationPolicy& policy)
+{
+    const NRIEnemyRepresentationOwner owner{actor.owner.ownerWorldEpoch, uint64_t(actor.owner.ownerLifetimeGeneration)};
+    const auto& family = actor.spriteAnimation.enemyVoxelFamily;
+    return actor.owner.IsValid() && owner.world == world && actor.authorityCurrent && actor.spriteAnimation.enemy &&
+        family && family->complete && !policy.Find(owner);
+}
+
+bool IsSpawnOnlyPose(const nri_scene::PrecachedVoxelVariantView& pose)
+{
+    return (pose.sourceBits & nri_scene::PrecachedVoxelSourceBits_EnemyFamilies) ==
+        nri_scene::PrecachedVoxelSourceBit_SpawnableEnemyFamily;
+}
+
+bool CanPromoteParkedSpawnPose(const PersistentVoxelAdmissionEntry& entry, bool required)
+{
+    return !required && !entry.runtimeRequested &&
+        (entry.state == PersistentVoxelAdmissionState::Pending || entry.state == PersistentVoxelAdmissionState::Deferred) &&
+        !entry.uploadPrepared && !entry.schedulerTokenId && !entry.directComputeRequested && !entry.directBlasFenceValue;
+}
 }
 
 void NRIPersistentVoxelResidency::ReconcileEnemyFamilyStaging()
@@ -29,8 +50,7 @@ void NRIPersistentVoxelResidency::ReconcileEnemyFamilyStaging()
     {
         const auto& family = actor.spriteAnimation.enemyVoxelFamily;
         const NRIEnemyRepresentationOwner owner{actor.owner.ownerWorldEpoch, uint64_t(actor.owner.ownerLifetimeGeneration)};
-        if (actor.owner.IsValid() && actor.authorityCurrent && actor.spriteAnimation.enemy && family && family->complete &&
-            !enemyPolicy.Find(owner)) live.push_back({owner, family->signature});
+        if (IsUncommittedEnemyOwner(actor, snapshot.worldEpoch, enemyPolicy)) live.push_back({owner, family->signature});
         if (live.size() > NRIEnemyFamilyStaging::MaximumOwners) break;
     }
     const uint64_t oldWorld = enemyFamilyStaging.Stats().world;
@@ -65,7 +85,8 @@ bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentatio
         largest = std::max(largest, size);
         const auto entry = admissionQueue.find(nri_scene::HashCombine64(key, planned->materialKeyHash));
         if (entry != admissionQueue.end() && entry->second.mapGeneration == residencyMapGeneration &&
-            entry->second.state != PersistentVoxelAdmissionState::Ready) continue;
+            entry->second.state != PersistentVoxelAdmissionState::Ready &&
+            !(IsSpawnOnlyPose(*planned) && CanPromoteParkedSpawnPose(entry->second, IsRequiredAdmission(entry->second)))) continue;
         missing.push_back(planned);
     }
     if (missing.empty()) return false;
@@ -73,14 +94,27 @@ bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentatio
     const auto peak = EstimateNRIVoxelPreloadPeak(bytes, 0, sources, largest, preload.peakEstimatePercent, preload.strict);
     if (!preload.enabled || preload.dryRun || peak > available) return false;
     uint32_t queued = 0;
-    for (const auto* pose : missing)
-        if (EnqueueAdmission(*pose, NRIVoxelAdmissionOrigin::Preload, residencyLastBuildSerial, settings, 0, false, services)) ++queued;
+    uint32_t liveSpawnPoses = 0;
+    for (const auto* planned : missing)
+    {
+        auto pose = *planned;
+        if (IsSpawnOnlyPose(pose))
+        {
+            // A real owner now needs this family. Preserve the prediction in
+            // the input history and leave the shared map plan untouched.
+            pose.sourceBits |= nri_scene::PrecachedVoxelSourceBit_EnemyFamily;
+            pose.inputHints.Observe(pose.sourceBits, pose.priority, pose.gpuForce, pose.gpuPrefer);
+        }
+        if (!EnqueueAdmission(pose, NRIVoxelAdmissionOrigin::Preload, residencyLastBuildSerial, settings, 0, false, services)) continue;
+        ++queued;
+        if (IsSpawnOnlyPose(*planned)) ++liveSpawnPoses;
+    }
     if (PerfAuditActive())
     {
         char fields[320];
         std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"family\":%u,\"requested_poses\":%zu,\"queued\":%u,"
-            "\"peak_bytes\":%llu,\"available_bytes\":%llu", frame, actor.spriteAnimation.enemyVoxelFamily->id,
-            missing.size(), queued, (unsigned long long)peak, (unsigned long long)available);
+            "\"live_spawn_poses\":%u,\"peak_bytes\":%llu,\"available_bytes\":%llu", frame, actor.spriteAnimation.enemyVoxelFamily->id,
+            missing.size(), queued, liveSpawnPoses, (unsigned long long)peak, (unsigned long long)available);
         PerfAuditWriteEvent("enemy_family_restage", PerfAuditCurrentToken(), fields);
     }
     return queued != 0;
@@ -112,7 +146,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
     for (const auto& actor : snapshot.actors)
     {
         const auto& certificate = actor.spriteAnimation.enemyVoxelFamily;
-        if (!certificate || !certificate->complete || !enemyFamilyStaging.NeedsFamily(certificate->signature) ||
+        if (!IsUncommittedEnemyOwner(actor, snapshot.worldEpoch, enemyPolicy) || !enemyFamilyStaging.NeedsFamily(certificate->signature) ||
             !signatures.insert(certificate->signature).second) continue;
         if (signatures.size() > NRIEnemyFamilyStaging::MaximumPreparedFamilies) break;
         const auto& resident = InspectEnemyFamily(actor, frame, settings);
