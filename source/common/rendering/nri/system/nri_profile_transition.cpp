@@ -96,42 +96,44 @@ namespace nri_profile
 		return false;
 	}
 
+	bool TryRunWithLoadingWindow(const std::function<void()>& work)
+	{
+#ifdef _WIN32
+		// The caller owns the device until the worker joins. Servicing the
+		// window never starts a frame or runs game commands.
+		std::vector<Message> messages;
+		std::future<void> done;
+		try
+		{
+			done = std::async(std::launch::async, [&] {
+				workerMessages = &messages;
+				try { work(); }
+				catch (...) { workerMessages = nullptr; throw; }
+				workerMessages = nullptr;
+			});
+		}
+		catch (const std::system_error&)
+		{
+			return false;
+		}
+		while (done.wait_for(std::chrono::milliseconds(16)) != std::future_status::ready)
+			LoadingWindow::Service();
+		done.get();
+		for (const auto& message : messages)
+		{
+			if (message.file.empty()) Printf("NRI %s: %s\n", message.type.c_str(), message.text.c_str());
+			else Printf("NRI %s: %s (%s:%u)\n", message.type.c_str(), message.text.c_str(), message.file.c_str(), message.line);
+		}
+#else
+		work();
+#endif
+		return true;
+	}
+
 	void RunNative(const char* name, const std::function<void()>& work)
 	{
 		Phase phase(name);
-#ifdef _WIN32
-		if (Active())
-		{
-			// The game thread never starts another frame here. The worker
-			// exclusively uses the native resources until joined, including
-			// recording provider initialization on the original command list.
-			std::vector<Message> messages;
-			std::future<void> done;
-			try
-			{
-				done = std::async(std::launch::async, [&] {
-					workerMessages = &messages;
-					try { work(); }
-					catch (...) { workerMessages = nullptr; throw; }
-					workerMessages = nullptr;
-				});
-			}
-			catch (const std::system_error&)
-			{
-				work();
-				return;
-			}
-			while (done.wait_for(std::chrono::milliseconds(16)) != std::future_status::ready)
-				LoadingWindow::Service();
-			done.get();
-			for (const auto& message : messages)
-			{
-				if (message.file.empty()) Printf("NRI %s: %s\n", message.type.c_str(), message.text.c_str());
-				else Printf("NRI %s: %s (%s:%u)\n", message.type.c_str(), message.text.c_str(), message.file.c_str(), message.line);
-			}
-			return;
-		}
-#endif
-		work();
+		if (!Active() || !TryRunWithLoadingWindow(work))
+			work();
 	}
 }

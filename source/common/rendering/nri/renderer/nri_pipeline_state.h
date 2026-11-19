@@ -54,5 +54,5 @@ public:
 
 private:
 	static bool CreateComputePipeline(NRIRenderer& renderer, const char* fileName, const char* label,
-		NRIPipelineSlot slot, nri::PipelineLayout* layout);
+		NRIPipelineSlot slot, nri::PipelineLayout* layout, bool loadingPage = false);
 };

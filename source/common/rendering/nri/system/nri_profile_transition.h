@@ -27,5 +27,8 @@ namespace nri_profile
 	// Only pass native work whose device/command list remains exclusively
 	// owned by the caller until this function returns.
 	void RunNative(const char* phase, const std::function<void()>& work);
+	// At a loading boundary, service the owning window while a single native
+	// call completes. False means the worker could not start and work did not run.
+	bool TryRunWithLoadingWindow(const std::function<void()>& work);
 	bool DeferWorkerMessage(const char* type, const char* file, unsigned line, const char* text);
 }
