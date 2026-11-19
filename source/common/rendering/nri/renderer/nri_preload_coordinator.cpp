@@ -10,6 +10,7 @@
 #include "../scene/nri_material_palette.h"
 #include "../system/nri_renderdevice.h"
 #include "../../../platform/loading_window.h"
+#include "../../../platform/level_loading_progress.h"
 
 #include "mapinfo.h"
 #include "c_dispatch.h"
@@ -428,6 +429,7 @@ void NRIPreloadCoordinator::ResetSceneStats(NRIRenderer& renderer)
 
 NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadStaticSceneAndStartupCorrection(NRIRenderer& renderer, const Context& context)
 {
+	LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::World);
 	renderer.RefreshMapWorld();
 	if (!renderer.mMapWorld.valid)
 	{
@@ -531,6 +533,7 @@ void NRIPreloadCoordinator::RefreshStaticLighting(NRIRenderer& renderer, Context
 
 NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadResidentSceneResources(NRIRenderer& renderer, const Context& context)
 {
+	LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::Actors);
 	if (!renderer.PreloadPersistentVoxelResources())
 	{
 		if (renderer.mPersistentVoxels.HasPreloadPending())
@@ -562,6 +565,7 @@ NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadResidentSceneRes
 	// A budget-deferred voxel preload releases only the voxel boundary. Static
 	// materials, resident voxel materials, and the remaining scene stages still
 	// pass through their usual readiness checks before gameplay is released.
+	LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::Materials);
 	if (!renderer.PreloadMaterialResources())
 	{
 		if (renderer.HasMaterialPreloadPending())
