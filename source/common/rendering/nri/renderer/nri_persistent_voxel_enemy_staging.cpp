@@ -30,12 +30,6 @@ bool IsSpawnOnlyPose(const nri_scene::PrecachedVoxelVariantView& pose)
         nri_scene::PrecachedVoxelSourceBit_SpawnableEnemyFamily;
 }
 
-bool CanPromoteParkedSpawnPose(const PersistentVoxelAdmissionEntry& entry, bool required)
-{
-    return !required && !entry.runtimeRequested &&
-        (entry.state == PersistentVoxelAdmissionState::Pending || entry.state == PersistentVoxelAdmissionState::Deferred) &&
-        !entry.uploadPrepared && !entry.schedulerTokenId && !entry.directComputeRequested && !entry.directBlasFenceValue;
-}
 }
 
 void NRIPersistentVoxelResidency::ReconcileEnemyFamilyStaging()
@@ -86,7 +80,7 @@ bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentatio
         const auto entry = admissionQueue.find(nri_scene::HashCombine64(key, planned->materialKeyHash));
         if (entry != admissionQueue.end() && entry->second.mapGeneration == residencyMapGeneration &&
             entry->second.state != PersistentVoxelAdmissionState::Ready &&
-            !(IsSpawnOnlyPose(*planned) && CanPromoteParkedSpawnPose(entry->second, IsRequiredAdmission(entry->second)))) continue;
+            !(IsSpawnOnlyPose(*planned) && IsUnstartedOptionalAdmission(entry->second, IsRequiredAdmission(entry->second)))) continue;
         missing.push_back(planned);
     }
     if (missing.empty()) return false;

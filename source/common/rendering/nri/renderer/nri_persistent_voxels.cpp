@@ -510,13 +510,6 @@ namespace
 		return (bool)nri_ptloadingvoxelblockoptional || (bool)nri_ptvoxelcomputepreloadstrict;
 	}
 
-	bool IsUnstartedOptionalAdmission(const PersistentVoxelAdmissionEntry& entry, bool required)
-	{
-		return !required && !entry.runtimeRequested &&
-			(entry.state == PersistentVoxelAdmissionState::Pending || entry.state == PersistentVoxelAdmissionState::Deferred) &&
-			!entry.uploadPrepared && !entry.schedulerTokenId && !entry.directComputeRequested && !entry.directBlasFenceValue;
-	}
-
 	struct PersistentVoxelSharedBlasRouteEvaluation
 	{
 		const NRIPersistentVoxelSharedBlasEntry* sharedEntry = nullptr;
@@ -12115,6 +12108,13 @@ bool NRIPersistentVoxelResidency::AppendMaterialTextureKeys(
 bool NRIPersistentVoxelResidency::IsSharedVariantReady(uint64_t meshResourceKey, uint64_t materialKeyHash) const
 {
 	return GetSharedVariantReadiness(meshResourceKey, materialKeyHash).ready;
+}
+
+bool NRIPersistentVoxelResidency::IsUnstartedOptionalAdmission(const PersistentVoxelAdmissionEntry& entry, bool required)
+{
+	return !required && !entry.runtimeRequested &&
+		(entry.state == PersistentVoxelAdmissionState::Pending || entry.state == PersistentVoxelAdmissionState::Deferred) &&
+		!entry.uploadPrepared && !entry.schedulerTokenId && !entry.directComputeRequested && !entry.directBlasFenceValue;
 }
 
 bool NRIPersistentVoxelResidency::IsRequiredAdmission(const PersistentVoxelAdmissionEntry& entry) const

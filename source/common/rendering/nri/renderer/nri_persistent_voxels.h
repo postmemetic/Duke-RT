@@ -1350,6 +1350,7 @@ public:
 	bool AppendMaterialTextureKeys(uint64_t materialKeyHash, std::vector<uint64_t>& outKeys) const;
 	bool IsSharedVariantReady(uint64_t meshResourceKey, uint64_t materialKeyHash) const;
 	bool IsRequiredAdmission(const PersistentVoxelAdmissionEntry& entry) const;
+	static bool IsUnstartedOptionalAdmission(const PersistentVoxelAdmissionEntry& entry, bool required);
 	NRIPersistentVoxelAdmissionBucket GetAdmissionBucket(const PersistentVoxelAdmissionEntry& entry) const;
 	void RebuildAdmissionIndex(bool reactivateStaleReady);
 	void MarkMaintenanceMutation();
