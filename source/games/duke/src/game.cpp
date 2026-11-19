@@ -286,7 +286,9 @@ void GameInterface::SetupSpecialTextures(TilesetBuildInfo& info)
 	// set up all special tiles here, before we fully hook up with the texture manager.
 	info.Delete(FOF);	// portal marker
 
-	if (isWorldTour())
+	// Tiles are mounted before the Duke CON compiler detects the World Tour
+	// gamestartup format. The archive's active resource filter is already set.
+	if (LumpFilter.CompareNoCase("Duke.WorldTour") == 0)
 	{
 		// This overlay starts the wounded Commander sequence one tile late.
 		// Hold its first wounded voxel for the two opening death frames.
