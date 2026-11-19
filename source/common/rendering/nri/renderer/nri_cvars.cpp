@@ -64,7 +64,7 @@ namespace
 	{
 		if (NRIRenderDevice* frameBuffer = GetActiveNriRenderDeviceForCVar())
 		{
-			frameBuffer->RequestSwapChainRefresh("framegen-settings-change", true);
+			frameBuffer->RequestSwapChainRefresh("framegen-settings-change", false);
 		}
 	}
 
@@ -1340,13 +1340,15 @@ CVAR(Bool, nri_validation, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CUSTOM_CVAR(Bool, nri_framegen, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	static int previous = 0;
+	const int oldValue = previous;
 	const int accepted = NRIValidateSettingChange("nri_framegen", self, previous);
 	if ((int)self != accepted)
 	{
 		self = accepted != 0;
 		return;
 	}
-	RequestActiveFrameGenerationSwapChainRefresh();
+	if (accepted != oldValue)
+		RequestActiveFrameGenerationSwapChainRefresh();
 }
 
 CUSTOM_CVAR(Int, nri_ptspherelongs, 256, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -1404,7 +1406,11 @@ CVAR(Bool, nri_framegenasync, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Bool, nri_framegenlatency, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
-	RequestActiveFrameGenerationSwapChainRefresh();
+	static bool previous = true;
+	const bool changed = previous != (bool)self;
+	previous = (bool)self;
+	if (changed && nri_framegen)
+		RequestActiveFrameGenerationSwapChainRefresh();
 }
 
 CVAR(Int, nri_nrdmaxframes, 13, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

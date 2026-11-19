@@ -1,4 +1,5 @@
 #include "nri_renderdevice.h"
+#include "nri_profile_transition.h"
 #include "nri_command_order_policy.h"
 #include "common/platform/startup_progress.h"
 #include "../scene/nri_sector_color_policy.h"
@@ -1642,6 +1643,7 @@ namespace
 
 	static void NRI_CALL NriMessageCallback(nri::Message messageType, const char* file, uint32_t line, const char* message, void*)
 	{
+		if (nri_profile::DeferWorkerMessage(GetNriMessageTypeName(messageType), file, line, message)) return;
 		if (file != nullptr && *file != '\0')
 		{
 			Printf("NRI %s: %s (%s:%u)\n", GetNriMessageTypeName(messageType), message, file, line);
@@ -3342,7 +3344,12 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 		mWindowModeTransitionSettleBudget = 0;
 	}
 
-	const bool forceRecreate = mSwapChainRefreshForceRecreate;
+	// Compare the final settings after coalescing. A failed proxy may have
+	// an intentional native fallback while frame generation is requested.
+	const bool framegenChanged = mCreatedFrameGenerationRequested != (bool)nri_framegen;
+	const uint32_t latencyFlag = (uint32_t)nri::SwapChainBits::ALLOW_LOW_LATENCY;
+	const bool latencyChanged = ((uint32_t)mSwapChainFlags & latencyFlag) != ((uint32_t)GetEffectiveRequestedSwapChainFlags() & latencyFlag);
+	const bool forceRecreate = mSwapChainRefreshForceRecreate || framegenChanged || latencyChanged;
 	const uint32_t requestCount = mSwapChainRefreshRequestCount;
 	const FString reason = mSwapChainRefreshReason;
 	mSwapChainRefreshPending = false;
@@ -3379,6 +3386,7 @@ bool NRIRenderDevice::ApplyPendingSwapChainRefresh()
 			succeeded ? "success" : "failure");
 		mWindowModeTransitionPending = false;
 	};
+	nri_profile::Phase transition("presentation-change");
 	WaitForCommands(true);
 	if (!CreateSwapChain())
 	{
@@ -3779,7 +3787,10 @@ void NRIRenderDevice::WaitForCommands(bool finish)
 			}
 			return;
 		}
-		mCore.DeviceWaitIdle(mDevice);
+		if (nri_profile::InPhase())
+			nri_profile::RunNative("device-idle", [&] { mCore.DeviceWaitIdle(mDevice); });
+		else
+			mCore.DeviceWaitIdle(mDevice);
 #ifdef _WIN32
 		if (mCreatedDeviceApi == nri::GraphicsAPI::D3D12 &&
 			mNativeD3D12Device != nullptr &&
@@ -3843,7 +3854,10 @@ bool NRIRenderDevice::WaitForFenceValue(nri::Fence& fence, uint64_t fenceValue, 
 		return false;
 	}
 
-	mCore.Wait(fence, fenceValue);
+	if (nri_profile::InPhase())
+		nri_profile::RunNative("fence-wait", [&] { mCore.Wait(fence, fenceValue); });
+	else
+		mCore.Wait(fence, fenceValue);
 
 	uint64_t completedFenceValue = 0;
 	if (!TryGetFenceValue(fence, context, completedFenceValue))
@@ -9681,6 +9695,7 @@ void NRIRenderDevice::LogD3D12FailureDiagnostics(const char* context)
 
 bool NRIRenderDevice::CreateSwapChain()
 {
+	nri_profile::Phase phase("swapchain-create");
 	if (mDevice == nullptr || mGraphicsQueue == nullptr)
 	{
 		return false;
@@ -9724,6 +9739,7 @@ bool NRIRenderDevice::CreateSwapChain()
 
 	const auto resetCreateState = [&](nri::SwapChainFormat createdFormat, const char* reason)
 	{
+		mCreatedFrameGenerationRequested = (bool)nri_framegen;
 		mRequestedSwapChainFormat = requestedOutputFormat;
 		mCreatedSwapChainFormat = createdFormat;
 		mResolvedSwapChainTextureFormat = nri::Format::UNKNOWN;
@@ -10298,6 +10314,7 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 					GetSwapChainFormatName(resolvedOutputFormat),
 					outputResolveReason);
 			}
+			nri_profile::Phase phase("presentation-drain");
 			WaitForCommands(true);
 		}
 		return CreateSwapChain();
@@ -10338,6 +10355,7 @@ bool NRIRenderDevice::EnsureSwapChainSize()
 			(mSwapChainFlags != requestedFlags ? "swapchain-flags-change" :
 				(mSwapChainTextureCount != requestedTextureCount ? "swapchain-texture-count-change" :
 					(mCreatedSwapChainDisplayGeneration != mSwapChainDisplayGeneration ? "display-contract-change" : "swapchain-format-change")))));
+	nri_profile::Phase phase("presentation-change");
 	WaitForCommands(true);
 	return CreateSwapChain();
 }
@@ -10623,6 +10641,12 @@ void NRIRenderDevice::EndFrameAndPresent()
 			NoteSwapChainPresent(mCurrentSwapChainImage);
 		}
 		mHasPresentedSwapChainFrame = submitResult == nri::Result::SUCCESS;
+		if (mHasPresentedSwapChainFrame && nri_profile::Active())
+		{
+			const bool ptOutput = mLastFrameBoundaryStats.pathTracedSceneRendered && mLastFrameBoundaryStats.sceneCopiedToPresent;
+			if (ptOutput && mRenderer) mRenderer->PrintSwapChainRenderConfig();
+			nri_profile::OnPresent(ptOutput);
+		}
 		StartupRecovery_NoteNriGameplayPresent(gametic, gamestate == GS_LEVEL);
 		if (nri_ptdebug > 0 && sLoggedPresentCount < 4)
 		{

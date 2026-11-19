@@ -1,4 +1,5 @@
 #include "nri_nrd.h"
+#include "../system/nri_profile_transition.h"
 
 #include "printf.h"
 #include "NRDIntegration.hpp"
@@ -172,7 +173,9 @@ bool NRINrdContext::EnsureReady(nri::Device& device, uint32_t width, uint32_t he
 	integrationDesc.queuedFrameNum = queuedFrameNum;
 	integrationDesc.autoWaitForIdle = false;
 
-	if (mIntegration.Recreate(integrationDesc, instanceCreationDesc, &device) != nrd::Result::SUCCESS)
+	nrd::Result result;
+	nri_profile::RunNative("nrd-create", [&] { result = mIntegration.Recreate(integrationDesc, instanceCreationDesc, &device); });
+	if (result != nrd::Result::SUCCESS)
 	{
 		Printf(TEXTCOLOR_RED "NRI NRD integration creation failed.\n");
 		return false;
@@ -392,7 +395,7 @@ void NRINrdContext::Shutdown()
 		return;
 	}
 
-	mIntegration.Destroy();
+	nri_profile::RunNative("nrd-destroy", [&] { mIntegration.Destroy(); });
 	mInitialized = false;
 	mWidth = 0;
 	mHeight = 0;

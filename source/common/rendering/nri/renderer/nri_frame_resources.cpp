@@ -1,4 +1,6 @@
 #include "nri_frame_resources.h"
+#include "../system/nri_profile_transition.h"
+#include "../../../platform/loading_window.h"
 #include "nri_cvars.h"
 
 #include "nri_renderer.h"
@@ -29,6 +31,7 @@ bool NRIFrameResources::CreateFrameTexture(NRIRenderer& renderer, uint32_t slot,
 		return false;
 	}
 
+	if (nri_profile::Active()) LoadingWindow::Service();
 	auto& texture = renderer.GetFrameTexture((NRIRenderer::FrameTextureSlot)slot);
 	if (!renderer.mFrameBuffer->CreateOwnedTexture(texture, width, height, format,
 		NRIResourceFlags(nri::TextureUsageBits::SHADER_RESOURCE, nri::TextureUsageBits::SHADER_RESOURCE_STORAGE)))
@@ -55,6 +58,7 @@ void NRIFrameResources::DestroyFrameTextures(NRIRenderer& renderer)
 	renderer.DestroyAutoExposureResources();
 	for (auto& texture : renderer.mFrameTextures)
 	{
+		if (nri_profile::Active()) LoadingWindow::Service();
 		renderer.mFrameBuffer->DestroyTextureResource(texture);
 	}
 	renderer.mRenderWidth = 0;
@@ -157,6 +161,7 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 		renderer.mOutputHeight != outputHeight ||
 		renderer.mTargetWidth != targetWidth ||
 		renderer.mTargetHeight != targetHeight;
+	nri_profile::Phase phase("frame-targets");
 	renderer.WaitForCommandsTracked();
 	renderer.mNrd.Shutdown();
 	DestroyFrameTextures(renderer);

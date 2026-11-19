@@ -1074,6 +1074,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_smoke_emitters.cpp
 	common/rendering/nri/renderer/nri_weapon_event_batch.cpp
 	common/rendering/nri/renderer/nri_settings_profiles.cpp
+	common/rendering/nri/system/nri_profile_transition.cpp
 	common/rendering/nri/renderer/nri_scene_frame_coordinator.cpp
 	common/rendering/nri/renderer/nri_scene_frame_geometry.cpp
 	common/rendering/nri/renderer/nri_scene_frame_mirrors.cpp

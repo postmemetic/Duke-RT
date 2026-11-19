@@ -1,4 +1,5 @@
 #include "nri_upscaler.h"
+#include "../system/nri_profile_transition.h"
 #include "nri_cvars.h"
 
 #include "../system/nri_renderdevice.h"
@@ -329,6 +330,7 @@ bool NRIUpscalerContext::EnsureUpscaler(
 	// and restart before destroying a live provider context.
 	if (slot.instance != nullptr)
 	{
+		nri_profile::Phase drain("provider-recording-drain");
 		if (!frameBuffer.SubmitWaitAndRestartCommandList("upscaler-recreate"))
 		{
 			slot.creationFailed = true;
@@ -356,7 +358,10 @@ bool NRIUpscalerContext::EnsureUpscaler(
 
 	const bool traceMemory = nri_ptupscalermemorytrace;
 	const auto before = traceMemory ? frameBuffer.GetAdapterMemoryTelemetry() : NRIAdapterMemoryTelemetry{};
-	const nri::Result result = frameBuffer.mUpscaler.CreateUpscaler(*frameBuffer.mDevice, upscalerDesc, slot.instance);
+	nri::Result result = nri::Result::FAILURE;
+	nri_profile::RunNative("provider-create", [&] {
+		result = frameBuffer.mUpscaler.CreateUpscaler(*frameBuffer.mDevice, upscalerDesc, slot.instance);
+	});
 	if (traceMemory)
 		ReportUpscalerMemoryChange(frameBuffer, type, "create", result, before);
 	if (result != nri::Result::SUCCESS)
@@ -557,7 +562,7 @@ void NRIUpscalerContext::DestroyUpscaler(NRIRenderDevice& frameBuffer, nri::Upsc
 	{
 		const bool traceMemory = nri_ptupscalermemorytrace;
 		const auto before = traceMemory ? frameBuffer.GetAdapterMemoryTelemetry() : NRIAdapterMemoryTelemetry{};
-		frameBuffer.mUpscaler.DestroyUpscaler(upscaler);
+		nri_profile::RunNative("provider-destroy", [&] { frameBuffer.mUpscaler.DestroyUpscaler(upscaler); });
 		upscaler = nullptr;
 		if (traceMemory)
 			ReportUpscalerMemoryChange(frameBuffer, type, "destroy", nri::Result::SUCCESS, before);

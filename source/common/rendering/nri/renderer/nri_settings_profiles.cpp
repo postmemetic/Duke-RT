@@ -1,4 +1,5 @@
 #include "nri_settings_profiles.h"
+#include "../system/nri_profile_transition.h"
 #include "nri_settings_profile_policy.h"
 #include "nri_cvars.h"
 #include "printf.h"
@@ -21,6 +22,8 @@ namespace
 	void ApplyProfile(const NRISettingsProfilePlan& plan)
 	{
 		const auto& preset = plan.preset;
+		if (NRIGetSettingsCapabilities().presentationKnown)
+			nri_profile::Begin(preset.name);
 		SyncProfileWarning(preset);
 		nri_upscaler = preset.upscaler;
 		nri_postsharpen = 0;

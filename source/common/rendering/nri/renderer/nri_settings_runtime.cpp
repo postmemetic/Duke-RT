@@ -1,4 +1,5 @@
 #include "nri_settings_availability.h"
+#include "../system/nri_profile_transition.h"
 #include "nri_settings_profiles.h"
 #include "nri_cvars.h"
 #include "../system/nri_renderdevice.h"
@@ -33,6 +34,7 @@ bool NRIIsSmokeSupported()
 
 void NRIResetSettingsAvailability()
 {
+	nri_profile::Reset();
 	gCapabilities = {};
 }
 

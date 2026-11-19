@@ -462,6 +462,7 @@ private:
 	nri::Format mResolvedSwapChainTextureFormat = nri::Format::UNKNOWN;
 	NRIWindowPresentationMode mCreatedWindowPresentationMode = NRIWindowPresentationMode::Windowed;
 	bool mCreatedWindowPresentationModeValid = false;
+	bool mCreatedFrameGenerationRequested = false;
 	nri::DisplayDesc mSwapChainDisplayDesc = {};
 	nri::Result mSwapChainDisplayDescResult = nri::Result::FAILURE;
 	uint64_t mSwapChainDisplayGeneration = 0;
