@@ -144,10 +144,10 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
                 !resource.shadowProxy.vertexBuffer.buffer && !resource.shadowProxy.indexBuffer.buffer &&
                 !resource.shadowProxy.accelerationStructure.accelerationStructure;
             if (unallocated) continue;
-            valid = valid && geometryRanges.Owns(resource.geometryRange) &&
+            valid = valid && OwnsGeometryRange(resource.geometryRange) &&
                 resource.vertexOffset == resource.geometryRange.vertices.offset &&
                 resource.indexOffset == resource.geometryRange.indices.offset &&
-                resource.primitiveOffset == resource.geometryRange.primitives.offset &&
+                resource.primitiveOffset == resource.geometryRange.ShaderPrimitiveBase() &&
                 resource.vertexCapacity == resource.geometryRange.vertices.capacity &&
                 resource.indexCapacity == resource.geometryRange.indices.capacity &&
                 resource.primitiveCapacity == resource.geometryRange.primitives.capacity;

@@ -1,5 +1,7 @@
 #include "nri_persistent_voxels.h"
 #include "perf_audit.h"
+#include "nri_cvars.h"
+#include <cstdio>
 #include <algorithm>
 
 void NRIPersistentVoxelResidency::SyncGeometryCursors()
@@ -12,7 +14,8 @@ void NRIPersistentVoxelResidency::SyncGeometryCursors()
 void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
     const NRIPersistentVoxelGeometryRangeHandle& previous)
 {
-    if (resource.geometryRange.transaction == previous.transaction) return;
+    if (resource.geometryRange.transaction == previous.transaction &&
+        resource.geometryRange.overflowPage == previous.overflowPage) return;
     // Only used before the allocation service records any copy/compute command.
     // Published and submitted ranges must continue through fence retirement.
     ReleaseCompletedGeometryRange(resource.geometryRange, false);
@@ -21,7 +24,7 @@ void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVox
     resource.vertexCapacity = previous.vertices.capacity;
     resource.indexOffset = previous.indices.offset;
     resource.indexCapacity = previous.indices.capacity;
-    resource.primitiveOffset = previous.primitives.offset;
+    resource.primitiveOffset = previous.ShaderPrimitiveBase();
     resource.primitiveCapacity = previous.primitives.capacity;
 }
 
@@ -57,6 +60,17 @@ bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVaria
 
 void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool committedRetirement)
 {
+    if (range.overflowPage)
+    {
+        // Unsubmitted rollback has no physical buffers. The renderer destroys
+        // a committed triplet at proven fence completion before releasing it.
+        if (!overflowVertex.buffer && !overflowIndex.buffer && !overflowPrimitive.buffer && overflowPage.Release(range))
+        {
+            if (committedRetirement) ++reclaimGeometryRevision;
+            MarkMaintenanceMutation();
+        }
+        return;
+    }
     if (geometryRanges.Release(range))
     {
         PerfAuditAdd(PerfAuditMetric::VoxelGeometryRangeReleases);
@@ -67,4 +81,65 @@ void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVox
         SyncGeometryCursors();
         MarkMaintenanceMutation();
     }
+}
+
+bool NRIPersistentVoxelResidency::HasOverflowNoFit(uint64_t mesh) const
+{
+    if (mesh != NRIVoxelOverflowPage::TelescopeMesh || overflowPage.Lease()) return false;
+    const auto& records = admissionReclaim.Records();
+    const auto found = records.find(mesh);
+    if (found == records.end()) return false;
+    const auto& record = found->second;
+    return record.stage == NRIVoxelAdmissionReclaim::Stage::Blocked && record.noRangeFit &&
+        record.request.epoch == residencyMapGeneration && record.processedRevision == reclaimGeometryRevision;
+}
+
+bool NRIPersistentVoxelResidency::TryReserveOverflowPage(PersistentVoxelMeshVariantResource& resource,
+    uint64_t mesh, uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime)
+{
+    const int mode = nri_ptvoxeloverflowpage;
+    if ((mode != 1 && mode != 2) || !(bool)nri_ptvoxelallocationbudget ||
+        mesh != NRIVoxelOverflowPage::TelescopeMesh || retentionQuarantined || overflowPage.Lease()) return false;
+    if (!runtime || !actorDemand.Upgrade(mesh, frame).requestedConsumers) return false;
+    if (mode == 1)
+    {
+        const bool fits = uint64_t(arenaVertexCursor) * sizeof(nri_scene::SceneVertex) <= vertexBuffer.size &&
+            uint64_t(arenaIndexCursor) * sizeof(uint32_t) <= indexBuffer.size &&
+            uint64_t(arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) <= primitiveBuffer.size;
+        if (fits || !HasOverflowNoFit(mesh))
+            return false;
+    }
+    if (!geometryRanges.Owns(resource.geometryRange)) return false;
+    const auto page = overflowPage.Acquire(mesh, vertices, indices, primitives);
+    if (!page) return false;
+    // The provisional ordinary lease is still unpublished. Restore its holes
+    // and tail immediately so this allocation never grows the ordinary arena.
+    ReleaseCompletedGeometryRange(resource.geometryRange, false);
+    resource.geometryRange = page;
+    resource.vertexOffset = 0;
+    resource.indexOffset = 0;
+    resource.primitiveOffset = page.ShaderPrimitiveBase();
+    return true;
+}
+
+void NRIPersistentVoxelResidency::ReportOverflowPage(const char* action, uint64_t fence) const
+{
+    if (!PerfAuditActive()) return;
+    char fields[512];
+    const auto& lease = overflowPage.Lease();
+    snprintf(fields, sizeof(fields), "\"action\":\"%s\",\"mesh_key\":%llu,\"page_generation\":%llu,"
+        "\"vertex_rows\":%u,\"index_rows\":%u,\"primitive_rows\":%u,\"geometry_committed_bytes\":%llu,\"fence\":%llu",
+        action, (unsigned long long)overflowPage.Owner(), (unsigned long long)lease.transaction,
+        lease.vertices.capacity, lease.indices.capacity, lease.primitives.capacity,
+        (unsigned long long)(overflowVertex.memorySize + overflowIndex.memorySize + overflowPrimitive.memorySize),
+        (unsigned long long)fence);
+    PerfAuditWriteEvent("voxel_overflow_page", PerfAuditCurrentToken(), fields);
+}
+
+bool NRIPersistentVoxelResidency::HasPublishedGeometryBuffers(const PersistentVoxelMeshVariantResource& mesh) const
+{
+    if (mesh.geometryRange.overflowPage)
+        return overflowPage.Published() && overflowPage.Owns(mesh.geometryRange) &&
+            overflowVertex.shaderView && overflowIndex.shaderView && overflowPrimitive.shaderView;
+    return vertexBuffer.shaderView && indexBuffer.shaderView && primitiveBuffer.shaderView;
 }

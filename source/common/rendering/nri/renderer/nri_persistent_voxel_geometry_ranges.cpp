@@ -5,7 +5,7 @@ NRIPersistentVoxelGeometryRangeHandle NRIPersistentVoxelGeometryRanges::Allocate
 {
     if (!vertices || !indices || !primitives || !nextTransaction) return {};
     NRIPersistentVoxelGeometryRangeHandle handle;
-    handle.vertices = streams[0].Allocate(vertices);
+    handle.vertices = streams[0].AllocateWithin(vertices, NRIPersistentVoxelGeometryRangeHandle::PageTag);
     if (!handle.vertices) return {};
     handle.indices = streams[1].Allocate(indices);
     if (!handle.indices)
@@ -13,7 +13,7 @@ NRIPersistentVoxelGeometryRangeHandle NRIPersistentVoxelGeometryRanges::Allocate
         streams[0].Release(handle.vertices);
         return {};
     }
-    handle.primitives = streams[2].Allocate(primitives);
+    handle.primitives = streams[2].AllocateWithin(primitives, NRIPersistentVoxelGeometryRangeHandle::PageTag);
     if (!handle.primitives)
     {
         streams[1].Release(handle.indices);
@@ -27,7 +27,7 @@ NRIPersistentVoxelGeometryRangeHandle NRIPersistentVoxelGeometryRanges::Allocate
 
 bool NRIPersistentVoxelGeometryRanges::Owns(const NRIPersistentVoxelGeometryRangeHandle& handle) const
 {
-    if (!handle) return false;
+    if (!handle || handle.overflowPage) return false;
     const auto found = transactions.find(handle.transaction);
     return found != transactions.end() &&
         found->second.vertices.generation == handle.vertices.generation &&

@@ -197,6 +197,7 @@ namespace
 		uint64_t age = 0;
 		bool oversizedExclusive = false;
 		bool directPublication = false;
+		uint64_t overflowGeneration = 0;
 		NRIVoxelComputeDirectPublishOutputKind outputKind = NRIVoxelComputeDirectPublishOutputKind::None;
 		NRIVoxelComputeDirectPublishOutputBuffers outputBuffers;
 		NRIVoxelComputeDirectPublishRange vertices;
@@ -269,6 +270,7 @@ namespace
 		uint32_t materialBase = 0;
 		uint32_t materialCount = 0;
 		bool directPublication = false;
+		uint64_t overflowGeneration = 0;
 		NRIVoxelComputeDirectPublishOutputKind outputKind = NRIVoxelComputeDirectPublishOutputKind::None;
 		NRIVoxelComputeDirectPublishRange vertices;
 		NRIVoxelComputeDirectPublishRange indices;
@@ -1406,6 +1408,7 @@ namespace
 					published.readyFrame = (uint32_t)std::min<uint64_t>(observedFrame, UINT32_MAX);
 					published.status = NRIVoxelComputeGeneratedGeometryStatus::Ready;
 					published.failure = NRIVoxelComputeDirectPublishFailure::None;
+					published.overflowGeneration = job.overflowGeneration;
 					published.outputKind = job.outputKind;
 					published.vertices = job.vertices;
 					published.vertices.count = result.VertexCountNoDedupe;
@@ -1957,6 +1960,7 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 		job.priority = planned.priority;
 		job.age = planned.age;
 		job.oversizedExclusive = planned.oversizedExclusive;
+		job.overflowGeneration = request.overflowGeneration;
 		job.outputKind = request.outputKind;
 		job.outputBuffers = request.outputBuffers;
 		job.vertices = request.vertices;
@@ -2595,6 +2599,7 @@ void DispatchNRIVoxelComputeMeshingDiagnostics(NRIRenderer& renderer, uint64_t f
 		pending.sourceArchiveSerial = jobArchive != nullptr ? jobArchive->recordSerial : queued.sourceArchiveSerial;
 		pending.materialBase = queued.materialBase;
 		pending.materialCount = queued.materialCount;
+		pending.overflowGeneration = queued.overflowGeneration;
 		pending.outputKind = queued.outputKind;
 		pending.vertices = queued.vertices;
 		pending.indices = queued.indices;

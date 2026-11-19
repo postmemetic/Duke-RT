@@ -208,9 +208,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     arena.allocationArenaRetry.BeginTick(mMapWorld.buildSerial, retryTick, arenaRecovery);
     const bool reclaimEnabled = (bool)nri_ptvoxeladmissionreclaim;
     const std::array<uint32_t, 3> requestedRows = { vertexCount, indexCount, primitiveCount };
-    const bool growsArena = uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex) > arena.vertexBuffer.size ||
+    const bool overflow = mesh.geometryRange.overflowPage;
+    if (overflow && (privateBuildInputs || !arena.overflowPage.Owns(mesh.geometryRange))) return Result::RequirementsUnavailable;
+    const bool growsArena = !overflow && (uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex) > arena.vertexBuffer.size ||
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
-        uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size;
+        uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size);
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     const bool mayYield = intent.MayYield();
     const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
@@ -264,7 +266,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             arena.allocationMeshRetry.ObserveDenial(mMapWorld.buildSerial, retryTick, mesh.resourceKey, predictedBytes);
         if (result == Result::DeferredBudget)
             arena.preloadHandoff.ObserveBudgetDenial(mMapWorld.buildSerial);
-        if (reclaimEnabled && requirementsComplete && result == Result::DeferredBudget && newArenaBytes &&
+        if (!overflow && reclaimEnabled && requirementsComplete && result == Result::DeferredBudget && newArenaBytes &&
             arena.actorDemand.Upgrade(mesh.resourceKey, mFrameIndex).consumers)
         {
             auto request = reclaimRequest();
@@ -278,7 +280,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             const auto found = arena.admissionReclaim.Records().find(mesh.resourceKey);
             if (found != arena.admissionReclaim.Records().end())
             {
-                arena.ReportAdmissionReclaim("outcome", newArenaBytes ? "allocated-with-growth" : "allocated-in-existing-arena",
+                arena.ReportAdmissionReclaim("outcome", overflow ? "allocated-dedicated-page" : newArenaBytes ? "allocated-with-growth" : "allocated-in-existing-arena",
                     found->second.request, mFrameIndex);
                 arena.admissionReclaim.Success(mesh.resourceKey);
             }
@@ -362,12 +364,14 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
     const auto primitiveUsage = NRIResourceFlags(nri::BufferUsageBits::SHADER_RESOURCE,
         nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    std::array<NRIBufferResource*, 6> targets = { &arena.vertexBuffer, &arena.indexBuffer, &arena.primitiveBuffer,
+    std::array<NRIBufferResource*, 6> targets = {
+        overflow ? &arena.overflowVertex : &arena.vertexBuffer, overflow ? &arena.overflowIndex : &arena.indexBuffer,
+        overflow ? &arena.overflowPrimitive : &arena.primitiveBuffer,
         privateBuildInputs ? &mesh.vertexBuffer : nullptr, privateBuildInputs ? &mesh.indexBuffer : nullptr, &scratch };
     const std::array<uint64_t, 6> required = {
-        uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex),
-        uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t),
-        uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData),
+        uint64_t(overflow ? vertexCount : arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex),
+        uint64_t(overflow ? indexCount : arena.arenaIndexCursor) * sizeof(uint32_t),
+        uint64_t(overflow ? primitiveCount : arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData),
         uint64_t(vertexCount) * sizeof(nri_scene::SceneVertex), uint64_t(indexCount) * sizeof(uint32_t), scratchBytes };
     const std::array<uint32_t, 6> strides = { sizeof(nri_scene::SceneVertex), sizeof(uint32_t),
         sizeof(nri_scene::PrimitiveData), sizeof(nri_scene::SceneVertex), sizeof(uint32_t), 16 };
@@ -393,7 +397,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             replace[i] = !Compatible(*targets[i], desc, i != 5);
             predicted[i] = 0;
             if (!replace[i]) continue;
-            if (i < 3) desc.size = GetNRIPersistentVoxelGrowthCapacity(targets[i]->size, desc.size, strides[i], percent);
+            if (i < 3 && !overflow) desc.size = GetNRIPersistentVoxelGrowthCapacity(targets[i]->size, desc.size, strides[i], percent);
             if (limits.bufferMaxSize && desc.size > limits.bufferMaxSize) return false;
             nri::MemoryDesc requirements = {};
             core.GetBufferMemoryDesc2(*mFrameBuffer->mDevice, desc, nri::MemoryLocation::DEVICE, requirements);
@@ -689,7 +693,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 timing.copyBytes += copied;
             }
         }
-        if (i < 3)
+        if (i < 3 && !overflow)
         {
             PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaGrowths);
             PerfAuditAdd(PerfAuditMetric::VoxelGeometryArenaOldBytes, old.memorySize);
@@ -703,7 +707,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         next = {};
     }
     PerfAuditSet(PerfAuditMetric::VoxelGeometryArenaOverlapBytes, oldArenaBytes + newArenaBytes);
-    if (newArenaBytes) arena.allocationArenaRetry.BackingChanged();
+    if (overflow) arena.ReportOverflowPage("committed", mFrameBuffer->GetRecordingCommandFenceValue());
+    else if (newArenaBytes) arena.allocationArenaRetry.BackingChanged();
     if (!reuseAs)
     {
         timing.Measure(timing.retireNs, [&] { RetireResidentAccelerationStructure(mesh.accelerationStructure); });
@@ -715,7 +720,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     arena.allocationMeshRetry.ObserveSuccess(mMapWorld.buildSerial, retryTick, mesh.resourceKey, predictedBytes);
     arena.MarkMaintenanceMutation();
     if (reclaimEnabled) ++arena.reclaimGeometryRevision;
-    return report("reserved", Result::Ready);
+    return report(overflow ? "reserved-overflow-page" : "reserved", Result::Ready);
 }
 
 bool NRIRenderer::BuildPreparedPersistentVoxelBottomLevel(const NRIBufferResource& vertices,

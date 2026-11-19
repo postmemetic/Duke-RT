@@ -154,7 +154,7 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
         if (found == meshVariantResources.end()) { rememberUnavailable(); continue; }
         const auto& mesh = found->second;
         const bool ready = mesh.meshBakeSpace == nri_scene::VoxelMeshBakeSpace::LocalSpace &&
-            mesh.vertexCount && mesh.indexCount && mesh.primitiveCount && geometryRanges.Owns(mesh.geometryRange) &&
+            mesh.vertexCount && mesh.indexCount && mesh.primitiveCount && OwnsGeometryRange(mesh.geometryRange) &&
             mesh.accelerationStructure.accelerationStructure && mesh.accelerationStructure.buildVertexBuffer &&
             vertexBuffer.shaderView && indexBuffer.shaderView && primitiveBuffer.shaderView &&
             (mesh.tlasPublished || mesh.tlasReadyFrame <= frame);

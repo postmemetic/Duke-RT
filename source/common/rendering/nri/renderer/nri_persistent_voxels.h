@@ -13,6 +13,7 @@
 #include "nri_persistent_voxel_material_bridge.h"
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_geometry_ranges.h"
+#include "nri_persistent_voxel_overflow_page.h"
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
 #include "nri_persistent_voxel_optional_growth.h"
@@ -641,6 +642,8 @@ struct NRIPersistentVoxelAccelerationServices
 
 struct NRIPersistentVoxelDescriptorSnapshot
 {
+	nri::Descriptor* overflowVertex = nullptr;
+	nri::Descriptor* overflowPrimitive = nullptr;
 	nri::Descriptor* vertex = nullptr;
 	nri::Descriptor* index = nullptr;
 	nri::Descriptor* primitive = nullptr;
@@ -1444,6 +1447,15 @@ public:
 	uint64_t schedulerRetirementEpoch = 1;
 	std::vector<NRIPersistentVoxelSchedulerRetirement> quarantinedSchedulerReservations;
 	NRIPersistentVoxelGeometryRanges geometryRanges;
+	NRIVoxelOverflowPage overflowPage;
+	NRIBufferResource overflowVertex, overflowIndex, overflowPrimitive; // Stable addresses for queued compute requests.
+	bool OwnsGeometryRange(const NRIPersistentVoxelGeometryRangeHandle& range) const
+	{ return range.overflowPage ? overflowPage.Owns(range) : geometryRanges.Owns(range); }
+	bool TryReserveOverflowPage(PersistentVoxelMeshVariantResource& resource, uint64_t mesh,
+		uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime);
+	bool HasOverflowNoFit(uint64_t mesh) const;
+	bool HasPublishedGeometryBuffers(const PersistentVoxelMeshVariantResource& mesh) const;
+	void ReportOverflowPage(const char* action, uint64_t fence = 0) const;
 	std::vector<NRIPersistentVoxelGeometryRangeHandle> quarantinedGeometryRanges;
 	uint32_t retentionLastFrame = UINT32_MAX;
 	uint32_t retentionMapGeneration = UINT32_MAX;

@@ -42,13 +42,13 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
         for (auto ticket : scratch.retiredVoxelSchedulerReservations)
             if (!cache.ReleaseCompletedSchedulerReservation(ticket)) cache.quarantinedSchedulerReservations.push_back(ticket);
         scratch.retiredVoxelSchedulerReservations.clear();
-        for (auto range : scratch.retiredVoxelGeometryRanges) cache.ReleaseCompletedGeometryRange(range);
+        for (auto range : scratch.retiredVoxelGeometryRanges) ReleaseCompletedPersistentVoxelGeometryRange(range);
         scratch.retiredVoxelGeometryRanges.clear();
         for (auto range : scratch.retiredVoxelMaterialRanges)
             if (!releaseMaterial(range)) cache.quarantinedMaterialRanges.push_back(range);
         scratch.retiredVoxelMaterialRanges.clear();
     }
-    for (auto range : cache.quarantinedGeometryRanges) cache.ReleaseCompletedGeometryRange(range);
+    for (auto range : cache.quarantinedGeometryRanges) ReleaseCompletedPersistentVoxelGeometryRange(range);
     cache.quarantinedGeometryRanges.clear();
     for (auto it = cache.quarantinedMaterialRanges.begin(); it != cache.quarantinedMaterialRanges.end(); )
         if (releaseMaterial(*it)) it = cache.quarantinedMaterialRanges.erase(it); else ++it;

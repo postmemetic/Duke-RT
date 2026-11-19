@@ -69,6 +69,7 @@ struct NRIVoxelComputeDirectPublishOutputBuffers
 
 struct NRIVoxelComputeDirectPublishRequest
 {
+	uint64_t overflowGeneration = 0;
 	uint64_t meshResourceKey = 0;
 	uint64_t geometryKey = 0;
 	uint64_t materialBindingKey = 0;
@@ -99,6 +100,7 @@ struct NRIVoxelComputeDirectPublishBatchResult
 
 struct NRIVoxelComputeDirectPublishedMesh
 {
+	uint64_t overflowGeneration = 0;
 	uint64_t meshResourceKey = 0;
 	uint64_t generation = 0;
 	uint64_t sourceArchiveSerial = 0;

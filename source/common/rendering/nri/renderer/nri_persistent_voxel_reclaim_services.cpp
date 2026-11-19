@@ -4,6 +4,7 @@
 #include "perf_audit.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 
 namespace
@@ -119,13 +120,14 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
     auto& record = *selected;
     workRequest = record.request;
     record.stage = NRIVoxelAdmissionReclaim::Stage::Blocked;
+    record.noRangeFit = false;
     record.processedRevision = reclaimGeometryRevision;
     record.processedDemandRevision = actorDemand.UpgradeRevision();
     record.lastPlanTick = admissionReclaim.Tick();
     record.retiring.clear();
     for (size_t i = 0; i < capacity.size(); ++i)
         if (!record.request.rows[i] || record.request.rows[i] > capacity[i])
-        { ReportAdmissionReclaim("outcome", "request-exceeds-existing-capacity", record.request, frameIndex); return; }
+        { record.noRangeFit = true; ReportAdmissionReclaim("outcome", "request-exceeds-existing-capacity", record.request, frameIndex); return; }
     if (meshVariantResources.size() > NRIVoxelAdmissionReclaim::MaxOwnerRows ||
         geometryRanges.TransactionCount() > NRIVoxelAdmissionReclaim::MaxOwnerRows)
     { ReportAdmissionReclaim("outcome", "owner-snapshot-bound", record.request, frameIndex); return; }
@@ -146,7 +148,12 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
     workPlans = 1; workCandidates = plan.examined; workPins = uint32_t(pins.meshes.size());
     ReportAdmissionReclaim("plan", plan.reason, record.request, frameIndex, 0, 0, 0, 0,
         plan.examined, uint32_t(pins.meshes.size()));
-    if (!plan.fits) return;
+    if (!plan.fits)
+    {
+        record.noRangeFit = strcmp(plan.reason, "bounded-preview-limit") == 0 ||
+            strcmp(plan.reason, "no-fitting-victims") == 0;
+        return;
+    }
     if (plan.victims.empty())
     { record.stage = NRIVoxelAdmissionReclaim::Stage::Retry; record.retryReadyTick = admissionReclaim.Tick(); return; }
     // No submission occurs between the authoritative pin snapshot and these

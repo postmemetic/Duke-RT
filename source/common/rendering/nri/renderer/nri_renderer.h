@@ -2769,6 +2769,7 @@ private:
 	void RetireResidentBufferResource(NRIBufferResource& resource);
 	void RetirePersistentVoxelMaterialRange(NRIPersistentVoxelMaterialRangeHandle range);
 	void RetirePersistentVoxelSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket);
+	void ReleaseCompletedPersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
 	void RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
 	NRIPersistentVoxelBudgetSnapshot GetPersistentVoxelBudgetSnapshot(bool forceRefresh = false);
 	NRIPersistentVoxelAllocationResult PreparePersistentVoxelGeometryAllocation(

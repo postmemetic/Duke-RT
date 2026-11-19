@@ -589,7 +589,7 @@ void NRIRenderer::DestroyResidentUploadScratchRetiredResources(
 			mPersistentVoxels.quarantinedSchedulerReservations.push_back(ticket);
 	scratch.retiredVoxelSchedulerReservations.clear();
 	for (auto range : scratch.retiredVoxelGeometryRanges)
-		mPersistentVoxels.ReleaseCompletedGeometryRange(range);
+		ReleaseCompletedPersistentVoxelGeometryRange(range);
 	scratch.retiredVoxelGeometryRanges.clear();
 	for (auto range : scratch.retiredVoxelMaterialRanges)
 		if (mPersistentVoxels.materialPayloads.ReleaseRetiredRange(range, mPersistentVoxels.materialRangeAllocator))
@@ -2483,9 +2483,34 @@ void NRIRenderer::RetirePersistentVoxelSchedulerReservation(NRIPersistentVoxelSc
 		mPersistentVoxels.quarantinedSchedulerReservations.push_back(ticket);
 }
 
+void NRIRenderer::ReleaseCompletedPersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range)
+{
+	if (range.overflowPage)
+	{
+		auto& cache = mPersistentVoxels;
+		if (!cache.overflowPage.Retiring() || !cache.overflowPage.Owns(range)) return;
+		cache.ReportOverflowPage("destroyed");
+		DestroyBufferResource(cache.overflowVertex);
+		DestroyBufferResource(cache.overflowIndex);
+		DestroyBufferResource(cache.overflowPrimitive);
+	}
+	mPersistentVoxels.ReleaseCompletedGeometryRange(range);
+}
+
 void NRIRenderer::RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range)
 {
 	if (!range) return;
+	if (range.overflowPage)
+	{
+		if (!mPersistentVoxels.overflowPage.BeginRetirement(range)) return;
+		const auto fence = mFrameBuffer ? mFrameBuffer->GetRecordingCommandFenceValue() : 0;
+		mPersistentVoxels.ReportOverflowPage(fence ? "retire" : "quarantine", fence);
+		if (!fence)
+		{
+			mPersistentVoxels.quarantinedGeometryRanges.push_back(range);
+			return;
+		}
+	}
 	if (mFrameBuffer && mFrameBuffer->mCommandBuffer && !mResidentUploadScratchFrames.empty())
 		GetResidentUploadScratchFrame().retiredVoxelGeometryRanges.push_back(range);
 	else

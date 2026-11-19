@@ -313,6 +313,9 @@ CVAR(Bool, nri_ptvoxeladmissionreclaim, true, 0)
 // Opt in to pre-growth reclaim and speculative arena retry policy. Under
 // pressure the timing gains can come with fewer complete enemy voxel families.
 CVAR(Bool, nri_ptvoxelarenarecovery, false, 0)
+// Dedicated telescope backing. 1 follows an unsuccessful live range search.
+// 2 exercises the same render path even when the ordinary arena has room.
+CVAR(Int, nri_ptvoxeloverflowpage, 0, 0)
 CVAR(Int, nri_ptvoxelallocationreservemb, 128, 0)
 CVAR(Int, nri_ptvoxelarenagrowthpercent, 125, 0)
 CVAR(Int, nri_ptvoxelarenastartuppercent, 100, 0)

@@ -11,6 +11,10 @@ struct NRIPersistentVoxelGeometryRangeHandle
 {
     NRIPersistentVoxelMaterialRangeHandle vertices, indices, primitives;
     uint64_t transaction = 0;
+    // Ordinary and dedicated leases have separate generation spaces.
+    bool overflowPage = false;
+    static constexpr uint32_t PageTag = 0x80000000u;
+    uint32_t ShaderPrimitiveBase() const { return primitives.offset | (overflowPage ? PageTag : 0u); }
     explicit operator bool() const { return transaction != 0 && bool(vertices) && bool(indices) && bool(primitives); }
 };
 

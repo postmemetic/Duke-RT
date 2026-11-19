@@ -64,6 +64,7 @@ public:
         NRIVoxelReclaimRequest request;
         Stage stage = Stage::Observed;
         std::vector<NRIPersistentVoxelGeometryRangeHandle> retiring;
+        bool noRangeFit = false;
         uint64_t processedRevision = UINT64_MAX;
         uint64_t retryReadyTick = 0;
         uint64_t processedDemandRevision = 0, lastPlanTick = 0;
@@ -81,6 +82,7 @@ public:
     const char* Poll(Record& record, bool usefulDemand, uint64_t geometryRevision, uint64_t demandRevision,
         const NRIPersistentVoxelGeometryRanges& ranges, const std::array<uint64_t, 3>& capacity);
     std::unordered_map<uint64_t, Record>& Records() { return records; }
+    const auto& Records() const { return records; }
     std::size_t RecordCount() const { return records.size(); }
     uint64_t Tick() const { return tick; }
     bool BeginProcess() { if (processedTick == tick) return false; processedTick = tick; return true; }
