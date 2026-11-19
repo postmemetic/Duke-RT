@@ -24,6 +24,11 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
     cache.RetirePendingMaterialRanges(services);
     cache.MaintainInactiveCache("transition", mFrameIndex, BuildNRIPersistentVoxelSettingsFromCVars(),
         budget.usageBytes, budget.budgetBytes, services, true);
+    // All actor and compute owners were cleared and the compaction wait
+    // above finished. Drop the dedicated test page at level handoff even
+    // if ordinary warm-cache limits would retain this unreferenced mesh.
+    if (cache.overflowPage.Published())
+        cache.EvictInactiveMesh(cache.overflowPage.Owner(), services);
     // Every ticket predates the explicit wait or belongs to the now-cancelled
     // empty scene. Reclaim without waiting for another three presented frames.
     const auto releaseMaterial = [&](NRIPersistentVoxelMaterialRangeHandle range)
@@ -42,13 +47,13 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
         for (auto ticket : scratch.retiredVoxelSchedulerReservations)
             if (!cache.ReleaseCompletedSchedulerReservation(ticket)) cache.quarantinedSchedulerReservations.push_back(ticket);
         scratch.retiredVoxelSchedulerReservations.clear();
-        for (auto range : scratch.retiredVoxelGeometryRanges) ReleaseCompletedPersistentVoxelGeometryRange(range);
+        for (auto range : scratch.retiredVoxelGeometryRanges) ReleaseCompletedPersistentVoxelGeometryRange(range, true);
         scratch.retiredVoxelGeometryRanges.clear();
         for (auto range : scratch.retiredVoxelMaterialRanges)
             if (!releaseMaterial(range)) cache.quarantinedMaterialRanges.push_back(range);
         scratch.retiredVoxelMaterialRanges.clear();
     }
-    for (auto range : cache.quarantinedGeometryRanges) ReleaseCompletedPersistentVoxelGeometryRange(range);
+    for (auto range : cache.quarantinedGeometryRanges) ReleaseCompletedPersistentVoxelGeometryRange(range, true);
     cache.quarantinedGeometryRanges.clear();
     for (auto it = cache.quarantinedMaterialRanges.begin(); it != cache.quarantinedMaterialRanges.end(); )
         if (releaseMaterial(*it)) it = cache.quarantinedMaterialRanges.erase(it); else ++it;

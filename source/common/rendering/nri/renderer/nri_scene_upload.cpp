@@ -2483,13 +2483,20 @@ void NRIRenderer::RetirePersistentVoxelSchedulerReservation(NRIPersistentVoxelSc
 		mPersistentVoxels.quarantinedSchedulerReservations.push_back(ticket);
 }
 
-void NRIRenderer::ReleaseCompletedPersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range)
+void NRIRenderer::ReleaseCompletedPersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool waited)
 {
 	if (range.overflowPage)
 	{
 		auto& cache = mPersistentVoxels;
 		if (!cache.overflowPage.Retiring() || !cache.overflowPage.Owns(range)) return;
-		cache.ReportOverflowPage("destroyed");
+		const uint64_t fence = cache.overflowPage.RetirementFence();
+		if (!waited && (!fence || !IsCommandFenceValueComplete(fence)))
+		{
+			cache.quarantinedGeometryRanges.push_back(range);
+			cache.ReportOverflowPage("quarantine", fence);
+			return;
+		}
+		cache.ReportOverflowPage("destroyed", fence);
 		DestroyBufferResource(cache.overflowVertex);
 		DestroyBufferResource(cache.overflowIndex);
 		DestroyBufferResource(cache.overflowPrimitive);
@@ -2502,8 +2509,8 @@ void NRIRenderer::RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryR
 	if (!range) return;
 	if (range.overflowPage)
 	{
-		if (!mPersistentVoxels.overflowPage.BeginRetirement(range)) return;
 		const auto fence = mFrameBuffer ? mFrameBuffer->GetRecordingCommandFenceValue() : 0;
+		if (!mPersistentVoxels.overflowPage.BeginRetirement(range, fence)) return;
 		mPersistentVoxels.ReportOverflowPage(fence ? "retire" : "quarantine", fence);
 		if (!fence)
 		{

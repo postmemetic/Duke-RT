@@ -195,12 +195,15 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         if (pinnedMeshes.count(pair.first)) { inactiveMeshSince.erase(pair.first); continue; }
         const auto& mesh = pair.second;
         const auto* shared = sharedBlasCache.Find(pair.first);
-        const uint64_t physicalBytes = mesh.vertexBuffer.memorySize + mesh.indexBuffer.memorySize + mesh.accelerationStructure.memorySize +
+        const auto pageBytes = mesh.geometryRange.overflowPage ?
+            overflowVertex.memorySize + overflowIndex.memorySize + overflowPrimitive.memorySize : 0;
+        const uint64_t physicalBytes = pageBytes + mesh.vertexBuffer.memorySize + mesh.indexBuffer.memorySize + mesh.accelerationStructure.memorySize +
             mesh.shadowProxy.vertexBuffer.memorySize + mesh.shadowProxy.indexBuffer.memorySize +
             mesh.shadowProxy.accelerationStructure.memorySize + (shared ? shared->accelerationStructure.memorySize : 0);
-        const uint64_t bytes = physicalBytes +
+        const uint64_t ordinaryRangeBytes = mesh.geometryRange.overflowPage ? 0 :
             uint64_t(mesh.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
             uint64_t(mesh.indexCapacity) * sizeof(uint32_t) + uint64_t(mesh.primitiveCapacity) * sizeof(nri_scene::PrimitiveData);
+        const uint64_t bytes = physicalBytes + ordinaryRangeBytes;
         inactiveMeshBytes += bytes;
         const uint32_t rank = warmPolicy ? actorDemand.WarmMeshRank(pair.first, frameIndex) : 0;
         if (rank) warmMeshBytes += bytes;
@@ -248,7 +251,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         if (found == meshVariantResources.end()) continue;
         auto& resource = found->second;
         NoteCacheMeshEviction(candidate.key, frameIndex, phase, pinnedMeshes.count(candidate.key) != 0);
-        reusableBytes += uint64_t(resource.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
+        reusableBytes += resource.geometryRange.overflowPage ? 0 : uint64_t(resource.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
             uint64_t(resource.indexCapacity) * sizeof(uint32_t) + uint64_t(resource.primitiveCapacity) * sizeof(nri_scene::PrimitiveData);
         inactiveMeshBytes -= candidate.bytes;
         if (candidate.warmRank) warmMeshBytes -= candidate.bytes;

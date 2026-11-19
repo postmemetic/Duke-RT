@@ -41,6 +41,7 @@ struct NRIVoxelComputeBatchPlanRequest
 	uint64_t reservationBytes = 0;
 	uint32_t priority = 0;
 	uint64_t age = 0;
+	uint64_t overflowGeneration = 0;
 };
 
 struct NRIVoxelComputeBatchPlanSettings
@@ -71,6 +72,7 @@ struct NRIVoxelComputeBatchPlannedJob
 	uint64_t age = 0;
 	bool oversizedExclusive = false;
 	std::vector<NRIVoxelComputeBatchMaterialBinding> bindings;
+	uint64_t overflowGeneration = 0;
 };
 
 struct NRIVoxelComputeBatchPlanBatch

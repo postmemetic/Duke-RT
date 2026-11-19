@@ -1780,6 +1780,7 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 
 		NRIVoxelComputeBatchPlanRequest planRequest = {};
 		planRequest.meshKey = item.geometryKey;
+		planRequest.overflowGeneration = request.overflowGeneration;
 		planRequest.levelGeneration = item.levelGeneration;
 		planRequest.requestKey = directKey;
 		planRequest.materialBindingKey = request.materialBindingKey;
@@ -1859,7 +1860,7 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 		for (uint32_t queuedIndex = 0; queuedIndex < state.queuedJobs.size(); ++queuedIndex)
 		{
 			const PendingVoxelComputeJob& queued = state.queuedJobs[queuedIndex];
-			if (queued.directPublication && queued.geometryKey == planned.meshKey &&
+			if (queued.directPublication && queued.geometryKey == planned.meshKey && queued.overflowGeneration == planned.overflowGeneration &&
 				((queued.directGeneration >> 32) != 0 ? queued.directGeneration >> 32 : queued.directGeneration) == planned.levelGeneration)
 			{
 				queuedOwners[planJobIndex] = (int32_t)queuedIndex;
@@ -1878,7 +1879,7 @@ bool RequestNRIVoxelComputeDirectPublicationBatch(
 				for (uint32_t pendingIndex = 0; pendingIndex < pendingJobs.size(); ++pendingIndex)
 				{
 					const PendingReadbackJob& pending = pendingJobs[pendingIndex];
-					if (pending.directPublication && pending.geometryKey == planned.meshKey &&
+					if (pending.directPublication && pending.geometryKey == planned.meshKey && pending.overflowGeneration == planned.overflowGeneration &&
 						((pending.directGeneration >> 32) != 0 ? pending.directGeneration >> 32 : pending.directGeneration) == planned.levelGeneration)
 					{
 						pendingOwners[planJobIndex] = { (int32_t)slotIndex, (int32_t)pendingIndex };

@@ -5953,6 +5953,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		{
 			return rollbackAdmission("material-publish-failed", "direct_blas_publish");
 		}
+		if (meshResource.geometryRange.overflowPage)
+			ReportOverflowPage("published", entry.directBlasFenceValue);
 		auto existingMeshIt = meshVariantResources.find(meshResourceKey);
 		if (existingMeshIt != meshVariantResources.end())
 		{
@@ -5962,8 +5964,6 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			RetirePersistentVoxelShadowProxy(existingMeshIt->second.shadowProxy, services);
 			services.RetireGeometryRange(existingMeshIt->second.geometryRange);
 		}
-		if (meshResource.geometryRange.overflowPage)
-			ReportOverflowPage("published", entry.directBlasFenceValue);
 		auto& published = meshVariantResources[meshResourceKey];
 		published = std::move(entry.uploadMeshResource);
 		InvalidateEnemyFamilyGeometry();

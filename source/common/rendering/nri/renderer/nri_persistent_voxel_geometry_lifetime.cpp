@@ -106,7 +106,7 @@ bool NRIPersistentVoxelResidency::TryReserveOverflowPage(PersistentVoxelMeshVari
         const bool fits = uint64_t(arenaVertexCursor) * sizeof(nri_scene::SceneVertex) <= vertexBuffer.size &&
             uint64_t(arenaIndexCursor) * sizeof(uint32_t) <= indexBuffer.size &&
             uint64_t(arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) <= primitiveBuffer.size;
-        if (fits || !HasOverflowNoFit(mesh))
+        if (fits || !HasOverflowNoFit(mesh) || !actorDemand.Upgrade(mesh, frame).consumers)
             return false;
     }
     if (!geometryRanges.Owns(resource.geometryRange)) return false;

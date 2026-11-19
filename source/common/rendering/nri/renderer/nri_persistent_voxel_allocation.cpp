@@ -323,6 +323,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
         return result;
     };
+    if (overflow && !budget.liveAvailable) return report("defer-page-live-budget", Result::DeferredBudget);
     if (!privateBuildInputs)
     {
         const auto forecast = ForecastNRIVoxelComputeProviderAllocations(BuildResourceContext(), mesh.sourceModel, provider);
@@ -648,6 +649,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         postBudget.computeReservedBytes, mesh.computeProviderReservation.Total());
     peak = ForecastNRIPartiallyCommittedVoxelBudget(budget.usageBytes, postUsage, actualBytes, 0,
         provider.bytes, reserve, postBudget.budgetBytes);
+    if (overflow && !postBudget.liveAvailable)
+        return deferCommitted("defer-page-post-live-budget", 0, false);
     if ((actualBytes != 0 || provider.bytes != 0) && !peak.fits)
         return deferCommitted("defer-post-budget", postBudget.rawBudgetBytes, postBudget.liveAvailable);
 
@@ -692,6 +695,18 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 timing.copyRecordNs += PerfAuditClockNs() - copyStart;
                 timing.copyBytes += copied;
             }
+        }
+        if (i < 3 && overflow)
+        {
+            // A new page starts undefined. The direct compute emitter expects
+            // its outputs in shader-read state before it transitions to UAV.
+            nri::BufferBarrierDesc initial = {};
+            initial.buffer = next.buffer;
+            initial.after = NRIResourceComputeShaderResourceAccess();
+            nri::BarrierDesc barrier = {};
+            barrier.buffers = &initial;
+            barrier.bufferNum = 1;
+            core.CmdBarrier(*mFrameBuffer->mCommandBuffer, barrier);
         }
         if (i < 3 && !overflow)
         {

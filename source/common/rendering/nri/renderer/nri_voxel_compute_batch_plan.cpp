@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <tuple>
 #include <utility>
 
 namespace
 {
-	using MeshPlanKey = std::pair<uint64_t, uint64_t>;
+	using MeshPlanKey = std::tuple<uint64_t, uint64_t, uint64_t>;
 
 	bool RangeFits(const NRIVoxelComputeBatchOutputRange& range)
 	{
@@ -125,12 +126,13 @@ NRIVoxelComputeBatchPlan BuildNRIVoxelComputeBatchPlan(
 			continue;
 		}
 
-		const MeshPlanKey meshKey = { request.levelGeneration, request.meshKey };
+		const MeshPlanKey meshKey = { request.levelGeneration, request.meshKey, request.overflowGeneration };
 		auto found = jobByMesh.find(meshKey);
 		if (found == jobByMesh.end())
 		{
 			NRIVoxelComputeBatchPlannedJob job = {};
 			job.meshKey = request.meshKey;
+			job.overflowGeneration = request.overflowGeneration;
 			job.levelGeneration = request.levelGeneration;
 			job.ownerRequestIndex = requestIndex;
 			job.source = request.source;
