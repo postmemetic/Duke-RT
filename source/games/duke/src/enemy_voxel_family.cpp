@@ -307,9 +307,13 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
         const auto texture = tileGetTextureID(startupTile);
         const auto* defaults = GetDefaultByType(&cls);
         const auto* art = TexMan.GetGameTexture(texture);
+        // initanimations reads the compiled CON actor header for these exact
+        // classes. The ZScript startaction property can legitimately be unset.
+        const auto address = gs.actorinfo[startupTile].scriptaddress;
         family->reason = "startup-pose-mismatch";
         if (!texture.isValid() || !defaults || defaults->spr.spritetexture() != texture ||
-            cls.ActorInfo()->DefaultAction != NAME_None) return family;
+            cls.ActorInfo()->TypeNum != startupTile || !address || uint64_t(address) + 1 >= ScriptCode.Size() ||
+            ScriptCode[address + 1] != 0) return family;
         if (!art || !art->isValid()) { family->reason = "missing-original-art"; return family; }
         startupTexture = texture.GetIndex();
         poses.try_emplace(startupTexture, "class-start-pose");
