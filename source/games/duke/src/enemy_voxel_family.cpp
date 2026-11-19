@@ -110,7 +110,26 @@ const ActionShape TurretActions[] = {
     {"ASATSHOOTING", -10, 3, 5, 1},
     {"ASATWAIT", 0, 1, 5, 1},
 };
-struct FamilySpec { uint32_t id; const char* name; int baseTile; const ActionShape* actions; size_t count; };
+const ActionShape EggActions[] = {
+    {"EGGOPEN1", 1, 1, 1, 1},
+    {"EGGOPEN2", 2, 1, 1, 1},
+    {"EGGOPEN3", 2, 1, 1, 1},
+    {"EGGWAIT", 0, 0, 0, 0},
+    {"EGGFROZEN", 1, 0, 0, 0},
+    {"EGGGROW", 1, 0, 0, 0},
+    {"EGGSHRUNK", 1, 0, 0, 0},
+};
+const ActionShape BattlelordActions[] = {
+    {"ABOSS1WALK", 0, 4, 5, 1},
+    {"ABOSS1FROZEN", 30, 1, 5, 0},
+    {"ABOSS1RUN", 0, 6, 5, 1},
+    {"ABOSS1SHOOT", 30, 2, 5, 1},
+    {"ABOSS1LOB", 40, 2, 5, 1},
+    {"ABOSS1DYING", 50, 5, 1, 1},
+    {"BOSS1FLINTCH", 50, 1, 1, 1},
+    {"ABOSS1DEAD", 55, 0, 0, 0},
+};
+struct FamilySpec { uint32_t id; const char* name; int baseTile; const ActionShape* actions; size_t count; unsigned spriteSetSize = 0; };
 const FamilySpec Families[] = {
     {1, "Shark", 1550, SharkActions, sizeof(SharkActions) / sizeof(ActionShape)},
     {2, "Trooper", 1680, TrooperActions, sizeof(TrooperActions) / sizeof(ActionShape)},
@@ -120,6 +139,9 @@ const FamilySpec Families[] = {
     {6, "PigCop", 2000, PigCopActions, sizeof(PigCopActions) / sizeof(ActionShape)},
     {7, "Commander", 1920, CommanderActions, sizeof(CommanderActions) / sizeof(ActionShape)},
     {8, "Turret", 2360, TurretActions, sizeof(TurretActions) / sizeof(ActionShape)},
+    {9, "Egg", 675, EggActions, sizeof(EggActions) / sizeof(ActionShape)},
+    {10, "GreenSlime", 2370, nullptr, 0, 8},
+    {11, "Battlelord", 2630, BattlelordActions, sizeof(BattlelordActions) / sizeof(ActionShape)},
 };
 struct ClassFamily { const char* name; uint32_t family; };
 const ClassFamily Classes[] = {
@@ -146,6 +168,10 @@ const ClassFamily Classes[] = {
     {"DukeCommander", 7},
     {"DukeCommanderStayput", 7},
     {"DukeRotateGun", 8},
+    {"DukeEgg", 9},
+    {"DukeGreenSlime", 10},
+    {"DukeBoss1", 11},
+    {"DukeBoss1Stayput", 11},
 };
 
 bool Matches(const ActorAction& action, const ActionShape& shape)
@@ -155,13 +181,27 @@ bool Matches(const ActorAction& action, const ActionShape& shape)
         action.increment == shape.increment;
 }
 
-std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec)
+std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec, const DDukeActor& actor)
 {
     auto family = std::make_shared<ActorEnemyVoxelFamily>();
     family->id = spec.id; family->name = spec.name;
     family->reason = "action-table-mismatch";
     const int base = tileGetTextureID(spec.baseTile).GetIndex();
     if (base < 0) return family;
+    // DukeGreenSlime.Tick writes the current world image from its class sprite
+    // set, independently of CON and of the first-person overlay.
+    if (spec.spriteSetSize)
+    {
+        const auto& sprites = static_cast<PClassActor*>(actor.GetClass())->ActorInfo()->SpriteSet;
+        family->reason = "sprite-set-mismatch";
+        if (sprites.Size() != spec.spriteSetSize) return family;
+        for (auto texture : sprites)
+        {
+            const auto* art = TexMan.GetGameTexture(texture);
+            if (!texture.isValid() || !art || !art->isValid()) return family;
+            family->textureIds.push_back(texture.GetIndex());
+        }
+    }
     for (size_t index = 0; index < spec.count; ++index)
     {
         const auto& shape = spec.actions[index];
@@ -193,7 +233,7 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec)
     for (int32_t texture : family->textureIds) hash = (hash ^ uint32_t(texture)) * UINT64_C(1099511628211);
     family->signature = hash;
     family->complete = true;
-    family->reason = "stock-action-set";
+    family->reason = spec.spriteSetSize ? "stock-sprite-set" : "stock-action-set";
     return family;
 }
 }
@@ -262,7 +302,7 @@ void CaptureEnemyVoxelFamily(const DDukeActor& actor, ActorSpriteAnimationState&
     if (actionBase != currentBase || actionCount != actions.Size())
     { cached.clear(); actionBase = currentBase; actionCount = actions.Size(); }
     auto found = cached.find(spec->id);
-    if (found == cached.end()) found = cached.emplace(spec->id, BuildFamily(*spec)).first;
+    if (found == cached.end()) found = cached.emplace(spec->id, BuildFamily(*spec, actor)).first;
     animation.enemyVoxelFamily = found->second;
     if (actor.curAction && actor.curAction->name != NAME_None)
     {
