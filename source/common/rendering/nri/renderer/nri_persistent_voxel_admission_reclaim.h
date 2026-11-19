@@ -24,6 +24,7 @@ struct NRIVoxelReclaimRequest
     std::array<uint32_t, 3> rows = {};
     uint64_t usage = 0, budget = 0, reserve = 0, nonArenaBytes = 0;
     uint64_t signature = 0, avoidedArenaBytes = 0, episode = 0;
+    bool beforeGrowth = false;
 };
 
 struct NRIVoxelReclaimCandidate
@@ -57,6 +58,7 @@ public:
     static constexpr uint32_t MaxOwnerRows = 4096, MaxPreflightsPerTick = 16;
     static constexpr uint64_t ProbeTicks = 120;
     enum class Stage { Observed, Waiting, Retry, Blocked };
+    enum class GrowthPreview { Proceed, Queued, Waiting };
     struct Record
     {
         NRIVoxelReclaimRequest request;
@@ -72,6 +74,8 @@ public:
     bool Suppress(uint64_t mesh, const std::array<uint32_t, 3>& rows, uint64_t revision,
         bool growsArena, uint64_t signature);
     bool Observe(NRIVoxelReclaimRequest& request);
+    GrowthPreview BeforeGrowth(NRIVoxelReclaimRequest& request,
+        const std::array<uint64_t, 3>& capacity, uint64_t oldBacking, uint64_t projectedPeak);
     void Success(uint64_t mesh);
     bool RetryAllowed(uint64_t mesh) const;
     const char* Poll(Record& record, bool usefulDemand, uint64_t geometryRevision, uint64_t demandRevision,
@@ -84,5 +88,6 @@ public:
 private:
     std::unordered_map<uint64_t, Record> records;
     uint64_t epoch = 0, tick = 0, processedTick = UINT64_MAX, nextEpisode = 1;
+    uint64_t growthPreviewTick = UINT64_MAX;
     uint32_t probes = 0;
 };

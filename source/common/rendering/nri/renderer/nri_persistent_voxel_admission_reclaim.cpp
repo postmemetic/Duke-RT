@@ -1,4 +1,5 @@
 #include "nri_persistent_voxel_admission_reclaim.h"
+#include "nri_persistent_voxel_retention_policy.h"
 #include <algorithm>
 
 bool NRIVoxelReclaimFits(NRIPersistentVoxelGeometryRanges& preview,
@@ -54,6 +55,7 @@ NRIVoxelReclaimPlan PlanNRIVoxelAdmissionReclaim(const NRIPersistentVoxelGeometr
     {
         if (plan.examined == NRIVoxelAdmissionReclaim::MaxCandidates) break;
         ++plan.examined;
+        if (request.beforeGrowth && candidate.warmRank != 0) continue;
         if (candidate.pinned || candidate.mesh == request.mesh || !preview.Owns(candidate.range)) continue;
         if (previews == NRIVoxelAdmissionReclaim::MaxPreviews)
         { plan.reason = "bounded-preview-limit"; break; }
@@ -74,7 +76,7 @@ NRIVoxelReclaimPlan PlanNRIVoxelAdmissionReclaim(const NRIPersistentVoxelGeometr
 }
 
 void NRIVoxelAdmissionReclaim::Reset()
-{ records.clear(); epoch = tick = suppressed = 0; processedTick = UINT64_MAX; nextEpisode = 1; probes = 0; }
+{ records.clear(); epoch = tick = suppressed = 0; processedTick = growthPreviewTick = UINT64_MAX; nextEpisode = 1; probes = 0; }
 
 void NRIVoxelAdmissionReclaim::BeginTick(uint64_t nextEpoch, uint64_t nextTick)
 {
@@ -91,7 +93,7 @@ bool NRIVoxelAdmissionReclaim::Suppress(uint64_t mesh, const std::array<uint32_t
     if (found != records.end())
     {
         const auto& record = found->second;
-        if (record.request.rows == rows && record.request.revision == revision &&
+        if (!record.request.beforeGrowth && record.request.rows == rows && record.request.revision == revision &&
             record.stage != Stage::Retry && record.request.signature == signature && tick >= record.request.tick &&
             tick - record.request.tick < ProbeTicks)
         { ++suppressed; return true; }
@@ -121,7 +123,8 @@ bool NRIVoxelAdmissionReclaim::Observe(NRIVoxelReclaimRequest& request)
     request.episode = record.request.episode;
     if (record.stage == Stage::Waiting) { record.request = request; return false; }
     const bool changed = record.request.rows != request.rows || record.request.revision != request.revision ||
-        record.request.nonArenaBytes != request.nonArenaBytes || record.request.signature != request.signature;
+        record.request.nonArenaBytes != request.nonArenaBytes || record.request.signature != request.signature ||
+        record.request.beforeGrowth != request.beforeGrowth;
     const auto oldStage = record.stage;
     if (changed) request.episode = nextEpisode++;
     record.request = request;
@@ -129,6 +132,39 @@ bool NRIVoxelAdmissionReclaim::Observe(NRIVoxelReclaimRequest& request)
         (oldStage == Stage::Retry ? Stage::Blocked : oldStage);
     if (record.stage != Stage::Waiting) record.retiring.clear();
     return changed;
+}
+
+NRIVoxelAdmissionReclaim::GrowthPreview NRIVoxelAdmissionReclaim::BeforeGrowth(
+    NRIVoxelReclaimRequest& request, const std::array<uint64_t, 3>& capacity,
+    uint64_t oldBacking, uint64_t projectedPeak)
+{
+    // This is an opportunity to reuse cold geometry. The normal preflight has
+    // already admitted this replacement. Roomy and small allocations stay on it.
+    if (!oldBacking || oldBacking < request.reserve || !request.budget ||
+        projectedPeak <= NRIVoxelCacheLowTarget(request.budget))
+        return GrowthPreview::Proceed;
+    for (size_t i = 0; i < capacity.size(); ++i)
+        if (!request.rows[i] || request.rows[i] > capacity[i]) return GrowthPreview::Proceed;
+
+    const auto found = records.find(request.mesh);
+    if (found != records.end())
+    {
+        const auto& record = found->second;
+        if (record.request.beforeGrowth && record.request.rows == request.rows &&
+            request.nonArenaBytes >= record.request.nonArenaBytes &&
+            request.avoidedArenaBytes >= record.request.avoidedArenaBytes &&
+            (request.tick == record.request.tick ||
+                (record.stage == Stage::Waiting && request.tick - record.request.tick < ProbeTicks)))
+            return GrowthPreview::Waiting;
+        return GrowthPreview::Proceed;
+    }
+    // Offer one new target per presentation, matching the planner's work
+    // budget. An unserviced notice delays that owner for just this presentation.
+    if (growthPreviewTick == tick) return GrowthPreview::Proceed;
+    request.beforeGrowth = true;
+    if (!Observe(request)) return GrowthPreview::Proceed;
+    growthPreviewTick = tick;
+    return GrowthPreview::Queued;
 }
 
 void NRIVoxelAdmissionReclaim::Success(uint64_t mesh) { records.erase(mesh); }
@@ -143,6 +179,15 @@ const char* NRIVoxelAdmissionReclaim::Poll(Record& record, bool usefulDemand,
     const std::array<uint64_t, 3>& capacity)
 {
     if (!usefulDemand || record.request.epoch != epoch) return "demand-superseded";
+    if (record.request.beforeGrowth &&
+        ((record.stage == Stage::Observed && tick - record.request.tick > 1) ||
+         (record.stage == Stage::Waiting && tick - record.request.tick >= ProbeTicks)))
+    {
+        // The actual retirement service continues to own any queued leases.
+        record.stage = Stage::Blocked;
+        record.retiring.clear();
+        return "growth-preview-expired";
+    }
     if (record.stage == Stage::Waiting)
     {
         for (const auto& lease : record.retiring) if (ranges.Owns(lease)) return nullptr;
@@ -160,7 +205,7 @@ const char* NRIVoxelAdmissionReclaim::Poll(Record& record, bool usefulDemand,
         record.processedDemandRevision = demandRevision; record.lastPlanTick = tick;
         return "retry-window-expired";
     }
-    if (record.stage == Stage::Blocked && (record.processedRevision != geometryRevision ||
+    if (!record.request.beforeGrowth && record.stage == Stage::Blocked && (record.processedRevision != geometryRevision ||
         record.processedDemandRevision != demandRevision || tick - record.lastPlanTick >= ProbeTicks))
         record.stage = Stage::Observed;
     return nullptr;

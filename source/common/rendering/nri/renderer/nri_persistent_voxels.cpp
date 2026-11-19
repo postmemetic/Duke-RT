@@ -1735,6 +1735,7 @@ void NRIPersistentVoxelResidency::ClearActorInstances(const NRIPersistentVoxelRe
 		geometryRanges.PrimitiveStats().liveRows != 0 || admissionIndex.HasActiveWork();
 	if (!keepSharedVariantArena)
 	{
+		if (vertexBuffer.buffer || indexBuffer.buffer || primitiveBuffer.buffer) allocationArenaRetry.BackingChanged();
 		services.RetireBuffer(vertexBuffer);
 		services.RetireBuffer(indexBuffer);
 		services.RetireBuffer(primitiveBuffer);
@@ -3913,6 +3914,7 @@ void NRIPersistentVoxelDestroyServices::DestroyBuffer(NRIBufferResource& resourc
 void NRIPersistentVoxelResidency::DestroyArenaBuffers(const NRIPersistentVoxelDestroyServices& services)
 {
 	MarkMaintenanceMutation();
+	allocationArenaRetry.BackingChanged();
 	services.DestroyBuffer(vertexBuffer);
 	services.DestroyBuffer(indexBuffer);
 	services.DestroyBuffer(primitiveBuffer);
@@ -10061,6 +10063,7 @@ void NRIPersistentVoxelResidency::Reset(
 	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
+	allocationArenaRetry.BackingChanged();
 	allocationBudgetCeiling = {};
 	preloadHandoff = {};
 	if (cacheDiagnosticState && PerfAuditActive())
@@ -10143,6 +10146,7 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
+	allocationArenaRetry.BackingChanged();
 	allocationBudgetCeiling = {};
 	preloadHandoff = {};
 	spriteFallbackActors.clear();

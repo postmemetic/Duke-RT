@@ -310,6 +310,7 @@ CVAR(Int, nri_ptvoxelinterimbudget, 0, 0) // Mid-allocation live budget: 0 off, 
 CVAR(Bool, nri_ptvoxelallocationretrybackoff, true, 0)
 CVAR(Bool, nri_ptvoxeladmissiontiming, false, 0)
 CVAR(Bool, nri_ptvoxeladmissionreclaim, true, 0)
+CVAR(Bool, nri_ptvoxelarenarecovery, true, 0)
 CVAR(Int, nri_ptvoxelallocationreservemb, 128, 0)
 CVAR(Int, nri_ptvoxelarenagrowthpercent, 125, 0)
 CVAR(Int, nri_ptvoxelarenastartuppercent, 100, 0)

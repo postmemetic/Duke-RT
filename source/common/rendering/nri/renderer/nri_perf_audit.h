@@ -66,6 +66,11 @@ struct NRIVoxelAllocationTiming
 
 void NRIAuditVoxelAllocationTiming(const NRIVoxelAllocationTiming& timing, uint32_t frame,
     uint64_t meshKey, const char* decision);
+struct NRIVoxelArenaReplacement;
+struct NRIVoxelArenaDenial;
+void NRIAuditVoxelArenaRetry(const char* action, uint32_t rendererFrame, uint64_t tick,
+    uint64_t epoch, uint64_t generation, uint64_t mesh, const NRIVoxelArenaReplacement& request,
+    const NRIVoxelArenaDenial& denial);
 NRITraceAuditCapture NRIBeginTraceAudit(bool diagnostic, bool conflictingProbe, uint64_t rendererFrame, uint64_t fence);
 void NRITraceAuditLoss(const NRITraceAuditCapture& capture, uint64_t rendererFrame, uint64_t fence, const char* reason, bool abandoned = false);
 void NRIPublishTraceAudit(const NRITraceAuditCapture& capture, uint64_t rendererFrame, uint64_t fence,

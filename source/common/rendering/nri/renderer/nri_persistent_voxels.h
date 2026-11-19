@@ -1414,6 +1414,7 @@ public:
 	uint32_t arenaVertexCursor = 0;
 	NRIPersistentVoxelGrowthRetry allocationGrowthRetry;
 	NRIPersistentVoxelAllocationRetry allocationMeshRetry;
+	NRIVoxelArenaRetry allocationArenaRetry;
 	NRIPersistentVoxelAllocationBudgetCeiling allocationBudgetCeiling;
 	NRIPersistentVoxelPrewarmHandoff preloadHandoff;
 	uint64_t schedulerRetirementEpoch = 1;

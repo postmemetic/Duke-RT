@@ -186,5 +186,6 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     arena.vertexBuffer = reserved[0];
     arena.indexBuffer = reserved[1];
     arena.primitiveBuffer = reserved[2];
+    arena.allocationArenaRetry.BackingChanged();
     report("reserved");
 }

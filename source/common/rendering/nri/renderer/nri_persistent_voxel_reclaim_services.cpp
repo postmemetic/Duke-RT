@@ -41,7 +41,7 @@ void NRIPersistentVoxelResidency::ReportAdmissionReclaim(const char* action, con
         "\"geometry_bytes_retiring\":%llu,\"physical_bytes_retiring\":%llu,\"candidate_rows\":%u,"
         "\"hard_pinned_meshes\":%u,\"geometry_revision\":%llu,\"suppressed_preflights\":%llu,"
         "\"vertex_hole_rows\":%llu,\"index_hole_rows\":%llu,\"primitive_hole_rows\":%llu,"
-        "\"episode_id\":%llu,\"work_cpu_ms\":%.6f,\"owner_records\":%llu,\"records_examined\":%u,\"plans_evaluated\":%u,"
+        "\"episode_id\":%llu,\"before_growth\":%s,\"work_cpu_ms\":%.6f,\"owner_records\":%llu,\"records_examined\":%u,\"plans_evaluated\":%u,"
         "\"vertex_capacity_rows\":%llu,\"index_capacity_rows\":%llu,\"primitive_capacity_rows\":%llu,"
         "\"victim_transaction\":%llu,\"victim_vertex_offset\":%u,\"victim_vertex_capacity\":%u,\"victim_vertex_generation\":%llu,"
         "\"victim_index_offset\":%u,\"victim_index_capacity\":%u,\"victim_index_generation\":%llu,"
@@ -55,7 +55,8 @@ void NRIPersistentVoxelResidency::ReportAdmissionReclaim(const char* action, con
         (unsigned long long)geometryBytes, (unsigned long long)physicalBytes, candidates, pins,
         (unsigned long long)reclaimGeometryRevision, (unsigned long long)admissionReclaim.suppressed,
         (unsigned long long)geometryRanges.VertexStats().holeRows, (unsigned long long)geometryRanges.IndexStats().holeRows,
-        (unsigned long long)geometryRanges.PrimitiveStats().holeRows, (unsigned long long)request.episode, workCpuMs,
+        (unsigned long long)geometryRanges.PrimitiveStats().holeRows, (unsigned long long)request.episode,
+        request.beforeGrowth ? "true" : "false", workCpuMs,
         (unsigned long long)admissionReclaim.RecordCount(), recordsExamined, plansEvaluated,
         (unsigned long long)(vertexBuffer.size / sizeof(nri_scene::SceneVertex)),
         (unsigned long long)(indexBuffer.size / sizeof(uint32_t)),
@@ -89,6 +90,11 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
         auto& record = it->second;
         ++workRecords;
         if (!workRequest.mesh) workRequest = record.request;
+        if (record.request.beforeGrowth && !(bool)nri_ptvoxelarenarecovery)
+        {
+            it = records.erase(it);
+            continue;
+        }
         const auto demand = actorDemand.Upgrade(it->first, frameIndex);
         const auto transition = admissionReclaim.Poll(record, demand.consumers != 0,
             reclaimGeometryRevision, actorDemand.UpgradeRevision(), geometryRanges, capacity);

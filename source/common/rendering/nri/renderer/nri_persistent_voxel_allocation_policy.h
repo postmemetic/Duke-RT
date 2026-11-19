@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <unordered_map>
@@ -73,6 +74,47 @@ struct NRIPersistentVoxelGrowthRetry
     bool minimumAfterPostDenial = false;
     uint32_t SelectPercent(uint32_t configuredPercent) const;
     void ObservePostDenial(uint32_t attemptedPercent, uint64_t oldArenaBytes, uint64_t newArenaBytes);
+};
+
+// A concrete, expensive replacement may reveal a lower live budget than its
+// preflight. Compare later requests on the same backing and stream mask before
+// creating another set of buffers. The seven nonempty masks bound storage.
+struct NRIVoxelArenaReplacement
+{
+    uint32_t streamMask = 0;
+    uint32_t growthPercent = 0;
+    uint64_t geometryBytes = 0;
+    uint64_t arenaBytes = 0;
+    uint64_t rawHeadroomBytes = 0; // After charging other owners, the provider and the safety reserve.
+    uint64_t projectedBytes = 0;
+};
+
+struct NRIVoxelArenaDenial
+{
+    NRIVoxelArenaReplacement request;
+    uint64_t tick = 0;
+    uint64_t firstTick = 0;
+    uint64_t mesh = 0;
+    uint64_t contractedBudget = 0;
+};
+
+class NRIVoxelArenaRetry
+{
+public:
+    static constexpr uint64_t ProbeTicks = 1920;
+    void BeginTick(uint64_t mapEpoch, uint64_t tick, bool enabled);
+    void BackingChanged();
+    uint64_t Generation() const { return generation; }
+    const NRIVoxelArenaDenial* Remember(const NRIVoxelArenaReplacement& request, uint64_t mesh,
+        uint64_t rawBudget, uint64_t postBudget, double transactionMs);
+    const NRIVoxelArenaDenial* Blocking(const NRIVoxelArenaReplacement& request) const;
+
+private:
+    std::array<NRIVoxelArenaDenial, 8> denials = {};
+    uint64_t epoch = 0;
+    uint64_t currentTick = 0;
+    uint64_t generation = 0;
+    bool active = false;
 };
 
 // Different material admission pairs can request the same mesh allocation.

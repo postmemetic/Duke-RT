@@ -2204,8 +2204,9 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 
 	NRIBufferResource oldResource = resource;
 	const uint64_t grownSize = GetNRIGrownBufferSize(oldResource.size, alignedRequiredSize, stride);
-	if (&resource == &mPersistentVoxels.vertexBuffer || &resource == &mPersistentVoxels.indexBuffer ||
-		&resource == &mPersistentVoxels.primitiveBuffer || &resource == &mPersistentVoxels.materialBuffer)
+	const bool voxelGeometryArena = &resource == &mPersistentVoxels.vertexBuffer ||
+		&resource == &mPersistentVoxels.indexBuffer || &resource == &mPersistentVoxels.primitiveBuffer;
+	if (voxelGeometryArena || &resource == &mPersistentVoxels.materialBuffer)
 		AuditPersistentVoxelArenaGrowthBudget(oldResource.memorySize, grownSize, stride);
 	resource = {};
 	const auto growthStart = std::chrono::steady_clock::now();
@@ -2246,6 +2247,7 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	}
 	resource.usedSize = requiredSize;
 	uint64_t copiedSize = 0;
+	if (voxelGeometryArena) mPersistentVoxels.allocationArenaRetry.BackingChanged();
 
 	if (oldResource.buffer != nullptr && mFrameBuffer->mCommandBuffer != nullptr)
 	{

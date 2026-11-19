@@ -87,6 +87,49 @@ void NRIPersistentVoxelGrowthRetry::ObservePostDenial(uint32_t attemptedPercent,
         minimumAfterPostDenial = true;
 }
 
+void NRIVoxelArenaRetry::BeginTick(uint64_t mapEpoch, uint64_t tick, bool enabled)
+{
+    if (epoch != mapEpoch || tick < currentTick || (active && !enabled))
+        denials = {};
+    epoch = mapEpoch;
+    currentTick = tick;
+    active = enabled;
+}
+
+void NRIVoxelArenaRetry::BackingChanged()
+{
+    denials = {};
+    ++generation;
+}
+
+const NRIVoxelArenaDenial* NRIVoxelArenaRetry::Remember(const NRIVoxelArenaReplacement& request,
+    uint64_t mesh, uint64_t rawBudget, uint64_t postBudget, double transactionMs)
+{
+    if (!active || !request.streamMask || request.streamMask >= denials.size() ||
+        !postBudget || postBudget >= rawBudget || transactionMs < 50.0)
+        return nullptr;
+    auto& prior = denials[request.streamMask];
+    // One probe deadline per shape. Deferring this or any other owner cannot
+    // keep moving the deadline, even if a smaller physical request fails too.
+    const bool sameWindow = prior.contractedBudget && prior.request.growthPercent == request.growthPercent &&
+        currentTick - prior.firstTick < ProbeTicks;
+    const uint64_t firstTick = sameWindow ? prior.firstTick : currentTick;
+    prior = { request, currentTick, firstTick, mesh, postBudget };
+    return &prior;
+}
+
+const NRIVoxelArenaDenial* NRIVoxelArenaRetry::Blocking(const NRIVoxelArenaReplacement& request) const
+{
+    if (!active || !request.streamMask || request.streamMask >= denials.size()) return nullptr;
+    const auto& prior = denials[request.streamMask];
+    if (!prior.contractedBudget || currentTick - prior.firstTick >= ProbeTicks ||
+        request.growthPercent != prior.request.growthPercent || request.geometryBytes < prior.request.geometryBytes ||
+        request.arenaBytes < prior.request.arenaBytes || request.rawHeadroomBytes > prior.request.rawHeadroomBytes ||
+        request.projectedBytes <= prior.contractedBudget)
+        return nullptr;
+    return &prior;
+}
+
 bool NRIPersistentVoxelAllocationWaitCanContinue(const char* reason, bool hasOwnedWork)
 {
     return !hasOwnedWork && reason &&

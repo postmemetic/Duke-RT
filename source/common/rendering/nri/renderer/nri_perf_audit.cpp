@@ -1,4 +1,5 @@
 #include "nri_perf_audit.h"
+#include "nri_persistent_voxel_allocation_policy.h"
 #include "nri_trace_stats.h"
 #include "nri_scene_lights.h"
 #include "nri_renderer.h"
@@ -37,6 +38,26 @@ namespace
 bool NRITraceAuditRequested()
 {
     return PerfAuditActive() && nri_ptperfauditgpu && PerfAuditCensusRequested();
+}
+
+void NRIAuditVoxelArenaRetry(const char* action, uint32_t rendererFrame, uint64_t tick, uint64_t epoch,
+    uint64_t generation, uint64_t mesh, const NRIVoxelArenaReplacement& request, const NRIVoxelArenaDenial& denial)
+{
+    if (!PerfAuditActive()) return;
+    char fields[960];
+    snprintf(fields, sizeof(fields), "\"action\":\"%s\",\"renderer_frame\":%u,\"retry_tick\":%llu,\"map_epoch\":%llu,"
+        "\"backing_generation\":%llu,\"mesh_key\":%llu,\"stream_mask\":%u,\"growth_percent\":%u,"
+        "\"geometry_bytes\":%llu,\"arena_bytes\":%llu,\"headroom_bytes\":%llu,\"projected_bytes\":%llu,"
+        "\"denied_mesh_key\":%llu,\"denied_tick\":%llu,\"window_start_tick\":%llu,\"denied_geometry_bytes\":%llu,"
+        "\"denied_arena_bytes\":%llu,\"denied_headroom_bytes\":%llu,\"contracted_budget_bytes\":%llu",
+        action, rendererFrame, (unsigned long long)tick, (unsigned long long)epoch, (unsigned long long)generation,
+        (unsigned long long)mesh, request.streamMask, request.growthPercent, (unsigned long long)request.geometryBytes,
+        (unsigned long long)request.arenaBytes, (unsigned long long)request.rawHeadroomBytes,
+        (unsigned long long)request.projectedBytes, (unsigned long long)denial.mesh, (unsigned long long)denial.tick,
+        (unsigned long long)denial.firstTick, (unsigned long long)denial.request.geometryBytes,
+        (unsigned long long)denial.request.arenaBytes, (unsigned long long)denial.request.rawHeadroomBytes,
+        (unsigned long long)denial.contractedBudget);
+    PerfAuditWriteEvent("voxel_arena_retry", PerfAuditCurrentToken(), fields);
 }
 
 void NRIAuditVoxelAllocationTiming(const NRIVoxelAllocationTiming& timing, uint32_t frame,
