@@ -18,12 +18,14 @@ enum class NRIPersistentVoxelAllocationResult : uint8_t
     DeferredFence,
     RequirementsUnavailable,
     AllocationFailed,
+    DeferredIdleGrowth,
 };
 
 inline bool NRIPersistentVoxelAllocationDeferred(NRIPersistentVoxelAllocationResult result)
 {
     return result == NRIPersistentVoxelAllocationResult::DeferredBudget ||
         result == NRIPersistentVoxelAllocationResult::DeferredCooldown ||
+        result == NRIPersistentVoxelAllocationResult::DeferredIdleGrowth ||
         result == NRIPersistentVoxelAllocationResult::DeferredSource ||
         result == NRIPersistentVoxelAllocationResult::DeferredFence ||
         result == NRIPersistentVoxelAllocationResult::RequirementsUnavailable;

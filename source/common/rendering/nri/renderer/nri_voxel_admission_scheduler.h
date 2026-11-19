@@ -190,6 +190,10 @@ struct NRIVoxelAdmissionSnapshot
 	uint64_t heldReservationBytes = 0;
 	uint64_t heldBlasBytes = 0;
 	uint64_t acceptedJobs = 0;
+	uint64_t withdrawnPreflights = 0;
+	uint64_t tokenRecords = 0;
+	uint64_t computeQueueEntries = 0;
+	uint64_t blasQueueEntries = 0;
 	uint64_t attachedBindings = 0;
 	uint64_t rejectedJobs = 0;
 	uint64_t invalidTransitions = 0;
@@ -219,6 +223,8 @@ public:
 	bool MarkPublished(uint64_t tokenId);
 	bool MarkTlasReady(uint64_t tokenId);
 	bool Cancel(uint64_t tokenId);
+	// Reverse a new sole-owner queue reservation before any physical work is acquired.
+	bool WithdrawUnsubmittedPreflight(uint64_t tokenId, uint64_t pairKey);
 	bool Fail(uint64_t tokenId);
 	bool RetireTerminalReservation(uint64_t tokenId);
 	bool AbandonTerminalReservation(uint64_t tokenId);

@@ -206,6 +206,14 @@ void NRIPersistentVoxelResidency::CapturePerfAuditCensus(uint32_t rendererFrameI
 	PerfAuditSet(PerfAuditMetric::VoxelGeometryRangeQuarantinedCount, quarantinedCount);
 	PerfAuditSet(PerfAuditMetric::VoxelGeometryRangeQuarantinedBytes, quarantinedBytes);
 	const auto scheduler = admissionScheduler.GetSnapshot();
+	char schedulerFields[384];
+	std::snprintf(schedulerFields, sizeof(schedulerFields),
+		"\"renderer_frame\":%u,\"map_generation\":%llu,\"token_records\":%llu,\"compute_queue_entries\":%llu,"
+		"\"blas_queue_entries\":%llu,\"active_jobs\":%u,\"accepted_jobs\":%llu,\"withdrawn_preflights\":%llu",
+		rendererFrameIndex, (unsigned long long)scheduler.activeMapGeneration, (unsigned long long)scheduler.tokenRecords,
+		(unsigned long long)scheduler.computeQueueEntries, (unsigned long long)scheduler.blasQueueEntries,
+		scheduler.activeJobs, (unsigned long long)scheduler.acceptedJobs, (unsigned long long)scheduler.withdrawnPreflights);
+	PerfAuditWriteEvent("voxel_admission_scheduler_census", PerfAuditCurrentToken(), schedulerFields);
 	PerfAuditSet(PerfAuditMetric::VoxelSchedulerReservationHeldBytes, scheduler.heldReservationBytes);
 	PerfAuditSet(PerfAuditMetric::VoxelSchedulerReservationRetirePendingBytes, scheduler.retirePendingBytes);
 	uint64_t schedulerQuarantinedCount = 0, schedulerQuarantinedBytes = 0;

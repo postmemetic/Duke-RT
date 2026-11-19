@@ -773,6 +773,26 @@ bool NRIVoxelAdmissionScheduler::Cancel(uint64_t tokenId)
 	return token != nullptr && Terminalize(*token, NRIVoxelAdmissionStage::Cancelled);
 }
 
+bool NRIVoxelAdmissionScheduler::WithdrawUnsubmittedPreflight(uint64_t tokenId, uint64_t pairKey)
+{
+	// Admit appended this token in this same call. A later queued job,
+	// shared material owner, or any submitted work needs its normal lifetime.
+	if (m_computeQueue.empty() || m_computeQueue.back() != tokenId) return false;
+	auto found = m_tokens.find(tokenId);
+	if (found == m_tokens.end()) return false;
+	Token& token = found->second;
+	if (token.stage != NRIVoxelAdmissionStage::ComputeQueued ||
+		token.reservationState != NRIVoxelAdmissionReservationState::Active ||
+		token.bindings.size() != 1 || token.bindings.front().pairKey != pairKey)
+		return false;
+	ReleaseAdmissionOwnership(token, true);
+	--m_snapshot.stageCounts[(size_t)NRIVoxelAdmissionStage::ComputeQueued];
+	++m_snapshot.withdrawnPreflights;
+	m_computeQueue.pop_back();
+	m_tokens.erase(found);
+	return true;
+}
+
 bool NRIVoxelAdmissionScheduler::Fail(uint64_t tokenId)
 {
 	Token* token = FindToken(tokenId);
@@ -943,6 +963,9 @@ std::vector<NRIVoxelAdmissionTokenSnapshot> NRIVoxelAdmissionScheduler::GetToken
 NRIVoxelAdmissionSnapshot NRIVoxelAdmissionScheduler::GetSnapshot() const
 {
 	NRIVoxelAdmissionSnapshot snapshot = m_snapshot;
+	snapshot.tokenRecords = m_tokens.size();
+	snapshot.computeQueueEntries = m_computeQueue.size();
+	snapshot.blasQueueEntries = m_blasQueue.size();
 	snapshot.meshOwnerCount = (uint32_t)m_meshOwners.size();
 	snapshot.pairOwnerCount = (uint32_t)m_pairOwners.size();
 	return snapshot;

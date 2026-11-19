@@ -222,7 +222,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         if (choice.defer)
         {
             mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
-            return Result::DeferredCooldown;
+            return Result::DeferredIdleGrowth;
         }
     }
     if (reclaimEnabled)

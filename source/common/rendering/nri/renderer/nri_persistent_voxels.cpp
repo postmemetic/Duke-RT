@@ -5793,18 +5793,25 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		return NRIVoxelGeometryAdmissionIntent{entry.sourceBits, entry.priority, entry.admissionOrigins,
 			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff, entry.preloadInputHints};
 	};
+	uint64_t newPreflightToken = 0;
 	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
 		const NRIPersistentVoxelGeometryRangeHandle& oldRange, NRIPersistentVoxelAllocationResult result)
 	{
 		RollbackUnsubmittedGeometryRange(mesh, oldRange);
-		services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, false));
+		const bool idleGrowth = result == NRIPersistentVoxelAllocationResult::DeferredIdleGrowth;
+		if (idleGrowth && newPreflightToken && entry.schedulerTokenId == newPreflightToken &&
+			admissionScheduler.WithdrawUnsubmittedPreflight(newPreflightToken, entry.pairKey))
+			entry.schedulerTokenId = 0;
+		else
+			services.RetireSchedulerReservation(TerminalizeAdmissionSchedulerToken(entry, false));
+		const bool cooldown = result == NRIPersistentVoxelAllocationResult::DeferredCooldown || idleGrowth;
 		entry.state = PersistentVoxelAdmissionState::Deferred;
 		entry.lastReason = result == NRIPersistentVoxelAllocationResult::AllocationFailed ?
 			"allocation-device-retry" : (result == NRIPersistentVoxelAllocationResult::DeferredSource ?
-			"allocation-source-pending" : (result == NRIPersistentVoxelAllocationResult::DeferredCooldown ?
+			"allocation-source-pending" : (cooldown ?
 			"allocation-mesh-cooldown" : "allocation-budget-deferred"));
 		const uint32_t retryDelay = result == NRIPersistentVoxelAllocationResult::DeferredSource ? 1u : 30u;
-		entry.allocationRetryTick = result == NRIPersistentVoxelAllocationResult::DeferredCooldown ? mesh.allocationRetryTick :
+		entry.allocationRetryTick = cooldown ? mesh.allocationRetryTick :
 			NRIVoxelComputeSaturatingAdd(retryTick, retryDelay);
 		outInProgress = true;
 		return true;
@@ -5878,6 +5885,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			return true;
 		}
 		entry.schedulerTokenId = schedulerResult.tokenId;
+		if (schedulerResult.code == NRIVoxelAdmissionResultCode::Accepted)
+			newPreflightToken = schedulerResult.tokenId;
 		NoteNRIVoxelAdmissionDiagnostic(*this, entry.pairKey, "scheduler-result", (int32_t)schedulerResult.code);
 	}
 	auto finalizeDirectBlas = [&]() -> bool
