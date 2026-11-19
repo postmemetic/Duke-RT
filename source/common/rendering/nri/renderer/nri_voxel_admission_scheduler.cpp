@@ -370,11 +370,13 @@ bool NRIVoxelAdmissionScheduler::CanAcquire(const Token& token, bool compute) co
 
 bool NRIVoxelAdmissionScheduler::HasQueuedExclusiveToken() const
 {
-	for (const auto& pair : m_tokens)
+	// Every queued token still owns its mesh. The live owner registry is
+	// bounded by maxActiveJobs, even after a long history of cancelled jobs.
+	for (const auto& owner : m_meshOwners)
 	{
-		const Token& token = pair.second;
-		if (token.oversizedExclusive &&
-			(token.stage == NRIVoxelAdmissionStage::ComputeQueued || token.stage == NRIVoxelAdmissionStage::BlasQueued))
+		const Token* token = FindToken(owner.second);
+		if (token && token->oversizedExclusive &&
+			(token->stage == NRIVoxelAdmissionStage::ComputeQueued || token->stage == NRIVoxelAdmissionStage::BlasQueued))
 		{
 			return true;
 		}
