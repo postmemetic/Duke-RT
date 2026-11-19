@@ -902,6 +902,7 @@ struct NRIPersistentVoxelBatchStats
 	uint32_t persistentVoxelOnboardingAdmittedCount = 0;
 	uint32_t persistentVoxelOnboardingTextureBudgetHits = 0;
 	uint32_t persistentVoxelOnboardingAdmissionPendingCount = 0;
+	uint32_t runtimeTailHeldActors = 0;
 	uint32_t persistentVoxelOnboardingTexturePrewarmDeferredCount = 0;
 	uint32_t persistentVoxelOnboardingMaterialInvalidCount = 0;
 	uint32_t persistentVoxelOnboardingBudgetDeferredCount = 0;
@@ -1147,7 +1148,7 @@ public:
 		const NRIPersistentVoxelSettings& settings,
 		int loadingTraceLevel,
 		bool voxelStatsEnabled,
-		const NRIPersistentVoxelResetServices& services);
+		const NRIPersistentVoxelResetServices& services, uint32_t* runtimeTailHeldActors = nullptr);
 	bool PreloadVariantResources(
 		const std::vector<nri_scene::PrecachedVoxelVariantView>& variants,
 		uint64_t buildSerial,

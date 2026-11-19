@@ -505,6 +505,18 @@ namespace
 			snapshot.retirePendingBlasBytes == 0;
 	}
 
+	bool BlockOptionalVoxelPreloadAdmissions()
+	{
+		return (bool)nri_ptloadingvoxelblockoptional || (bool)nri_ptvoxelcomputepreloadstrict;
+	}
+
+	bool IsUnstartedOptionalAdmission(const PersistentVoxelAdmissionEntry& entry, bool required)
+	{
+		return !required && !entry.runtimeRequested &&
+			(entry.state == PersistentVoxelAdmissionState::Pending || entry.state == PersistentVoxelAdmissionState::Deferred) &&
+			!entry.uploadPrepared && !entry.schedulerTokenId && !entry.directComputeRequested && !entry.directBlasFenceValue;
+	}
+
 	struct PersistentVoxelSharedBlasRouteEvaluation
 	{
 		const NRIPersistentVoxelSharedBlasEntry* sharedEntry = nullptr;
@@ -5153,12 +5165,14 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		}
 		const bool requiredAdmission = IsRequiredAdmission(*entry);
 		const bool uploadState = isUploadState(entry->state);
-		if (!loadingPhase && !entry->runtimeRequested && !requiredAdmission && !uploadState)
+		const bool parkDuringFinalDrain = loadingPhase && loadingWarmupActive && !BlockOptionalVoxelPreloadAdmissions() &&
+			IsUnstartedOptionalAdmission(*entry, requiredAdmission);
+		if (parkDuringFinalDrain || (!loadingPhase && !entry->runtimeRequested && !requiredAdmission && !uploadState))
 		{
 			stats.skippedBudget++;
 			entry->state = PersistentVoxelAdmissionState::Deferred;
-			diagnostic.Disposition("optional-runtime-skip");
-			entry->lastReason = "optional-preload-runtime";
+			diagnostic.Disposition(loadingPhase ? "optional-final-drain-skip" : "optional-runtime-skip");
+			entry->lastReason = loadingPhase ? "optional-preload-final-drain" : "optional-preload-runtime";
 			stopReason = entry->lastReason;
 			continue;
 		}
@@ -8247,7 +8261,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 					settings,
 					loadingTraceLevel,
 					voxelStatsEnabled,
-					resetServices);
+					resetServices, loadingWarmupActive ? &outStats.runtimeTailHeldActors : nullptr);
 				if (existingActor != nullptr)
 				{
 					existingActor->active = true;
@@ -10864,7 +10878,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	const NRIPersistentVoxelSettings& settings,
 	int loadingTraceLevel,
 	bool voxelStatsEnabled,
-	const NRIPersistentVoxelResetServices& services)
+	const NRIPersistentVoxelResetServices& services, uint32_t* runtimeTailHeldActors)
 {
 	const bool runtimeRequested = origin == NRIVoxelAdmissionOrigin::RuntimeActor;
 	nri_scene::VoxelPreloadInputHints inputHints;
@@ -10907,6 +10921,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 				residencyMapGeneration);
 		}
 		NoteNRIVoxelAdmissionRejectedDiagnostic(meshResourceKey, variant.materialKeyHash, residencyMapGeneration, "runtime-tail-held");
+		if (runtimeTailHeldActors) ++*runtimeTailHeldActors;
 		return false;
 	}
 
@@ -11256,7 +11271,7 @@ bool NRIPersistentVoxelResidency::PreloadVariantResources(
 			(uint32_t)variants.size() - runtimeWithheldVariants);
 	}
 
-	const bool blockOptionalPreloadAdmissions = (bool)nri_ptloadingvoxelblockoptional;
+	const bool blockOptionalPreloadAdmissions = BlockOptionalVoxelPreloadAdmissions();
 	auto isBlockingAdmission = [&](const PersistentVoxelAdmissionEntry& entry) -> bool
 	{
 		return
@@ -11903,29 +11918,40 @@ bool NRIPersistentVoxelResidency::PreloadResources(
 		batchStats.persistentVoxelTexturePrewarmDeferredCount == 0 &&
 		batchStats.persistentVoxelOnboardingTexturePrewarmDeferredCount == 0 &&
 		batchStats.persistentVoxelOnboardingTextureBudgetHits == 0;
-	uint32_t runtimeTailHeldActors = 0;
-	if (!IsNRIVoxelComputePreloadRuntimeTailReleased(buildSerial))
-	{
-		for (const nri_scene::PersistentVoxelCacheEntryView& cacheEntry : cacheEntries)
-		{
-			if (IsNRIVoxelComputePreloadRuntimeWithheldMesh(
-					buildSerial,
-					BuildPersistentVoxelMeshResourceKey(cacheEntry, settings)))
-			{
-				runtimeTailHeldActors++;
-			}
-		}
-	}
-	const bool runtimeTailHoldDeadEnd =
+	const uint32_t runtimeTailHeldActors = batchStats.runtimeTailHeldActors;
+	const bool onlyRuntimeTailActors =
 		!ready &&
 		lastPreloadStatus.requiredPending == 0 &&
-		lastPreloadStatus.optionalPending == 0 &&
 		runtimeTailHeldActors != 0 &&
-		batchStats.persistentVoxelOnboardingAdmissionPendingCount != 0 &&
-		batchStats.persistentVoxelOnboardingAdmissionPendingCount <= runtimeTailHeldActors &&
+		batchStats.persistentVoxelOnboardingAdmissionPendingCount == runtimeTailHeldActors &&
+		batchStats.persistentVoxelOnboardingDeferredCount == runtimeTailHeldActors &&
+		batchStats.persistentVoxelOnboardingMaterialInvalidCount == 0 &&
 		batchStats.persistentVoxelTexturePrewarmDeferredCount == 0 &&
 		batchStats.persistentVoxelOnboardingTexturePrewarmDeferredCount == 0 &&
 		batchStats.persistentVoxelOnboardingTextureBudgetHits == 0;
+	uint32_t parkedOptional = 0;
+	bool runtimeTailHoldDeadEnd = false;
+	if (onlyRuntimeTailActors && (!lastPreloadStatus.optionalPending || !BlockOptionalVoxelPreloadAdmissions()))
+	{
+		// The tail opens on first-frame release. Unstarted, optional preload
+		// records cannot block that release, and remain available for runtime.
+		for (const uint64_t key : admissionIndex.ActiveKeys())
+		{
+			const auto found = admissionQueue.find(key);
+			if (found != admissionQueue.end() && found->second.mapGeneration == residencyMapGeneration &&
+				IsUnstartedOptionalAdmission(found->second, IsRequiredAdmission(found->second))) ++parkedOptional;
+		}
+		runtimeTailHoldDeadEnd = parkedOptional == lastPreloadStatus.optionalPending &&
+			PersistentVoxelAdmissionSchedulerQuiescent(admissionScheduler.GetSnapshot());
+		if (!runtimeTailHoldDeadEnd && !preloadServices.IsSubmitBudgetHit())
+		{
+			// The normal required preload pass already drained. Finish outstanding
+			// ownership/fences with one loading slice before the next presentation.
+			preloadServices.PumpComputeJobs(frameIndex);
+			preloadServices.PumpAdmissionQueue("loading");
+			preloadServices.PumpComputeJobs(frameIndex);
+		}
+	}
 	lastPreloadStatus.batchReady = (ready || admissionOnlyDeadEnd || runtimeTailHoldDeadEnd) && sharedBlasWarmupReady;
 	lastPreloadStatus.batchReadyActors = batch.activeActorCount;
 	lastPreloadStatus.deferredTexturePrewarm =
@@ -11942,6 +11968,16 @@ bool NRIPersistentVoxelResidency::PreloadResources(
 	if (!lastPreloadStatus.batchReady)
 	{
 		preloadPending = true;
+	}
+
+	if (runtimeTailHoldDeadEnd && PerfAuditActive())
+	{
+		char fields[320];
+		std::snprintf(fields, sizeof(fields), "\"map_epoch\":%llu,\"renderer_frame\":%u,\"reason\":\"runtime-tail-held\","
+			"\"required_ready\":%u,\"required_pending\":%u,\"parked_optional\":%u,\"held_actors\":%u,\"queue_preserved\":true",
+			(unsigned long long)buildSerial, frameIndex, lastPreloadStatus.requiredReady,
+			lastPreloadStatus.requiredPending, parkedOptional, runtimeTailHeldActors);
+		PerfAuditWriteEvent("voxel_loading_tail_release", PerfAuditCurrentToken(), fields);
 	}
 
 	if (loadingTraceLevel >= 1)
@@ -11972,10 +12008,10 @@ bool NRIPersistentVoxelResidency::PreloadResources(
 		}
 		if (runtimeTailHoldDeadEnd)
 		{
-			Printf("NRI PT loading voxel resources: event=release reason=runtime-tail-held entries=%u admission_pending=%u held_actors=%u\n",
+			Printf("NRI PT loading voxel resources: event=release reason=runtime-tail-held entries=%u admission_pending=%u held_actors=%u parked_optional=%u\n",
 				(uint32_t)cacheEntries.size(),
 				batchStats.persistentVoxelOnboardingAdmissionPendingCount,
-				runtimeTailHeldActors);
+				runtimeTailHeldActors, parkedOptional);
 		}
 	}
 	return lastPreloadStatus.batchReady;
