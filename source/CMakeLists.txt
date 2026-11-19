@@ -1710,6 +1710,7 @@ if (HAVE_NRI)
 	# invalidate every consumer through the conservative common dependency list.
 	set(NRI_SHARED_SHADER_FILES ${NRI_SHADER_FILES})
 	list(APPEND NRI_SHARED_SHADER_FILES "${RAZE_NRD_SHADER_CONFIG}")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/TraceOpaque[.]cs[.]hlsl$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransient[^/]*[.]cs[.]hlsl$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientLighting[.]hlsli$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientCoverage[.]hlsli$")
@@ -1733,6 +1734,10 @@ if (HAVE_NRI)
 	set(RAZE_NRI_RAY_QUERY_SPIRV_ARGS
 		-fspv-extension=SPV_KHR_ray_query
 		-fspv-extension=SPV_EXT_descriptor_indexing)
+	include("${CMAKE_SOURCE_DIR}/cmake/NriTraceOpaqueShaders.cmake")
+	# Full-profile DXC legalization can consume several GiB per process.
+	set_property(GLOBAL APPEND PROPERTY JOB_POOLS nri_trace_shaders=2)
+	raze_add_trace_opaque_shaders(RAZE_NRI_TRACE_BLOBS "${RAZE_NRI_SHADER_OUTPUT_DIR}" PRODUCTION)
 	foreach(_transient_pass Clear BuildBins LightBuild Materialize)
 		set(_transient_source "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTransient${_transient_pass}.cs.hlsl")
 		set(_transient_target cs_6_0)
@@ -1779,18 +1784,8 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTypedCache.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTypedCache.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Composition.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Composition.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceTransparent.cs.dxil"
@@ -1968,18 +1963,8 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T ps_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T vs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T ps_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTypedCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTypedCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_5 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Composition.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Composition.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_5 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Composition.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Composition.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceTransparent.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceTransparent.cs.hlsl"
@@ -2156,7 +2141,6 @@ if (HAVE_NRI)
 			${NRI_SHARED_SHADER_FILES}
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Composition.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceTransparent.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeClear.cs.hlsl"
@@ -2264,23 +2248,13 @@ if (HAVE_NRI)
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/BloomComposite.cs.hlsl"
 		VERBATIM)
 	add_custom_target(raze_nri_shaders ALL
-		DEPENDS
+		DEPENDS ${RAZE_NRI_TRACE_BLOBS}
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTypedCache.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTypedCache.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Composition.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Composition.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceTransparent.cs.dxil"
@@ -2471,60 +2445,24 @@ if (HAVE_NRI)
 		VERBATIM)
 	if(RAZE_NRI_SHADER_PROFILE_RESOLVED STREQUAL "DEVELOPER")
 		set(RAZE_NRI_DIAGNOSTIC_SHADER_DIR "${RAZE_NRI_SHADER_OUTPUT_DIR}/variants/diagnostic")
+		raze_add_trace_opaque_shaders(RAZE_NRI_DIAGNOSTIC_TRACE_BLOBS "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}" DIAGNOSTIC)
 		set(RAZE_NRI_DIAGNOSTIC_SHADER_ARGS ${RAZE_NRI_COMMON_SHADER_ARGS})
 		list(REMOVE_ITEM RAZE_NRI_DIAGNOSTIC_SHADER_ARGS -DNRI_SHADER_DIAGNOSTICS=0)
 		list(APPEND RAZE_NRI_DIAGNOSTIC_SHADER_ARGS -DNRI_SHADER_DIAGNOSTICS=1)
 		add_custom_command(
 			OUTPUT
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.spirv"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTypedCache.cs.dxil"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTypedCache.cs.spirv"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCompare.cs.dxil"
-				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCompareCache.cs.dxil"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.dxil"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.spirv"
 			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -DNRI_SPATIAL_ABSENCE_FORMAT=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTypedCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${RAZE_NRI_RAY_QUERY_SPIRV_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTypedCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=2 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCompare.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
-			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=2 -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCompareCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
 			DEPENDS
-				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeProjection.hlsli"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeOpticalContent.hlsli"
 				${NRI_SHARED_SHADER_FILES}
 			VERBATIM)
-		add_custom_target(raze_nri_diagnostic_shaders DEPENDS
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.spirv"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTypedCache.cs.dxil"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTypedCache.cs.spirv"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCompare.cs.dxil"
-			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCompareCache.cs.dxil"
+		add_custom_target(raze_nri_diagnostic_shaders DEPENDS ${RAZE_NRI_DIAGNOSTIC_TRACE_BLOBS}
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.dxil"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/SmokeViewWorkProjectTiles.cs.spirv")
 		add_dependencies(raze_nri_shaders raze_nri_diagnostic_shaders)

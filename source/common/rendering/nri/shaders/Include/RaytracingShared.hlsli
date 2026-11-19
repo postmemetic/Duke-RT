@@ -13,7 +13,9 @@
 #include "StaticShadingData.hlsli"
 #include "RayQueryContinuation.hlsli"
 #include "ActorSpriteWorkloads.hlsli"
+#if defined(NRI_ENABLE_PERSISTENT_VOXEL_PAGE)
 #include "PersistentVoxelPage.hlsli"
+#endif
 
 StructuredBuffer<StaticTangentData> gStaticTangents : register(t28, space2);
 
@@ -643,8 +645,10 @@ PrimitiveData GetPrimitiveData(uint dataSource, uint primitiveIndex)
 	if (dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 	{
 #if defined(NRI_ENABLE_PERSISTENT_VOXEL_SCENE)
+#if defined(NRI_ENABLE_PERSISTENT_VOXEL_PAGE)
 		if ((primitiveIndex & VOXEL_PAGE_BIT) != 0u)
 			return ReadVoxelPagePrimitive(gVoxelPagePrimitives, primitiveIndex);
+#endif
 		return gPersistentVoxelPrimitives[min(primitiveIndex, max(GetPersistentVoxelPrimitiveCount(), 1u) - 1u)];
 #else
 		return gDynamicPrimitives[min(primitiveIndex, max(gTraceConstants.DynamicPrimitiveCount, 1u) - 1u)];
@@ -663,8 +667,10 @@ SceneVertex GetVertexData(uint dataSource, uint vertexIndex)
 	if (dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 	{
 #if defined(NRI_ENABLE_PERSISTENT_VOXEL_SCENE)
+#if defined(NRI_ENABLE_PERSISTENT_VOXEL_PAGE)
 		if ((vertexIndex & VOXEL_PAGE_BIT) != 0u)
 			return ReadVoxelPageVertex(gVoxelPageVertices, vertexIndex);
+#endif
 		return gPersistentVoxelVertices[min(vertexIndex, max(GetPersistentVoxelVertexCount(), 1u) - 1u)];
 #else
 		return gDynamicVertices[vertexIndex];
@@ -2438,7 +2444,7 @@ HitData TraceBootstrapGeometry(float3 origin, float3 direction)
 
 // Keep one copy of the instrumented traversal across primary and secondary rays.
 // Expanding the loop into every caller exceeds DXC's SPIR-V legalization limits.
-#if NRI_SHADER_DIAGNOSTICS && defined(__spirv__) && !defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY)
+#if NRI_SHADER_DIAGNOSTICS && defined(__spirv__) && defined(NRI_ENABLE_PERSISTENT_VOXEL_PAGE) && !defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY)
 [noinline]
 #endif
 bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDistance, uint traceMask, bool gateVisibleChunks, bool gateSpatialAbsence, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, bool forceSpatialProbeRay, bool forceLegacyTraversal, inout uint traversalTemporalFlags, out HitData hitData, out bool skipLimitReached)

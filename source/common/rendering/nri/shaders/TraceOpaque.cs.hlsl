@@ -958,7 +958,12 @@ bool SamplePointOnEmissiveCandidate(
 			instanceData.metadata1 != candidate.occurrenceKeyHi ||
 			instanceData.metadata2 != candidate.occurrenceGeneration)
 			return false;
+#if defined(NRI_ENABLE_PERSISTENT_VOXEL_PAGE)
 		if (!VoxelPrimitiveRangeFits(gPersistentVoxelPrimitives, gVoxelPagePrimitives, candidate.primitiveIndex, candidate.primitiveCount))
+#else
+		const uint persistentPrimitiveCount = GetPersistentVoxelPrimitiveCount();
+		if (candidate.primitiveIndex >= persistentPrimitiveCount || candidate.primitiveCount > persistentPrimitiveCount - candidate.primitiveIndex)
+#endif
 			return false;
 		outPrimitiveIndex = candidate.primitiveIndex + min((uint)(RandomFloat01(rngState) * candidate.primitiveCount), candidate.primitiveCount - 1u);
 	}

@@ -1,4 +1,5 @@
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
+#define NRI_ENABLE_PERSISTENT_VOXEL_PAGE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 #include "Include/WallDecals.hlsli"
