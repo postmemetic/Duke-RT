@@ -20,7 +20,12 @@ std::vector<EnemyFamilyPreloadSet> SelectEnemyFamilyPreloadSets(
         {
             // A signature collision must never silently combine coverage.
             auto& family = families[existing->second];
-            if (family.family == candidate.family && family.textures == candidate.textures) family.liveActors += candidate.liveActors;
+            if (family.family == candidate.family && family.textures == candidate.textures)
+            {
+                family.liveActors += candidate.liveActors;
+                family.spawnSources += candidate.spawnSources;
+                if (!family.actor) family.actor = candidate.actor;
+            }
             continue;
         }
         bySignature.emplace(candidate.signature, families.size());
@@ -43,6 +48,7 @@ std::vector<EnemyFamilyPreloadSet> SelectEnemyFamilyPreloadSets(
     }), families.end());
     std::sort(families.begin(), families.end(), [](const EnemyFamilyPreloadSet& a, const EnemyFamilyPreloadSet& b)
     {
+        if ((a.liveActors > 0) != (b.liveActors > 0)) return a.liveActors > 0;
         if (a.costKnown != b.costKnown) return a.costKnown;
         if (a.costKnown && a.estimatedGeometryBytes != b.estimatedGeometryBytes) return a.estimatedGeometryBytes < b.estimatedGeometryBytes;
         if (a.textures.size() != b.textures.size()) return a.textures.size() < b.textures.size();

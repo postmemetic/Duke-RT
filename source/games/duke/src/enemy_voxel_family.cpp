@@ -3,6 +3,7 @@
 #include "dukeactor.h"
 #include "gamefuncs.h"
 #include "enemy_voxel_family.h"
+#include "g_mapinfo.h"
 #include "actor_presentation_snapshot.h"
 #include "buildtiles.h"
 #include "gametexture.h"
@@ -182,7 +183,7 @@ bool Matches(const ActorAction& action, const ActionShape& shape)
         action.increment == shape.increment;
 }
 
-std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec, const DDukeActor& actor)
+std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec, const PClassActor& cls)
 {
     auto family = std::make_shared<ActorEnemyVoxelFamily>();
     family->id = spec.id; family->name = spec.name;
@@ -194,7 +195,7 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
     // set, independently of CON and of the first-person overlay.
     if (spec.spriteSetSize)
     {
-        const auto& sprites = static_cast<PClassActor*>(actor.GetClass())->ActorInfo()->SpriteSet;
+        const auto& sprites = cls.ActorInfo()->SpriteSet;
         family->reason = "sprite-set-mismatch";
         if (sprites.Size() != spec.spriteSetSize) return family;
         for (auto texture : sprites)
@@ -277,6 +278,37 @@ void RecordEnemyVoxelFamilyConSource(const char* name, const char* bytes, unsign
     stockConSources = stockConSources && recognized;
 }
 
+namespace
+{
+const FamilySpec* FindStockFamily(const PClassActor* cls)
+{
+    if (!cls) return nullptr;
+    for (const auto& entry : Classes)
+        if (cls == PClass::FindClass(entry.name)) return &Families[entry.family - 1];
+    return nullptr; // Unknown subclasses/scripts never inherit a certificate.
+}
+
+std::shared_ptr<const ActorEnemyVoxelFamily> ResolveStockFamily(const PClassActor* cls, const FamilySpec& spec)
+{
+    const unsigned animate = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "animate");
+    const unsigned runState = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "RunState");
+    if (animate == ~0u || runState == ~0u || animate >= cls->Virtuals.Size() || runState >= cls->Virtuals.Size() ||
+        cls->Virtuals[animate] != RUNTIME_CLASS(DDukeActor)->Virtuals[animate] ||
+        cls->Virtuals[runState] != RUNTIME_CLASS(DDukeActor)->Virtuals[runState]) return nullptr;
+    // Parsed action storage remains fixed during a game. Rebuild certificates
+    // after a script reload/reallocation, rather than retaining stale pointers.
+    static const ActorAction* actionBase = nullptr;
+    static unsigned actionCount = 0;
+    static std::unordered_map<uint32_t, std::shared_ptr<const ActorEnemyVoxelFamily>> cached;
+    const auto* currentBase = actions.Size() ? &actions[0] : nullptr;
+    if (actionBase != currentBase || actionCount != actions.Size())
+    { cached.clear(); actionBase = currentBase; actionCount = actions.Size(); }
+    auto found = cached.find(spec.id);
+    if (found == cached.end()) found = cached.emplace(spec.id, BuildFamily(spec, *cls)).first;
+    return found->second;
+}
+}
+
 void CaptureEnemyVoxelFamily(const DDukeActor& actor, ActorSpriteAnimationState& animation)
 {
     if (!(bool)nri_ptenemystablerepresentation && !(bool)nri_ptenemyrepresentationtrace) return;
@@ -288,27 +320,10 @@ void CaptureEnemyVoxelFamily(const DDukeActor& actor, ActorSpriteAnimationState&
         animation.enemyVoxelFamily = unsupported;
         return;
     }
-    const auto* cls = actor.GetClass();
-    const FamilySpec* spec = nullptr;
-    for (const auto& entry : Classes)
-        if (cls == PClass::FindClass(entry.name)) { spec = &Families[entry.family - 1]; break; }
-    if (!spec) return; // Unknown subclasses/scripts never inherit a certificate.
-    const unsigned animate = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "animate");
-    const unsigned runState = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "RunState");
-    if (animate == ~0u || runState == ~0u || animate >= cls->Virtuals.Size() || runState >= cls->Virtuals.Size() ||
-        cls->Virtuals[animate] != RUNTIME_CLASS(DDukeActor)->Virtuals[animate] ||
-        cls->Virtuals[runState] != RUNTIME_CLASS(DDukeActor)->Virtuals[runState]) return;
-    // Parsed action storage remains fixed during a game. Rebuild certificates
-    // after a script reload/reallocation, rather than retaining stale pointers.
-    static const ActorAction* actionBase = nullptr;
-    static unsigned actionCount = 0;
-    static std::unordered_map<uint32_t, std::shared_ptr<const ActorEnemyVoxelFamily>> cached;
-    const auto* currentBase = actions.Size() ? &actions[0] : nullptr;
-    if (actionBase != currentBase || actionCount != actions.Size())
-    { cached.clear(); actionBase = currentBase; actionCount = actions.Size(); }
-    auto found = cached.find(spec->id);
-    if (found == cached.end()) found = cached.emplace(spec->id, BuildFamily(*spec, actor)).first;
-    animation.enemyVoxelFamily = found->second;
+    const auto* cls = static_cast<PClassActor*>(actor.GetClass());
+    const FamilySpec* spec = FindStockFamily(cls);
+    if (!spec) return;
+    animation.enemyVoxelFamily = ResolveStockFamily(cls, *spec);
     if (actor.curAction && actor.curAction->name != NAME_None)
     {
         bool recognized = false;
@@ -317,5 +332,35 @@ void CaptureEnemyVoxelFamily(const DDukeActor& actor, ActorSpriteAnimationState&
             { recognized = true; break; }
         if (!recognized) animation.enemyVoxelFamily.reset();
     }
+}
+
+void GameInterface::CollectSpawnableEnemyVoxelFamilies(const DCoreActor& spawner,
+    std::vector<std::shared_ptr<const ActorEnemyVoxelFamily>>& out) const
+{
+    if (isRR() || ud.monsters_off || !stockConSources || !stockGameSeen) return;
+    const auto* egg = PClass::FindClass("DukeEgg");
+    const auto* cls = spawner.GetClass();
+    if (cls == DukeRespawnControllerClass && spawner.spr.statnum == STAT_FX)
+    {
+        // DukeRespawnController.Tick calls spawnsprite(hitag). A record with
+        // a custom base image can change the target's action texture base.
+        const auto* target = spawnMap.CheckKey(spawner.spr.hitag);
+        if (!target || target->basetex.isValid()) return;
+        const auto* spec = FindStockFamily(target->cls);
+        if (!spec) return;
+        auto family = ResolveStockFamily(target->cls, *spec);
+        if (!family || !family->complete) return;
+        out.push_back(family);
+        cls = target->cls;
+    }
+    if (cls != egg) return;
+    // The certified EGGOPEN2 CON state spawns GREENSLIME (2370). The stock
+    // spawn record and world sprite set must still agree with the mounted game.
+    const auto* hatch = spawnMap.CheckKey(2370);
+    if (!hatch || hatch->basetex.isValid() || hatch->cls != PClass::FindClass("DukeGreenSlime")) return;
+    const auto* spec = FindStockFamily(hatch->cls);
+    if (!spec) return;
+    auto family = ResolveStockFamily(hatch->cls, *spec);
+    if (family && family->complete) out.push_back(family);
 }
 END_DUKE_NS

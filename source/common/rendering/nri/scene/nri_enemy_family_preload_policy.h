@@ -15,6 +15,7 @@ struct EnemyFamilyPreloadSet
     DCoreActor* actor = nullptr;
     std::vector<int32_t> textures;
     uint32_t liveActors = 1;
+    uint32_t spawnSources = 0;
     uint64_t estimatedGeometryBytes = 0;
     bool costKnown = false;
 };

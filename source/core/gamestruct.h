@@ -3,6 +3,8 @@
 bool System_WantGuiCapture();	// During playing this tells us whether the game must be paused due to active GUI elememts.
 
 #include <stdint.h>
+#include <memory>
+#include <vector>
 #include "vectors.h"
 #include "engineerrors.h"
 #include "stats.h"
@@ -17,6 +19,7 @@ struct sectortype;
 struct tspritetype;
 struct MapRecord;
 struct ActorSpriteAnimationState;
+struct ActorEnemyVoxelFamily;
 struct ActorPresentationState;
 
 struct GameStats
@@ -145,6 +148,7 @@ struct GameInterface
 	virtual void ToggleShowWeapon() { Printf("Unsupported command\n"); }
 	virtual void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) = 0;
 	virtual void CaptureActorSpriteAnimation(const DCoreActor&, ActorSpriteAnimationState&) const {}
+	virtual void CollectSpawnableEnemyVoxelFamilies(const DCoreActor&, std::vector<std::shared_ptr<const ActorEnemyVoxelFamily>>&) const {}
 	virtual bool ResolveActorSpriteFallbackFrame(const ActorPresentationState&, tspritetype&, const DVector2&, DAngle) const { return false; }
 	virtual bool ResolveActorRetainedVoxelFrame(const ActorPresentationState&, tspritetype&, double) const { return false; }
 	virtual void UpdateCameras(double smoothratio) {}

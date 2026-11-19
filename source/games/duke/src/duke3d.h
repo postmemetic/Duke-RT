@@ -54,6 +54,7 @@ struct GameInterface : public ::GameInterface
 	void ToggleShowWeapon() override;
 	void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) override;
 	void CaptureActorSpriteAnimation(const DCoreActor&, ActorSpriteAnimationState&) const override;
+	void CollectSpawnableEnemyVoxelFamilies(const DCoreActor&, std::vector<std::shared_ptr<const ActorEnemyVoxelFamily>>&) const override;
 	bool ResolveActorSpriteFallbackFrame(const ActorPresentationState&, tspritetype&, const DVector2&, DAngle) const override;
 	bool ResolveActorRetainedVoxelFrame(const ActorPresentationState&, tspritetype&, double) const override;
 	void UpdateCameras(double smoothratio) override;

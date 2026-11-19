@@ -7,6 +7,9 @@ namespace nri_scene
 static constexpr uint32_t PrecachedVoxelSourceBit_MountedVoxelPreload = 1u << 3;
 static constexpr uint32_t PrecachedVoxelSourceBit_MountedPreloadMap = 1u << 6;
 static constexpr uint32_t PrecachedVoxelSourceBit_EnemyFamily = 1u << 7;
+static constexpr uint32_t PrecachedVoxelSourceBit_SpawnableEnemyFamily = 1u << 8;
+static constexpr uint32_t PrecachedVoxelSourceBits_EnemyFamilies =
+    PrecachedVoxelSourceBit_EnemyFamily | PrecachedVoxelSourceBit_SpawnableEnemyFamily;
 
 // One classification authority for raw planning, CPU planning and the queue.
 // Required service preserves all admission/allocation budgets; it is not force.
@@ -19,7 +22,7 @@ inline bool IsRequiredVoxelPreload(uint32_t sourceBits, int32_t priority, bool g
 
 inline bool IsOptionalPreferredVoxelPreload(uint32_t sourceBits, int32_t priority, bool gpuForce, bool gpuPrefer)
 {
-    return (sourceBits & PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 && gpuPrefer && !gpuForce &&
+    return (sourceBits & (PrecachedVoxelSourceBit_MountedVoxelPreload | PrecachedVoxelSourceBit_SpawnableEnemyFamily)) != 0 && gpuPrefer && !gpuForce &&
         !IsRequiredVoxelPreload(sourceBits, priority, gpuForce, gpuPrefer);
 }
 
@@ -33,7 +36,7 @@ struct VoxelPreloadInputHints
     void Observe(uint32_t sources, int32_t priority, bool force, bool prefer)
     {
         bits |= Seen;
-        if ((sources & PrecachedVoxelSourceBit_MountedVoxelPreload) && prefer) bits |= Preferred;
+        if ((sources & (PrecachedVoxelSourceBit_MountedVoxelPreload | PrecachedVoxelSourceBit_SpawnableEnemyFamily)) && prefer) bits |= Preferred;
         if (IsRequiredVoxelPreload(sources, priority, force, prefer)) bits |= Required;
         if (force) bits |= Forced;
         if (sources & PrecachedVoxelSourceBit_EnemyFamily) bits |= EnemyFamily;

@@ -302,6 +302,7 @@ namespace
 		LoadingVoxelRequestSource_MountedVoxelPreloadGame = 1u << 5,
 		LoadingVoxelRequestSource_MountedVoxelPreloadMap = 1u << 6,
 		LoadingVoxelRequestSource_EnemyFamily = PrecachedVoxelSourceBit_EnemyFamily,
+		LoadingVoxelRequestSource_SpawnableEnemyFamily = PrecachedVoxelSourceBit_SpawnableEnemyFamily,
 	};
 
 	struct LoadingVoxelTextureCandidate
@@ -3506,6 +3507,7 @@ namespace
 		append(LoadingVoxelRequestSource_MountedVoxelPreloadGame, "mounted-game");
 		append(LoadingVoxelRequestSource_MountedVoxelPreloadGlobal, "mounted-global");
 		append(LoadingVoxelRequestSource_EnemyFamily, "enemy-family");
+		append(LoadingVoxelRequestSource_SpawnableEnemyFamily, "spawnable-enemy-family");
 		return result.empty() ? "none" : result;
 	}
 
@@ -3566,9 +3568,9 @@ namespace
 		{
 			return false;
 		}
-		if ((request.sourceBits & LoadingVoxelRequestSource_EnemyFamily) != 0) return true;
+		if ((request.sourceBits & PrecachedVoxelSourceBits_EnemyFamilies) != 0) return true;
 		const bool explicitGpu =
-			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | LoadingVoxelRequestSource_EnemyFamily)) != 0 &&
+			(request.sourceBits & LoadingVoxelRequestSource_MountedVoxelPreload) != 0 &&
 			(request.gpuForce || request.gpuPrefer);
 		if (explicitGpu)
 		{
@@ -4406,32 +4408,45 @@ namespace
 
 		std::vector<LoadingVoxelTextureCandidate> candidateTexids;
 		std::vector<EnemyFamilyPreloadSet> enemyFamilies;
+		std::vector<std::shared_ptr<const ActorEnemyVoxelFamily>> spawnFamilies;
+		const bool collectFamilies = (bool)nri_ptenemystablerepresentation && gi != nullptr;
+		const auto addFamily = [&](const std::shared_ptr<const ActorEnemyVoxelFamily>& family, DCoreActor* owner)
+		{
+			if (!family || !family->complete) return;
+			EnemyFamilyPreloadSet candidate;
+			candidate.family = family->id;
+			candidate.signature = family->signature;
+			candidate.textures = family->textureIds;
+			candidate.actor = owner;
+			candidate.liveActors = owner ? 1 : 0;
+			candidate.spawnSources = owner ? 0 : 1;
+			enemyFamilies.push_back(std::move(candidate));
+		};
 		AddMountedVoxelPreloadRequests(graph);
 
 		TSpriteIterator<DCoreActor> it;
 		while (DCoreActor* actor = it.Next())
 		{
 			LoadingWindow::Scope::ServiceIfActive();
+			if (collectFamilies && actor->exists() && !(actor->ObjectFlags & OF_EuthanizeMe))
+			{
+				// Active spawn markers are invisible. They describe potential
+				// shared geometry but never own the future child's materials.
+				spawnFamilies.clear();
+				gi->CollectSpawnableEnemyVoxelFamilies(*actor, spawnFamilies);
+				for (const auto& family : spawnFamilies) addFamily(family, nullptr);
+			}
 			if (!IsLiveActorVoxelWarmupCandidate(actor))
 			{
 				continue;
 			}
 
 			BuildLoadingActorTextureCandidates(actor, candidateTexids);
-			if ((bool)nri_ptenemystablerepresentation && gi != nullptr)
+			if (collectFamilies)
 			{
 				ActorSpriteAnimationState animation;
 				gi->CaptureActorSpriteAnimation(*actor, animation);
-				const auto& family = animation.enemyVoxelFamily;
-				if (animation.enemy && family && family->complete)
-				{
-					EnemyFamilyPreloadSet candidate;
-					candidate.family = family->id;
-					candidate.signature = family->signature;
-					candidate.actor = actor;
-					candidate.textures = family->textureIds;
-					enemyFamilies.push_back(std::move(candidate));
-				}
+				if (animation.enemy) addFamily(animation.enemyVoxelFamily, actor);
 			}
 			bool countedActor = false;
 			for (const LoadingVoxelTextureCandidate& candidate : candidateTexids)
@@ -4464,16 +4479,16 @@ namespace
 			{
 				LoadingVoxelTextureCandidate candidate;
 				candidate.texid.SetIndex(texture);
-				candidate.sourceBits = LoadingVoxelRequestSource_EnemyFamily;
+				candidate.sourceBits = family.liveActors ? LoadingVoxelRequestSource_EnemyFamily : LoadingVoxelRequestSource_SpawnableEnemyFamily;
 				candidate.priority = LoadingVoxelRequestPriority::High;
 				candidate.gpuPrefer = true;
 				candidate.enemyFamilyOrder = order;
 				AddLoadingVoxelPreloadRequest(graph, family.actor, candidate);
 			}
 			if ((bool)nri_ptenemyrepresentationtrace)
-				Printf("NRI enemy family preload: family=%u poses=%u live_actors=%u order=%u cost_known=%u estimated_geometry_bytes=%llu force=0\n",
+				Printf("NRI enemy family preload: family=%u poses=%u live_actors=%u order=%u cost_known=%u estimated_geometry_bytes=%llu force=0 spawn_sources=%u\n",
 					family.family, uint32_t(family.textures.size()), family.liveActors, order, family.costKnown ? 1u : 0u,
-					(unsigned long long)family.estimatedGeometryBytes);
+					(unsigned long long)family.estimatedGeometryBytes, family.spawnSources);
 		}
 		SortLoadingVoxelPreloadRequests(graph);
 	}
@@ -7915,7 +7930,7 @@ bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& out
 			(uint64_t)surface->indices.size() * (uint64_t)sizeof(uint32_t) +
 			(uint64_t)primitiveCount * (uint64_t)sizeof(PrimitiveData);
 		const bool explicitGpu =
-			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | LoadingVoxelRequestSource_EnemyFamily)) != 0 &&
+			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | PrecachedVoxelSourceBits_EnemyFamilies)) != 0 &&
 			(request.gpuForce || request.gpuPrefer);
 		const bool forcedGpu = explicitGpu && request.gpuForce;
 		const bool preferredGpu = explicitGpu && request.gpuPrefer && !request.gpuForce;
@@ -8154,7 +8169,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 		const bool cpuSurfaceReady = IsVoxelMeshVariantSurfaceReady(request.meshVariantHash);
 		const bool legacyGpuCandidate = IsLoadingVoxelRequestGpuCandidate(request);
 		const bool explicitGpu =
-			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | LoadingVoxelRequestSource_EnemyFamily)) != 0 &&
+			(request.sourceBits & (LoadingVoxelRequestSource_MountedVoxelPreload | PrecachedVoxelSourceBits_EnemyFamilies)) != 0 &&
 			(request.gpuForce || request.gpuPrefer);
 		const bool forcedGpu = explicitGpu && request.gpuForce;
 		const bool preferredGpu = explicitGpu && request.gpuPrefer && !request.gpuForce;

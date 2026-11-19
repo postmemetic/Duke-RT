@@ -183,7 +183,7 @@ namespace
 				{
 					requiredMeshResources.insert(meshResourceKey);
 				}
-				else
+				else if ((rawVariant.sourceBits & nri_scene::PrecachedVoxelSourceBit_SpawnableEnemyFamily) == 0)
 				{
 					optionalMeshResources.insert(meshResourceKey);
 				}
@@ -211,6 +211,7 @@ namespace
 		for (const nri_scene::PrecachedVoxelRawManifestView& rawVariant : rawVariants)
 		{
 			const bool required = IsRequiredComputePreloadRawVariant(rawVariant);
+			const bool spawnable = (rawVariant.sourceBits & nri_scene::PrecachedVoxelSourceBit_SpawnableEnemyFamily) != 0;
 			if ((required && !settings.includeRequired) || (!required && !settings.includeOptional))
 			{
 				continue;
@@ -287,8 +288,11 @@ namespace
 				continue;
 			}
 
+			// A certified spawn can appear before a runtime-tail upload. Give
+			// the complete group a chance under the normal loading peak guard.
+			// It remains an optional input after handoff.
 			const bool runtimeWithheld =
-				!required &&
+				!required && !spawnable &&
 				settings.runtimeWithholdModulo != 0 &&
 				(!settings.includeRequired || requiredMeshResources.find(binding.meshResourceKey) == requiredMeshResources.end()) &&
 				binding.meshResourceKey % settings.runtimeWithholdModulo == settings.runtimeWithholdRemainder;
@@ -414,7 +418,7 @@ void SelectNRIVoxelComputePreloadForBudget(
 	if (selection.build != buildSerial)
 	{
 		if (std::none_of(rawVariants.begin(), rawVariants.end(), [](const auto& raw)
-			{ return (raw.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) != 0; })) return;
+			{ return (raw.sourceBits & nri_scene::PrecachedVoxelSourceBits_EnemyFamilies) != 0; })) return;
 		selection = {};
 		selection.build = buildSerial;
 		// Use actual planner eligibility, explicit caps and runtime withholding.
@@ -441,7 +445,7 @@ void SelectNRIVoxelComputePreloadForBudget(
 				const auto& raw = rawVariants[index];
 				const uint64_t mesh = BuildPersistentVoxelVariantMeshResourceKey(BuildDirectVariant(raw));
 				const auto admitted = planned.find({mesh, raw.materialKeyHash});
-				const bool family = (raw.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) != 0;
+				const bool family = (raw.sourceBits & nri_scene::PrecachedVoxelSourceBits_EnemyFamilies) != 0;
 				if (!family && admitted == planned.end()) continue;
 				size_t group = groups.size();
 				if (family)
