@@ -2436,6 +2436,11 @@ HitData TraceBootstrapGeometry(float3 origin, float3 direction)
 	return TraceBootstrapGeometry(origin, direction, false);
 }
 
+// Keep one copy of the instrumented traversal across primary and secondary rays.
+// Expanding the loop into every caller exceeds DXC's SPIR-V legalization limits.
+#if NRI_SHADER_DIAGNOSTICS && defined(__spirv__) && !defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY)
+[noinline]
+#endif
 bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDistance, uint traceMask, bool gateVisibleChunks, bool gateSpatialAbsence, bool ignoreNoShadowCast, bool allowReflectionOnlySurfaces, uint statsKind, bool forceSpatialProbeRay, bool forceLegacyTraversal, inout uint traversalTemporalFlags, out HitData hitData, out bool skipLimitReached)
 {
 	hitData = MakeEmptyHitData();
