@@ -3886,8 +3886,8 @@ NRIPersistentVoxelDescriptorSnapshot NRIPersistentVoxelResidency::BuildDescripto
 	snapshot.index = selectView(indexBuffer, fallbackIndexBuffer);
 	snapshot.primitive = selectView(primitiveBuffer, fallbackPrimitiveBuffer);
 	snapshot.material = selectView(materialBuffer, fallbackMaterialBuffer);
-	snapshot.overflowVertex = overflowPage.Published() ? overflowVertex.shaderView : fallbackVertexBuffer.shaderView;
-	snapshot.overflowPrimitive = overflowPage.Published() ? overflowPrimitive.shaderView : fallbackPrimitiveBuffer.shaderView;
+	snapshot.overflowVertex = overflowPage.Published() ? overflowVertex.shaderView : snapshot.vertex;
+	snapshot.overflowPrimitive = overflowPage.Published() ? overflowPrimitive.shaderView : snapshot.primitive;
 	snapshot.primitiveCount = BoundPrimitiveCount();
 	snapshot.materialCount = BoundMaterialCount();
 	return snapshot;
