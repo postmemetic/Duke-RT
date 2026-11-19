@@ -385,6 +385,7 @@ struct PrecachedVoxelRawManifestStats
 
 struct PrecachedVoxelRawManifestView
 {
+	int32_t sourceBuildTile = -1;
 	uint64_t meshKeyHash = 0;
 	uint64_t materialKeyHash = 0;
 	uint64_t geometryContentHash = 0;

@@ -8335,6 +8335,7 @@ bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 		view.geometryContentHash = hashes.geometryContentHash;
 		view.renderPrimitiveHash = hashes.renderPrimitiveHash;
 		view.sourcePicnum = texture; view.resolvedVoxelIndex = voxelIndex; view.model = model;
+		if (texture >= firstarttile && texture < firstarttile + maxarttile) view.sourceBuildTile = texture - firstarttile;
 		view.primitiveCount = primitiveCount;
 		view.rawBytes = raw.rawByteCount; view.rawSlabCount = raw.slabCount;
 		view.rawStatsReady = view.rawSourceResident = rawStatsReady;

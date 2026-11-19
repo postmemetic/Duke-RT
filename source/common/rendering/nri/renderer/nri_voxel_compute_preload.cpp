@@ -445,7 +445,7 @@ void SelectNRIVoxelComputePreloadForBudget(
         uint64_t enemyGeometry = 0, enemySources = 0, largestEnemyMesh = 0;
         for (const auto& pose : fullPlan.directVariants)
         {
-            if (!pose.preloadGeometry || !(pose.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily)) continue;
+            if (!pose.preloadGeometry || !(pose.sourceBits & nri_scene::PrecachedVoxelSourceBits_EnemyFamilies)) continue;
             const auto key = BuildPersistentVoxelVariantMeshResourceKey(pose);
             if (enemyWorkingSet.geometry.emplace(key, pose).second)
             {
@@ -457,7 +457,7 @@ void SelectNRIVoxelComputePreloadForBudget(
         std::unordered_set<FVoxelModel*> sources;
         for (const auto& raw : rawVariants)
         {
-            if (!(raw.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) ||
+            if (!(raw.sourceBits & nri_scene::PrecachedVoxelSourceBits_EnemyFamilies) ||
                 !enemyWorkingSet.geometry.count(BuildPersistentVoxelVariantMeshResourceKey(BuildDirectVariant(raw)))) continue;
             if (sources.insert(raw.model).second) enemySources += raw.rawBytes;
         }

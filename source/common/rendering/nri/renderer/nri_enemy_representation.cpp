@@ -125,10 +125,18 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
     std::vector<nri_scene::PrecachedVoxelRawManifestView> views;
     if (!family || !family->complete) return finish();
     if (settings.transformKeyed) { result.reason = "transform-keyed"; return finish(); }
-    if (!nri_scene::BuildEnemyVoxelFamilyViews(authority, views, &failure)) { result.reason = failure.reason; return finish(); }
-    std::unordered_set<uint64_t> unique;
-    for (const auto& view : views)
+    if (!nri_scene::BuildEnemyVoxelFamilyViews(authority, views, &failure))
     {
+        result.firstUnavailableTexture = failure.textureId;
+        result.firstUnavailableTile = failure.buildTile;
+        result.firstUnavailableAction = failure.source;
+        result.reason = failure.reason;
+        return finish();
+    }
+    std::unordered_set<uint64_t> unique;
+    for (size_t pose = 0; pose < views.size(); ++pose)
+    {
+        const auto& view = views[pose];
         nri_scene::PrecachedVoxelVariantView variant;
         variant.meshKeyHash = view.meshKeyHash;
         variant.renderPrimitiveHash = view.renderPrimitiveHash;
@@ -140,6 +148,8 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
             if (result.firstUnavailableTexture >= 0) return;
             result.firstUnavailableMesh = key;
             result.firstUnavailableTexture = view.sourcePicnum;
+            result.firstUnavailableTile = view.sourceBuildTile;
+            if (pose < family->poseSources.size()) result.firstUnavailableAction = family->poseSources[pose];
         };
         if (found == meshVariantResources.end()) { rememberUnavailable(); continue; }
         const auto& mesh = found->second;
@@ -252,10 +262,10 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
         char fields[600];
         std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"lifetime\":%llu,\"family\":%u,"
             "\"selection\":\"%s\",\"reason\":\"%s\",\"ready_poses\":%u,\"poses\":%u,\"current_mesh\":%llu,"
-            "\"missing_mesh\":%llu,\"missing_pose_texture\":%d,\"missing_upload_key\":%llu,\"preparation_headroom\":%llu",
+            "\"missing_mesh\":%llu,\"missing_pose_texture\":%d,\"missing_tile\":%d,\"action\":\"%s\",\"missing_upload_key\":%llu,\"preparation_headroom\":%llu",
             frame, (unsigned long long)owner.world, (unsigned long long)owner.lifetime, family.family, voxel ? "voxel" : "sprite",
             reason, family.ready, family.poses, (unsigned long long)currentMesh, (unsigned long long)family.firstUnavailableMesh,
-            family.firstUnavailableTexture, (unsigned long long)missingKey, (unsigned long long)enemyPreparationHeadroom);
+            family.firstUnavailableTexture, family.firstUnavailableTile, family.firstUnavailableAction, (unsigned long long)missingKey, (unsigned long long)enemyPreparationHeadroom);
         PerfAuditWriteEvent("enemy_first_visible", PerfAuditCurrentToken(), fields);
         Printf("NRI enemy first visible: %s\n", fields);
     }
