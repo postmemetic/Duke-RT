@@ -131,6 +131,40 @@ const ActionShape BattlelordActions[] = {
     {"BOSS1FLINTCH", 50, 1, 1, 1},
     {"ABOSS1DEAD", 55, 0, 0, 0},
 };
+const ActionShape Boss2Actions[] = {
+    {"ABOSS2WALK", 0, 4, 5, 1},
+    {"ABOSS2FROZEN", 0, 1, 5, 0},
+    {"ABOSS2RUN", 0, 4, 5, 1},
+    {"ABOSS2SHOOT", 20, 2, 5, 1},
+    {"ABOSS2LOB", 30, 2, 5, 1},
+    {"ABOSS2DYING", 40, 8, 1, 1},
+    {"BOSS2FLINTCH", 40, 1, 1, 1},
+    {"ABOSS2DEAD", 48, 0, 0, 0},
+    // Miniature bosses recover from shrinking via AITROOPSEEKENEMY.
+    {"ATROOPWALKING", 0, 4, 5, 1},
+};
+const ActionShape Boss3Actions[] = {
+    {"ABOSS3WALK", 0, 4, 5, 1},
+    {"ABOSS3FROZEN", 0, 1, 5, 0},
+    {"ABOSS3RUN", 0, 4, 5, 1},
+    {"ABOSS3LOB", 20, 4, 5, 1},
+    {"ABOSS3LOBBING", 30, 2, 5, 1},
+    {"ABOSS3DYING", 40, 8, 1, 1},
+    {"BOSS3FLINTCH", 40, 1, 1, 1},
+    {"ABOSS3DEAD", 48, 0, 0, 0},
+    {"ATROOPWALKING", 0, 4, 5, 1},
+};
+const ActionShape TankActions[] = {
+    {"ATANKSPIN", 0, 1, 7, 1},
+    {"ATANKSHOOTING", 7, 2, 7, 1},
+    {"ATANKWAIT", 0, 1, 7, 1},
+    {"ATANKDESTRUCT", 0, 1, 7, 1},
+    {"ATANKDEAD", 0, 1, 7, 1},
+};
+const ActionShape CannonActions[] = {
+    {"ACANNONWAIT", 0, 1, 7, 1},
+    {"ACANNONSHOOTING", 0, 1, 7, 1},
+};
 struct FamilySpec { uint32_t id; const char* name; int baseTile; const ActionShape* actions; size_t count; unsigned spriteSetSize = 0; };
 const FamilySpec Families[] = {
     {1, "Shark", 1550, SharkActions, sizeof(SharkActions) / sizeof(ActionShape)},
@@ -144,6 +178,11 @@ const FamilySpec Families[] = {
     {9, "Egg", 675, EggActions, sizeof(EggActions) / sizeof(ActionShape)},
     {10, "GreenSlime", 2370, nullptr, 0, 8},
     {11, "Battlelord", 2630, BattlelordActions, sizeof(BattlelordActions) / sizeof(ActionShape)},
+    {12, "Boss2", 2710, Boss2Actions, sizeof(Boss2Actions) / sizeof(ActionShape)},
+    {13, "Boss3", 2760, Boss3Actions, sizeof(Boss3Actions) / sizeof(ActionShape)},
+    {14, "Tank", 1975, TankActions, sizeof(TankActions) / sizeof(ActionShape)},
+    {15, "Cannon", 1810, CannonActions, sizeof(CannonActions) / sizeof(ActionShape)},
+    {16, "Recon", 1960, nullptr, 0, 2},
 };
 struct ClassFamily { const char* name; uint32_t family; int startupTile = 0; };
 const ClassFamily Classes[] = {
@@ -174,6 +213,13 @@ const ClassFamily Classes[] = {
     {"DukeGreenSlime", 10},
     {"DukeBoss1", 11},
     {"DukeBoss1Stayput", 11},
+    {"DukeBoss2", 12},
+    {"DukeBoss2Stayput", 12},
+    {"DukeBoss3", 13},
+    {"DukeBoss3Stayput", 13},
+    {"DukeTank", 14},
+    {"DukeCannon", 15},
+    {"DukeRecon", 16},
 };
 
 bool Matches(const ActorAction& action, const ActionShape& shape)
@@ -191,8 +237,8 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
     const int base = tileGetTextureID(spec.baseTile).GetIndex();
     if (base < 0) return family;
     std::map<int32_t, const char*> poses;
-    // DukeGreenSlime.Tick writes the current world image from its class sprite
-    // set, independently of CON and of the first-person overlay.
+    // GreenSlime.Tick and Recon.Animate select world images directly from
+    // their class sprite sets, independently of CON action frames.
     if (spec.spriteSetSize)
     {
         const auto& sprites = cls.ActorInfo()->SpriteSet;
@@ -311,8 +357,12 @@ std::shared_ptr<const ActorEnemyVoxelFamily> ResolveStockFamily(const PClassActo
 {
     const unsigned animate = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "animate");
     const unsigned runState = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "RunState");
+    // Recon.Animate is a supported two-frame SpriteSet recipe in animatesprites.cpp.
+    // FindStockFamily requires the exact class. In particular, none of the
+    // Redneck UFO subclasses inherit this certificate.
+    static const auto* recon = PClass::FindClass("DukeRecon");
     if (animate == ~0u || runState == ~0u || animate >= cls->Virtuals.Size() || runState >= cls->Virtuals.Size() ||
-        cls->Virtuals[animate] != RUNTIME_CLASS(DDukeActor)->Virtuals[animate] ||
+        (cls != recon && cls->Virtuals[animate] != RUNTIME_CLASS(DDukeActor)->Virtuals[animate]) ||
         cls->Virtuals[runState] != RUNTIME_CLASS(DDukeActor)->Virtuals[runState]) return nullptr;
     // Parsed action storage remains fixed during a game. Rebuild certificates
     // after a script reload/reallocation, rather than retaining stale pointers.
@@ -374,14 +424,30 @@ void GameInterface::CollectSpawnableEnemyVoxelFamilies(const DCoreActor& spawner
         out.push_back(family);
         cls = target->cls;
     }
-    if (cls != egg) return;
-    // The certified EGGOPEN2 CON state spawns GREENSLIME (2370). The stock
-    // spawn record and world sprite set must still agree with the mounted game.
-    const auto* hatch = spawnMap.CheckKey(2370);
-    if (!hatch || hatch->basetex.isValid() || hatch->cls != PClass::FindClass("DukeGreenSlime")) return;
-    const auto* spec = FindStockFamily(hatch->cls);
+    const PClassActor* child = nullptr;
+    if (cls == egg || cls == PClass::FindClass("DukeTank"))
+    {
+        // EGGOPEN2 hatches GREENSLIME. ATANKDEAD may eject PIGCOP.
+        const auto* record = spawnMap.CheckKey(cls == egg ? 2370 : 2000);
+        if (!record || record->basetex.isValid() ||
+            record->cls != PClass::FindClass(cls == egg ? "DukeGreenSlime" : "DukePigCop")) return;
+        child = record->cls;
+    }
+    else if (cls == PClass::FindClass("DukeRecon"))
+    {
+        // A crash spawns the class in this Recon's initialized field. An
+        // unspawned marker target will receive the stock Initialize value.
+        child = static_cast<PClassActor*>(PClass::FindClass("DukePigCop"));
+        if (cls == spawner.GetClass())
+        {
+            static const FName spawnType("spawntype");
+            const auto* field = static_cast<PClassActor* const*>(const_cast<DCoreActor&>(spawner).ScriptVar(spawnType, nullptr));
+            if (!field || *field != child) return;
+        }
+    }
+    const auto* spec = FindStockFamily(child);
     if (!spec) return;
-    auto family = ResolveStockFamily(hatch->cls, *spec);
+    auto family = ResolveStockFamily(child, *spec);
     if (family && family->complete) out.push_back(family);
 }
 END_DUKE_NS
