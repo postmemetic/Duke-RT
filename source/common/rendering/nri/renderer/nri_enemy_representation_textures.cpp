@@ -42,6 +42,7 @@ struct DependencySet
     std::vector<nri_scene::MaterialRef> source;
     const char* reason = "not-prepared";
     bool ready = false;
+    uint64_t unavailableKey = 0;
 };
 
 bool SameSet(const DependencySet& set, uint64_t signature,
@@ -58,7 +59,9 @@ void NRIPrepareEnemyFamilyTextures(uint32_t frameIndex, NRIPersistentVoxelReside
     const NRIPersistentVoxelSettings& settings, NRIRenderDevice& device, NRISceneTextureResidency& textures)
 {
     voxels.enemyMaterialTexturesReadyActors.clear();
+    voxels.prospectiveMaterialOwners.clear();
     voxels.enemyMaterialTextureReasons.clear();
+    voxels.enemyUnavailableTextureKeys.clear();
     voxels.enemyMaterialTexturesReadyFrame = frameIndex;
     if (!(bool)nri_ptactorspritefallback || !(bool)nri_ptenemystablerepresentation) return;
     const auto begin = std::chrono::steady_clock::now();
@@ -67,40 +70,39 @@ void NRIPrepareEnemyFamilyTextures(uint32_t frameIndex, NRIPersistentVoxelReside
     uint32_t eligible = 0, reused = 0, capRefusals = 0, geometryPending = 0;
     uint32_t poses = 0, completeHits = 0, pendingSets = 0, failedSets = 0;
     double materialBuildMs = 0;
-    for (const auto& candidate : nri_scene::GetActorSpriteFallbackCandidates())
+    const bool prospective = voxels.enemyPreparesProspectiveMaterials;
+    const size_t maximumSets = prospective ? NRIEnemyFamilyStaging::MaximumPreparedFamilies : MaximumNewSets;
+    const size_t maximumPoses = prospective ? maximumSets * NRIEnemyFamilyStaging::MaximumFamilyPoses : MaximumPreparedPoses;
+    const auto prepare = [&](const ActorPresentationState* authority, uint64_t identity)
     {
-        if (!candidate.descriptorCurrent || candidate.presentationHidden || !candidate.ownerWorldEpoch ||
-            candidate.transientGeometryCaptured || !owners.insert(candidate.identityKey).second) continue;
-        const auto* authority = nri_scene::LookupActorSpriteFallbackAuthority(
-            candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration);
         if (!authority || !authority->authorityCurrent || !authority->publicationEligible ||
             !authority->spriteAnimation.enemy || !authority->spriteAnimation.recipeCertified ||
-            authority->spriteAnimation.recipeHidden) continue;
-        if (voxels.enemyPolicy.Find({candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration})) continue;
+            authority->spriteAnimation.recipeHidden) return;
+        if (voxels.enemyPolicy.Find({authority->owner.ownerWorldEpoch, uint64_t(authority->owner.ownerLifetimeGeneration)})) return;
         ++eligible;
         const auto& family = authority->spriteAnimation.enemyVoxelFamily;
         const auto& geometry = voxels.InspectEnemyFamily(*authority, frameIndex, settings);
         if (!family || !family->complete || !geometry.complete)
         {
             ++geometryPending;
-            voxels.enemyMaterialTextureReasons[candidate.identityKey] = "geometry-not-ready";
-            continue;
+            voxels.enemyMaterialTextureReasons[identity] = "geometry-not-ready";
+            return;
         }
         std::vector<nri_scene::PrecachedVoxelRawManifestView> views;
         if (!nri_scene::BuildEnemyVoxelFamilyViews(*authority, views) || views.empty())
         {
-            voxels.enemyMaterialTextureReasons[candidate.identityKey] = "family-context-unavailable";
-            continue;
+            voxels.enemyMaterialTextureReasons[identity] = "family-context-unavailable";
+            return;
         }
         auto found = std::find_if(sets.begin(), sets.end(), [&](const DependencySet& set)
             { return SameSet(set, family->signature, views); });
         if (found == sets.end())
         {
-            if (sets.size() >= MaximumNewSets || views.size() > MaximumPreparedPoses - poses)
+            if (sets.size() >= maximumSets || views.size() > maximumPoses - poses)
             {
                 ++capRefusals;
-                voxels.enemyMaterialTextureReasons[candidate.identityKey] = "family-texture-work-cap";
-                continue;
+                voxels.enemyMaterialTextureReasons[identity] = "family-texture-work-cap";
+                return;
             }
             DependencySet set;
             set.signature = family->signature;
@@ -154,6 +156,7 @@ void NRIPrepareEnemyFamilyTextures(uint32_t frameIndex, NRIPersistentVoxelReside
                     closure.residencyIndex >= textures.CachedTextures().size() ||
                     textures.CachedTextures()[closure.residencyIndex].resource.mipCount != (std::max)(1u, upload.mipCount))
                 {
+                    if (!set.unavailableKey) set.unavailableKey = upload.key;
                     pending |= closure.state == NRISceneTextureClosureState::Pending;
                     failed |= closure.state != NRISceneTextureClosureState::Pending;
                 }
@@ -171,8 +174,44 @@ void NRIPrepareEnemyFamilyTextures(uint32_t frameIndex, NRIPersistentVoxelReside
             found = sets.end() - 1;
         }
         else ++reused;
-        voxels.enemyMaterialTextureReasons[candidate.identityKey] = found->reason;
-        if (found->ready) voxels.enemyMaterialTexturesReadyActors.insert(candidate.identityKey);
+        voxels.enemyMaterialTextureReasons[identity] = found->reason;
+        if (found->unavailableKey) voxels.enemyUnavailableTextureKeys[identity] = found->unavailableKey;
+        if (found->ready) voxels.enemyMaterialTexturesReadyActors.insert(identity);
+    };
+    // The first published body has priority over speculative work.
+    for (const auto& candidate : nri_scene::GetActorSpriteFallbackCandidates())
+    {
+        if (!candidate.descriptorCurrent || candidate.presentationHidden || !candidate.ownerWorldEpoch ||
+            candidate.transientGeometryCaptured || !owners.insert(candidate.identityKey).second) continue;
+        prepare(nri_scene::LookupActorSpriteFallbackAuthority(candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration),
+            candidate.identityKey);
+    }
+    // Visit one authoritative, as-yet unseen owner per frame. This also covers
+    // later spawns, without allocating material rows or choosing a body for them.
+    const auto& snapshot = GetActorPresentationSnapshot();
+    if (prospective && snapshot.complete && !snapshot.actors.empty())
+    {
+        const size_t inspections = std::min<size_t>(64, snapshot.actors.size());
+        for (size_t i = 0; i < inspections; ++i)
+        {
+            voxels.enemyPreparationCursor %= snapshot.actors.size();
+            const auto& actor = snapshot.actors[voxels.enemyPreparationCursor++];
+            const auto& family = actor.spriteAnimation.enemyVoxelFamily;
+            const NRIEnemyRepresentationOwner owner{actor.owner.ownerWorldEpoch, uint64_t(actor.owner.ownerLifetimeGeneration)};
+            if (!actor.owner.IsValid() || !actor.authorityCurrent || !actor.publicationEligible || !family || !family->complete ||
+                actor.spriteAnimation.recipeHidden || voxels.enemyPolicy.Find(owner)) continue;
+            const auto identity = nri_scene::BuildVoxelActorIdentityKey(actor.owner);
+            auto& visit = voxels.enemyPreparationVisits[identity % voxels.enemyPreparationVisits.size()];
+            if ((visit.first == identity && frameIndex >= visit.second && frameIndex - visit.second < 240) ||
+                !owners.insert(identity).second) continue;
+            prepare(&actor, identity);
+            if (voxels.enemyMaterialTexturesReadyActors.count(identity))
+            {
+                voxels.prospectiveMaterialOwners.push_back(owner);
+                visit = {identity, frameIndex};
+            }
+            break;
+        }
     }
     if (PerfAuditActive() && eligible)
     {

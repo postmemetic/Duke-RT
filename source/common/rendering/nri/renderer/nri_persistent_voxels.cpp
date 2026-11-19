@@ -4791,7 +4791,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::ActorDemand);
 		RefreshActorDemand(frameIndex, settings, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::EnemyPolicy);
-		UpdateEnemyFamilyStaging(frameIndex, settings, totalTrackedBytes, adapterLocalBudget);
+		UpdateEnemyFamilyStaging(frameIndex, settings, totalTrackedBytes, adapterLocalBudget, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::Reclaim);
 		ProcessAdmissionReclaim(frameIndex, settings, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
@@ -10108,7 +10108,9 @@ void NRIPersistentVoxelResidency::Reset(
 	actorDemand.Reset();
 	warmRetentionPressure = {};
 	enemyPolicy.Reset();
-	enemyFamilyStaging.Reset(); enemyStagingFrame = UINT32_MAX;
+	enemyFamilyStaging.Reset(); enemyStagingFrame = enemyRestageAttemptFrame = UINT32_MAX;
+    enemyPreparesProspectiveMaterials = false; enemyPreparationHeadroom = 0; enemyPreparationCursor = 0;
+    prospectiveMaterialOwners.clear();
 	enemyPolicy.TakeReleasedMaterialKeys(); // All bindings below retire together.
 	enemyMaterialReleasePending.clear();
 	enemyFamilyResidency.clear();

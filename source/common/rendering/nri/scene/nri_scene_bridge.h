@@ -17,10 +17,12 @@
 class FGameTexture;
 class FVoxelModel;
 struct ActorPresentationState;
+struct ActorPresentationOwnerKey;
 
 namespace nri_scene
 {
 struct VoxelPublicationDiagnosticStatus;
+uint64_t BuildVoxelActorIdentityKey(const ActorPresentationOwnerKey& owner);
 bool TryGetAverageTextureColor(FGameTexture* texture, float* outColor);
 void ResetAverageTextureColorCache();
 void Copy3(const float* source, float* destination);

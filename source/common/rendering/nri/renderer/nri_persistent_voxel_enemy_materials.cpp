@@ -22,11 +22,15 @@ bool NRIPersistentVoxelResidency::PrepareEnemyMaterialCommit(const ActorPresenta
         materialBuffer.size / sizeof(nri_scene::MaterialData), UINT32_MAX));
     std::vector<uint64_t> created;
     uint32_t reserved = 0;
+    int32_t attemptedTexture = -1;
+    uint64_t attemptedKey = 0;
     bool complete = true;
     for (int32_t texture : family->textureIds)
     {
         const uint64_t key = nri_scene::BuildEnemyStableMaterialKey(authority.owner.ownerWorldEpoch,
             uint64_t(authority.owner.ownerLifetimeGeneration), texture);
+        attemptedTexture = texture;
+        attemptedKey = key;
         const auto existing = materialVariantResources.find(key);
         if (!key || (existing != materialVariantResources.end() && !existing->second.enemyStableMaterialBinding))
         { complete = false; break; }
@@ -66,11 +70,12 @@ bool NRIPersistentVoxelResidency::PrepareEnemyMaterialCommit(const ActorPresenta
         char fields[512];
         std::snprintf(fields, sizeof(fields), "\"action\":\"reserve\",\"world\":%llu,\"lifetime\":%llu,"
             "\"family\":%u,\"complete\":%s,\"poses\":%u,\"reserved_poses\":%u,\"new_bindings\":%u,"
-            "\"physical_capacity_rows\":%u,\"cursor_rows\":%llu",
+            "\"physical_capacity_rows\":%u,\"cursor_rows\":%llu,\"failed_texture\":%d,\"failed_binding\":%llu",
             (unsigned long long)authority.owner.ownerWorldEpoch,
             (unsigned long long)authority.owner.ownerLifetimeGeneration, family->id, complete ? "true" : "false",
             uint32_t(family->textureIds.size()), reserved, complete ? uint32_t(created.size()) : 0,
-            maximumRows, (unsigned long long)materialRangeAllocator.Stats().cursorRows);
+            maximumRows, (unsigned long long)materialRangeAllocator.Stats().cursorRows, complete ? -1 : attemptedTexture,
+            (unsigned long long)(complete ? 0 : attemptedKey));
         PerfAuditWriteEvent("enemy_material_reservation", PerfAuditCurrentToken(), fields);
     }
     return complete;

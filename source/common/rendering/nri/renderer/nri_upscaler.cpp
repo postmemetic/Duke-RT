@@ -377,6 +377,7 @@ bool NRIUpscalerContext::EnsureUpscaler(
 			(uint32_t)result);
 		return false;
 	}
+	++mResourceGeneration;
 	if (type == nri::UpscalerType::FSR)
 	{
 		Printf("NRI PT upscaler context: provider=FSR-3.1.4 ffx_sdk=1.1.4 api=%s mode=%s output=%ux%u flags=0x%x result=success\n",
@@ -564,6 +565,7 @@ void NRIUpscalerContext::DestroyUpscaler(NRIRenderDevice& frameBuffer, nri::Upsc
 		const auto before = traceMemory ? frameBuffer.GetAdapterMemoryTelemetry() : NRIAdapterMemoryTelemetry{};
 		nri_profile::RunNative("provider-destroy", [&] { frameBuffer.mUpscaler.DestroyUpscaler(upscaler); });
 		upscaler = nullptr;
+		++mResourceGeneration;
 		if (traceMemory)
 			ReportUpscalerMemoryChange(frameBuffer, type, "destroy", nri::Result::SUCCESS, before);
 	}

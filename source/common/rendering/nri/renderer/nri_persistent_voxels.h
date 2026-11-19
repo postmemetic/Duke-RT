@@ -1074,7 +1074,16 @@ public:
     NRIEnemyFamilyStaging enemyFamilyStaging;
     void ReconcileEnemyFamilyStaging();
     void UpdateEnemyFamilyStaging(uint32_t frame, const NRIPersistentVoxelSettings& settings,
-        uint64_t usageBytes, uint64_t budgetBytes);
+        uint64_t usageBytes, uint64_t budgetBytes, const NRIPersistentVoxelResetServices& services);
+    bool enemyPreparesProspectiveMaterials = false;
+    uint64_t enemyPreparationHeadroom = 0;
+    size_t enemyPreparationCursor = 0;
+    // A bounded work throttle for invisible owners. Visible actors always recheck actual resources.
+    std::array<std::pair<uint64_t, uint32_t>, 256> enemyPreparationVisits{};
+    std::vector<NRIEnemyRepresentationOwner> prospectiveMaterialOwners;
+    uint32_t enemyRestageAttemptFrame = UINT32_MAX;
+    bool TryRestageEnemyGeometry(const ActorPresentationState& actor, uint32_t frame,
+        const NRIPersistentVoxelSettings& settings, uint64_t available, const NRIPersistentVoxelResetServices& services);
     uint32_t enemyStagingFrame = UINT32_MAX;
     uint64_t enemyStagingUsage = 0, enemyStagingBudget = 0;
     std::vector<uint64_t> enemyStagingReadyKeys;
@@ -1085,6 +1094,7 @@ public:
     uint32_t enemyMaterialTexturesReadyFrame = UINT32_MAX;
     std::unordered_set<uint64_t> enemyMaterialTexturesReadyActors;
     std::unordered_map<uint64_t, const char*> enemyMaterialTextureReasons;
+    std::unordered_map<uint64_t, uint64_t> enemyUnavailableTextureKeys;
     void RefreshActorDemand(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings,
         const NRIPersistentVoxelResetServices& services);
     void NotifyActorRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,

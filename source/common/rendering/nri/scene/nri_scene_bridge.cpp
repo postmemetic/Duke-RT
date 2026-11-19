@@ -2200,18 +2200,6 @@ namespace
 		return hashes;
 	}
 
-	uint64_t BuildVoxelActorIdentityKey(const ActorPresentationOwnerKey& owner)
-	{
-		if (!owner.IsValid())
-		{
-			return 0;
-		}
-
-		uint64_t hash = 1469598103934665603ull;
-		hash = HashCombine64(hash, owner.ownerWorldEpoch);
-		hash = HashCombine64(hash, (uint64_t)owner.ownerLifetimeGeneration);
-		return hash != 0 ? hash : 1ull;
-	}
 
 	uint64_t BuildLegacyVoxelInstanceKeyHash(int32_t actorIndex, uintptr_t actorAddress)
 	{
@@ -6479,6 +6467,19 @@ namespace
 
 namespace nri_scene
 {
+uint64_t BuildVoxelActorIdentityKey(const ActorPresentationOwnerKey& owner)
+{
+	if (!owner.IsValid())
+	{
+		return 0;
+	}
+
+	uint64_t hash = 1469598103934665603ull;
+	hash = HashCombine64(hash, owner.ownerWorldEpoch);
+	hash = HashCombine64(hash, (uint64_t)owner.ownerLifetimeGeneration);
+	return hash != 0 ? hash : 1ull;
+}
+
 const char* GetDynamicVoxelEscapeReasonName(DynamicVoxelEscapeReason reason)
 {
 	switch (reason)

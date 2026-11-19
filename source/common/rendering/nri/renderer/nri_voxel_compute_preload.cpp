@@ -359,13 +359,19 @@ namespace
 		uint64_t closureSequence = 0;
 		NRIVoxelComputePreloadSettings settings = {};
 		NRIVoxelComputePreloadStats stats = {};
-		std::vector<PlannedBinding> bindings;
-		std::unordered_set<uint64_t> runtimeWithheldMeshes;
+        std::vector<PlannedBinding> bindings;
+        std::unordered_set<uint64_t> runtimeWithheldMeshes;
 		std::unordered_set<uint64_t> runtimeProbeMeshes;
 		bool runtimeTailReleased = false;
 	};
 
-	PreloadPlanState gPreloadPlanState;
+    struct EnemyPreloadWorkingSet
+    {
+        uint64_t build = 0, peak = 0, initialUsage = 0;
+        std::unordered_map<uint64_t, nri_scene::PrecachedVoxelVariantView> geometry;
+    };
+    EnemyPreloadWorkingSet enemyWorkingSet;
+    PreloadPlanState gPreloadPlanState;
 }
 
 NRIVoxelComputePreloadSettings BuildNRIVoxelComputePreloadSettingsFromCVars()
@@ -431,7 +437,33 @@ void SelectNRIVoxelComputePreloadForBudget(
 			settings.minimumLocalMemoryReserveBytes > localMemoryBudgetBytes - (std::min)(currentTrackedBytes, localMemoryBudgetBytes) ||
 			originalPeak > localMemoryBudgetBytes - (std::min)(currentTrackedBytes, localMemoryBudgetBytes) -
 				(std::min)(settings.minimumLocalMemoryReserveBytes, localMemoryBudgetBytes - (std::min)(currentTrackedBytes, localMemoryBudgetBytes));
-		NRIVoxelPreloadBudgetSelection chosen;
+        // Preserve the original enemy plan before optional scene content is
+        // filtered. Recovered headroom can then bring back the exact planned meshes.
+        enemyWorkingSet = {};
+        enemyWorkingSet.build = buildSerial;
+        enemyWorkingSet.initialUsage = currentTrackedBytes;
+        uint64_t enemyGeometry = 0, enemySources = 0, largestEnemyMesh = 0;
+        for (const auto& pose : fullPlan.directVariants)
+        {
+            if (!pose.preloadGeometry || !(pose.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily)) continue;
+            const auto key = BuildPersistentVoxelVariantMeshResourceKey(pose);
+            if (enemyWorkingSet.geometry.emplace(key, pose).second)
+            {
+                const auto bytes = EstimateVariantGeometryBytes(pose);
+                enemyGeometry += bytes;
+                largestEnemyMesh = std::max(largestEnemyMesh, bytes);
+            }
+        }
+        std::unordered_set<FVoxelModel*> sources;
+        for (const auto& raw : rawVariants)
+        {
+            if (!(raw.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily) ||
+                !enemyWorkingSet.geometry.count(BuildPersistentVoxelVariantMeshResourceKey(BuildDirectVariant(raw)))) continue;
+            if (sources.insert(raw.model).second) enemySources += raw.rawBytes;
+        }
+        enemyWorkingSet.peak = EstimateNRIVoxelPreloadPeak(enemyGeometry, 0, enemySources,
+            largestEnemyMesh, settings.peakEstimatePercent, settings.strict);
+        NRIVoxelPreloadBudgetSelection chosen;
 		std::vector<NRIVoxelPreloadBudgetGroup> groups;
 		std::vector<std::vector<size_t>> rows;
 		if (originalGuard)
@@ -866,7 +898,7 @@ NRIVoxelComputePreloadStats PlanNRIVoxelComputePreload(
 		gPreloadPlanState.closureSequence = previousSequence;
 		gPreloadPlanState.settings = settings;
 		gPreloadPlanState.stats = stats;
-		gPreloadPlanState.bindings = std::move(rawPlan.bindings);
+        gPreloadPlanState.bindings = std::move(rawPlan.bindings);
 		gPreloadPlanState.runtimeWithheldMeshes = std::move(rawPlan.runtimeWithheldMeshes);
 		gPreloadPlanState.runtimeProbeMeshes = std::move(rawPlan.runtimeProbeMeshes);
 	}
@@ -1096,6 +1128,24 @@ NRIVoxelComputePreloadStats PlanNRIVoxelComputePreload(
 	}
 
 	return stats;
+}
+
+bool NRICompleteEnemyPreloadFits(uint64_t build, uint64_t budget, uint64_t usage, uint64_t reserve)
+{
+    if (!build || build != enemyWorkingSet.build || enemyWorkingSet.geometry.empty() || reserve >= budget ||
+        usage >= budget - reserve) return false;
+    // A later budget increase can make the original, unfiltered plan feasible.
+    // Usage already includes materialized level assets. Check the original peak at
+    // its measured starting occupancy; each new commitment also checks current usage.
+    const auto baseline = std::min(usage, enemyWorkingSet.initialUsage);
+    return baseline <= budget - reserve && enemyWorkingSet.peak <= budget - reserve - baseline;
+}
+
+const nri_scene::PrecachedVoxelVariantView* NRIFindPlannedEnemyGeometry(uint64_t build, uint64_t key)
+{
+    if (!build || build != enemyWorkingSet.build) return nullptr;
+    const auto found = enemyWorkingSet.geometry.find(key);
+    return found == enemyWorkingSet.geometry.end() ? nullptr : &found->second;
 }
 
 const NRIVoxelComputePreloadStats& GetLastNRIVoxelComputePreloadStats()

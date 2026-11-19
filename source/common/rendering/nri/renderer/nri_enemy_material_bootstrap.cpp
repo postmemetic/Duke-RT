@@ -31,30 +31,31 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
     plan.cursorRows = voxels.MaterialRangeStats().cursorRows;
     std::unordered_set<uint64_t> owners;
     uint32_t refused = 0, shortBindings = 0, invalidBindings = 0, capRefusals = 0;
-    for (const auto& candidate : nri_scene::GetActorSpriteFallbackCandidates())
+    if (voxels.enemyPreparesProspectiveMaterials)
     {
-        if (!candidate.descriptorCurrent || !candidate.capturedThisFrame || candidate.primaryHidden ||
-            candidate.presentationHidden || !candidate.recipeCertified || candidate.transientGeometryCaptured ||
-            !voxels.enemyMaterialTexturesReadyActors.count(candidate.identityKey) ||
-            !owners.insert(candidate.identityKey).second ||
-            voxels.enemyPolicy.Find({candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration})) continue;
-        const auto* authority = nri_scene::LookupActorSpriteFallbackAuthority(
-            candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration);
+        plan.ownerLimit = NRIEnemyFamilyStaging::MaximumOwners;
+        plan.extraByteLimit = std::max(plan.extraByteLimit, voxels.enemyPreparationHeadroom / 4);
+    }
+    const auto addOwner = [&](uint64_t world, uint64_t lifetime, uint64_t identity)
+    {
+        if (!voxels.enemyMaterialTexturesReadyActors.count(identity) || !owners.insert(identity).second ||
+            voxels.enemyPolicy.Find({world, lifetime})) return;
+        const auto* authority = nri_scene::LookupActorSpriteFallbackAuthority(world, lifetime);
         if (!authority || !authority->authorityCurrent || !authority->publicationEligible ||
             !authority->spriteAnimation.enemy || !authority->spriteAnimation.recipeCertified ||
             authority->spriteAnimation.recipeHidden || !authority->spriteAnimation.enemyVoxelFamily ||
-            !voxels.InspectEnemyFamily(*authority, mFrameIndex, settings).complete) continue;
-        if (plan.owners >= NRIEnemyMaterialBootstrapPlan::MaximumOwners)
-        { ++refused; ++capRefusals; continue; }
+            !voxels.InspectEnemyFamily(*authority, mFrameIndex, settings).complete) return;
+        if (plan.owners >= plan.ownerLimit)
+        { ++refused; ++capRefusals; return; }
         uint32_t missing = 0;
         bool valid = true;
         for (int32_t texture : authority->spriteAnimation.enemyVoxelFamily->textureIds)
         {
-            const uint64_t key = nri_scene::BuildEnemyStableMaterialKey(candidate.ownerWorldEpoch,
-                candidate.ownerLifetimeGeneration, texture);
+            const uint64_t key = nri_scene::BuildEnemyStableMaterialKey(authority->owner.ownerWorldEpoch,
+                uint64_t(authority->owner.ownerLifetimeGeneration), texture);
             const auto found = voxels.materialVariantResources.find(key);
             if (!key) { valid = false; ++invalidBindings; break; }
-            if (found == voxels.materialVariantResources.end()) { ++missing; continue; }
+            if (found == voxels.materialVariantResources.end()) { ++missing; return; }
             const auto& material = found->second;
             if (!material.enemyStableMaterialBinding ||
                 !voxels.materialRangeAllocator.Owns({material.materialOffset, material.materialCapacity, material.materialSlotGeneration}))
@@ -65,7 +66,16 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
         if (!valid) ++refused;
         else if (!plan.AddFamily(missing, nri_scene::VoxelPaletteMaterialSlotCount, stride))
         { ++refused; ++capRefusals; }
+    };
+    for (const auto& candidate : nri_scene::GetActorSpriteFallbackCandidates())
+    {
+        if (candidate.descriptorCurrent && candidate.capturedThisFrame && !candidate.primaryHidden &&
+            !candidate.presentationHidden && candidate.recipeCertified && !candidate.transientGeometryCaptured)
+            addOwner(candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration, candidate.identityKey);
     }
+    for (const auto& owner : voxels.prospectiveMaterialOwners)
+        addOwner(owner.world, owner.lifetime,
+            nri_scene::BuildVoxelActorIdentityKey({owner.world, int64_t(owner.lifetime)}));
 
     auto& resource = voxels.materialBuffer;
     const uint64_t requiredBytes = plan.RequiredBytes(stride);
@@ -80,12 +90,12 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
             "\"refused_owners\":%u,\"cursor_rows\":%llu,\"extra_rows\":%llu,\"required_bytes\":%llu,"
             "\"old_backing_bytes\":%llu,\"predicted_allocation_bytes\":%llu,\"actual_allocation_bytes\":%llu,"
             "\"backing_bytes\":%llu,\"usage_bytes\":%llu,\"budget_bytes\":%llu,\"reserve_bytes\":%llu,"
-            "\"short_bindings\":%u,\"invalid_bindings\":%u,\"cap_refusals\":%u,\"cpu_ms\":%.6f",
+            "\"prospective_owners\":%zu,\"short_bindings\":%u,\"invalid_bindings\":%u,\"cap_refusals\":%u,\"cpu_ms\":%.6f",
             mFrameIndex, decision, plan.owners, refused, (unsigned long long)plan.cursorRows,
             (unsigned long long)plan.extraRows, (unsigned long long)requiredBytes, (unsigned long long)oldBytes,
             (unsigned long long)predictedBytes, (unsigned long long)allocationBytes,
             (unsigned long long)resource.memorySize, (unsigned long long)usageBytes,
-            (unsigned long long)budgetBytes, (unsigned long long)reserve, shortBindings, invalidBindings, capRefusals,
+            (unsigned long long)budgetBytes, (unsigned long long)reserve, voxels.prospectiveMaterialOwners.size(), shortBindings, invalidBindings, capRefusals,
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
         PerfAuditWriteEvent("enemy_material_bootstrap", PerfAuditCurrentToken(), fields);
     };

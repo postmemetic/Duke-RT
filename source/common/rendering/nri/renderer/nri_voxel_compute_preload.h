@@ -207,6 +207,8 @@ NRIVoxelComputePreloadStats PlanNRIVoxelComputePreload(
 	uint64_t currentTrackedBytes = 0,
 	uint64_t localMemoryBudgetBytes = 0);
 
+bool NRICompleteEnemyPreloadFits(uint64_t build, uint64_t budget, uint64_t usage, uint64_t reserve);
+const nri_scene::PrecachedVoxelVariantView* NRIFindPlannedEnemyGeometry(uint64_t build, uint64_t key);
 const NRIVoxelComputePreloadStats& GetLastNRIVoxelComputePreloadStats();
 bool IsNRIVoxelComputePreloadRuntimeWithheldMesh(uint64_t buildSerial, uint64_t meshResourceKey);
 bool IsNRIVoxelComputePreloadRuntimeProbeMesh(uint64_t buildSerial, uint64_t meshResourceKey);

@@ -13,6 +13,7 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
     const int testBudget = std::max(0, (int)nri_ptvoxelbudgettestbytes);
     const bool refresh = forceRefresh || mVoxelBudgetSnapshotFrame == UINT32_MAX ||
         mVoxelBudgetSnapshotMap != mMapWorld.buildSerial || mVoxelBudgetSnapshotOverride != testBudget ||
+        mVoxelBudgetProviderGeneration != mUpscaler.ResourceGeneration() || mVoxelBudgetDenoiserReady != mNrd.IsReady() ||
         mFrameIndex < mVoxelBudgetSnapshotFrame || mFrameIndex - mVoxelBudgetSnapshotFrame >= 60;
     if (refresh)
     {
@@ -25,6 +26,8 @@ NRIPersistentVoxelBudgetSnapshot NRIRenderer::GetPersistentVoxelBudgetSnapshot(b
             mVoxelBudgetSnapshot.budgetBytes = mVoxelBudgetSnapshot.budgetBytes != 0 ?
                 std::min(mVoxelBudgetSnapshot.budgetBytes, uint64_t(testBudget)) : uint64_t(testBudget);
         mVoxelBudgetSnapshotFrame = mFrameIndex;
+        mVoxelBudgetProviderGeneration = mUpscaler.ResourceGeneration();
+        mVoxelBudgetDenoiserReady = mNrd.IsReady();
         mVoxelBudgetSnapshotMap = mMapWorld.buildSerial;
         mVoxelBudgetSnapshotOverride = testBudget;
     }

@@ -2783,6 +2783,8 @@ private:
 	uint32_t mVoxelBudgetSnapshotFrame = UINT32_MAX;
 	uint64_t mVoxelBudgetSnapshotMap = 0;
 	int mVoxelBudgetSnapshotOverride = 0;
+	uint64_t mVoxelBudgetProviderGeneration = 0;
+	bool mVoxelBudgetDenoiserReady = false;
 	void RetireResidentAccelerationStructure(NRIAccelerationStructureResource& resource);
 	void RetireTopLevelAccelerationStructure(NRIAccelerationStructureResource& resource);
 	bool UpdateSceneTextureSet(const std::vector<nri::Descriptor*>& descriptors, const char* reason = nullptr);

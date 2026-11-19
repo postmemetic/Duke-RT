@@ -5,6 +5,7 @@
 #include "actor_presentation_snapshot.h"
 #include "c_cvars.h"
 #include "perf_audit.h"
+#include "printf.h"
 #include <algorithm>
 #include <cstdio>
 
@@ -58,7 +59,9 @@ void NRIPersistentVoxelResidency::RefreshEnemyRepresentations(uint32_t frame,
 
 void NRIPersistentVoxelResidency::ResetEnemyRepresentationsForLevelTransition()
 {
-    enemyFamilyStaging.Reset(); enemyStagingFrame = UINT32_MAX;
+    enemyFamilyStaging.Reset(); enemyStagingFrame = enemyRestageAttemptFrame = UINT32_MAX;
+    enemyPreparesProspectiveMaterials = false; enemyPreparationHeadroom = 0; enemyPreparationCursor = 0;
+    prospectiveMaterialOwners.clear();
     nri_scene::ResetEnemyVoxelSources();
     enemyPolicy.Reset();
     const auto released = enemyPolicy.TakeReleasedMaterialKeys();
@@ -132,14 +135,20 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
         variant.geometryContentHash = view.geometryContentHash;
         const uint64_t key = BuildPersistentVoxelVariantMeshResourceKey(variant);
         const auto found = meshVariantResources.find(key);
-        if (found == meshVariantResources.end()) continue;
+        const auto rememberUnavailable = [&]()
+        {
+            if (result.firstUnavailableTexture >= 0) return;
+            result.firstUnavailableMesh = key;
+            result.firstUnavailableTexture = view.sourcePicnum;
+        };
+        if (found == meshVariantResources.end()) { rememberUnavailable(); continue; }
         const auto& mesh = found->second;
         const bool ready = mesh.meshBakeSpace == nri_scene::VoxelMeshBakeSpace::LocalSpace &&
             mesh.vertexCount && mesh.indexCount && mesh.primitiveCount && geometryRanges.Owns(mesh.geometryRange) &&
             mesh.accelerationStructure.accelerationStructure && mesh.accelerationStructure.buildVertexBuffer &&
             vertexBuffer.shaderView && indexBuffer.shaderView && primitiveBuffer.shaderView &&
             (mesh.tlasPublished || mesh.tlasReadyFrame <= frame);
-        if (ready) ++result.ready;
+        if (ready) ++result.ready; else rememberUnavailable();
         if (!unique.insert(key).second) continue;
         result.meshes.push_back(key);
         result.logicalGeometryBytes += uint64_t(mesh.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
@@ -236,6 +245,20 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
     enemyFamilyStaging.ReleaseOwner(owner);
     nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, voxel);
     TraceChoice(frame, candidate, choice);
+    if ((bool)nri_ptenemyrepresentationtrace)
+    {
+        const auto texture = enemyUnavailableTextureKeys.find(candidate.identityKey);
+        const uint64_t missingKey = texture == enemyUnavailableTextureKeys.end() ? 0 : texture->second;
+        char fields[600];
+        std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"lifetime\":%llu,\"family\":%u,"
+            "\"selection\":\"%s\",\"reason\":\"%s\",\"ready_poses\":%u,\"poses\":%u,\"current_mesh\":%llu,"
+            "\"missing_mesh\":%llu,\"missing_pose_texture\":%d,\"missing_upload_key\":%llu,\"preparation_headroom\":%llu",
+            frame, (unsigned long long)owner.world, (unsigned long long)owner.lifetime, family.family, voxel ? "voxel" : "sprite",
+            reason, family.ready, family.poses, (unsigned long long)currentMesh, (unsigned long long)family.firstUnavailableMesh,
+            family.firstUnavailableTexture, (unsigned long long)missingKey, (unsigned long long)enemyPreparationHeadroom);
+        PerfAuditWriteEvent("enemy_first_visible", PerfAuditCurrentToken(), fields);
+        Printf("NRI enemy first visible: %s\n", fields);
+    }
     if (!voxel)
     {
         // A current pose may have acquired its stable private row before the

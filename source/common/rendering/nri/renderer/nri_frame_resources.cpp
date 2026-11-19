@@ -174,6 +174,7 @@ bool NRIFrameResources::EnsureFrameResources(NRIRenderer& renderer, uint32_t out
 	renderer.mSceneLeft = sceneLeft;
 	renderer.mSceneTop = sceneTop;
 	renderer.mFinalSceneFormat = finalFormat;
+	renderer.mVoxelBudgetSnapshotFrame = UINT32_MAX;
 	renderer.RequestHistoryReset(dimensionsChanged ? "resize" : "frame-resources");
 	if (nri_ptscenestats)
 	{

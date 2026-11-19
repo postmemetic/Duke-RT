@@ -24,6 +24,7 @@ struct NRIEnemyStageFamily
 struct NRIEnemyStageBudget
 {
     uint64_t usage = 0, budget = 0, reserve = 0, coldPhysical = 0;
+    bool completePreloadFits = false;
 };
 struct NRIEnemyStageStats
 {
@@ -44,7 +45,7 @@ struct NRIEnemyStageDecision
 class NRIEnemyFamilyStaging
 {
 public:
-    static constexpr uint32_t MaximumOwners = 512, MaximumFamilies = 8;
+    static constexpr uint32_t MaximumOwners = 512, MaximumFamilies = 8, MaximumPreparedFamilies = 32;
     static constexpr uint32_t MaximumFamilyPoses = 64, MaximumMeshes = 256;
     static constexpr uint64_t MaximumChargedBytes = 512ull * 1024 * 1024;
     void Reset();
@@ -55,6 +56,7 @@ public:
     const NRIEnemyStageStats& Stats() const { return stats; }
     const std::vector<NRIEnemyStageDecision>& Decisions() const { return decisions; }
     bool NeedsFamily(uint64_t signature) const;
+    bool WasStaged(uint64_t signature) const { return previouslyStaged.count(signature) != 0; }
 private:
     struct Set { NRIEnemyStageFamily family; };
     void Rebuild();
@@ -62,6 +64,7 @@ private:
     std::vector<Set> selected;
     std::unordered_set<uint64_t> pins;
     std::unordered_set<uint64_t> pressureRejected;
+    std::unordered_set<uint64_t> previouslyStaged;
     std::vector<NRIEnemyStageDecision> decisions;
     NRIEnemyStageStats stats;
 };

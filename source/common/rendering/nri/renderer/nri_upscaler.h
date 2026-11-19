@@ -72,12 +72,14 @@ public:
 	bool EnsureMainUpscaler(NRIRenderDevice& frameBuffer, NRIMainUpscalerKind kind, nri::UpscalerMode mode, uint32_t upscaleWidth, uint32_t upscaleHeight, bool useExposure, bool useReactive);
 	bool IsMainUpscalerReady(NRIMainUpscalerKind kind) const;
 	void PrintContextStatus() const;
+	uint64_t ResourceGeneration() const { return mResourceGeneration; }
 	bool DispatchMainUpscaler(NRIRenderDevice& frameBuffer, NRIMainUpscalerKind kind, const NRIUpscalerDispatchDesc& desc);
 	bool EnsurePostSharpen(NRIRenderDevice& frameBuffer, NRIPostSharpenKind kind, uint32_t upscaleWidth, uint32_t upscaleHeight);
 	bool DispatchPostSharpen(NRIRenderDevice& frameBuffer, NRIPostSharpenKind kind, const NRIUpscalerDispatchDesc& desc);
 	void Shutdown(NRIRenderDevice& frameBuffer);
 
 private:
+	uint64_t mResourceGeneration = 0;
 	struct UpscalerSlotState
 	{
 		nri::Upscaler* instance = nullptr;

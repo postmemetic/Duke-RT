@@ -17,7 +17,7 @@ uint64_t Cost(const NRIEnemyStageFamily& family)
 
 void NRIEnemyFamilyStaging::Reset()
 {
-    owners.clear(); selected.clear(); pins.clear(); pressureRejected.clear(); decisions.clear(); stats = {};
+    owners.clear(); selected.clear(); pins.clear(); previouslyStaged.clear(); pressureRejected.clear(); decisions.clear(); stats = {};
 }
 
 bool NRIEnemyFamilyStaging::NeedsFamily(uint64_t signature) const
@@ -53,6 +53,8 @@ void NRIEnemyFamilyStaging::Reconcile(uint64_t world, const std::vector<NRIEnemy
     }
     for (auto it = pressureRejected.begin(); it != pressureRejected.end();)
         if (!NeedsFamily(*it)) it = pressureRejected.erase(it); else ++it;
+    for (auto it = previouslyStaged.begin(); it != previouslyStaged.end();)
+        if (!NeedsFamily(*it)) it = previouslyStaged.erase(it); else ++it;
     Rebuild();
 }
 
@@ -70,6 +72,11 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     stats.limitBytes = std::min(MaximumChargedBytes, budget.budget / 4);
     const uint64_t available = budget.budget > budget.reserve ? budget.budget - budget.reserve : 0;
     stats.requiredReclaimBytes = budget.usage > available ? budget.usage - available : 0;
+    const bool prepareAll = budget.completePreloadFits && budget.usage < available;
+    if (prepareAll)
+        stats.limitBytes = std::max(stats.limitBytes, Add(stats.chargedBytes, available - budget.usage));
+    const uint32_t familyLimit = prepareAll ? MaximumPreparedFamilies : MaximumFamilies;
+    const uint32_t meshLimit = prepareAll ? MaximumPreparedFamilies * MaximumFamilyPoses : MaximumMeshes;
     decisions.clear();
     struct Candidate { const NRIEnemyStageFamily* family; uint64_t cost; uint32_t owners; };
     std::vector<Candidate> candidates;
@@ -112,8 +119,8 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
             if (!pins.count(mesh.key) && keys.insert(mesh.key).second)
             { extra = Add(extra, Add(mesh.geometryBytes, mesh.physicalBytes)); cold = Add(cold, mesh.coldPhysicalBytes); }
         }
-        if (!valid || family->poses > MaximumFamilyPoses || selected.size() >= MaximumFamilies ||
-            keys.size() > MaximumMeshes - pins.size() || extra > stats.limitBytes - std::min(charged, stats.limitBytes))
+        if (!valid || family->poses > MaximumFamilyPoses || selected.size() >= familyLimit ||
+            keys.size() > meshLimit - std::min<size_t>(meshLimit, pins.size()) || extra > stats.limitBytes - std::min(charged, stats.limitBytes))
         {
             ++stats.capRefusalsTotal; decision.reason = "cap";
             if (old.count(family->signature) && stats.limitBytes < previousLimit)
@@ -128,6 +135,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
             if (old.count(family->signature)) { ++stats.pressureDropsTotal; pressureRejected.insert(family->signature); }
             continue;
         }
+        previouslyStaged.insert(family->signature);
         selected.push_back({*family}); pins.insert(keys.begin(), keys.end());
         charged = Add(charged, extra); protectedCold = retainedCold;
     }

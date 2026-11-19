@@ -1,6 +1,8 @@
 #include "nri_persistent_voxels.h"
 #include "actor_presentation_snapshot.h"
 #include "c_cvars.h"
+#include "nri_voxel_compute_preload.h"
+#include "nri_voxel_preload_budget.h"
 #include "perf_audit.h"
 #include <algorithm>
 #include <cstdio>
@@ -33,12 +35,63 @@ void NRIPersistentVoxelResidency::ReconcileEnemyFamilyStaging()
     }
     const uint64_t oldWorld = enemyFamilyStaging.Stats().world;
     enemyFamilyStaging.Reconcile(snapshot.worldEpoch, live);
-    if (oldWorld != snapshot.worldEpoch) enemyStagingFrame = UINT32_MAX;
+    if (oldWorld != snapshot.worldEpoch) enemyStagingFrame = enemyRestageAttemptFrame = UINT32_MAX;
+}
+
+// Restore only map-planned geometry, using exactly the route, material and
+// admission rank used by loading. A missing GPU resource never becomes a pin.
+bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentationState& actor, uint32_t frame,
+    const NRIPersistentVoxelSettings& settings, uint64_t available, const NRIPersistentVoxelResetServices& services)
+{
+    std::vector<nri_scene::PrecachedVoxelRawManifestView> views;
+    if (!nri_scene::BuildEnemyVoxelFamilyViews(actor, views)) return false;
+    std::vector<const nri_scene::PrecachedVoxelVariantView*> missing;
+    uint64_t bytes = 0, largest = 0, sources = 0;
+    std::unordered_set<uint64_t> seen;
+    for (const auto& view : views)
+    {
+        nri_scene::PrecachedVoxelVariantView identity;
+        identity.meshKeyHash = view.meshKeyHash;
+        identity.geometryContentHash = view.geometryContentHash;
+        identity.renderPrimitiveHash = view.renderPrimitiveHash;
+        const auto key = BuildPersistentVoxelVariantMeshResourceKey(identity);
+        if (!seen.insert(key).second || meshVariantResources.count(key)) continue;
+        const auto* planned = NRIFindPlannedEnemyGeometry(residencyLastBuildSerial, key);
+        if (!planned) return false;
+        const uint64_t size = uint64_t(planned->primitiveCount) * (2 * sizeof(nri_scene::SceneVertex) +
+            3 * sizeof(uint32_t) + sizeof(nri_scene::PrimitiveData));
+        bytes = Add(bytes, size);
+        sources = Add(sources, view.rawBytes);
+        largest = std::max(largest, size);
+        const auto entry = admissionQueue.find(nri_scene::HashCombine64(key, planned->materialKeyHash));
+        if (entry != admissionQueue.end() && entry->second.mapGeneration == residencyMapGeneration &&
+            entry->second.state != PersistentVoxelAdmissionState::Ready) continue;
+        missing.push_back(planned);
+    }
+    if (missing.empty()) return false;
+    const auto preload = BuildNRIVoxelComputePreloadSettingsFromCVars();
+    const auto peak = EstimateNRIVoxelPreloadPeak(bytes, 0, sources, largest, preload.peakEstimatePercent, preload.strict);
+    if (!preload.enabled || preload.dryRun || peak > available) return false;
+    uint32_t queued = 0;
+    for (const auto* pose : missing)
+        if (EnqueueAdmission(*pose, NRIVoxelAdmissionOrigin::Preload, residencyLastBuildSerial, settings, 0, false, services)) ++queued;
+    if (PerfAuditActive())
+    {
+        char fields[320];
+        std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"family\":%u,\"requested_poses\":%zu,\"queued\":%u,"
+            "\"peak_bytes\":%llu,\"available_bytes\":%llu", frame, actor.spriteAnimation.enemyVoxelFamily->id,
+            missing.size(), queued, (unsigned long long)peak, (unsigned long long)available);
+        PerfAuditWriteEvent("enemy_family_restage", PerfAuditCurrentToken(), fields);
+    }
+    return queued != 0;
 }
 
 void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
-    const NRIPersistentVoxelSettings& settings, uint64_t usageBytes, uint64_t budgetBytes)
+    const NRIPersistentVoxelSettings& settings, uint64_t usageBytes, uint64_t budgetBytes,
+    const NRIPersistentVoxelResetServices& services)
 {
+    enemyPreparesProspectiveMaterials = false;
+    enemyPreparationHeadroom = 0;
     if (!(bool)nri_ptenemystablerepresentation || settings.transformKeyed)
     { enemyFamilyStaging.Reset(); enemyStagingFrame = UINT32_MAX; return; }
     if (retentionQuarantined) return;
@@ -47,17 +100,29 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
     std::vector<NRIEnemyStageFamily> families;
     std::vector<uint64_t> readyKeys;
     std::unordered_set<uint64_t> signatures;
-    // There are exactly eight certified stock families. Inspect their bounded
-    // pose lists every pump so a newly complete set is protected before this
-    // pump's reclaim/pressure passes, even while another family is staged.
-    // InspectEnemyFamily is shared with this frame's texture/selection cache.
+    const uint64_t margin = std::max<uint64_t>(budgetBytes / 64, 16ull * 1024 * 1024);
+    const uint64_t reserve = Add(uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024, margin);
+    const uint64_t freeAfterReserve = budgetBytes > Add(usageBytes, reserve) ? budgetBytes - usageBytes - reserve : 0;
+    enemyPreparesProspectiveMaterials = freeAfterReserve != 0 && NRICompleteEnemyPreloadFits(residencyLastBuildSerial, budgetBytes, usageBytes, reserve);
+    if (enemyPreparesProspectiveMaterials) enemyPreparationHeadroom = freeAfterReserve;
+    bool tryRestage = freeAfterReserve && (enemyRestageAttemptFrame == UINT32_MAX || frame < enemyRestageAttemptFrame ||
+        frame - enemyRestageAttemptFrame >= 60);
+    // Examine each distinct certified family before ranking them by measured cost.
+    // A loaded level can contain more families than the constrained retention cap.
     for (const auto& actor : snapshot.actors)
     {
         const auto& certificate = actor.spriteAnimation.enemyVoxelFamily;
         if (!certificate || !certificate->complete || !enemyFamilyStaging.NeedsFamily(certificate->signature) ||
             !signatures.insert(certificate->signature).second) continue;
-        if (signatures.size() > NRIEnemyFamilyStaging::MaximumFamilies) break;
+        if (signatures.size() > NRIEnemyFamilyStaging::MaximumPreparedFamilies) break;
         const auto& resident = InspectEnemyFamily(actor, frame, settings);
+        if (!resident.complete && tryRestage &&
+            (enemyPreparesProspectiveMaterials || enemyFamilyStaging.WasStaged(certificate->signature)) &&
+            TryRestageEnemyGeometry(actor, frame, settings, freeAfterReserve, services))
+        {
+            enemyRestageAttemptFrame = frame;
+            tryRestage = false;
+        }
         NRIEnemyStageFamily family;
         family.signature = certificate->signature; family.id = certificate->id;
         family.poses = uint32_t(certificate->textureIds.size()); family.complete = resident.complete;
@@ -74,8 +139,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
     // the ordinary cache's preferred warm-headroom target. Use the same hard
     // safety reserve as allocation admission, plus the existing pressure margin.
     // This does not change either cache maintenance or allocation admission.
-    const uint64_t margin = std::max<uint64_t>(budgetBytes / 64, 16ull * 1024 * 1024);
-    const uint64_t reserve = Add(uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024, margin);
+    if (tryRestage) enemyRestageAttemptFrame = frame;
     const bool reserveRecovered = enemyFamilyStaging.Stats().requiredReclaimBytes != 0 &&
         budgetBytes >= reserve && usageBytes <= budgetBytes - reserve;
     constexpr uint64_t GrowthRefresh = 16ull * 1024 * 1024;
@@ -112,7 +176,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
             else mesh = found->second;
         }
     }
-    enemyFamilyStaging.Select(families, {usageBytes, budgetBytes, reserve, coldPhysical});
+    enemyFamilyStaging.Select(families, {usageBytes, budgetBytes, reserve, coldPhysical, enemyPreparesProspectiveMaterials});
     // No allocation or immediate freed-memory claim follows this selection.
     // Ordinary retirement and allocation admission retain their fence/budget gates.
     if ((bool)nri_ptenemyrepresentationtrace && PerfAuditActive())
@@ -122,12 +186,13 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
         std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"families\":%u,\"owners\":%u,\"meshes\":%u,"
             "\"geometry_bytes\":%llu,\"physical_bytes\":%llu,\"charged_bytes\":%llu,\"limit_bytes\":%llu,\"usage_bytes\":%llu,"
             "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"required_reclaim_bytes\":%llu,\"other_cold_physical_bytes\":%llu,"
-            "\"cap_refusals_total\":%llu,\"pressure_drops_total\":%llu",
+            "\"cap_refusals_total\":%llu,\"pressure_drops_total\":%llu,\"complete_plan_fits\":%s,\"preparation_headroom\":%llu",
             frame, (unsigned long long)state.world, state.families, state.owners, state.meshes,
             (unsigned long long)state.geometryBytes, (unsigned long long)state.physicalBytes, (unsigned long long)state.chargedBytes,
             (unsigned long long)state.limitBytes, (unsigned long long)usageBytes, (unsigned long long)budgetBytes,
             (unsigned long long)reserve, (unsigned long long)state.requiredReclaimBytes,
-            (unsigned long long)state.otherColdPhysicalBytes, (unsigned long long)state.capRefusalsTotal, (unsigned long long)state.pressureDropsTotal);
+            (unsigned long long)state.otherColdPhysicalBytes, (unsigned long long)state.capRefusalsTotal, (unsigned long long)state.pressureDropsTotal,
+            enemyPreparesProspectiveMaterials ? "true" : "false", (unsigned long long)enemyPreparationHeadroom);
         PerfAuditWriteEvent("enemy_family_staging", PerfAuditCurrentToken(), fields);
         for (const auto& decision : enemyFamilyStaging.Decisions())
         {
