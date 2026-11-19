@@ -87,6 +87,7 @@ struct NRIVoxelArenaReplacement
     uint64_t arenaBytes = 0;
     uint64_t rawHeadroomBytes = 0; // After charging other owners, the provider and the safety reserve.
     uint64_t projectedBytes = 0;
+    uint64_t rawBudgetBytes = 0;
 };
 
 struct NRIVoxelArenaDenial
@@ -96,6 +97,7 @@ struct NRIVoxelArenaDenial
     uint64_t firstTick = 0;
     uint64_t mesh = 0;
     uint64_t contractedBudget = 0;
+    uint64_t shortfallBytes = 0;
 };
 
 class NRIVoxelArenaRetry
@@ -106,8 +108,8 @@ public:
     void BackingChanged();
     uint64_t Generation() const { return generation; }
     const NRIVoxelArenaDenial* Remember(const NRIVoxelArenaReplacement& request, uint64_t mesh,
-        uint64_t rawBudget, uint64_t postBudget, double transactionMs);
-    const NRIVoxelArenaDenial* Blocking(const NRIVoxelArenaReplacement& request) const;
+        uint64_t postBudget, uint64_t postPeak, double transactionMs);
+    const NRIVoxelArenaDenial* Blocking(const NRIVoxelArenaReplacement& request, uint64_t mesh) const;
 
 private:
     std::array<NRIVoxelArenaDenial, 8> denials = {};

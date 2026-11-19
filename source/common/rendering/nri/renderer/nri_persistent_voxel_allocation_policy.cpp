@@ -103,10 +103,10 @@ void NRIVoxelArenaRetry::BackingChanged()
 }
 
 const NRIVoxelArenaDenial* NRIVoxelArenaRetry::Remember(const NRIVoxelArenaReplacement& request,
-    uint64_t mesh, uint64_t rawBudget, uint64_t postBudget, double transactionMs)
+    uint64_t mesh, uint64_t postBudget, uint64_t postPeak, double transactionMs)
 {
     if (!active || !request.streamMask || request.streamMask >= denials.size() ||
-        !postBudget || postBudget >= rawBudget || transactionMs < 50.0)
+        !postBudget || postBudget >= request.rawBudgetBytes || postPeak <= postBudget || transactionMs < 50.0)
         return nullptr;
     auto& prior = denials[request.streamMask];
     // One probe deadline per shape. Deferring this or any other owner cannot
@@ -114,19 +114,28 @@ const NRIVoxelArenaDenial* NRIVoxelArenaRetry::Remember(const NRIVoxelArenaRepla
     const bool sameWindow = prior.contractedBudget && prior.request.growthPercent == request.growthPercent &&
         currentTick - prior.firstTick < ProbeTicks;
     const uint64_t firstTick = sameWindow ? prior.firstTick : currentTick;
-    prior = { request, currentTick, firstTick, mesh, postBudget };
+    prior = { request, currentTick, firstTick, mesh, postBudget, postPeak - postBudget };
     return &prior;
 }
 
-const NRIVoxelArenaDenial* NRIVoxelArenaRetry::Blocking(const NRIVoxelArenaReplacement& request) const
+const NRIVoxelArenaDenial* NRIVoxelArenaRetry::Blocking(const NRIVoxelArenaReplacement& request, uint64_t mesh) const
 {
     if (!active || !request.streamMask || request.streamMask >= denials.size()) return nullptr;
     const auto& prior = denials[request.streamMask];
     if (!prior.contractedBudget || currentTick - prior.firstTick >= ProbeTicks ||
         request.growthPercent != prior.request.growthPercent || request.geometryBytes < prior.request.geometryBytes ||
-        request.arenaBytes < prior.request.arenaBytes || request.rawHeadroomBytes > prior.request.rawHeadroomBytes ||
+        request.arenaBytes < prior.request.arenaBytes || request.rawBudgetBytes > prior.request.rawBudgetBytes ||
         request.projectedBytes <= prior.contractedBudget)
         return nullptr;
+    if (request.rawHeadroomBytes > prior.request.rawHeadroomBytes)
+    {
+        // A different mesh can probe any gain. For the same mesh, compare the
+        // gain with its actual shortfall and any increase in native requirements.
+        const uint64_t gain = request.rawHeadroomBytes - prior.request.rawHeadroomBytes;
+        const uint64_t extraGeometry = request.geometryBytes - prior.request.geometryBytes;
+        if (mesh != prior.mesh || (gain >= prior.shortfallBytes && gain - prior.shortfallBytes >= extraGeometry))
+            return nullptr;
+    }
     return &prior;
 }
 

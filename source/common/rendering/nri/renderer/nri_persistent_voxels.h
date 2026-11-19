@@ -15,6 +15,7 @@
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
+#include "nri_persistent_voxel_optional_growth.h"
 #include "nri_persistent_voxel_loading_policy.h"
 #include "nri_voxel_compute_allocation_policy.h"
 #include "nri_persistent_voxel_retention_policy.h"
@@ -480,10 +481,10 @@ struct NRIPersistentVoxelPreloadServices
 struct NRIPersistentVoxelAdmissionServices
 {
 	NRIPersistentVoxelAllocationResult (*prepareGeometryAllocation)(void*, PersistentVoxelMeshVariantResource&,
-		NRIBufferResource*, uint32_t, uint32_t, uint32_t, bool) = nullptr;
+		NRIBufferResource*, uint32_t, uint32_t, uint32_t, bool, bool) = nullptr;
 	NRIPersistentVoxelAllocationResult PrepareGeometryAllocation(PersistentVoxelMeshVariantResource& mesh,
-		NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs) const
-	{ return prepareGeometryAllocation ? prepareGeometryAllocation(user, mesh, scratch, vertices, indices, primitives, privateInputs) : NRIPersistentVoxelAllocationResult::Disabled; }
+		NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs, bool optionalManifest) const
+	{ return prepareGeometryAllocation ? prepareGeometryAllocation(user, mesh, scratch, vertices, indices, primitives, privateInputs, optionalManifest) : NRIPersistentVoxelAllocationResult::Disabled; }
 	using AdmitVariantResourceFn = bool (*)(
 		void* user,
 		PersistentVoxelAdmissionEntry& entry,
@@ -1088,6 +1089,7 @@ public:
     NRIVoxelActorDemand actorDemand;
     NRIVoxelRetentionPressure warmRetentionPressure;
     NRIVoxelAdmissionReclaim admissionReclaim;
+    NRIVoxelOptionalGrowth optionalGrowth;
     uint64_t reclaimGeometryRevision = 0;
     bool CollectCachePins(const NRIPersistentVoxelSettings& settings, NRIVoxelCachePins& pins,
         size_t maximum = SIZE_MAX, bool authoritativeEmptyAfterWait = false, bool includeEnemyStaging = true) const;

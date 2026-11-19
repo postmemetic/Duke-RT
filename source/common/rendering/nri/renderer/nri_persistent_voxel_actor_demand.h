@@ -40,7 +40,7 @@ struct NRIVoxelActorDemandState
 struct NRIVoxelMeshUpgradeDemand
 {
     uint64_t identity = 0, world = 0, lifetime = 0;
-    uint32_t consumers = 0, oldestWait = 0;
+    uint32_t consumers = 0, oldestWait = 0, requestedConsumers = 0;
 };
 
 // CPU policy only. No source pointers, GPU resources or ownership pins.
@@ -55,6 +55,7 @@ public:
     bool CanHold(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame, uint32_t maximumFrames) const;
     NRIVoxelPairDemand Pair(uint64_t key) const;
     NRIVoxelMeshUpgradeDemand Upgrade(uint64_t mesh, uint32_t frame) const;
+    bool HasCurrentMeshAuthority(uint32_t frame) const { return valid && captureUpgrades && refreshedFrame == frame; }
     uint64_t UpgradeRevision() const { return upgradeRevision; }
     NRIVoxelActorDemandState GetActor(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame) const;
     uint32_t WarmMeshRank(uint64_t key, uint32_t frame) const;

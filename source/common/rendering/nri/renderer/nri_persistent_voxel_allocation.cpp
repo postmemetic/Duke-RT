@@ -75,6 +75,71 @@ namespace
             resource.memoryLocation == nri::MemoryLocation::DEVICE && resource.stride == desc.structureStride &&
             NRIResourceUsageIncludes(resource.usage, desc.usage) && resource.size >= desc.size;
     }
+
+    NRIVoxelOptionalGrowth::Decision CheckOptionalGrowth(NRIPersistentVoxelResidency& arena, NRIRenderDevice& device,
+        uint64_t mesh, const std::array<uint32_t, 3>& rows, uint64_t map, uint32_t frame, uint64_t tick, uint64_t reserve)
+    {
+        const bool audit = PerfAuditActive();
+        const uint64_t start = audit ? PerfAuditClockNs() : 0;
+        NRIVoxelOptionalGrowth::Demand demand;
+        demand.authoritative = arena.actorDemand.HasCurrentMeshAuthority(frame);
+        demand.consumers = arena.actorDemand.Upgrade(mesh, frame).requestedConsumers;
+        auto active = arena.activeMeshReferences.find(mesh);
+        demand.active = active == arena.activeMeshReferences.end() ? 0 : active->second;
+        const auto& pins = arena.enemyPolicy.MeshPins();
+        auto family = pins.find(mesh);
+        demand.family = family != pins.end() && family->second != 0;
+        demand.staged = arena.enemyFamilyStaging.MeshPins().count(mesh) != 0;
+        if (const char* bypass = demand.Bypass()) return {false, bypass};
+
+        NRIVoxelOptionalGrowth::Footprint footprint{rows, arena.allocationArenaRetry.Generation()};
+        uint64_t oldBytes = 0;
+        const auto stream = [&](const NRIBufferResource& backing, uint64_t required)
+        {
+            if (required <= backing.size) return;
+            oldBytes = NRIVoxelComputeSaturatingAdd(oldBytes, backing.memorySize);
+            footprint.bytes = NRIVoxelComputeSaturatingAdd(footprint.bytes, required);
+        };
+        stream(arena.vertexBuffer, uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex));
+        stream(arena.indexBuffer, uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t));
+        stream(arena.primitiveBuffer, uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData));
+        if (oldBytes < NRIVoxelOptionalGrowth::MinimumCopyBytes) return {false, "existing-or-small"};
+
+        auto& policy = arena.optionalGrowth;
+        const bool query = policy.sampleTick != tick;
+        if (query)
+        {
+            const auto live = device.GetAdapterMemoryTelemetry();
+            policy.sampleTick = tick;
+            policy.usage = live.localUsageBytes;
+            policy.budget = live.liveUsageAvailable ? live.localBudgetBytes : 0;
+        }
+        const uint64_t testBudget = uint64_t(std::max(0, (int)nri_ptvoxelbudgettestbytes));
+        const uint64_t budget = testBudget ? std::min(policy.budget, testBudget) : policy.budget;
+        arena.allocationBudgetCeiling.BeginTick(map, tick);
+        const uint64_t ceiling = arena.allocationBudgetCeiling.ceilingBytes;
+        const uint64_t floor = NRIVoxelComputeSaturatingAdd(policy.usage, NRIVoxelComputeSaturatingAdd(footprint.bytes, reserve));
+        const auto result = policy.Consider(mesh, tick, footprint, floor, budget, ceiling);
+        if (audit)
+        {
+            char fields[1024];
+            const char* action = result.defer ? (result.first ? "defer" : "repeat") : "probe";
+            snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\","
+                "\"action\":\"%s\",\"reason\":\"%s\",\"optional_manifest\":true,\"current_demand_authority\":true,"
+                "\"requested_consumers\":%u,\"active_references\":%u,\"family_pinned\":%u,\"family_staged\":%u,"
+                "\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu,\"projected_floor_bytes\":%llu,\"reserve_bytes\":%llu,"
+                "\"live_usage_bytes\":%llu,\"budget_bytes\":%llu,\"observed_ceiling_bytes\":%llu,\"budget_query\":%s,"
+                "\"maximum_probe_ticks\":%llu,\"minimum_copy_bytes\":%llu,\"cpu_ns\":%llu",
+                frame, (unsigned long long)mesh, (unsigned long long)tick, action, result.reason,
+                demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
+                (unsigned long long)oldBytes, (unsigned long long)footprint.bytes, (unsigned long long)floor,
+                (unsigned long long)reserve, (unsigned long long)policy.usage, (unsigned long long)budget, (unsigned long long)ceiling,
+                query ? "true" : "false", (unsigned long long)NRIVoxelOptionalGrowth::ProbeTicks,
+                (unsigned long long)NRIVoxelOptionalGrowth::MinimumCopyBytes, (unsigned long long)(PerfAuditClockNs() - start));
+            PerfAuditWriteEvent("voxel_optional_arena_growth", PerfAuditCurrentToken(), fields);
+        }
+        return result;
+    }
 }
 
 nri::AccelerationStructureBits GetNRIPersistentVoxelAllocationBlasFlags()
@@ -93,7 +158,7 @@ nri::AccelerationStructureBits GetNRIPersistentVoxelAllocationBlasFlags()
 
 NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAllocation(
     PersistentVoxelMeshVariantResource& mesh, NRIBufferResource* buildScratch,
-    uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs)
+    uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs, bool optionalManifest)
 {
     using Result = NRIPersistentVoxelAllocationResult;
     if (!(bool)nri_ptvoxelallocationbudget) return Result::Disabled;
@@ -118,6 +183,19 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const bool growsArena = uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex) > arena.vertexBuffer.size ||
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
         uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size;
+    const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
+    const char* optionalReason = !optionalManifest ? "not-optional" : !growsArena ? "existing-or-small" : "disabled";
+    if (optionalManifest && growsArena && arenaRecovery && reclaimEnabled && !arena.retentionQuarantined && mesh.resourceKey)
+    {
+        const auto choice = CheckOptionalGrowth(arena, *mFrameBuffer, mesh.resourceKey, requestedRows,
+            mMapWorld.buildSerial, mFrameIndex, retryTick, reserve);
+        optionalReason = choice.reason;
+        if (choice.defer)
+        {
+            mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
+            return Result::DeferredCooldown;
+        }
+    }
     if (reclaimEnabled)
     {
         arena.admissionReclaim.BeginTick(arena.residencyMapGeneration, retryTick);
@@ -128,7 +206,6 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
     }
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
-    const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     uint64_t predictedBytes = 0, actualBytes = 0, oldArenaBytes = 0, newArenaBytes = 0;
     uint32_t candidatePercent = arena.allocationGrowthRetry.SelectPercent(
         uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200)));
@@ -181,7 +258,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         {
             char fields[2304];
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
-                "\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
+                "\"optional_manifest\":%s,\"optional_growth_reason\":\"%s\",\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
                 "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
                 "\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"growth_percent\":%u,"
                 "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,"
@@ -190,7 +267,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,"
                 "\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu,"
                 "\"observed_budget_hold_ticks\":%llu,\"observed_budget_contraction_streak\":%u,\"observed_budget_probe_reason\":\"%s\"",
-                mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision,
+                mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision, optionalManifest ? "true" : "false", optionalReason,
                 (unsigned long long)mesh.resourceKey, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
                 (unsigned long long)reserve, (unsigned long long)NRIVoxelComputeSaturatingAdd(predictedBytes, provider.bytes),
@@ -374,10 +451,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         replacement.geometryBytes = predictedBytes;
         replacement.arenaBytes = newArenaBytes;
         replacement.projectedBytes = peak.projectedBytes;
+        replacement.rawBudgetBytes = budget.rawBudgetBytes;
         // The candidate passed the preflight; the base includes owner credit,
         // other reservations, the provider and reserve, but no proposed geometry.
         replacement.rawHeadroomBytes = budget.rawBudgetBytes - (peak.projectedBytes - predictedBytes);
-        if (const auto* prior = arena.allocationArenaRetry.Blocking(replacement))
+        if (const auto* prior = arena.allocationArenaRetry.Blocking(replacement, mesh.resourceKey))
         {
             NRIAuditVoxelArenaRetry("defer", mFrameIndex, retryTick, mMapWorld.buildSerial,
                 arena.allocationArenaRetry.Generation(), mesh.resourceKey, replacement, *prior);
@@ -423,7 +501,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         {
             const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             if (const auto* denial = arena.allocationArenaRetry.Remember(replacement, mesh.resourceKey,
-                budget.rawBudgetBytes, rawBudget, elapsedMs))
+                rawBudget, peak.projectedBytes, elapsedMs))
                 NRIAuditVoxelArenaRetry("remember", mFrameIndex, retryTick, mMapWorld.buildSerial,
                     arena.allocationArenaRetry.Generation(), mesh.resourceKey, replacement, *denial);
         }

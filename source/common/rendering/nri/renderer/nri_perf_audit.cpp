@@ -49,14 +49,16 @@ void NRIAuditVoxelArenaRetry(const char* action, uint32_t rendererFrame, uint64_
         "\"backing_generation\":%llu,\"mesh_key\":%llu,\"stream_mask\":%u,\"growth_percent\":%u,"
         "\"geometry_bytes\":%llu,\"arena_bytes\":%llu,\"headroom_bytes\":%llu,\"projected_bytes\":%llu,"
         "\"denied_mesh_key\":%llu,\"denied_tick\":%llu,\"window_start_tick\":%llu,\"denied_geometry_bytes\":%llu,"
-        "\"denied_arena_bytes\":%llu,\"denied_headroom_bytes\":%llu,\"contracted_budget_bytes\":%llu",
+        "\"denied_arena_bytes\":%llu,\"denied_headroom_bytes\":%llu,\"contracted_budget_bytes\":%llu,"
+        "\"raw_budget_bytes\":%llu,\"denied_raw_budget_bytes\":%llu,\"denied_shortfall_bytes\":%llu",
         action, rendererFrame, (unsigned long long)tick, (unsigned long long)epoch, (unsigned long long)generation,
         (unsigned long long)mesh, request.streamMask, request.growthPercent, (unsigned long long)request.geometryBytes,
         (unsigned long long)request.arenaBytes, (unsigned long long)request.rawHeadroomBytes,
         (unsigned long long)request.projectedBytes, (unsigned long long)denial.mesh, (unsigned long long)denial.tick,
         (unsigned long long)denial.firstTick, (unsigned long long)denial.request.geometryBytes,
         (unsigned long long)denial.request.arenaBytes, (unsigned long long)denial.request.rawHeadroomBytes,
-        (unsigned long long)denial.contractedBudget);
+        (unsigned long long)denial.contractedBudget, (unsigned long long)request.rawBudgetBytes,
+        (unsigned long long)denial.request.rawBudgetBytes, (unsigned long long)denial.shortfallBytes);
     PerfAuditWriteEvent("voxel_arena_retry", PerfAuditCurrentToken(), fields);
 }
 

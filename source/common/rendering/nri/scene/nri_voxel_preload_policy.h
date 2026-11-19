@@ -16,4 +16,10 @@ inline bool IsRequiredVoxelPreload(uint32_t sourceBits, int32_t priority, bool g
     return priority <= 0 && (sourceBits & PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 &&
         (gpuForce || (gpuPrefer && (sourceBits & PrecachedVoxelSourceBit_MountedPreloadMap) != 0));
 }
+
+inline bool IsOptionalPreferredVoxelPreload(uint32_t sourceBits, int32_t priority, bool gpuForce, bool gpuPrefer)
+{
+    return (sourceBits & PrecachedVoxelSourceBit_MountedVoxelPreload) != 0 && gpuPrefer && !gpuForce &&
+        !IsRequiredVoxelPreload(sourceBits, priority, gpuForce, gpuPrefer);
+}
 }

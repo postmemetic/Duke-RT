@@ -5770,6 +5770,21 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		outInProgress = true;
 		return true;
 	}
+	// A previous frame may have latched runtimeRequested for a mounted
+	// preference. Current actor demand is resolved by mesh at allocation.
+	const auto optionalManifest = [&]
+	{
+		const auto& mesh = entry.uploadMeshResource;
+		return nri_scene::IsOptionalPreferredVoxelPreload(entry.sourceBits, entry.priority, entry.gpuForce, entry.gpuPrefer) &&
+			!entry.directComputeRequested && !entry.directComputeGeneration && !entry.directComputeJobId &&
+			!entry.computeGeometryJobId && !entry.uploadGeometryFromCompute && !entry.uploadPrepared &&
+			!mesh.vertexBuffer.buffer && !mesh.indexBuffer.buffer && !mesh.accelerationStructure.accelerationStructure &&
+			!mesh.computeProviderReservation.Total() && !mesh.directComputeGeneration && !mesh.directComputeJobId &&
+			!entry.directBlasScratchBuffer.buffer &&
+			!entry.uploadSubmittedBeforeBlas && !entry.directBlasFenceValue && entry.directBlasRecordedFrame == UINT32_MAX &&
+			!entry.bytesUploaded && !entry.vertexBytesUploaded && !entry.vertexArenaBytesUploaded &&
+			!entry.indexBytesUploaded && !entry.indexArenaBytesUploaded && !entry.primitiveBytesUploaded;
+	};
 	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
 		const NRIPersistentVoxelGeometryRangeHandle& oldRange, NRIPersistentVoxelAllocationResult result)
 	{
@@ -6571,7 +6586,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			meshResource.resourceKey = meshResourceKey;
 			const auto allocation = services.PrepareGeometryAllocation(meshResource,
 				entry.runtimeRequested ? &entry.directBlasScratchBuffer : nullptr,
-				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false);
+				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false, optionalManifest());
 			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 				return deferAllocation(meshResource, oldRange, allocation);
 			services.RetireGeometryRange(previousRange);
@@ -6805,7 +6820,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		meshResource.resourceKey = meshResourceKey;
 		const auto allocation = services.PrepareGeometryAllocation(meshResource, nullptr,
 			(uint32_t)entry.uploadGeometry.vertices.size(), (uint32_t)entry.uploadGeometry.indices.size(),
-			(uint32_t)entry.uploadGeometry.primitives.size(), true);
+			(uint32_t)entry.uploadGeometry.primitives.size(), true, optionalManifest());
 		if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 			return deferAllocation(meshResource, oldRange, allocation);
 		services.RetireGeometryRange(previousRange);
@@ -10060,6 +10075,7 @@ void NRIPersistentVoxelResidency::Reset(
 	enemyMaterialTextureReasons.clear();
 	enemyMaterialTexturesReadyFrame = UINT32_MAX;
 	admissionReclaim.Reset();
+	optionalGrowth = {};
 	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};
@@ -10143,6 +10159,7 @@ void NRIPersistentVoxelResidency::ResetLevelSchedulingState(
 	actorDemand.Reset();
 	warmRetentionPressure = {};
 	admissionReclaim.Reset();
+	optionalGrowth = {};
 	reclaimGeometryRevision = 0;
 	allocationGrowthRetry = {};
 	allocationMeshRetry = {};

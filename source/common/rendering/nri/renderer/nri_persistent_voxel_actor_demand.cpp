@@ -112,6 +112,7 @@ void NRIVoxelActorDemand::RebuildPairs(uint32_t frame)
         const Actor& actor = entry.second;
         const auto representation = actor.input.representation;
         const uint32_t age = Age(frame, actor.exactMissingSince);
+        if (captureUpgrades) ++upgrades[actor.input.mesh].requestedConsumers;
         if (captureUpgrades && actor.input.visible && representation != NRIVoxelActorRepresentation::Exact)
         {
             auto& upgrade = upgrades[actor.input.mesh];
