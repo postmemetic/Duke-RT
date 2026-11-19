@@ -6,6 +6,9 @@
 #include "g_mapinfo.h"
 #include "actor_presentation_snapshot.h"
 #include "buildtiles.h"
+#include "tilesetbuilder.h"
+#include "hw_voxels.h"
+#include "v_video.h"
 #include "gametexture.h"
 #include "c_cvars.h"
 #include "vm.h"
@@ -23,6 +26,27 @@ BEGIN_DUKE_NS
 namespace
 {
 bool stockConSources = false, stockGameSeen = false;
+uint64_t mountGeneration = 0;
+struct DirectionalStart
+{
+    int marker;
+    const char* cls;
+    const char* voxelFile;
+    uint32_t markerCrc, frontCrc;
+    bool useFront = false;
+};
+// The stay-put marker is rotation 1 of the first walk frame. Its mounted
+// 3D front pose already handles that angle with the actor's transform.
+DirectionalStart directionalStarts[] = {
+    {2711, "DukeBoss2Stayput", "voxels/monsters/CYCLOID/2710_CYCLOID.kvx", 0x26e902b9u, 0x0ef47cd7u},
+    {2761, "DukeBoss3Stayput", "voxels/monsters/OVERLORD/2760_OVERLORD.kvx", 0x5776bfb1u, 0x778bc212u},
+};
+const DirectionalStart* CanonicalStart(int marker)
+{
+    for (const auto& start : directionalStarts)
+        if (start.marker == marker && start.useFront) return &start;
+    return nullptr;
+}
 struct ActionShape { const char* name; int offset, frames, rotation, increment; };
 const ActionShape SharkActions[] = {
     {"ASHARKCRUZING", 0, 8, 5, 1},
@@ -214,9 +238,9 @@ const ClassFamily Classes[] = {
     {"DukeBoss1", 11},
     {"DukeBoss1Stayput", 11},
     {"DukeBoss2", 12},
-    {"DukeBoss2Stayput", 12},
+    {"DukeBoss2Stayput", 12, 2711},
     {"DukeBoss3", 13},
-    {"DukeBoss3Stayput", 13},
+    {"DukeBoss3Stayput", 13, 2761},
     {"DukeTank", 14},
     {"DukeCannon", 15},
     {"DukeRecon", 16},
@@ -278,8 +302,8 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
     int startupTexture = -1;
     if (startupTile)
     {
-        // The stock CON actors start with no action on their own image, then
-        // cactor LIZTROOP. Their successor uses only the ordinary action set.
+        // These CON actors start with no action on their own image. Their
+        // cactor successor uses only the ordinary action set.
         const auto texture = tileGetTextureID(startupTile);
         const auto* defaults = GetDefaultByType(&cls);
         const auto* art = TexMan.GetGameTexture(texture);
@@ -307,6 +331,28 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
     family->reason = spec.spriteSetSize ? "stock-sprite-set" : "stock-action-set";
     return family;
 }
+}
+
+void ConfigureEnemyVoxelDirectionalStarts(const TilesetBuildInfo& info, bool worldTour)
+{
+    ++mountGeneration;
+    for (auto& start : directionalStarts)
+    {
+        const auto& marker = info.tile[start.marker];
+        const auto& front = info.tile[start.marker - 1];
+        start.useFront = worldTour && marker.extinfo.tiletovox < 0 && !marker.imported && !front.imported &&
+            voxUsesFile(front.extinfo.tiletovox, start.voxelFile) &&
+            uint32_t(tileGetCRC32(marker.tileimage)) == start.markerCrc &&
+            uint32_t(tileGetCRC32(front.tileimage)) == start.frontCrc;
+    }
+}
+
+int ResolveEnemyVoxelDirectionalStart(const DDukeActor& actor)
+{
+    if (!stockConSources || !stockGameSeen || !(bool)nri_ptenemystablerepresentation || !r_voxels) return -1;
+    const auto* start = CanonicalStart(actor.spr.picnum);
+    if (!start || actor.GetClass() != PClass::FindClass(start->cls) || V_GetBackend() != 4) return -1;
+    return tileGetTextureID(start->marker - 1).GetIndex();
 }
 
 void ResetEnemyVoxelFamilyContentCertificate()
@@ -368,13 +414,19 @@ std::shared_ptr<const ActorEnemyVoxelFamily> ResolveStockFamily(const PClassActo
     // after a script reload/reallocation, rather than retaining stale pointers.
     static const ActorAction* actionBase = nullptr;
     static unsigned actionCount = 0;
+    static uint64_t cachedMount = 0;
     static std::unordered_map<const PClassActor*, std::shared_ptr<const ActorEnemyVoxelFamily>> cached;
     const auto* currentBase = actions.Size() ? &actions[0] : nullptr;
-    if (actionBase != currentBase || actionCount != actions.Size())
-    { cached.clear(); actionBase = currentBase; actionCount = actions.Size(); }
+    if (actionBase != currentBase || actionCount != actions.Size() || cachedMount != mountGeneration)
+    { cached.clear(); actionBase = currentBase; actionCount = actions.Size(); cachedMount = mountGeneration; }
     auto found = cached.find(cls);
     if (found == cached.end())
-        found = cached.emplace(cls, BuildFamily(Families[entry.family - 1], *cls, entry.startupTile)).first;
+    {
+        // An explicitly authored marker voxel is an extra pose until cactor.
+        // The guarded stock mapping uses the family's existing first walk pose.
+        const int extraStart = CanonicalStart(entry.startupTile) ? 0 : entry.startupTile;
+        found = cached.emplace(cls, BuildFamily(Families[entry.family - 1], *cls, extraStart)).first;
+    }
     return found->second;
 }
 }

@@ -45,6 +45,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "thingdef.h"
 #include "tilesetbuilder.h"
 #include "hw_voxels.h"
+#include "enemy_voxel_family.h"
 #include "concmd.h"
 
 BEGIN_DUKE_NS
@@ -288,7 +289,9 @@ void GameInterface::SetupSpecialTextures(TilesetBuildInfo& info)
 
 	// Tiles are mounted before the Duke CON compiler detects the World Tour
 	// gamestartup format. The archive's active resource filter is already set.
-	if (LumpFilter.CompareNoCase("Duke.WorldTour") == 0)
+	const bool worldTour = LumpFilter.CompareNoCase("Duke.WorldTour") == 0;
+	ConfigureEnemyVoxelDirectionalStarts(info, worldTour);
+	if (worldTour)
 	{
 		// This overlay starts the wounded Commander sequence one tile late.
 		// Hold its first wounded voxel for the two opening death frames.

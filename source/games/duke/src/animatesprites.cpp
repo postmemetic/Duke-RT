@@ -232,6 +232,12 @@ void applyanimations(tspritetype* t, DDukeActor* h, const DVector2& viewVec, DAn
 	t->spriteFallbackActionResolvedShade = alternate.shade;
 	ResolveSpriteAnimationFrame(t, animation, viewVec, viewang,
 		tilehasmodelorvoxel(h->spr.spritetexture(), h->spr.pal) != 0);
+	if (animation.recipeTextureId >= 0)
+	{
+		FTextureID voxelStart;
+		voxelStart.SetIndex(animation.recipeTextureId);
+		t->setspritetexture(voxelStart);
+	}
 	t->SetSpriteFallbackFrame(alternate);
 
 	// These are game-visible side effects of the original animation path.
@@ -254,6 +260,10 @@ static void CaptureSpriteAction(const DDukeActor& h, ActorSpriteAnimationState& 
 	out.available = true;
 	out.enabled = (h.flags2 & SFLAG2_DONTANIMATE) == 0;
 	out.actionActive = h.curAction != nullptr && h.curAction->name != NAME_None;
+	// The snapshot's default recipe uses this image for a retained voxel.
+	// Both the normal and retained 2D paths keep the original marker image.
+	if (!out.actionActive && (h.spr.picnum == 2711 || h.spr.picnum == 2761))
+		out.recipeTextureId = ResolveEnemyVoxelDirectionalStart(h);
 	if (h.curAction != nullptr)
 	{
 		out.rotationType = h.curAction->rotationtype;
