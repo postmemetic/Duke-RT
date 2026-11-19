@@ -76,8 +76,21 @@ namespace
             NRIResourceUsageIncludes(resource.usage, desc.usage) && resource.size >= desc.size;
     }
 
+    void FormatAdmissionIntent(char (&fields)[384], const NRIVoxelGeometryAdmissionIntent& intent)
+    {
+        snprintf(fields, sizeof(fields), "\"growth_intent\":\"%s\",\"admission_origins\":%u,\"source_bits\":%u,"
+            "\"priority\":%d,\"gpu_force\":%s,\"gpu_prefer\":%s,\"runtime_requested\":%s,\"owns_geometry_work\":%s,"
+            "\"required_hint\":%s,\"required_preload\":%s,\"runtime_pump\":%s,\"after_handoff\":%s,\"optional_manifest\":%s",
+            intent.Kind(), unsigned(intent.origins), intent.sourceBits, intent.priority, intent.force ? "true" : "false",
+            intent.prefer ? "true" : "false", intent.RuntimeActor() ? "true" : "false", intent.ownsWork ? "true" : "false",
+            intent.Required() ? "true" : "false", intent.requiredPreload ? "true" : "false",
+            intent.runtimePump ? "true" : "false", intent.afterHandoff ? "true" : "false",
+            intent.PreferredManifest() && !intent.ownsWork ? "true" : "false");
+    }
+
     NRIVoxelOptionalGrowth::Decision CheckOptionalGrowth(NRIPersistentVoxelResidency& arena, NRIRenderDevice& device,
-        uint64_t mesh, const std::array<uint32_t, 3>& rows, uint64_t map, uint32_t frame, uint64_t tick, uint64_t reserve)
+        uint64_t mesh, const std::array<uint32_t, 3>& rows, uint64_t map, uint32_t frame, uint64_t tick, uint64_t reserve,
+        const NRIVoxelGeometryAdmissionIntent& intent)
     {
         const bool audit = PerfAuditActive();
         const uint64_t start = audit ? PerfAuditClockNs() : 0;
@@ -122,15 +135,16 @@ namespace
         const auto result = policy.Consider(mesh, tick, footprint, floor, budget, ceiling);
         if (audit)
         {
-            char fields[1024];
+            char fields[1408], origin[384];
+            FormatAdmissionIntent(origin, intent);
             const char* action = result.defer ? (result.first ? "defer" : "repeat") : "probe";
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\","
-                "\"action\":\"%s\",\"reason\":\"%s\",\"optional_manifest\":true,\"current_demand_authority\":true,"
+                "\"action\":\"%s\",\"reason\":\"%s\",%s,\"current_demand_authority\":true,"
                 "\"requested_consumers\":%u,\"active_references\":%u,\"family_pinned\":%u,\"family_staged\":%u,"
                 "\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu,\"projected_floor_bytes\":%llu,\"reserve_bytes\":%llu,"
                 "\"live_usage_bytes\":%llu,\"budget_bytes\":%llu,\"observed_ceiling_bytes\":%llu,\"budget_query\":%s,"
                 "\"maximum_probe_ticks\":%llu,\"minimum_copy_bytes\":%llu,\"cpu_ns\":%llu",
-                frame, (unsigned long long)mesh, (unsigned long long)tick, action, result.reason,
+                frame, (unsigned long long)mesh, (unsigned long long)tick, action, result.reason, origin,
                 demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
                 (unsigned long long)oldBytes, (unsigned long long)footprint.bytes, (unsigned long long)floor,
                 (unsigned long long)reserve, (unsigned long long)policy.usage, (unsigned long long)budget, (unsigned long long)ceiling,
@@ -158,7 +172,8 @@ nri::AccelerationStructureBits GetNRIPersistentVoxelAllocationBlasFlags()
 
 NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAllocation(
     PersistentVoxelMeshVariantResource& mesh, NRIBufferResource* buildScratch,
-    uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs, bool optionalManifest)
+    uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs,
+    const NRIVoxelGeometryAdmissionIntent& intent)
 {
     using Result = NRIPersistentVoxelAllocationResult;
     if (!(bool)nri_ptvoxelallocationbudget) return Result::Disabled;
@@ -184,11 +199,12 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
         uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size;
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
-    const char* optionalReason = !optionalManifest ? "not-optional" : !growsArena ? "existing-or-small" : "disabled";
-    if (optionalManifest && growsArena && arenaRecovery && reclaimEnabled && !arena.retentionQuarantined && mesh.resourceKey)
+    const bool mayYield = intent.MayYield();
+    const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
+    if (mayYield && growsArena && arenaRecovery && reclaimEnabled && !arena.retentionQuarantined && mesh.resourceKey)
     {
         const auto choice = CheckOptionalGrowth(arena, *mFrameBuffer, mesh.resourceKey, requestedRows,
-            mMapWorld.buildSerial, mFrameIndex, retryTick, reserve);
+            mMapWorld.buildSerial, mFrameIndex, retryTick, reserve, intent);
         optionalReason = choice.reason;
         if (choice.defer)
         {
@@ -256,9 +272,10 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
         if (PerfAuditActive())
         {
-            char fields[2304];
+            char fields[2688], origin[384];
+            FormatAdmissionIntent(origin, intent);
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
-                "\"optional_manifest\":%s,\"optional_growth_reason\":\"%s\",\"mesh_key\":%llu,\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
+                "\"mesh_key\":%llu,%s,\"optional_growth_reason\":\"%s\",\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
                 "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
                 "\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"growth_percent\":%u,"
                 "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,"
@@ -267,8 +284,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 "\"raw_budget_bytes\":%llu,\"allocation_ceiling_bytes\":%llu,\"allocation_ceiling_remaining_ticks\":%llu,"
                 "\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu,"
                 "\"observed_budget_hold_ticks\":%llu,\"observed_budget_contraction_streak\":%u,\"observed_budget_probe_reason\":\"%s\"",
-                mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision, optionalManifest ? "true" : "false", optionalReason,
-                (unsigned long long)mesh.resourceKey, budget.liveAvailable ? "true" : "false",
+                mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision, (unsigned long long)mesh.resourceKey,
+                origin, optionalReason, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
                 (unsigned long long)reserve, (unsigned long long)NRIVoxelComputeSaturatingAdd(predictedBytes, provider.bytes),
                 (unsigned long long)predictedBytes, (unsigned long long)actualBytes,

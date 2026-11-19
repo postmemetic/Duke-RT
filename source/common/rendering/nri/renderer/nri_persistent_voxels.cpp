@@ -729,6 +729,7 @@ bool NRIPersistentVoxelAdmissionServices::AdmitVariantResource(
 	bool& outReusedMaterial,
 	bool& outInProgress,
 	bool isolateBlasBuild,
+	bool runtimePump,
 	const char*& outFailureReason,
 	PersistentVoxelAdmissionStats* outStats) const
 {
@@ -747,6 +748,7 @@ bool NRIPersistentVoxelAdmissionServices::AdmitVariantResource(
 		outReusedMaterial,
 		outInProgress,
 		isolateBlasBuild,
+		runtimePump,
 		outFailureReason,
 		outStats);
 }
@@ -4707,6 +4709,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	if (!PrepareMaterialSharing(buildSerial, frameIndex)) return false;
 	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
 	const bool loadingPhase = phase != nullptr && std::strcmp(phase, "loading") == 0;
+	const bool runtimePump = phase != nullptr && std::strcmp(phase, "runtime") == 0;
 	const bool traceLevel1 = loadingTraceLevel >= 1 || voxelStatsEnabled;
 	const bool traceLevel2 = loadingTraceLevel >= 2 || voxelStatsEnabled;
 	maintenanceStats.pumpCalls++;
@@ -5229,7 +5232,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			isolateBlasPrimitiveThreshold > 0 &&
 			entry->variant.primitiveCount >= (uint32_t)isolateBlasPrimitiveThreshold;
 		diagnostic.Attempt();
-		if (!admissionServices.AdmitVariantResource(*entry, remainingByteBudget, blasBudgetRemaining, uploadBytes, reusedMesh, reusedMaterial, inProgress, isolateBlasBuild, failureReason, &stats))
+		if (!admissionServices.AdmitVariantResource(*entry, remainingByteBudget, blasBudgetRemaining, uploadBytes, reusedMesh, reusedMaterial, inProgress, isolateBlasBuild, runtimePump, failureReason, &stats))
 		{
 			if (admissionServices.IsSubmitBudgetHit())
 			{
@@ -5586,6 +5589,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	bool& outReusedMaterial,
 	bool& outInProgress,
 	bool isolateBlasBuild,
+	bool runtimePump,
 	const char*& outFailureReason,
 	PersistentVoxelAdmissionStats* outStats,
 	uint32_t frameIndex,
@@ -5770,20 +5774,24 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		outInProgress = true;
 		return true;
 	}
-	// A previous frame may have latched runtimeRequested for a mounted
-	// preference. Current actor demand is resolved by mesh at allocation.
-	const auto optionalManifest = [&]
+	// The admission pump may still own a previous actor request after its pose
+	// leaves view. The allocation owner checks the current mesh census.
+	const auto allocationIntent = [&](const NRIPersistentVoxelGeometryRangeHandle& oldRange)
 	{
 		const auto& mesh = entry.uploadMeshResource;
-		return nri_scene::IsOptionalPreferredVoxelPreload(entry.sourceBits, entry.priority, entry.gpuForce, entry.gpuPrefer) &&
-			!entry.directComputeRequested && !entry.directComputeGeneration && !entry.directComputeJobId &&
-			!entry.computeGeometryJobId && !entry.uploadGeometryFromCompute && !entry.uploadPrepared &&
-			!mesh.vertexBuffer.buffer && !mesh.indexBuffer.buffer && !mesh.accelerationStructure.accelerationStructure &&
-			!mesh.computeProviderReservation.Total() && !mesh.directComputeGeneration && !mesh.directComputeJobId &&
-			!entry.directBlasScratchBuffer.buffer &&
-			!entry.uploadSubmittedBeforeBlas && !entry.directBlasFenceValue && entry.directBlasRecordedFrame == UINT32_MAX &&
-			!entry.bytesUploaded && !entry.vertexBytesUploaded && !entry.vertexArenaBytesUploaded &&
-			!entry.indexBytesUploaded && !entry.indexArenaBytesUploaded && !entry.primitiveBytesUploaded;
+		const bool ownsWork = entry.directComputeRequested || entry.directComputeGeneration || entry.directComputeJobId ||
+			entry.computeGeometryJobId || entry.uploadGeometryFromCompute || entry.uploadPrepared || entry.directBlasExclusive ||
+			mesh.vertexBuffer.buffer || mesh.indexBuffer.buffer || mesh.accelerationStructure.accelerationStructure ||
+			mesh.computeProviderReservation.Total() || mesh.directComputeGeneration || mesh.directComputeJobId ||
+			entry.directBlasScratchBuffer.buffer || oldRange.transaction || oldRange.vertices.capacity ||
+			oldRange.indices.capacity || oldRange.primitives.capacity ||
+			entry.uploadSubmittedBeforeBlas || entry.directBlasFenceValue || entry.directBlasRecordedFrame != UINT32_MAX ||
+			entry.bytesUploaded || entry.vertexBytesUploaded || entry.vertexArenaBytesUploaded ||
+			entry.indexBytesUploaded || entry.indexArenaBytesUploaded || entry.primitiveBytesUploaded;
+		const bool afterHandoff = runtimePump && !loadingWarmupActive && !preloadPending &&
+			preloadHandoff.yielded && preloadHandoff.mapEpoch == residencyLastBuildSerial;
+		return NRIVoxelGeometryAdmissionIntent{entry.sourceBits, entry.priority, entry.admissionOrigins,
+			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff};
 	};
 	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
 		const NRIPersistentVoxelGeometryRangeHandle& oldRange, NRIPersistentVoxelAllocationResult result)
@@ -6586,7 +6594,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			meshResource.resourceKey = meshResourceKey;
 			const auto allocation = services.PrepareGeometryAllocation(meshResource,
 				entry.runtimeRequested ? &entry.directBlasScratchBuffer : nullptr,
-				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false, optionalManifest());
+				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false, allocationIntent(oldRange));
 			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 				return deferAllocation(meshResource, oldRange, allocation);
 			services.RetireGeometryRange(previousRange);
@@ -6820,7 +6828,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		meshResource.resourceKey = meshResourceKey;
 		const auto allocation = services.PrepareGeometryAllocation(meshResource, nullptr,
 			(uint32_t)entry.uploadGeometry.vertices.size(), (uint32_t)entry.uploadGeometry.indices.size(),
-			(uint32_t)entry.uploadGeometry.primitives.size(), true, optionalManifest());
+			(uint32_t)entry.uploadGeometry.primitives.size(), true, allocationIntent(oldRange));
 		if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 			return deferAllocation(meshResource, oldRange, allocation);
 		services.RetireGeometryRange(previousRange);
@@ -8201,8 +8209,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 					(cacheEntry.surface != nullptr ? cacheEntry.surface->material : cacheEntry.materialSurface.material);
 				EnqueueAdmission(
 					admissionVariant,
-					!loadingWarmupActive,
-					"runtime-actor",
+					loadingWarmupActive ? NRIVoxelAdmissionOrigin::WarmupActor : NRIVoxelAdmissionOrigin::RuntimeActor,
 					buildSerial,
 					settings,
 					loadingTraceLevel,
@@ -10815,14 +10822,19 @@ void NRIPersistentVoxelResidency::DiscardAdmissionEntry(PersistentVoxelAdmission
 
 bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	const nri_scene::PrecachedVoxelVariantView& variant,
-	bool runtimeRequested,
-	const char* sourceLabel,
+	NRIVoxelAdmissionOrigin origin,
 	uint64_t buildSerial,
 	const NRIPersistentVoxelSettings& settings,
 	int loadingTraceLevel,
 	bool voxelStatsEnabled,
 	const NRIPersistentVoxelResetServices& services)
 {
+	const bool runtimeRequested = origin == NRIVoxelAdmissionOrigin::RuntimeActor;
+	const char* sourceLabel = origin == NRIVoxelAdmissionOrigin::Preload ? "preload" : "runtime-actor";
+	// Warmup requests synthesize mounted/force flags. Preserve the actual
+	// preload obligation before requests for the same material pair merge.
+	const bool requiredPreload = origin == NRIVoxelAdmissionOrigin::Preload && (variant.gpuForce ||
+		nri_scene::IsRequiredVoxelPreload(variant.sourceBits, variant.priority, variant.gpuForce, variant.gpuPrefer));
 	const uint64_t meshResourceKey = BuildPersistentVoxelVariantMeshResourceKey(variant);
 	if ((!variant.directOnlyAdmission && variant.surface == nullptr) ||
 		variant.meshKeyHash == 0 ||
@@ -11015,6 +11027,8 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 			}
 			admissionPayloadChanged = true;
 		}
+		entry.admissionOrigins |= uint8_t(origin);
+		entry.requiredPreload |= requiredPreload;
 		entry.sourceBits |= variant.sourceBits;
 		entry.priority = std::min(entry.priority, variant.priority);
 		entry.admissionRank = std::min(entry.admissionRank, variantAdmissionRank);
@@ -11096,6 +11110,8 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	entry.state = resourcesReady ?
 		PersistentVoxelAdmissionState::Ready :
 		PersistentVoxelAdmissionState::Pending;
+	entry.admissionOrigins = uint8_t(origin);
+	entry.requiredPreload = requiredPreload;
 	entry.sourceBits = variant.sourceBits;
 	entry.priority = variant.priority;
 	entry.admissionRank = variantAdmissionRank;
@@ -11181,8 +11197,7 @@ bool NRIPersistentVoxelResidency::PreloadVariantResources(
 		}
 		EnqueueAdmission(
 			variant,
-			false,
-			"preload",
+			NRIVoxelAdmissionOrigin::Preload,
 			buildSerial,
 			settings,
 			loadingTraceLevel,

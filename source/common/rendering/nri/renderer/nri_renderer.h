@@ -2773,7 +2773,7 @@ private:
 	NRIPersistentVoxelBudgetSnapshot GetPersistentVoxelBudgetSnapshot(bool forceRefresh = false);
 	NRIPersistentVoxelAllocationResult PreparePersistentVoxelGeometryAllocation(
 		PersistentVoxelMeshVariantResource& mesh, NRIBufferResource* scratch,
-		uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs, bool optionalManifest = false);
+		uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs, const NRIVoxelGeometryAdmissionIntent& intent = {});
 	bool BuildPreparedPersistentVoxelBottomLevel(const NRIBufferResource& vertices, const NRIBufferResource& indices,
 		uint32_t vertexOffset, uint32_t vertexCount, uint32_t indexOffset, uint32_t indexCount,
 		uint32_t primitiveCount, NRIAccelerationStructureResource& accelerationStructure, NRIBufferResource* scratch);

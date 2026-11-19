@@ -1,9 +1,44 @@
 #pragma once
 
 #include "nri_persistent_voxel_retention_policy.h"
+#include "../scene/nri_voxel_preload_policy.h"
 #include <array>
 #include <cstdint>
 #include <unordered_map>
+
+enum class NRIVoxelAdmissionOrigin : uint8_t { Preload = 1, RuntimeActor = 2, WarmupActor = 4 };
+
+struct NRIVoxelGeometryAdmissionIntent
+{
+    uint32_t sourceBits = 0;
+    int32_t priority = 0;
+    uint8_t origins = 0;
+    bool force = false, prefer = false, ownsWork = false, requiredPreload = false;
+    bool runtimePump = false, afterHandoff = false;
+
+    bool RuntimeActor() const { return (origins & uint8_t(NRIVoxelAdmissionOrigin::RuntimeActor)) != 0; }
+    bool PreferredManifest() const
+    { return nri_scene::IsOptionalPreferredVoxelPreload(sourceBits, priority, force, prefer); }
+    bool SyntheticWarmupForce() const
+    { return !requiredPreload && force && (origins & uint8_t(NRIVoxelAdmissionOrigin::WarmupActor)) != 0; }
+    bool Required() const
+    {
+        if (SyntheticWarmupForce() && runtimePump && afterHandoff) return false;
+        return requiredPreload || force || nri_scene::IsRequiredVoxelPreload(sourceBits, priority, force, prefer);
+    }
+    bool MayYield() const
+    { return runtimePump && !ownsWork && !Required() && (RuntimeActor() || PreferredManifest() || SyntheticWarmupForce()); }
+    const char* Kind() const
+    {
+        if (!origins) return "actor-batch";
+        if (ownsWork) return "owned-work";
+        if (SyntheticWarmupForce()) return runtimePump && afterHandoff ? "handed-off-warmup-actor" : "warmup-forced";
+        if (Required()) return "required-or-forced";
+        if (PreferredManifest()) return "preferred-manifest";
+        if (RuntimeActor()) return "runtime-actor";
+        return "other-preload";
+    }
+};
 
 struct NRIVoxelOptionalGrowth
 {
@@ -52,7 +87,7 @@ struct NRIVoxelOptionalGrowth
         {
             if (owners.size() >= MaximumOwners) return {false, "owner-limit"};
             owners.emplace(mesh, Owner{footprint, tick});
-            return {true, "idle-manifest-growth", true};
+            return {true, "idle-mesh-growth", true};
         }
         auto& owner = prior->second;
         const bool newBacking = owner.footprint.generation != footprint.generation;

@@ -1126,8 +1126,8 @@ public:
 		NRIPersistentVoxelAdmissionServices services = {};
 		services.user = &renderer;
 		services.prepareGeometryAllocation = [](void* user, PersistentVoxelMeshVariantResource& mesh,
-			NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs, bool optionalManifest)
-		{ return static_cast<NRIRenderer*>(user)->PreparePersistentVoxelGeometryAllocation(mesh, scratch, vertices, indices, primitives, privateInputs, optionalManifest); };
+			NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs, const NRIVoxelGeometryAdmissionIntent& intent)
+		{ return static_cast<NRIRenderer*>(user)->PreparePersistentVoxelGeometryAllocation(mesh, scratch, vertices, indices, primitives, privateInputs, intent); };
 		services.retireSchedulerReservation = [](void* user, NRIPersistentVoxelSchedulerRetirement ticket)
 		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelSchedulerReservation(ticket); };
 		services.retireGeometryRange = [](void* user, NRIPersistentVoxelGeometryRangeHandle range)
@@ -1143,6 +1143,7 @@ public:
 			bool& outReusedMaterial,
 			bool& outInProgress,
 			bool isolateBlasBuild,
+			bool runtimePump,
 			const char*& outFailureReason,
 			PersistentVoxelAdmissionStats* outStats) -> bool
 		{
@@ -1156,6 +1157,7 @@ public:
 				outReusedMaterial,
 				outInProgress,
 				isolateBlasBuild,
+				runtimePump,
 				outFailureReason,
 				outStats,
 				renderer->mFrameIndex,

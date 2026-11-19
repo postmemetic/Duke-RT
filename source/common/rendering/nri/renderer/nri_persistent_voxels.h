@@ -223,6 +223,8 @@ struct PersistentVoxelAdmissionEntry
 	uint64_t pairKey = 0;
 	nri_scene::PrecachedVoxelVariantView variant;
 	PersistentVoxelAdmissionState state = PersistentVoxelAdmissionState::Pending;
+	uint8_t admissionOrigins = 0;
+	bool requiredPreload = false;
 	uint32_t sourceBits = 0;
 	int32_t priority = 0;
 	int32_t admissionRank = 0;
@@ -481,10 +483,10 @@ struct NRIPersistentVoxelPreloadServices
 struct NRIPersistentVoxelAdmissionServices
 {
 	NRIPersistentVoxelAllocationResult (*prepareGeometryAllocation)(void*, PersistentVoxelMeshVariantResource&,
-		NRIBufferResource*, uint32_t, uint32_t, uint32_t, bool, bool) = nullptr;
+		NRIBufferResource*, uint32_t, uint32_t, uint32_t, bool, const NRIVoxelGeometryAdmissionIntent&) = nullptr;
 	NRIPersistentVoxelAllocationResult PrepareGeometryAllocation(PersistentVoxelMeshVariantResource& mesh,
-		NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs, bool optionalManifest) const
-	{ return prepareGeometryAllocation ? prepareGeometryAllocation(user, mesh, scratch, vertices, indices, primitives, privateInputs, optionalManifest) : NRIPersistentVoxelAllocationResult::Disabled; }
+		NRIBufferResource* scratch, uint32_t vertices, uint32_t indices, uint32_t primitives, bool privateInputs, const NRIVoxelGeometryAdmissionIntent& intent) const
+	{ return prepareGeometryAllocation ? prepareGeometryAllocation(user, mesh, scratch, vertices, indices, primitives, privateInputs, intent) : NRIPersistentVoxelAllocationResult::Disabled; }
 	using AdmitVariantResourceFn = bool (*)(
 		void* user,
 		PersistentVoxelAdmissionEntry& entry,
@@ -495,6 +497,7 @@ struct NRIPersistentVoxelAdmissionServices
 		bool& outReusedMaterial,
 		bool& outInProgress,
 		bool isolateBlasBuild,
+		bool runtimePump,
 		const char*& outFailureReason,
 		PersistentVoxelAdmissionStats* outStats);
 	using SubmitWaitAndRestartFn = bool (*)(void* user, const char* reason);
@@ -559,6 +562,7 @@ struct NRIPersistentVoxelAdmissionServices
 		bool& outReusedMaterial,
 		bool& outInProgress,
 		bool isolateBlasBuild,
+		bool runtimePump,
 		const char*& outFailureReason,
 		PersistentVoxelAdmissionStats* outStats) const;
 	bool SubmitWaitAndRestart(const char* reason) const;
@@ -1122,8 +1126,7 @@ public:
 		const NRIPersistentVoxelResetServices& services);
 	bool EnqueueAdmission(
 		const nri_scene::PrecachedVoxelVariantView& variant,
-		bool runtimeRequested,
-		const char* sourceLabel,
+		NRIVoxelAdmissionOrigin origin,
 		uint64_t buildSerial,
 		const NRIPersistentVoxelSettings& settings,
 		int loadingTraceLevel,
@@ -1195,6 +1198,7 @@ public:
 		bool& outReusedMaterial,
 		bool& outInProgress,
 		bool isolateBlasBuild,
+		bool runtimePump,
 		const char*& outFailureReason,
 		PersistentVoxelAdmissionStats* outStats,
 		uint32_t frameIndex,
