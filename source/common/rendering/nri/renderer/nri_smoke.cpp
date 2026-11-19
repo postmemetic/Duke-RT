@@ -325,9 +325,10 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 	filteredSceneRanges[1].descriptorType = nri::DescriptorType::STRUCTURED_BUFFER;
 	filteredSceneRanges[1].shaderStages = nri::StageBits::COMPUTE_SHADER;
 	filteredSceneRanges[1].flags = nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET;
-	filteredSceneRanges[2].baseRegisterIndex = 18;
+	constexpr uint32_t firstTextureRegister = kSmokeFilteredSceneBufferCount + kSmokeExtendedSceneBufferCount;
+	filteredSceneRanges[2].baseRegisterIndex = firstTextureRegister;
 	constexpr uint32_t smokeSceneTextureDescriptorCount = 2u + NRI_MAX_SCENE_TEXTURES;
-	constexpr uint32_t smokeWorldTlasRegister = 18u + smokeSceneTextureDescriptorCount;
+	constexpr uint32_t smokeWorldTlasRegister = firstTextureRegister + smokeSceneTextureDescriptorCount;
 	filteredSceneRanges[2].descriptorNum = smokeSceneTextureDescriptorCount;
 	filteredSceneRanges[2].descriptorType = nri::DescriptorType::TEXTURE;
 	filteredSceneRanges[2].shaderStages = nri::StageBits::COMPUTE_SHADER;
@@ -349,7 +350,7 @@ bool NRISmokeSystem::Initialize(NRIRenderer& renderer)
 		filteredSceneRanges[4] = filteredSceneRanges[3];
 		filteredSceneRanges[4].baseRegisterIndex = smokeWorldTlasRegister + 1;
 		filteredSceneRanges[3] = filteredSceneRanges[2];
-		filteredSceneRanges[3].baseRegisterIndex = 20;
+		filteredSceneRanges[3].baseRegisterIndex = firstTextureRegister + 2;
 		filteredSceneRanges[3].descriptorNum = NRI_MAX_SCENE_TEXTURES;
 		filteredSceneRanges[3].flags = NRIResourceFlags(filteredSceneRanges[3].flags, nri::DescriptorRangeBits::ARRAY);
 		filteredSceneRanges[2].descriptorNum = 2;
@@ -2305,7 +2306,9 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	std::copy(std::begin(emissiveSceneBuffers), std::end(emissiveSceneBuffers), extendedSceneBuffers.begin());
 	for (uint32_t i = 0; i < 3u; ++i)
 		extendedSceneBuffers[kSmokeEmissiveSceneBufferCount + i] = indirectSceneBuffers[i] != nullptr ? indirectSceneBuffers[i] : emissiveSceneBuffers[0];
-	const bool extendedSceneBuffersReady = emissiveBuffersReady;
+	extendedSceneBuffers[10] = renderer.mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_VERTEX_SLOT];
+	extendedSceneBuffers[11] = renderer.mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_PRIMITIVE_SLOT];
+	const bool extendedSceneBuffersReady = emissiveBuffersReady && extendedSceneBuffers[10] && extendedSceneBuffers[11];
 	const bool filteredResourcesReady = filteredBuffersReady && filteredTexturesReady && skyResourceReady && extendedSceneBuffersReady;
 	const bool actorIndirectSprites = renderer.mActorRepresentations.HasIndirectSprites(renderer.mFrameIndex);
 	// A force-opaque ray cannot enforce an indirect carrier's shadow exclusion.

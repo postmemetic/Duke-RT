@@ -10,7 +10,7 @@ constexpr uint32_t InputCount = 6u;
 constexpr uint32_t TransientStorageCount = 7u;
 constexpr uint32_t LightCount = 3u;
 constexpr uint32_t FilteredSceneCount = 8u;
-constexpr uint32_t ExtendedSceneCount = 10u;
+constexpr uint32_t ExtendedSceneCount = 12u;
 constexpr uint32_t GridInputCount = 2u;
 constexpr uint32_t StructuredPerQueuedFrame = InputCount + LightCount +
 	FilteredSceneCount + ExtendedSceneCount + GridInputCount;

@@ -3,6 +3,7 @@
 
 #include "AnalyticLightSampling.hlsli"
 #include "SceneShadowContracts.hlsli"
+#include "PersistentVoxelPage.hlsli"
 #include "ActorSpriteWorkloads.hlsli"
 #include "EmissiveLightContracts.hlsli"
 #include "EmissiveResponseLookup.hlsli"
@@ -21,7 +22,7 @@
 #define NRI_SMOKE_FILTER_SKIP_LIMIT 64u
 #define NRI_SMOKE_FILTER_CONTINUATION_LIMIT 32u
 #define NRI_SMOKE_SCENE_TEXTURE_COUNT 1024u
-#define NRI_SMOKE_WORLD_TLAS_REGISTER t1044
+#define NRI_SMOKE_WORLD_TLAS_REGISTER t1046
 
 struct SmokeSectorLightHeaderData
 {
@@ -80,19 +81,21 @@ StructuredBuffer<float> gSmokeEmissivePrimitiveCdf : register(t13, space6);
 StructuredBuffer<EmissiveMaterialResponseData> gSmokeEmissiveMaterialResponses : register(t14, space6);
 StructuredBuffer<SmokeSectorLightHeaderData> gSmokeSectorLightHeaders : register(t15, space6);
 StructuredBuffer<SmokeSectorLightData> gSmokeSectorLights : register(t16, space6);
-Texture2D<float4> gSmokePaletteLookup : register(t18, space6);
-TextureCube<float4> gSmokeSkyTexture : register(t19, space6);
-Texture2D<float4> gSmokeSceneTextures[NRI_SMOKE_SCENE_TEXTURE_COUNT] : register(t20, space6);
+StructuredBuffer<SceneVertex> gSmokeVoxelPageVertices : register(t18, space6);
+StructuredBuffer<PrimitiveData> gSmokeVoxelPagePrimitives : register(t19, space6);
+Texture2D<float4> gSmokePaletteLookup : register(t20, space6);
+TextureCube<float4> gSmokeSkyTexture : register(t21, space6);
+Texture2D<float4> gSmokeSceneTextures[NRI_SMOKE_SCENE_TEXTURE_COUNT] : register(t22, space6);
 #ifdef __spirv__
-[[vk::binding(1045, 6)]]
+[[vk::binding(1047, 6)]]
 #endif
 SamplerState gSmokePointWrap : register(s0, space6);
 #ifdef __spirv__
-[[vk::binding(1046, 6)]]
+[[vk::binding(1048, 6)]]
 #endif
 SamplerState gSmokeLinearWrap : register(s1, space6);
 #ifdef __spirv__
-[[vk::binding(1047, 6)]]
+[[vk::binding(1049, 6)]]
 #endif
 SamplerState gSmokePointClamp : register(s2, space6);
 RaytracingAccelerationStructure gSmokeWorldTlas : register(NRI_SMOKE_WORLD_TLAS_REGISTER, space6);
@@ -239,6 +242,8 @@ PrimitiveData SmokeGetPrimitive(uint dataSource, uint primitiveIndex)
 	}
 	if (dataSource == NRI_SMOKE_SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 	{
+		if ((primitiveIndex & VOXEL_PAGE_BIT) != 0u)
+			return ReadVoxelPagePrimitive(gSmokeVoxelPagePrimitives, primitiveIndex);
 		uint count, stride;
 		gSmokePersistentPrimitives.GetDimensions(count, stride);
 		return gSmokePersistentPrimitives[min(primitiveIndex, max(count, 1u) - 1u)];
@@ -687,6 +692,8 @@ SceneVertex SmokeGetVertex(uint dataSource, uint vertexIndex)
 	}
 	if (dataSource == NRI_SMOKE_SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 	{
+		if ((vertexIndex & VOXEL_PAGE_BIT) != 0u)
+			return ReadVoxelPageVertex(gSmokeVoxelPageVertices, vertexIndex);
 		gSmokePersistentVertices.GetDimensions(count, stride);
 		return gSmokePersistentVertices[min(vertexIndex, max(count, 1u) - 1u)];
 	}
@@ -840,12 +847,11 @@ bool SmokeSamplePointOnEmissive(
 	SceneInstanceData instanceData = (SceneInstanceData)0;
 	if (placedRange)
 	{
-		uint sceneInstanceCount, sceneInstanceStride, persistentPrimitiveCount, persistentPrimitiveStride;
+		uint sceneInstanceCount, sceneInstanceStride;
 		gSmokeSceneInstances.GetDimensions(sceneInstanceCount, sceneInstanceStride);
-		gSmokePersistentPrimitives.GetDimensions(persistentPrimitiveCount, persistentPrimitiveStride);
 		if (candidate.dataSource != NRI_SMOKE_SCENE_DATA_SOURCE_PERSISTENT_VOXEL ||
 			candidate.primitiveCount == 0u || candidate.sceneInstanceIndex >= sceneInstanceCount ||
-			candidate.primitiveIndex >= persistentPrimitiveCount || candidate.primitiveCount > persistentPrimitiveCount - candidate.primitiveIndex)
+			!VoxelPrimitiveRangeFits(gSmokePersistentPrimitives, gSmokeVoxelPagePrimitives, candidate.primitiveIndex, candidate.primitiveCount))
 			return false;
 		instanceData = gSmokeSceneInstances[candidate.sceneInstanceIndex];
 		if (instanceData.dataSource != NRI_SMOKE_SCENE_DATA_SOURCE_PERSISTENT_VOXEL ||

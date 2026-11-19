@@ -188,6 +188,8 @@ StructuredBuffer<uint> gPersistentVoxelIndices : register(t22, space2);
 StructuredBuffer<PrimitiveData> gPersistentVoxelPrimitives : register(t23, space2);
 StructuredBuffer<MaterialData> gPersistentVoxelMaterials : register(t24, space2);
 StructuredBuffer<EmissiveMaterialResponseData> gEmissiveMaterialResponses : register(t25, space2);
+StructuredBuffer<SceneVertex> gVoxelPageVertices : register(t34, space2);
+StructuredBuffer<PrimitiveData> gVoxelPagePrimitives : register(t35, space2);
 #endif
 StructuredBuffer<SpatialAbsenceRecord> gSpatialAbsenceRecords : register(t26, space2);
 StructuredBuffer<uint2> gWallDecalHeaders : register(t29, space2);

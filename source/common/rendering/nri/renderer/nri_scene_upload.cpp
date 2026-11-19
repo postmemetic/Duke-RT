@@ -3455,6 +3455,8 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSceneDataDescriptors[22] = persistentVoxelDescriptors.index;
 		renderer.mSceneDataDescriptors[23] = persistentVoxelDescriptors.primitive;
 		renderer.mSceneDataDescriptors[24] = persistentVoxelDescriptors.material;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_VERTEX_SLOT] = persistentVoxelDescriptors.overflowVertex;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_PRIMITIVE_SLOT] = persistentVoxelDescriptors.overflowPrimitive;
 		renderer.mSceneDataDescriptors[25] = renderer.mEmissiveMaterialResponseBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT] = spatialAbsenceDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT] = spatialAbsenceTypedDescriptorBuffer.shaderView;

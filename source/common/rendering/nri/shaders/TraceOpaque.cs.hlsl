@@ -958,8 +958,7 @@ bool SamplePointOnEmissiveCandidate(
 			instanceData.metadata1 != candidate.occurrenceKeyHi ||
 			instanceData.metadata2 != candidate.occurrenceGeneration)
 			return false;
-		const uint persistentPrimitiveCount = GetPersistentVoxelPrimitiveCount();
-		if (candidate.primitiveIndex >= persistentPrimitiveCount || candidate.primitiveCount > persistentPrimitiveCount - candidate.primitiveIndex)
+		if (!VoxelPrimitiveRangeFits(gPersistentVoxelPrimitives, gVoxelPagePrimitives, candidate.primitiveIndex, candidate.primitiveCount))
 			return false;
 		outPrimitiveIndex = candidate.primitiveIndex + min((uint)(RandomFloat01(rngState) * candidate.primitiveCount), candidate.primitiveCount - 1u);
 	}

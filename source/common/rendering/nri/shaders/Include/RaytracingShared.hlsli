@@ -13,6 +13,7 @@
 #include "StaticShadingData.hlsli"
 #include "RayQueryContinuation.hlsli"
 #include "ActorSpriteWorkloads.hlsli"
+#include "PersistentVoxelPage.hlsli"
 
 StructuredBuffer<StaticTangentData> gStaticTangents : register(t28, space2);
 
@@ -642,6 +643,8 @@ PrimitiveData GetPrimitiveData(uint dataSource, uint primitiveIndex)
 	if (dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 	{
 #if defined(NRI_ENABLE_PERSISTENT_VOXEL_SCENE)
+		if ((primitiveIndex & VOXEL_PAGE_BIT) != 0u)
+			return ReadVoxelPagePrimitive(gVoxelPagePrimitives, primitiveIndex);
 		return gPersistentVoxelPrimitives[min(primitiveIndex, max(GetPersistentVoxelPrimitiveCount(), 1u) - 1u)];
 #else
 		return gDynamicPrimitives[min(primitiveIndex, max(gTraceConstants.DynamicPrimitiveCount, 1u) - 1u)];
@@ -660,6 +663,8 @@ SceneVertex GetVertexData(uint dataSource, uint vertexIndex)
 	if (dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 	{
 #if defined(NRI_ENABLE_PERSISTENT_VOXEL_SCENE)
+		if ((vertexIndex & VOXEL_PAGE_BIT) != 0u)
+			return ReadVoxelPageVertex(gVoxelPageVertices, vertexIndex);
 		return gPersistentVoxelVertices[min(vertexIndex, max(GetPersistentVoxelVertexCount(), 1u) - 1u)];
 #else
 		return gDynamicVertices[vertexIndex];
