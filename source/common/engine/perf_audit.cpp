@@ -1,10 +1,13 @@
 #include "perf_audit.h"
+#include "perf_audit_frame_report.h"
 #include "c_cvars.h"
 #include "c_dispatch.h"
 #include "i_time.h"
 #include "printf.h"
 
 #include <array>
+#include <algorithm>
+#include <vector>
 #include <cstdio>
 #include <cstring>
 #include <cinttypes>
@@ -52,6 +55,14 @@ namespace
     PerfAuditToken Token;
     uint64_t Epoch = 0, FrameCount = 0, FileBytes = 0, FrameStart = 0, CensusOrigin = 0, PendingCheckpoints = 0;
     bool Census = false, PendingCensus = false, Failed = false;
+    std::vector<PerfAuditFrameReporter> FrameReporters;
+
+    void FlushFrameReports()
+    {
+        const size_t count = FrameReporters.size();
+        for (size_t index = 0; index < count; ++index) FrameReporters[index]();
+        FrameReporters.erase(FrameReporters.begin(), FrameReporters.begin() + count);
+    }
 
     void Write(const char* format, ...)
     {
@@ -143,6 +154,7 @@ void PerfAuditSet(PerfAuditMetric metric, uint64_t value)
 void PerfAuditBeginFrame(uint64_t presentation, int64_t tic)
 {
     if (!PerfAuditActive()) return;
+    FlushFrameReports();
     Token.presentation = presentation;
     Token.tic = tic;
     Token.checkpoint += PendingCheckpoints;
@@ -163,12 +175,20 @@ void PerfAuditAlignSampling()
 void PerfAuditEndFrame()
 {
     if (!PerfAuditActive()) return;
+    FlushFrameReports();
     const uint64_t now = I_nsTime();
     Prefix("frame", Token);
     Write(",\"index\":%" PRIu64 ",\"wall_ns\":%" PRIu64 ",\"census\":%s}\n",
         FrameCount++, FrameStart ? now - FrameStart : 0, Census ? "true" : "false");
     if (Census) Sample();
     Census = false;
+}
+
+void PerfAuditDeferFrameReport(PerfAuditFrameReporter report)
+{
+    if (PerfAuditActive() && report &&
+        std::find(FrameReporters.begin(), FrameReporters.end(), report) == FrameReporters.end())
+        FrameReporters.push_back(report);
 }
 
 void PerfAuditMark(const char* label)
@@ -260,6 +280,7 @@ bool PerfAuditStart(const char* path)
         Observed[i].store(false, std::memory_order_relaxed);
     }
     Token = {};
+    FrameReporters.clear();
     Token.epoch = ++Epoch;
     FrameCount = FileBytes = CensusOrigin = PendingCheckpoints = 0;
     FrameStart = I_nsTime();
@@ -279,6 +300,7 @@ bool PerfAuditStart(const char* path)
 void PerfAuditStop()
 {
     if (!Output) return;
+    FlushFrameReports();
     Sample();
     auto value = [](PerfAuditMetric m) { return Values[static_cast<size_t>(m)].load(std::memory_order_relaxed); };
     const uint64_t requested = value(PerfAuditMetric::AuditReadbacksRequested);

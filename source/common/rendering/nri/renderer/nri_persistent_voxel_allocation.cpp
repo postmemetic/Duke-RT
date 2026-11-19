@@ -1,5 +1,6 @@
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
+#include "nri_voxel_optional_growth_audit.h"
 #include "nri_voxel_compute_allocation.h"
 #include "nri_renderer.h"
 #include "nri_cvars.h"
@@ -140,6 +141,9 @@ namespace
         const auto result = policy.Consider(mesh, tick, footprint, floor, budget, ceiling, recent);
         if (audit)
         {
+            const uint64_t cpuNs = PerfAuditClockNs() - start;
+            if (!NRIVoxelOptionalGrowthAudit::Record(map, intent, result, floor, budget, recent, cpuNs, query))
+                return result;
             char fields[1408], origin[384];
             FormatAdmissionIntent(origin, intent);
             const char* action = result.defer ? (result.first ? "defer" : "repeat") : "probe";
@@ -158,7 +162,7 @@ namespace
                 query ? "true" : "false", (unsigned long long)recent, (unsigned long long)(recent ? tick - history.deniedTick : 0),
                 pressure ? pressure : "none",
                 (unsigned long long)NRIVoxelOptionalGrowth::ProbeTicks,
-                (unsigned long long)NRIVoxelOptionalGrowth::MinimumCopyBytes, (unsigned long long)(PerfAuditClockNs() - start));
+                (unsigned long long)NRIVoxelOptionalGrowth::MinimumCopyBytes, (unsigned long long)cpuNs);
             PerfAuditWriteEvent("voxel_optional_arena_growth", PerfAuditCurrentToken(), fields);
         }
         return result;
