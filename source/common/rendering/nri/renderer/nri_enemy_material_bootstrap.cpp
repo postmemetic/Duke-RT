@@ -16,6 +16,31 @@
 
 EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
 
+namespace
+{
+// The ordinary material uploader backs the allocator cursor when it has a
+// dirty active binding. Only a visible owner with that exact live range may
+// advance this required allocation to before its first representation choice.
+uint64_t CurrentMaterialRowEnd(const NRIPersistentVoxelResidency& voxels, uint64_t world, uint64_t lifetime, uint64_t identity)
+{
+    const auto slot = voxels.batch.actorIndex.Find(identity);
+    if (!voxels.batch.valid || slot >= voxels.batch.actors.size()) return 0;
+    const auto& actor = voxels.batch.actors[slot];
+    if (!actor.active || actor.identityKey != identity || actor.ownerWorldEpoch != world ||
+        actor.ownerLifetimeGeneration != lifetime || !actor.materialCount) return 0;
+    const auto found = voxels.materialVariantResources.find(actor.materialKeyHash);
+    if (found == voxels.materialVariantResources.end()) return 0;
+    const auto& material = found->second;
+    if (!material.enemyStableMaterialBinding || material.enemyMaterialReservationOnly ||
+        material.materialOffset != actor.materialOffset || material.materialSlotGeneration != actor.materialSlotGeneration ||
+        !voxels.materialRangeAllocator.Owns({material.materialOffset, material.materialCapacity, material.materialSlotGeneration})) return 0;
+    if (voxels.materialBuffer.buffer && voxels.uploadedMaterialResourceGeneration == voxels.materialResourceGeneration &&
+        voxels.uploadedMaterialPublicationGeneration == voxels.batchMaterialPublicationGeneration &&
+        !voxels.dirtyMaterialResourceKeys.count(actor.materialKeyHash)) return 0;
+    return uint64_t(material.materialOffset) + material.materialCapacity;
+}
+}
+
 void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& settings)
 {
     if (!(bool)nri_ptactorspritefallback || !(bool)nri_ptenemystablerepresentation ||
@@ -30,6 +55,7 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
     NRIEnemyMaterialBootstrapPlan plan;
     plan.cursorRows = voxels.MaterialRangeStats().cursorRows;
     std::unordered_set<uint64_t> owners;
+    uint64_t currentRowEnd = 0;
     uint32_t refused = 0, shortBindings = 0, invalidBindings = 0, capRefusals = 0;
     if (voxels.enemyPreparesProspectiveMaterials)
     {
@@ -71,7 +97,13 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
     {
         if (candidate.descriptorCurrent && candidate.capturedThisFrame && !candidate.primaryHidden &&
             !candidate.presentationHidden && candidate.recipeCertified && !candidate.transientGeometryCaptured)
+        {
+            const auto previousOwners = plan.owners;
             addOwner(candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration, candidate.identityKey);
+            if (plan.owners != previousOwners)
+                currentRowEnd = std::max(currentRowEnd, CurrentMaterialRowEnd(voxels, candidate.ownerWorldEpoch,
+                    candidate.ownerLifetimeGeneration, candidate.identityKey));
+        }
     }
     for (const auto& owner : voxels.prospectiveMaterialOwners)
         addOwner(owner.world, owner.lifetime,
@@ -80,6 +112,9 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
     auto& resource = voxels.materialBuffer;
     const uint64_t requiredBytes = plan.RequiredBytes(stride);
     const uint64_t oldBytes = resource.memorySize;
+    const uint64_t currentBytes = currentRowEnd > resource.size / stride && currentRowEnd <= plan.cursorRows ?
+        plan.cursorRows * stride : 0;
+    const char* speculativeRefusal = "none";
     uint64_t predictedBytes = 0, allocationBytes = 0, usageBytes = 0, budgetBytes = 0;
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     const auto report = [&](const char* decision)
@@ -90,12 +125,14 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
             "\"refused_owners\":%u,\"cursor_rows\":%llu,\"extra_rows\":%llu,\"required_bytes\":%llu,"
             "\"old_backing_bytes\":%llu,\"predicted_allocation_bytes\":%llu,\"actual_allocation_bytes\":%llu,"
             "\"backing_bytes\":%llu,\"usage_bytes\":%llu,\"budget_bytes\":%llu,\"reserve_bytes\":%llu,"
-            "\"prospective_owners\":%zu,\"short_bindings\":%u,\"invalid_bindings\":%u,\"cap_refusals\":%u,\"cpu_ms\":%.6f",
+            "\"prospective_owners\":%zu,\"short_bindings\":%u,\"invalid_bindings\":%u,\"cap_refusals\":%u,"
+            "\"current_required_bytes\":%llu,\"speculative_refusal\":\"%s\",\"cpu_ms\":%.6f",
             mFrameIndex, decision, plan.owners, refused, (unsigned long long)plan.cursorRows,
             (unsigned long long)plan.extraRows, (unsigned long long)requiredBytes, (unsigned long long)oldBytes,
             (unsigned long long)predictedBytes, (unsigned long long)allocationBytes,
             (unsigned long long)resource.memorySize, (unsigned long long)usageBytes,
             (unsigned long long)budgetBytes, (unsigned long long)reserve, voxels.prospectiveMaterialOwners.size(), shortBindings, invalidBindings, capRefusals,
+            (unsigned long long)currentBytes, speculativeRefusal,
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
         PerfAuditWriteEvent("enemy_material_bootstrap", PerfAuditCurrentToken(), fields);
     };
@@ -105,21 +142,39 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
         resource.stride == stride && NRIResourceUsageIncludes(resource.usage, nri::BufferUsageBits::SHADER_RESOURCE) &&
         resource.size >= requiredBytes) { report("existing-backing"); return; }
 
+    const auto allocate = [&](uint64_t bytes, const char* decision)
+    {
+        if (!EnsureResidentArenaBuffer(resource, bytes, stride, nri::BufferUsageBits::SHADER_RESOURCE,
+            NRIResourceComputeShaderResourceAccess())) { report("allocation-failed"); return; }
+        allocationBytes = resource.memorySize;
+        report(decision);
+    };
+    if (currentBytes && GetNRIGrownBufferSize(resource.size, currentBytes, stride) >= requiredBytes)
+    {
+        allocate(currentBytes, "allocated-current");
+        return;
+    }
+    const auto refuseExtra = [&](const char* reason)
+    {
+        if (!currentBytes) { report(reason); return; }
+        speculativeRefusal = reason;
+        allocate(currentBytes, "allocated-current");
+    };
     auto& core = mFrameBuffer->mCore;
     const auto& deviceDesc = core.GetDeviceDesc(*mFrameBuffer->mDevice);
     if (!core.GetBufferMemoryDesc2 || !deviceDesc.features.getMemoryDesc2)
-    { report("requirements-unavailable"); return; }
+    { refuseExtra("requirements-unavailable"); return; }
     nri::BufferDesc desc = {};
     desc.size = GetNRIGrownBufferSize(resource.size, requiredBytes, stride);
     desc.structureStride = stride;
     desc.usage = nri::BufferUsageBits::SHADER_RESOURCE;
     if (deviceDesc.memory.bufferMaxSize && desc.size > deviceDesc.memory.bufferMaxSize)
-    { report("size-limit"); return; }
+    { refuseExtra("size-limit"); return; }
     nri::MemoryDesc requirements = {};
     core.GetBufferMemoryDesc2(*mFrameBuffer->mDevice, desc, nri::MemoryLocation::DEVICE, requirements);
     predictedBytes = requirements.size;
     if (predictedBytes < desc.size || (deviceDesc.memory.allocationMaxSize &&
-        predictedBytes > deviceDesc.memory.allocationMaxSize)) { report("requirements-invalid"); return; }
+        predictedBytes > deviceDesc.memory.allocationMaxSize)) { refuseExtra("requirements-invalid"); return; }
     const auto budget = GetPersistentVoxelBudgetSnapshot(true);
     usageBytes = budget.usageBytes;
     budgetBytes = budget.budgetBytes;
@@ -127,13 +182,9 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
     // promises. Charge the full new physical allocation without crediting any
     // old bytes; the ordinary arena owner preserves copies and fence lifetime.
     if (!BuildNRIPersistentVoxelAllocationBudget(usageBytes, budgetBytes, predictedBytes, reserve).fits)
-    { report("budget-denied"); return; }
-    if (!EnsureResidentArenaBuffer(resource, requiredBytes, stride, nri::BufferUsageBits::SHADER_RESOURCE,
-        NRIResourceComputeShaderResourceAccess())) { report("allocation-failed"); return; }
-    allocationBytes = resource.memorySize;
-    voxels.MarkMaintenanceMutation();
+    { refuseExtra("budget-denied"); return; }
     // Only backing exists now. The normal combined material pass resolves
     // texture slots/policy and records current row uploads before any TLAS
     // consumer. PrepareEnemyMaterialCommit still reserves actual capacity.
-    report("allocated");
+    allocate(requiredBytes, "allocated");
 }

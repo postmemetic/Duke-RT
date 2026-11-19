@@ -1940,26 +1940,12 @@ bool NRIPersistentVoxelResidency::UploadArenaMaterialBuffers(
 		}
 	}
 
-	const uint64_t materialBufferBytesBefore = materialBuffer.memorySize;
-	const auto materialBufferBefore = materialBuffer.buffer;
 	if (!services.EnsureMaterialArenaBuffer(
 		materialBuffer,
 		materialRangeAllocator.Stats().cursorRows * sizeof(nri_scene::MaterialData)))
 	{
 		return false;
 	}
-	if (materialBuffer.buffer != materialBufferBefore)
-	{
-		PerfAuditAdd(PerfAuditMetric::VoxelMaterialArenaGrowths);
-		PerfAuditAdd(PerfAuditMetric::VoxelMaterialArenaOldBytes, materialBufferBytesBefore);
-		PerfAuditAdd(PerfAuditMetric::VoxelMaterialArenaNewBytes, materialBuffer.memorySize);
-		PerfAuditSet(PerfAuditMetric::VoxelMaterialArenaOverlapBytes, materialBufferBytesBefore + materialBuffer.memorySize);
-	}
-	if (materialBuffer.memorySize != materialBufferBytesBefore)
-	{
-		MarkMaintenanceMutation();
-	}
-
 	struct PendingMaterialUpload
 	{
 		PersistentVoxelMaterialVariantResource* resource = nullptr;

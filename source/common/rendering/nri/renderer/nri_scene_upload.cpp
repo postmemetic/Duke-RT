@@ -2292,6 +2292,14 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	{
 		DestroyBufferResource(oldResource);
 	}
+	if (&resource == &mPersistentVoxels.materialBuffer)
+	{
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialArenaGrowths);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialArenaOldBytes, oldMemory);
+		PerfAuditAdd(PerfAuditMetric::VoxelMaterialArenaNewBytes, resource.memorySize);
+		PerfAuditSet(PerfAuditMetric::VoxelMaterialArenaOverlapBytes, oldMemory + resource.memorySize);
+		if (resource.memorySize != oldMemory) mPersistentVoxels.MarkMaintenanceMutation();
+	}
 	if (PerfAuditActive())
 	{
 		NRIAuditResidentArenaGrowth(mFrameIndex, stride, oldSize, oldMemory, oldUsedSize,
