@@ -12,9 +12,14 @@ void ResolvePrimaryTemporalGeometry(
 	out uint4 temporalIdentity)
 {
 	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(hit.dataSource, hit.primitiveIndex, primitive.indices, v0, v1, v2);
+#else
 	const SceneVertex v0 = GetVertexData(hit.dataSource, primitive.indices.x);
 	const SceneVertex v1 = GetVertexData(hit.dataSource, primitive.indices.y);
 	const SceneVertex v2 = GetVertexData(hit.dataSource, primitive.indices.z);
+#endif
 	const float3 weights = ResolveHitBarycentricWeights(hit);
 	float3 currentP0 = v0.position;
 	float3 currentP1 = v1.position;

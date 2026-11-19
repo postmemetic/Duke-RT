@@ -47,9 +47,17 @@ FluidPanEvaluation FluidResolvePan(HitData hit, MaterialData material,
 	if (!isfinite(determinant) || abs(determinant) <=
 		1.0e-6 * max(length(uv1) * length(uv2), 1.0e-12))
 		return result;
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(hit.dataSource, hit.primitiveIndex, primitive.indices, v0, v1, v2);
+	float3 p0 = v0.position;
+	float3 p1 = v1.position;
+	float3 p2 = v2.position;
+#else
 	float3 p0 = GetVertexData(hit.dataSource, primitive.indices.x).position;
 	float3 p1 = GetVertexData(hit.dataSource, primitive.indices.y).position;
 	float3 p2 = GetVertexData(hit.dataSource, primitive.indices.z).position;
+#endif
 	if (hit.instanceId != 0xffffffffu)
 	{
 		const SceneInstanceData instanceData = GetSceneInstanceData(hit.instanceId);

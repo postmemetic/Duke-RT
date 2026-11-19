@@ -658,6 +658,44 @@ PrimitiveData GetPrimitiveData(uint dataSource, uint primitiveIndex)
 	return gStaticPrimitives[min(primitiveIndex, max(gTraceConstants.StaticPrimitiveCount, 1u) - 1u)];
 }
 
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+// All three vertices share the primitive bank. Keep their indices physical and
+// check each page row against one descriptor length before reading it.
+void GetTriangleVertices(uint dataSource, uint primitiveAddress, uint3 indices,
+	out SceneVertex v0, out SceneVertex v1, out SceneVertex v2)
+{
+	if (dataSource == SCENE_DATA_SOURCE_DYNAMIC)
+	{
+		v0 = gDynamicVertices[indices.x];
+		v1 = gDynamicVertices[indices.y];
+		v2 = gDynamicVertices[indices.z];
+		return;
+	}
+	if (dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
+	{
+		if ((primitiveAddress & VOXEL_PAGE_BIT) != 0u)
+		{
+			uint count, stride;
+			gVoxelPageVertices.GetDimensions(count, stride);
+			v0 = (SceneVertex)0;
+			v1 = (SceneVertex)0;
+			v2 = (SceneVertex)0;
+			if (indices.x < count) v0 = gVoxelPageVertices[indices.x];
+			if (indices.y < count) v1 = gVoxelPageVertices[indices.y];
+			if (indices.z < count) v2 = gVoxelPageVertices[indices.z];
+			return;
+		}
+		const uint3 rows = min(indices, max(GetPersistentVoxelVertexCount(), 1u) - 1u);
+		v0 = gPersistentVoxelVertices[rows.x];
+		v1 = gPersistentVoxelVertices[rows.y];
+		v2 = gPersistentVoxelVertices[rows.z];
+		return;
+	}
+	v0 = gStaticVertices[indices.x];
+	v1 = gStaticVertices[indices.y];
+	v2 = gStaticVertices[indices.z];
+}
+#else
 SceneVertex GetVertexData(uint dataSource, uint vertexIndex)
 {
 	if (dataSource == SCENE_DATA_SOURCE_DYNAMIC)
@@ -679,6 +717,7 @@ SceneVertex GetVertexData(uint dataSource, uint vertexIndex)
 
 	return gStaticVertices[vertexIndex];
 }
+#endif
 
 MaterialData GetMaterialData(uint materialIndex, uint dataSource)
 {
@@ -734,9 +773,14 @@ bool TryResolveHitTangentFrame(uint dataSource, uint primitiveIndex, float3 geom
 	TraceShaderStatAdd(TRACE_STAT_DATA2_STATIC_TANGENT_CALLS, dataSource == SCENE_DATA_SOURCE_STATIC ? 1u : 0u);
 #endif
 	const PrimitiveData primitive = GetPrimitiveData(dataSource, primitiveIndex);
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(dataSource, primitiveIndex, primitive.indices, v0, v1, v2);
+#else
 	const SceneVertex v0 = GetVertexData(dataSource, primitive.indices.x);
 	const SceneVertex v1 = GetVertexData(dataSource, primitive.indices.y);
 	const SceneVertex v2 = GetVertexData(dataSource, primitive.indices.z);
+#endif
 	const float3 p0 = v0.position;
 	const float3 p1 = v1.position;
 	const float3 p2 = v2.position;
@@ -833,10 +877,19 @@ bool TryResolveStaticTangentFrame(uint dataSource, uint primitiveIndex, float3 g
 		const bool legacySuccess = TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
 		const PrimitiveData primitive = GetPrimitiveData(dataSource, primitiveIndex);
 		float3 referenceT, referenceB;
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+		SceneVertex v0, v1, v2;
+		GetTriangleVertices(dataSource, primitiveIndex, primitive.indices, v0, v1, v2);
+		const bool referenceValid = ResolveRawTriangleTangents(
+			v0.position,
+			v1.position,
+			v2.position,
+#else
 		const bool referenceValid = ResolveRawTriangleTangents(
 			GetVertexData(dataSource, primitive.indices.x).position,
 			GetVertexData(dataSource, primitive.indices.y).position,
 			GetVertexData(dataSource, primitive.indices.z).position,
+#endif
 			primitive.uv0, primitive.uv1, primitive.uv2, referenceT, referenceB);
 		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_COMPARISONS, 1u);
 		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_RAW_MISMATCH,
@@ -965,9 +1018,14 @@ float3 ResolveHitBarycentricWeights(HitData hit)
 float3 ResolveHitVertexPosition(HitData hit, bool previous)
 {
 	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(hit.dataSource, hit.primitiveIndex, primitive.indices, v0, v1, v2);
+#else
 	const SceneVertex v0 = GetVertexData(hit.dataSource, primitive.indices.x);
 	const SceneVertex v1 = GetVertexData(hit.dataSource, primitive.indices.y);
 	const SceneVertex v2 = GetVertexData(hit.dataSource, primitive.indices.z);
+#endif
 	const float3 weights = ResolveHitBarycentricWeights(hit);
 	const float3 p0 = previous ? v0.prevPosition : v0.position;
 	const float3 p1 = previous ? v1.prevPosition : v1.position;
@@ -983,9 +1041,14 @@ float3 ResolveHitVertexPosition(HitData hit, bool previous)
 float3 ResolveHitGeometricNormal(HitData hit, bool previous)
 {
 	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(hit.dataSource, hit.primitiveIndex, primitive.indices, v0, v1, v2);
+#else
 	const SceneVertex v0 = GetVertexData(hit.dataSource, primitive.indices.x);
 	const SceneVertex v1 = GetVertexData(hit.dataSource, primitive.indices.y);
 	const SceneVertex v2 = GetVertexData(hit.dataSource, primitive.indices.z);
+#endif
 	float3 p0 = previous ? v0.prevPosition : v0.position;
 	float3 p1 = previous ? v1.prevPosition : v1.position;
 	float3 p2 = previous ? v2.prevPosition : v2.position;

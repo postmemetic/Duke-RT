@@ -3,6 +3,9 @@
 #endif
 
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
+#if defined(NRI_ENABLE_PERSISTENT_VOXEL_PAGE)
+#define NRI_TRACE_PAGED_TRIANGLES 1
+#endif
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 // Selects the SeaScape-style D3D evaluator or the validated SPIR-V compatibility path.
@@ -333,9 +336,14 @@ uint ClassifyMotionSource(HitData hit, uint4 identity, uint validityReason)
 	if ((identity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u)
 	{
 		const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+		SceneVertex v0, v1, v2;
+		GetTriangleVertices(hit.dataSource, hit.primitiveIndex, primitive.indices, v0, v1, v2);
+#else
 		const SceneVertex v0 = GetVertexData(hit.dataSource, primitive.indices.x);
 		const SceneVertex v1 = GetVertexData(hit.dataSource, primitive.indices.y);
 		const SceneVertex v2 = GetVertexData(hit.dataSource, primitive.indices.z);
+#endif
 		const float3 weights = ResolveHitBarycentricWeights(hit);
 		const float3 currentLocal = v0.position * weights.x + v1.position * weights.y + v2.position * weights.z;
 		const float3 previousLocal = v0.prevPosition * weights.x + v1.prevPosition * weights.y + v2.prevPosition * weights.z;
@@ -496,12 +504,23 @@ bool TryResolvePrimaryBaseColorLod(
 #endif
 	const PrimitiveData primitive = GetPrimitiveData(
 		hit.dataSource, hit.primitiveIndex);
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(hit.dataSource, hit.primitiveIndex, primitive.indices, v0, v1, v2);
+	const float3 p0 = ResolvePrimaryFootprintVertexPosition(
+		hit, v0.position);
+	const float3 p1 = ResolvePrimaryFootprintVertexPosition(
+		hit, v1.position);
+	const float3 p2 = ResolvePrimaryFootprintVertexPosition(
+		hit, v2.position);
+#else
 	const float3 p0 = ResolvePrimaryFootprintVertexPosition(
 		hit, GetVertexData(hit.dataSource, primitive.indices.x).position);
 	const float3 p1 = ResolvePrimaryFootprintVertexPosition(
 		hit, GetVertexData(hit.dataSource, primitive.indices.y).position);
 	const float3 p2 = ResolvePrimaryFootprintVertexPosition(
 		hit, GetVertexData(hit.dataSource, primitive.indices.z).position);
+#endif
 	const float3 edge1 = p1 - p0;
 	const float3 edge2 = p2 - p0;
 	const float3 areaVector = cross(edge1, edge2);
@@ -969,9 +988,14 @@ bool SamplePointOnEmissiveCandidate(
 	}
 	const PrimitiveData primitive = GetPrimitiveData(candidate.dataSource, outPrimitiveIndex);
 	outMaterialIndex = placedRange ? ResolvePrimitiveMaterialIndex(instanceData, primitive) : primitive.materialIndex;
+#if defined(NRI_TRACE_PAGED_TRIANGLES)
+	SceneVertex v0, v1, v2;
+	GetTriangleVertices(candidate.dataSource, outPrimitiveIndex, primitive.indices, v0, v1, v2);
+#else
 	SceneVertex v0 = GetVertexData(candidate.dataSource, primitive.indices.x);
 	SceneVertex v1 = GetVertexData(candidate.dataSource, primitive.indices.y);
 	SceneVertex v2 = GetVertexData(candidate.dataSource, primitive.indices.z);
+#endif
 	if (placedRange)
 	{
 		v0.position = TransformSceneInstancePoint(instanceData, v0.position, false);
