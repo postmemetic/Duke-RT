@@ -32,11 +32,16 @@ CUSTOM_CVAR(Int, perf_audit_interval, 30, 0)
     if (self < 1) self = 1;
     else if (self > 4096) self = 4096;
 }
+CUSTOM_CVAR(Int, perf_auditmaxfilemib, 512, 0)
+{
+    if (self < 1) self = 1;
+    else if (self > 4096) self = 4096;
+}
 
 namespace
 {
     constexpr size_t MetricCount = static_cast<size_t>(PerfAuditMetric::Count);
-    constexpr uint64_t MaxFileBytes = 512ull * 1024 * 1024;
+    uint64_t FileLimitBytes = 0;
     constexpr size_t MaxEventBytes = 65536;
     const char* const Names[] = {
 #define PERF_AUDIT_METRIC(name, kind) #name,
@@ -73,7 +78,7 @@ namespace
         const int length = vsnprintf(line, sizeof(line), format, args);
         va_end(args);
         if (length < 0 || static_cast<size_t>(length) >= sizeof(line) ||
-            FileBytes + static_cast<uint64_t>(length) > MaxFileBytes ||
+            FileBytes + static_cast<uint64_t>(length) > FileLimitBytes ||
             fwrite(line, 1, static_cast<size_t>(length), Output) != static_cast<size_t>(length))
         {
             Failed = true;
@@ -238,7 +243,7 @@ void PerfAuditWriteEvent(const char* kind, const PerfAuditToken& token, const ch
     {
         Write(",");
         // Bounded event data can exceed the small formatting buffer.
-        if (Output && FileBytes + size <= MaxFileBytes && fwrite(fieldsJson, 1, size, Output) == size)
+        if (Output && FileBytes + size <= FileLimitBytes && fwrite(fieldsJson, 1, size, Output) == size)
             FileBytes += size;
         else
         {
@@ -283,13 +288,14 @@ bool PerfAuditStart(const char* path)
     FrameReporters.clear();
     Token.epoch = ++Epoch;
     FrameCount = FileBytes = CensusOrigin = PendingCheckpoints = 0;
+    FileLimitBytes = uint64_t(static_cast<int>(perf_auditmaxfilemib)) * 1024 * 1024;
     FrameStart = I_nsTime();
     Census = PendingCensus = true;
     Failed = false;
     gPerfAuditActive.store(true, std::memory_order_relaxed);
     Prefix("schema", Token);
     Write(",\"version\":1,\"limit_bytes\":%" PRIu64 ",\"interval\":%d,\"metrics\":{",
-        MaxFileBytes, static_cast<int>(perf_audit_interval));
+        FileLimitBytes, static_cast<int>(perf_audit_interval));
     for (size_t i = 0; i < MetricCount; ++i)
         Write("%s\"%s\":\"%s\"", i ? "," : "", Names[i], Kinds[i]);
     Write("}}\n");
