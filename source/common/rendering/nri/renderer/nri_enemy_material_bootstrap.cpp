@@ -55,7 +55,7 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
                 uint64_t(authority->owner.ownerLifetimeGeneration), texture);
             const auto found = voxels.materialVariantResources.find(key);
             if (!key) { valid = false; ++invalidBindings; break; }
-            if (found == voxels.materialVariantResources.end()) { ++missing; return; }
+            if (found == voxels.materialVariantResources.end()) { ++missing; continue; }
             const auto& material = found->second;
             if (!material.enemyStableMaterialBinding ||
                 !voxels.materialRangeAllocator.Owns({material.materialOffset, material.materialCapacity, material.materialSlotGeneration}))
