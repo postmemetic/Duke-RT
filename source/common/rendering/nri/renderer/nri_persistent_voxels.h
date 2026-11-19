@@ -327,6 +327,8 @@ struct PersistentVoxelAdmissionStats
 	uint32_t directRequests = 0;
 	uint32_t directReady = 0;
 	uint32_t directPending = 0;
+	uint32_t withheldBeforeReservation = 0;
+	uint64_t firstWithheldMesh = 0;
 	uint32_t directFailures = 0;
 	uint32_t directRejected = 0;
 	uint32_t directStaleDrops = 0;

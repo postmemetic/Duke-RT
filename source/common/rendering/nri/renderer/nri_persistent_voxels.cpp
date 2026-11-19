@@ -5438,6 +5438,14 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	}
 
 	diagnostic.Finish(stopReason, admitted, stats.bytesUploaded, blasUsed);
+	if (stats.withheldBeforeReservation && PerfAuditActive())
+	{
+		char fields[256];
+		std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"runtime\":%s,\"requests\":%u,\"first_mesh\":%llu",
+			frameIndex, loadingPhase ? "false" : "true", stats.withheldBeforeReservation,
+			(unsigned long long)stats.firstWithheldMesh);
+		PerfAuditWriteEvent("voxel_compute_lane_preflight", PerfAuditCurrentToken(), fields);
+	}
 	const bool hasQueueActivity = !candidates.empty() || stats.uploaded != 0 || stats.skippedBudget != 0 || stats.failedThisPump != 0;
 	const bool perfLoopTraceActive = (int)perf_looptraceframes > 0;
 	if (((loadingTraceLevel >= 1) && (loadingPhase || hasQueueActivity)) ||
@@ -6608,7 +6616,11 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				entry.state = PersistentVoxelAdmissionState::Pending;
 				entry.lastReason = "scheduler-compute-preflight";
 				outInProgress = true;
-				if (outStats) ++outStats->directPending;
+				if (outStats)
+				{
+					++outStats->directPending;
+					if (!outStats->withheldBeforeReservation++) outStats->firstWithheldMesh = meshResourceKey;
+				}
 				return true;
 			}
 			NRIPersistentVoxelGeometryRangeHandle previousRange;
