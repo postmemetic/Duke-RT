@@ -1885,6 +1885,7 @@ void NRIRenderer::Shutdown()
 	mSceneDataDescriptorsInitialized.clear();
 	mSceneDataDescriptorMapEpochs.clear();
 	mSceneDataDescriptorBuildEpochs.clear();
+	mSceneDataDescriptorVoxelPageGenerations.clear();
 }
 
 void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
@@ -1919,6 +1920,7 @@ void NRIRenderer::OnLevelUnloadBegin(const LevelTransitionInfo& info)
 	}
 	std::fill(mSceneDataDescriptorMapEpochs.begin(), mSceneDataDescriptorMapEpochs.end(), 0ull);
 	std::fill(mSceneDataDescriptorBuildEpochs.begin(), mSceneDataDescriptorBuildEpochs.end(), 0ull);
+	std::fill(mSceneDataDescriptorVoxelPageGenerations.begin(), mSceneDataDescriptorVoxelPageGenerations.end(), 0ull);
 	for (SceneDataDescriptorSnapshot& snapshot : mSceneDataSnapshots)
 	{
 		snapshot.descriptorsInitialized = false;

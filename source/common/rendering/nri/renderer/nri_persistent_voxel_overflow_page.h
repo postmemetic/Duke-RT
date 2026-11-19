@@ -52,6 +52,7 @@ public:
     const NRIPersistentVoxelGeometryRangeHandle& Lease() const { return lease; }
     uint64_t Owner() const { return owner; }
     bool Published() const { return published; }
+    uint64_t PublishedGeneration() const { return published ? lease.transaction : 0; }
     uint64_t RetirementFence() const { return retirementFence; }
     bool Retiring() const { return retiring; }
 private:

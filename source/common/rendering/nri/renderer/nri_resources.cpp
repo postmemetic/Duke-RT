@@ -334,6 +334,7 @@ void NRIRenderer::DestroySceneBuffers()
 	}
 	std::fill(mSceneDataDescriptorMapEpochs.begin(), mSceneDataDescriptorMapEpochs.end(), 0ull);
 	std::fill(mSceneDataDescriptorBuildEpochs.begin(), mSceneDataDescriptorBuildEpochs.end(), 0ull);
+	std::fill(mSceneDataDescriptorVoxelPageGenerations.begin(), mSceneDataDescriptorVoxelPageGenerations.end(), 0ull);
 	mSceneDataDescriptors.fill(nullptr);
 	mCurrentSceneTextureDescriptors.clear();
 	mBoundStaticPrimitiveCount = 0;

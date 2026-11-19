@@ -2497,6 +2497,12 @@ void NRIRenderer::ReleaseCompletedPersistentVoxelGeometryRange(NRIPersistentVoxe
 			return;
 		}
 		cache.ReportOverflowPage("destroyed", fence);
+		// Partial descriptor updates share this CPU staging array. Drop the
+		// page views even if a scene-data slot hasn't been revisited yet.
+		if (mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_VERTEX_SLOT] == cache.overflowVertex.shaderView)
+			mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_VERTEX_SLOT] = mSceneDataDescriptors[21];
+		if (mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_PRIMITIVE_SLOT] == cache.overflowPrimitive.shaderView)
+			mSceneDataDescriptors[NRI_SCENE_DATA_VOXEL_PAGE_PRIMITIVE_SLOT] = mSceneDataDescriptors[23];
 		DestroyBufferResource(cache.overflowVertex);
 		DestroyBufferResource(cache.overflowIndex);
 		DestroyBufferResource(cache.overflowPrimitive);

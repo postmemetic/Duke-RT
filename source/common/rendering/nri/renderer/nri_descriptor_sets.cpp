@@ -79,6 +79,7 @@ bool NRIDescriptorSetManager::AllocateDescriptorSets(NRIRenderer& renderer)
 	renderer.mSceneDataDescriptorsInitialized.assign(queuedFrameCount, 0u);
 	renderer.mSceneDataDescriptorMapEpochs.assign(queuedFrameCount, 0ull);
 	renderer.mSceneDataDescriptorBuildEpochs.assign(queuedFrameCount, 0ull);
+	renderer.mSceneDataDescriptorVoxelPageGenerations.assign(queuedFrameCount, 0ull);
 	const uint32_t sceneDataSnapshotCount = std::max(8u, queuedFrameCount * 4u);
 	renderer.mSceneDataSnapshots.clear();
 	renderer.mSceneDataSnapshots.resize(sceneDataSnapshotCount);
@@ -277,6 +278,7 @@ nri::DescriptorSet* NRIDescriptorSetManager::GetCurrentSceneDataSet(const NRIRen
 
 bool NRIDescriptorSetManager::IsCurrentSceneDataDescriptorsInitialized(const NRIRenderer& renderer)
 {
+	const uint64_t pageGeneration = renderer.mPersistentVoxels.overflowPage.PublishedGeneration();
 	const uint64_t currentMapEpoch = renderer.mMapWorld.valid ? renderer.mMapWorld.buildSerial : 0ull;
 	const uint64_t currentBuildEpoch = renderer.mStaticMapScene.valid ? renderer.mStaticMapScene.buildSerial : 0ull;
 	if (renderer.mActiveSceneDataSnapshot != nullptr &&
@@ -285,7 +287,8 @@ bool NRIDescriptorSetManager::IsCurrentSceneDataDescriptorsInitialized(const NRI
 	{
 		return renderer.mActiveSceneDataSnapshot->descriptorsInitialized &&
 			renderer.mActiveSceneDataSnapshot->publishedMapEpoch == currentMapEpoch &&
-			renderer.mActiveSceneDataSnapshot->publishedBuildEpoch == currentBuildEpoch;
+			renderer.mActiveSceneDataSnapshot->publishedBuildEpoch == currentBuildEpoch &&
+			renderer.mActiveSceneDataSnapshot->publishedVoxelPageGeneration == pageGeneration;
 	}
 
 	const uint32_t queuedFrameIndex = renderer.GetCurrentQueuedFrameIndex();
@@ -294,11 +297,13 @@ bool NRIDescriptorSetManager::IsCurrentSceneDataDescriptorsInitialized(const NRI
 		queuedFrameIndex < renderer.mSceneDataDescriptorBuildEpochs.size() &&
 		renderer.mSceneDataDescriptorsInitialized[queuedFrameIndex] != 0 &&
 		renderer.mSceneDataDescriptorMapEpochs[queuedFrameIndex] == currentMapEpoch &&
-		renderer.mSceneDataDescriptorBuildEpochs[queuedFrameIndex] == currentBuildEpoch;
+		renderer.mSceneDataDescriptorBuildEpochs[queuedFrameIndex] == currentBuildEpoch &&
+		renderer.mSceneDataDescriptorVoxelPageGenerations[queuedFrameIndex] == pageGeneration;
 }
 
 void NRIDescriptorSetManager::SetCurrentSceneDataDescriptorsInitialized(NRIRenderer& renderer, bool value)
 {
+	const uint64_t pageGeneration = value ? renderer.mPersistentVoxels.overflowPage.PublishedGeneration() : 0ull;
 	const uint64_t currentMapEpoch = renderer.mMapWorld.valid ? renderer.mMapWorld.buildSerial : 0ull;
 	const uint64_t currentBuildEpoch = renderer.mStaticMapScene.valid ? renderer.mStaticMapScene.buildSerial : 0ull;
 	if (renderer.mActiveSceneDataSnapshot != nullptr &&
@@ -308,6 +313,7 @@ void NRIDescriptorSetManager::SetCurrentSceneDataDescriptorsInitialized(NRIRende
 		renderer.mActiveSceneDataSnapshot->descriptorsInitialized = value;
 		renderer.mActiveSceneDataSnapshot->publishedMapEpoch = value ? currentMapEpoch : 0ull;
 		renderer.mActiveSceneDataSnapshot->publishedBuildEpoch = value ? currentBuildEpoch : 0ull;
+		renderer.mActiveSceneDataSnapshot->publishedVoxelPageGeneration = pageGeneration;
 		return;
 	}
 
@@ -322,6 +328,7 @@ void NRIDescriptorSetManager::SetCurrentSceneDataDescriptorsInitialized(NRIRende
 	renderer.mSceneDataDescriptorsInitialized[queuedFrameIndex] = value ? 1u : 0u;
 	renderer.mSceneDataDescriptorMapEpochs[queuedFrameIndex] = value ? currentMapEpoch : 0ull;
 	renderer.mSceneDataDescriptorBuildEpochs[queuedFrameIndex] = value ? currentBuildEpoch : 0ull;
+	renderer.mSceneDataDescriptorVoxelPageGenerations[queuedFrameIndex] = pageGeneration;
 }
 
 void NRIDescriptorSetManager::TraceSharedDescriptorRewrite(

@@ -2378,6 +2378,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	if (sceneLightUsesStaticMapScene && !mGpuSceneHasDynamicOverlay)
 	{
 		const bool needsResidentStaticLightRefresh =
+			!IsCurrentSceneDataDescriptorsInitialized() ||
 			mRuntimeLightSceneDataDirty ||
 			!mSceneLights.GetAnalyticLights().activeLights.empty() ||
 			mBoundRuntimeLightCount != 0 ||

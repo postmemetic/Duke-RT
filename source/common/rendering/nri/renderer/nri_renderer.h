@@ -2466,6 +2466,7 @@ private:
 		uint64_t retireFenceValue = 0;
 		uint64_t publishedMapEpoch = 0;
 		uint64_t publishedBuildEpoch = 0;
+		uint64_t publishedVoxelPageGeneration = 0;
 		bool descriptorsInitialized = false;
 	};
 
@@ -3167,6 +3168,7 @@ private:
 	std::vector<uint8_t> mSceneDataDescriptorsInitialized;
 	std::vector<uint64_t> mSceneDataDescriptorMapEpochs;
 	std::vector<uint64_t> mSceneDataDescriptorBuildEpochs;
+	std::vector<uint64_t> mSceneDataDescriptorVoxelPageGenerations;
 	bool mRuntimeLightPayloadCacheValid = false;
 	uint64_t mRuntimeLightPayloadHash = 0;
 	bool mRuntimeLightClusterCacheValid = false;
