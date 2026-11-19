@@ -59,6 +59,7 @@ bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentatio
 {
     std::vector<nri_scene::PrecachedVoxelRawManifestView> views;
     if (!nri_scene::BuildEnemyVoxelFamilyViews(actor, views)) return false;
+    const uint64_t signature = actor.spriteAnimation.enemyVoxelFamily->signature;
     std::vector<const nri_scene::PrecachedVoxelVariantView*> missing;
     uint64_t bytes = 0, largest = 0, sources = 0;
     std::unordered_set<uint64_t> seen;
@@ -77,10 +78,12 @@ bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentatio
         bytes = Add(bytes, size);
         sources = Add(sources, view.rawBytes);
         largest = std::max(largest, size);
-        const auto entry = admissionQueue.find(nri_scene::HashCombine64(key, planned->materialKeyHash));
+        const auto pair = nri_scene::HashCombine64(key, planned->materialKeyHash);
+        const auto entry = admissionQueue.find(pair);
         if (entry != admissionQueue.end() && entry->second.mapGeneration == residencyMapGeneration &&
             entry->second.state != PersistentVoxelAdmissionState::Ready &&
-            !(IsSpawnOnlyPose(*planned) && IsUnstartedOptionalAdmission(entry->second, IsRequiredAdmission(entry->second)))) continue;
+            !(IsSpawnOnlyPose(*planned) && !enemyFamilyStaging.RequestedSpawnPose(signature, pair) &&
+              IsUnstartedOptionalAdmission(entry->second, IsRequiredAdmission(entry->second)))) continue;
         missing.push_back(planned);
     }
     if (missing.empty()) return false;
@@ -91,17 +94,14 @@ bool NRIPersistentVoxelResidency::TryRestageEnemyGeometry(const ActorPresentatio
     uint32_t liveSpawnPoses = 0;
     for (const auto* planned : missing)
     {
-        auto pose = *planned;
-        if (IsSpawnOnlyPose(pose))
-        {
-            // A real owner now needs this family. Preserve the prediction in
-            // the input history and leave the shared map plan untouched.
-            pose.sourceBits |= nri_scene::PrecachedVoxelSourceBit_EnemyFamily;
-            pose.inputHints.Observe(pose.sourceBits, pose.priority, pose.gpuForce, pose.gpuPrefer);
-        }
-        if (!EnqueueAdmission(pose, NRIVoxelAdmissionOrigin::Preload, residencyLastBuildSerial, settings, 0, false, services)) continue;
+        if (!EnqueueAdmission(*planned, NRIVoxelAdmissionOrigin::Preload, residencyLastBuildSerial, settings, 0, false, services)) continue;
         ++queued;
-        if (IsSpawnOnlyPose(*planned)) ++liveSpawnPoses;
+        if (IsSpawnOnlyPose(*planned))
+        {
+            const auto mesh = BuildPersistentVoxelVariantMeshResourceKey(*planned);
+            if (enemyFamilyStaging.RequestSpawnPose(signature, nri_scene::HashCombine64(mesh, planned->materialKeyHash)))
+                ++liveSpawnPoses;
+        }
     }
     if (PerfAuditActive())
     {

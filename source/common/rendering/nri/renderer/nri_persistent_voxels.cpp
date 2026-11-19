@@ -5156,11 +5156,10 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			diagnostic.Disposition("required-only-skip");
 			continue;
 		}
-		const bool requiredAdmission = IsRequiredAdmission(*entry);
+		const bool requiredAdmission = IsRequiredAdmission(*entry) || (!loadingPhase && enemyFamilyStaging.NeedsSpawnPose(entry->pairKey));
 		const bool uploadState = isUploadState(entry->state);
-		const bool parkDuringFinalDrain = loadingPhase && loadingWarmupActive && !BlockOptionalVoxelPreloadAdmissions() &&
-			IsUnstartedOptionalAdmission(*entry, requiredAdmission);
-		if (parkDuringFinalDrain || (!loadingPhase && !entry->runtimeRequested && !requiredAdmission && !uploadState))
+		const bool parkUnstartedOptional = !loadingPhase || (loadingWarmupActive && !BlockOptionalVoxelPreloadAdmissions());
+		if (parkUnstartedOptional && IsUnstartedOptionalAdmission(*entry, requiredAdmission))
 		{
 			stats.skippedBudget++;
 			entry->state = PersistentVoxelAdmissionState::Deferred;
@@ -5169,7 +5168,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			stopReason = entry->lastReason;
 			continue;
 		}
-		if (postLoadGraceActive && !entry->runtimeRequested && !requiredAdmission && !uploadState && optionalAdmitted >= settings.admissionGraceVariants)
+		if (postLoadGraceActive && IsUnstartedOptionalAdmission(*entry, requiredAdmission) && optionalAdmitted >= settings.admissionGraceVariants)
 		{
 			stats.skippedBudget++;
 			optionalSkippedGrace++;
@@ -5782,6 +5781,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	}
 	// The admission pump may still own a previous actor request after its pose
 	// leaves view. The allocation owner checks the current mesh census.
+	const bool liveSpawnPose = runtimePump && enemyFamilyStaging.NeedsSpawnPose(entry.pairKey);
 	const auto allocationIntent = [&](const NRIPersistentVoxelGeometryRangeHandle& oldRange)
 	{
 		const auto& mesh = entry.uploadMeshResource;
@@ -5796,8 +5796,17 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			entry.indexBytesUploaded || entry.indexArenaBytesUploaded || entry.primitiveBytesUploaded;
 		const bool afterHandoff = runtimePump && !loadingWarmupActive && !preloadPending &&
 			preloadHandoff.yielded && preloadHandoff.mapEpoch == residencyLastBuildSerial;
-		return NRIVoxelGeometryAdmissionIntent{entry.sourceBits, entry.priority, entry.admissionOrigins,
+		NRIVoxelGeometryAdmissionIntent intent{entry.sourceBits, entry.priority, entry.admissionOrigins,
 			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff, entry.preloadInputHints};
+		if (liveSpawnPose)
+		{
+			// Record the current service obligation without adding it to the
+			// persistent preload record or the per-actor material binding.
+			intent.sourceBits |= nri_scene::PrecachedVoxelSourceBit_EnemyFamily;
+			intent.requiredPreload = true;
+			intent.inputHints.Observe(intent.sourceBits, intent.priority, intent.force, intent.prefer);
+		}
+		return intent;
 	};
 	uint64_t newPreflightToken = 0;
 	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
@@ -5866,7 +5875,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		schedulerRequest.reservation.blasScratchBytes = (uint64_t)variant.primitiveCount * 12ull;
 		schedulerRequest.fairnessClass = entry.runtimeRequested ?
 			NRIVoxelAdmissionFairnessClass::VisibleNoFallback :
-			(IsRequiredAdmission(entry) ? NRIVoxelAdmissionFairnessClass::RequiredLoading : NRIVoxelAdmissionFairnessClass::OptionalLoading);
+			((liveSpawnPose || IsRequiredAdmission(entry)) ? NRIVoxelAdmissionFairnessClass::RequiredLoading : NRIVoxelAdmissionFairnessClass::OptionalLoading);
 		schedulerRequest.age = entry.firstQueuedFrame != UINT32_MAX && frameIndex >= entry.firstQueuedFrame ?
 			(uint64_t)(frameIndex - entry.firstQueuedFrame) : 0u;
 		if (entry.runtimeRequested && GetNRIVoxelAdmissionPolicySettings().actorPriority && actorDemand.AuthorityAvailable())

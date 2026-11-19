@@ -56,11 +56,16 @@ public:
     const NRIEnemyStageStats& Stats() const { return stats; }
     const std::vector<NRIEnemyStageDecision>& Decisions() const { return decisions; }
     bool NeedsFamily(uint64_t signature) const;
+    bool RequestSpawnPose(uint64_t signature, uint64_t pairKey);
+    bool RequestedSpawnPose(uint64_t signature, uint64_t pairKey) const;
+    bool NeedsSpawnPose(uint64_t pairKey) const { return liveSpawnPoses.count(pairKey) != 0; }
     bool WasStaged(uint64_t signature) const { return previouslyStaged.count(signature) != 0; }
 private:
     struct Set { NRIEnemyStageFamily family; };
     void Rebuild();
     std::vector<NRIEnemyStageOwner> owners;
+    std::unordered_map<uint64_t, std::unordered_set<uint64_t>> spawnPosesByFamily;
+    std::unordered_set<uint64_t> liveSpawnPoses;
     std::vector<Set> selected;
     std::unordered_set<uint64_t> pins;
     std::unordered_set<uint64_t> pressureRejected;

@@ -17,6 +17,7 @@ uint64_t Cost(const NRIEnemyStageFamily& family)
 
 void NRIEnemyFamilyStaging::Reset()
 {
+    spawnPosesByFamily.clear(); liveSpawnPoses.clear();
     owners.clear(); selected.clear(); pins.clear(); previouslyStaged.clear(); pressureRejected.clear(); decisions.clear(); stats = {};
 }
 
@@ -25,8 +26,38 @@ bool NRIEnemyFamilyStaging::NeedsFamily(uint64_t signature) const
     return std::any_of(owners.begin(), owners.end(), [=](const auto& item) { return item.family == signature; });
 }
 
+bool NRIEnemyFamilyStaging::RequestSpawnPose(uint64_t signature, uint64_t pairKey)
+{
+    if (!pairKey || !NeedsFamily(signature)) return false;
+    if (!spawnPosesByFamily[signature].insert(pairKey).second) return false;
+    liveSpawnPoses.insert(pairKey);
+    return true;
+}
+
+bool NRIEnemyFamilyStaging::RequestedSpawnPose(uint64_t signature, uint64_t pairKey) const
+{
+    const auto family = spawnPosesByFamily.find(signature);
+    return family != spawnPosesByFamily.end() && family->second.count(pairKey) != 0;
+}
+
 void NRIEnemyFamilyStaging::Rebuild()
 {
+    bool lostFamily = false;
+    for (auto it = spawnPosesByFamily.begin(); it != spawnPosesByFamily.end();)
+    {
+        if (NeedsFamily(it->first)) { ++it; continue; }
+        it = spawnPosesByFamily.erase(it);
+        lostFamily = true;
+    }
+    if (lostFamily)
+    {
+        // Shared pairs remain wanted until the last family that requested
+        // them has no uncommitted owner.
+        liveSpawnPoses.clear();
+        for (const auto& family : spawnPosesByFamily)
+            liveSpawnPoses.insert(family.second.begin(), family.second.end());
+    }
+
     selected.erase(std::remove_if(selected.begin(), selected.end(),
         [&](const Set& item) { return !NeedsFamily(item.family.signature); }), selected.end());
     pins.clear(); stats.geometryBytes = stats.physicalBytes = 0;
