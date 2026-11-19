@@ -4983,7 +4983,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			{
 				TraceReadiness("skip-ready", phase, &entry, meshResourceKey, entry.variant.materialKeyHash, readiness, traceLevel2);
 			}
-			if (entry.uploadPrepared)
+			if (entry.uploadPrepared || entry.state == PersistentVoxelAdmissionState::DirectBlasPending)
 			{
 				DiscardAdmissionEntry(entry, resetServices);
 			}
@@ -5135,7 +5135,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			{
 				TraceReadiness("skip-ready", phase, entry, meshResourceKey, entry->variant.materialKeyHash, currentReadiness, traceLevel2);
 			}
-			if (entry->uploadPrepared)
+			if (entry->uploadPrepared || entry->state == PersistentVoxelAdmissionState::DirectBlasPending)
 			{
 				DiscardAdmissionEntry(*entry, resetServices);
 			}
@@ -5610,6 +5610,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	const uint64_t retryTick = GetNRIVoxelAdmissionRetryClock();
 	const nri_scene::PrecachedVoxelVariantView& variant = entry.variant;
 	const uint64_t meshResourceKey = BuildPersistentVoxelVariantMeshResourceKey(variant);
+	// Work selected by the gameplay pump can still carry its original preload origin.
+	const bool fenceDirectBlas = entry.runtimeRequested || (runtimePump && isolateBlasBuild);
 	const bool runtimeTailRequest =
 		IsNRIVoxelComputePreloadRuntimeWithheldMesh(residencyLastBuildSerial, meshResourceKey) &&
 		IsNRIVoxelComputePreloadRuntimeTailReleased(residencyLastBuildSerial);
@@ -5667,7 +5669,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		entry.directBlasExclusive = false;
 	};
 
-	if (entry.directComputeRequested && TakeNRIVoxelComputeBudgetDeferral(meshResourceKey, entry.directComputeGeneration))
+	if (entry.directComputeRequested && entry.state != PersistentVoxelAdmissionState::DirectBlasPending &&
+		TakeNRIVoxelComputeBudgetDeferral(meshResourceKey, entry.directComputeGeneration))
 	{
 		if (PerfAuditActive())
 		{
@@ -5939,13 +5942,14 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			RetirePersistentVoxelShadowProxy(existingMeshIt->second.shadowProxy, services);
 			services.RetireGeometryRange(existingMeshIt->second.geometryRange);
 		}
-		meshVariantResources[meshResourceKey] = std::move(entry.uploadMeshResource);
+		auto& published = meshVariantResources[meshResourceKey];
+		published = std::move(entry.uploadMeshResource);
 		InvalidateEnemyFamilyGeometry();
 		entry.uploadMeshResource = {}; // Transfer raw buffer/range ownership exactly once.
 		publishedMeshKeys.insert(meshResourceKey);
+		NoteNRIVoxelDirectBlasFence(entry, published, frameIndex, "published");
 		if (loadingTraceLevel >= 1 || voxelStatsEnabled || (int)nri_ptvoxelcomputetrace > 0)
 		{
-			const PersistentVoxelMeshVariantResource& published = meshVariantResources[meshResourceKey];
 			const uint32_t readyFrame = published.directComputeReadyFrame != 0 ? published.directComputeReadyFrame : frameIndex;
 			const uint32_t requestToBlas =
 				entry.directComputeRequestFrame != UINT32_MAX && frameIndex >= entry.directComputeRequestFrame ?
@@ -6035,6 +6039,13 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			entry.lastReason = "direct-blas-fence-pending";
 			return true;
 		}
+		const auto& mesh = entry.uploadMeshResource;
+		if (entry.mapGeneration != residencyMapGeneration || mesh.resourceKey != meshResourceKey ||
+			mesh.directComputeGeneration != entry.directComputeGeneration || !geometryRanges.Owns(mesh.geometryRange) ||
+			!entry.schedulerTokenId || admissionScheduler.FindMeshOwner({residencyMapGeneration, meshResourceKey}) != entry.schedulerTokenId)
+		{
+			return rollbackAdmission("direct-blas-stale-owner", "direct_blas_poll");
+		}
 		return finalizeDirectBlas();
 	}
 
@@ -6057,6 +6068,13 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		{
 			outInProgress = true;
 			entry.lastReason = isolateBlasBuild ? "direct-blas-exclusive-lane" : "direct-blas-exclusive-owner";
+			return true;
+		}
+		const uint64_t recordingFence = fenceDirectBlas ? services.GetRecordingCommandFenceValue() : 0;
+		if (fenceDirectBlas && !recordingFence)
+		{
+			outInProgress = true;
+			entry.lastReason = "direct-blas-needs-recording-fence";
 			return true;
 		}
 		if (TakeNRIVoxelComputeDirectPublication(meshResourceKey, entry.directComputeGeneration, directMesh))
@@ -6201,6 +6219,11 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				{
 					return rollbackAdmission("direct-blas-input-barrier-failed", "direct_blas");
 				}
+				// A physical reservation made during loading can carry its shared scratch
+				// across handoff. The queue orders its scratch barriers and frame-retires
+				// replaced backing. Never allocate a second unbudgeted buffer at build time.
+				const bool usePrivateScratch = entry.directBlasScratchBuffer.buffer ||
+					(fenceDirectBlas && !meshResource.accelerationStructure.accelerationStructure);
 				if (!services.BuildBottomLevel(
 					vertexBuffer,
 					indexBuffer,
@@ -6210,7 +6233,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 					meshResource.indexCount,
 					meshResource.primitiveCount,
 					meshResource.accelerationStructure,
-					entry.runtimeRequested ? &entry.directBlasScratchBuffer : nullptr))
+					usePrivateScratch ? &entry.directBlasScratchBuffer : nullptr))
 				{
 					return rollbackAdmission("direct-blas-build-failed", "direct_blas");
 				}
@@ -6219,17 +6242,14 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 					return rollbackAdmission("direct-blas-input-post-barrier-failed", "direct_blas");
 				}
 				blasBudget--;
-				if (entry.runtimeRequested)
+				if (fenceDirectBlas)
 				{
 					const uint32_t readyFrame = directMesh.readyFrame != 0 ? directMesh.readyFrame : frameIndex;
-					entry.directBlasFenceValue = services.GetRecordingCommandFenceValue();
-					if (entry.directBlasFenceValue == 0)
-					{
-						return rollbackAdmission("direct-blas-fence-unavailable", "direct_blas_submit");
-					}
+					entry.directBlasFenceValue = recordingFence;
 					entry.directBlasRecordedFrame = frameIndex;
 					entry.directBlasExclusive = isolateBlasBuild;
 					entry.state = PersistentVoxelAdmissionState::DirectBlasPending;
+					NoteNRIVoxelDirectBlasFence(entry, meshResource, frameIndex, "submitted");
 					if (loadingTraceLevel >= 1 || voxelStatsEnabled || (int)nri_ptvoxelcomputetrace > 0)
 					{
 						Printf("PERF pt voxel compute direct blas NRI: action=submit tex=%d voxel=%d mesh_variant=0x%llx generation=%llu job=%u primitives=%u as_bytes=%llu scratch_bytes=%llu request_frame=%u ready_frame=%u submit_frame=%u fence=%llu exclusive=%u runtime_tail=%u\n",
@@ -6635,7 +6655,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			meshResource.sourceModel = variant.model;
 			meshResource.resourceKey = meshResourceKey;
 			const auto allocation = services.PrepareGeometryAllocation(meshResource,
-				entry.runtimeRequested ? &entry.directBlasScratchBuffer : nullptr,
+				fenceDirectBlas ? &entry.directBlasScratchBuffer : nullptr,
 				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false, allocationIntent(oldRange));
 			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 				return deferAllocation(meshResource, oldRange, allocation);

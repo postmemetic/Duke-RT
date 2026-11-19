@@ -516,3 +516,22 @@ void NoteNRIVoxelAdmissionRejectedDiagnostic(uint64_t mesh, uint64_t material, u
         map, U64(mesh), U64(material), Safe(reason));
     output.Emit("voxel_admission_request_rejected", fields);
 }
+
+void NoteNRIVoxelDirectBlasFence(const PersistentVoxelAdmissionEntry& entry,
+    const PersistentVoxelMeshVariantResource& mesh, uint32_t frame, const char* event)
+{
+    if (!entry.directBlasExclusive || !entry.directBlasFenceValue ||
+        !(bool)nri_ptvoxeladmissiontiming || !PerfAuditActive()) return;
+    DiagnosticWork overhead;
+    char fields[640];
+    std::snprintf(fields, sizeof(fields),
+        "\"event\":\"%s\",\"renderer_frame\":%u,\"submit_frame\":%u,\"map_generation\":%u,"
+        "\"mesh_key\":%llu,\"pair_key\":%llu,\"direct_generation\":%llu,\"scheduler_token\":%llu,"
+        "\"range_transaction\":%llu,\"fence\":%llu,\"runtime_requested\":%s,\"primitives\":%u,"
+        "\"as_bytes\":%llu,\"private_scratch_bytes\":%llu",
+        event, frame, entry.directBlasRecordedFrame, entry.mapGeneration, U64(mesh.resourceKey),
+        U64(entry.pairKey), U64(mesh.directComputeGeneration), U64(entry.schedulerTokenId),
+        U64(mesh.geometryRange.transaction), U64(entry.directBlasFenceValue), Bool(entry.runtimeRequested),
+        mesh.primitiveCount, U64(mesh.accelerationStructure.memorySize), U64(entry.directBlasScratchBuffer.memorySize));
+    output.Emit("voxel_direct_blas_fence", fields);
+}

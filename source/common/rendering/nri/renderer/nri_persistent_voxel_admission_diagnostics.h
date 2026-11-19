@@ -7,6 +7,8 @@
 class NRIPersistentVoxelResidency;
 struct NRIPersistentVoxelAdmissionDiagnosticState;
 struct NRIVoxelAdmissionTimingState;
+struct PersistentVoxelAdmissionEntry;
+struct PersistentVoxelMeshVariantResource;
 
 enum class NRIVoxelAdmissionTimingStage : uint8_t
 {
@@ -71,3 +73,5 @@ void NoteNRIVoxelAdmissionComputeDiagnostic(uint64_t mesh, uint64_t generation,
 
 void NoteNRIVoxelAdmissionRejectedDiagnostic(uint64_t mesh, uint64_t material,
     uint32_t map, const char* reason);
+void NoteNRIVoxelDirectBlasFence(const PersistentVoxelAdmissionEntry& entry,
+    const PersistentVoxelMeshVariantResource& mesh, uint32_t frame, const char* event);
