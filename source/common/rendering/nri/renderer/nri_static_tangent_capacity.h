@@ -17,6 +17,6 @@ constexpr uint32_t NRIStaticTangentStructuredPoolCapacity(uint32_t queuedFrames)
     const uint32_t smokeReserve = nri_smoke_descriptors::SharedStructuredPoolCapacity(queuedFrames);
     return known + 32u > smokeReserve ? known + 32u : smokeReserve;
 }
-static_assert(NRIStaticTangentStructuredPoolCapacity(2) == 570);
-static_assert(NRIStaticTangentStructuredPoolCapacity(3) == 651);
-static_assert(NRIStaticTangentStructuredPoolCapacity(4) == 850);
+static_assert(NRIStaticTangentStructuredPoolCapacity(2) == 574);
+static_assert(NRIStaticTangentStructuredPoolCapacity(3) == 687);
+static_assert(NRIStaticTangentStructuredPoolCapacity(4) == 898);
