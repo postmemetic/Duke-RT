@@ -45,9 +45,9 @@ void NRIPersistentVoxelResidency::RefreshEnemyRepresentations(uint32_t frame,
     }
     ReleaseEnemyMaterialCommits(enemyPolicy.TakeReleasedMaterialKeys(), services);
     ReconcileEnemyFamilyStaging();
-    // A second admission pump can publish resources within the same renderer
-    // frame. Refresh the bounded family cache at each pump, before staging and
-    // any reclaim decisions; later texture/selection consumers share it.
+    // Staging observes the resources at the start of this pump. A later mesh
+    // publish, replacement, or eviction invalidates this observation before
+    // first-visible selection and texture preparation can consume it.
     enemyFamilyResidency.clear(); enemyFamilyFrame = frame;
     if ((bool)nri_ptenemyrepresentationtrace && snapshot.complete)
     {
@@ -255,7 +255,7 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
     enemyFamilyStaging.ReleaseOwner(owner);
     nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, voxel);
     TraceChoice(frame, candidate, choice);
-    if ((bool)nri_ptenemyrepresentationtrace)
+    if (PerfAuditActive() || (bool)nri_ptenemyrepresentationtrace)
     {
         const auto texture = enemyUnavailableTextureKeys.find(candidate.identityKey);
         const uint64_t missingKey = texture == enemyUnavailableTextureKeys.end() ? 0 : texture->second;
@@ -267,7 +267,7 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
             reason, family.ready, family.poses, (unsigned long long)currentMesh, (unsigned long long)family.firstUnavailableMesh,
             family.firstUnavailableTexture, family.firstUnavailableTile, family.firstUnavailableAction, (unsigned long long)missingKey, (unsigned long long)enemyPreparationHeadroom);
         PerfAuditWriteEvent("enemy_first_visible", PerfAuditCurrentToken(), fields);
-        Printf("NRI enemy first visible: %s\n", fields);
+        if ((bool)nri_ptenemyrepresentationtrace) Printf("NRI enemy first visible: %s\n", fields);
     }
     if (!voxel)
     {

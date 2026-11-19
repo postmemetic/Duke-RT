@@ -1063,6 +1063,7 @@ public:
     void ResetEnemyRepresentationsForLevelTransition();
     bool IsEnemySpriteCommitted(uint64_t world, uint64_t lifetime) const;
     void FilterEnemyPublicationEntries(const std::vector<nri_scene::PersistentVoxelCacheEntryView>*& entries);
+    void InvalidateEnemyFamilyGeometry() { enemyFamilyResidency.clear(); }
     const NRIEnemyFamilyResidency& InspectEnemyFamily(const ActorPresentationState& authority,
         uint32_t frameIndex, const NRIPersistentVoxelSettings& settings);
     NRIEnemyRepresentationChoice SelectEnemyRepresentation(const nri_scene::ActorSpriteFallbackCandidate& candidate,

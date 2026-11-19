@@ -1,6 +1,5 @@
 #include "nri_scene_textures.h"
 #include "nri_actor_representation.h"
-#include "nri_enemy_representation_textures.h"
 #include "nri_persistent_voxels.h"
 #include "../scene/nri_actor_sprite_fallback.h"
 #include "../scene/nri_material_bridge.h"
@@ -16,12 +15,11 @@ EXTERN_CVAR(Bool, nri_ptactorspritefallback)
 CVAR(Bool, nri_ptactororderedtextures, true, 0)
 
 void NRIActorRepresentations::PrepareTextures(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
-    const NRIPersistentVoxelSettings& settings, NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
+    NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
     void (*buildMaterials)(void*, nri_scene::SceneView&, nri_scene::MaterialBridgeData&))
 {
     voxels.spriteFallbackReadyActors.clear();
     voxels.spriteFallbackReadyFrame = frameIndex;
-	NRIPrepareEnemyFamilyTextures(frameIndex, voxels, settings, device, textures);
     if (!(bool)nri_ptactorspritefallback || !buildMaterials) return;
     const bool trace = PerfAuditActive();
     const auto begin = trace ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};

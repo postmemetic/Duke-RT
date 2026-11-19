@@ -4600,6 +4600,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 		evictedBytes += candidate.bytes;
 		evictedMeshes++;
 		meshVariantResources.erase(it);
+		InvalidateEnemyFamilyGeometry();
 		publishedMeshKeys.erase(candidate.key);
 	}
 
@@ -5935,6 +5936,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			services.RetireGeometryRange(existingMeshIt->second.geometryRange);
 		}
 		meshVariantResources[meshResourceKey] = std::move(entry.uploadMeshResource);
+		InvalidateEnemyFamilyGeometry();
 		entry.uploadMeshResource = {}; // Transfer raw buffer/range ownership exactly once.
 		publishedMeshKeys.insert(meshResourceKey);
 		if (loadingTraceLevel >= 1 || voxelStatsEnabled || (int)nri_ptvoxelcomputetrace > 0)
@@ -7159,6 +7161,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		services.RetireGeometryRange(existingMeshIt->second.geometryRange);
 	}
 	meshVariantResources[meshResourceKey] = std::move(entry.uploadMeshResource);
+	InvalidateEnemyFamilyGeometry();
 	entry.uploadMeshResource = {}; // Transfer raw buffer/range ownership exactly once.
 	publishedMeshKeys.insert(meshResourceKey);
 	entry.uploadMaterialResource = {};
@@ -8386,6 +8389,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		const bool actorGeometryChanged = sharedArenaChanged;
 		if (actorGeometryChanged)
 		{
+			InvalidateEnemyFamilyGeometry();
 			meshResource.resourceKey = meshResourceKey;
 			const auto allocation = batchServices.PrepareGeometryAllocation(meshResource, nullptr,
 				(uint32_t)actorGeometry.vertices.size(), (uint32_t)actorGeometry.indices.size(),
@@ -9616,6 +9620,7 @@ bool NRIPersistentVoxelResidency::BuildAccelerationStructures(
 		}
 
 		outStats.builds++;
+		InvalidateEnemyFamilyGeometry();
 		if (actor.meshKeyHash != 0)
 		{
 			builtMeshKeys.insert(actor.meshKeyHash);

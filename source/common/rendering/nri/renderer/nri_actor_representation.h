@@ -28,7 +28,7 @@ class NRIActorRepresentations
 public:
 	// Resolve cheap texture dependencies before residency can expire a held voxel.
 	void PrepareTextures(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
-		const NRIPersistentVoxelSettings& settings, NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
+		NRIRenderDevice& device, NRISceneTextureResidency& textures, void* user,
 		void (*buildMaterials)(void*, nri_scene::SceneView&, nri_scene::MaterialBridgeData&));
 	bool Build(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
 		const NRIPersistentVoxelSettings& settings,

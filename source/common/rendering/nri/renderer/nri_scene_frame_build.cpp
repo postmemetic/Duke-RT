@@ -6,6 +6,7 @@
 #include "../framegen/nri_framegen.h"
 #include "nri_acceleration.h"
 #include "nri_diagnostic_names.h"
+#include "nri_enemy_representation_textures.h"
 #include "nri_frame_resources.h"
 #include "nri_filter_candidate_policy.h"
 #include "nri_material_policy.h"
@@ -1040,12 +1041,15 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						voxelMaintenance.pressureResourceRowsScannedLast;
 				}
 			}
-			mActorRepresentations.PrepareTextures(mFrameIndex, mPersistentVoxels, persistentVoxelSettings, *mFrameBuffer, mSceneTextures,
+			mActorRepresentations.PrepareTextures(mFrameIndex, mPersistentVoxels, *mFrameBuffer, mSceneTextures,
 				this, [](void* user, nri_scene::SceneView& scene, nri_scene::MaterialBridgeData& materials)
 				{
 					static_cast<NRIRenderer*>(user)->BuildMaterialsWithActorOverrides(scene, materials, "actor_fallback_preflight");
 				});
 			const bool ready = EnsurePersistentVoxelBatch();
+			// The current actor batch can publish the family's final missing mesh.
+			// Check its texture closure against that same geometry snapshot.
+			NRIPrepareEnemyFamilyTextures(mFrameIndex, mPersistentVoxels, persistentVoxelSettings, *mFrameBuffer, mSceneTextures);
 			if (ready) PrepareEnemyMaterialBacking(persistentVoxelSettings);
 			return ready;
 		}();

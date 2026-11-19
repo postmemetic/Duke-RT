@@ -77,6 +77,7 @@ bool NRIPersistentVoxelResidency::EvictInactiveMesh(uint64_t key, const NRIPersi
     inactiveMeshSince.erase(key);
     publishedMeshKeys.erase(key);
     meshVariantResources.erase(found);
+    InvalidateEnemyFamilyGeometry();
     return true;
 }
 
