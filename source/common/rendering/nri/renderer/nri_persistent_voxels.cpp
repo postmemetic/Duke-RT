@@ -5439,12 +5439,14 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	}
 
 	diagnostic.Finish(stopReason, admitted, stats.bytesUploaded, blasUsed);
-	if (stats.withheldBeforeReservation && PerfAuditActive())
+	if ((stats.withheldBeforeReservation || stats.refusedAtComputeSubmission) && PerfAuditActive())
 	{
 		char fields[256];
-		std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"runtime\":%s,\"requests\":%u,\"first_mesh\":%llu",
+		std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"runtime\":%s,\"requests\":%u,\"first_mesh\":%llu,"
+			"\"refused_at_submission\":%u,\"first_refused_mesh\":%llu",
 			frameIndex, loadingPhase ? "false" : "true", stats.withheldBeforeReservation,
-			(unsigned long long)stats.firstWithheldMesh);
+			(unsigned long long)stats.firstWithheldMesh, stats.refusedAtComputeSubmission,
+			(unsigned long long)stats.firstRefusedComputeMesh);
 		PerfAuditWriteEvent("voxel_compute_lane_preflight", PerfAuditCurrentToken(), fields);
 	}
 	const bool hasQueueActivity = !candidates.empty() || stats.uploaded != 0 || stats.skippedBudget != 0 || stats.failedThisPump != 0;
@@ -6717,6 +6719,12 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				{
 					if (entry.schedulerTokenId == 0 || !admissionScheduler.SubmitCompute(entry.schedulerTokenId))
 					{
+						if (outStats)
+						{
+							if (outStats->refusedAtComputeSubmission == 0)
+								outStats->firstRefusedComputeMesh = meshResourceKey;
+							++outStats->refusedAtComputeSubmission;
+						}
 						deferSchedulerCompute();
 						return true;
 					}
