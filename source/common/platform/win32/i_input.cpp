@@ -36,6 +36,7 @@
 // be read using DirectInput instead of winmm.
 
 #define WIN32_LEAN_AND_MEAN
+#include "../loading_window.h"
 #define __BYTEBOOL__
 #ifndef __GNUC__
 #define INITGUID
@@ -398,6 +399,12 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		PostQuitMessage (0);
 		break;
 
+	case WM_CLOSE:
+		// A synchronous window close can arrive during a renderer submission.
+		// Unwind from the normal input loop before destroying the surface.
+		PostQuitMessage(0);
+		return 0;
+
 	case WM_HOTKEY:
 		break;
 
@@ -627,6 +634,7 @@ void I_GetEvent ()
 		}
 		if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
 	}
+	LoadingWindow::ObservedService();
 	PerfLoopTraceNoteIGetEvent(peekedMessages);
 
 	if (Keyboard != NULL)

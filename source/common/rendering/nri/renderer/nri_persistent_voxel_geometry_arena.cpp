@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "../../../platform/loading_window.h"
 #include "nri_persistent_voxel_geometry_arena_policy.h"
 #include "nri_persistent_voxel_allocation_policy.h"
 #include "nri_persistent_voxel_services.h"
@@ -113,6 +114,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     const auto selection = SelectNRIPersistentVoxelGeometryArenaCapacity(maximumPrimitives, minimumPrimitives,
         [&](uint64_t candidatePrimitives)
     {
+        LoadingWindow::Scope::ServiceIfActive();
         std::array<nri::BufferDesc, 3> candidate = {};
         candidate[0].size = candidatePrimitives * 2ull * sizeof(nri_scene::SceneVertex);
         candidate[0].structureStride = sizeof(nri_scene::SceneVertex);

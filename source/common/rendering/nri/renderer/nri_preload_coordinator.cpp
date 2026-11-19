@@ -9,6 +9,7 @@
 #include "../scene/nri_hash.h"
 #include "../scene/nri_material_palette.h"
 #include "../system/nri_renderdevice.h"
+#include "../../../platform/loading_window.h"
 
 #include "mapinfo.h"
 #include "c_dispatch.h"
@@ -891,6 +892,8 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 
 bool NRIPreloadCoordinator::Run(NRIRenderer& renderer, const NRIPreloadLevelSceneInputs& inputs)
 {
+	LoadingWindow::Scope windowUpdates;
+	LoadingWindow::Service();
 	Context context = {};
 	context.outputWidth = inputs.outputWidth;
 	context.outputHeight = inputs.outputHeight;

@@ -70,6 +70,8 @@ struct WindowState
 	std::atomic<bool> shown{ false };
 	bool closeAcknowledged = false;
 	ULONGLONG startTicks = GetTickCount64();
+	ULONGLONG lastPaint = 0;
+	WindowPaintStats paintStats;
 	HWND launchForeground = nullptr;
 	DWORD launchInputTick = 0;
 	bool launchInputKnown = false;
@@ -349,6 +351,13 @@ LRESULT CALLBACK ProgressWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPAR
 		case WM_PAINT:
 			try { state->Paint(hwnd); }
 			catch (...) { state->PaintFallback(hwnd); }
+			{
+				const auto now = GetTickCount64();
+				if (state->lastPaint)
+					state->paintStats.longestGapMs = std::max(state->paintStats.longestGapMs, now - state->lastPaint);
+				state->lastPaint = now;
+				++state->paintStats.paints;
+			}
 			return 0;
 		case WM_CLOSE:
 			state->closeAcknowledged = true;
@@ -509,7 +518,7 @@ bool WindowHost::WasShown() const noexcept
 	return mState && mState->shown.load();
 }
 
-void WindowHost::Close() noexcept
+WindowPaintStats WindowHost::Close() noexcept
 {
 	if (mState)
 	{
@@ -519,5 +528,6 @@ void WindowHost::Close() noexcept
 	}
 	if (mThread.joinable())
 		mThread.join();
+	return mState ? mState->paintStats : WindowPaintStats{};
 }
 }

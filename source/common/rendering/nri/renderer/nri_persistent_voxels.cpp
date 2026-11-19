@@ -1,4 +1,5 @@
 #include "nri_persistent_voxels.h"
+#include "../../../platform/loading_window.h"
 #include "nri_persistent_voxel_actor_index_validation.h"
 #include "nri_persistent_voxel_material_bindings.h"
 #include "nri_persistent_voxel_publication_services.h"
@@ -4842,7 +4843,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		(int)settings.admitMaxMsLoading :
 		(int)settings.admitMaxMsRuntime;
 	const double msBudget = loadingPhase ?
-		(configuredMsBudget > 0 ? (double)configuredMsBudget : 250.0) :
+		NRIVoxelLoadingAdmissionBudgetMs(configuredMsBudget) :
 		(double)configuredMsBudget;
 	const uint32_t blasBudgetLimit = loadingPhase ?
 		settings.admitMaxBlasLoading :
@@ -11269,7 +11270,7 @@ bool NRIPersistentVoxelResidency::PreloadVariantResources(
 	bool ok = true;
 	const auto preloadAdmissionStart = std::chrono::steady_clock::now();
 	const int configuredLoadingMsBudget = (int)settings.admitMaxMsLoading;
-	const double preloadTickBudgetMs = configuredLoadingMsBudget > 0 ? (double)configuredLoadingMsBudget : 250.0;
+	const double preloadTickBudgetMs = NRIVoxelLoadingAdmissionBudgetMs(configuredLoadingMsBudget);
 	const uint32_t maxPumps = std::max<uint32_t>(1024u, (uint32_t)admissionQueue.size() * 64u + 64u);
 	for (uint32_t pump = 0; pump < maxPumps; ++pump)
 	{
@@ -11468,6 +11469,7 @@ bool NRIPersistentVoxelResidency::PreloadMaterialPayloads(
 	bool ok = true;
 	for (const nri_scene::PrecachedVoxelVariantView& variant : variants)
 	{
+		LoadingWindow::Scope::ServiceIfActive();
 		if (!variant.directOnlyAdmission)
 		{
 			continue;

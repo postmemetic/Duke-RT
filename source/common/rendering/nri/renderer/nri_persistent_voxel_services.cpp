@@ -1445,6 +1445,17 @@ public:
 				adapterMemory.localBudgetBytes);
 			sComputePreloadTimeline.maxRawVariants = std::max(sComputePreloadTimeline.maxRawVariants, (uint32_t)rawVariants.size());
 			sComputePreloadTimeline.maxLegacyVariants = std::max(sComputePreloadTimeline.maxLegacyVariants, (uint32_t)variants.size());
+			if (newTimeline && computePreloadSettings.enabled && !computePreloadSettings.dryRun &&
+				!computePreloadStats.memoryGuardHit && !rawVariants.empty())
+			{
+				// Keep static/world correction and the live-budget selection together.
+				// Allocate geometry and resolve its materials on the next loading tick.
+				renderer.mPersistentVoxels.preloadPending = true;
+				if ((int)nri_ptloadingtrace >= 1)
+					Printf("NRI PT loading progress: phase=voxel-plan map_build=%llu bindings=%u\n",
+						(unsigned long long)renderer.mMapWorld.buildSerial, (uint32_t)rawVariants.size());
+				return false;
+			}
 		}
 		if (computePreloadSettings.enabled && !computePreloadSettings.dryRun && !computePreloadStats.memoryGuardHit)
 		{

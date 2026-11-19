@@ -160,9 +160,10 @@ void Session::Close(bool completed) noexcept
 #endif
 	}
 #ifdef _WIN32
+	WindowPaintStats paint;
 	if (host)
 	{
-		host->Close();
+		paint = host->Close();
 		std::lock_guard<std::mutex> lock(StateMutex);
 		WindowWasShown = host->WasShown();
 	}
@@ -171,6 +172,11 @@ void Session::Close(bool completed) noexcept
 	{
 		try
 		{
+#ifdef _WIN32
+			if (host && !gameisdead)
+				Printf("STARTUP progress window: paints=%u max_paint_gap_ms=%llu\n",
+					paint.paints, (unsigned long long)paint.longestGapMs);
+#endif
 			LogTerminalState(stage.c_str(), stageElapsed * 1000.0,
 				cancelled ? "cancelled" : completed ? (failed ? "completed-with-failures" : "ready") : "aborted", elapsed * 1000.0);
 		}

@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "../../../platform/loading_window.h"
 #include "nri_cvars.h"
 
 #include "../scene/nri_hash.h"
@@ -1695,6 +1696,7 @@ bool NRIRenderer::EnsureSceneTextures(
 
 		for (uint32_t i = 0; i < (uint32_t)materials.textures.size(); ++i)
 		{
+			LoadingWindow::Scope::ServiceIfActive();
 			const auto& upload = materials.textures[i];
 			const NRISceneTextureSlotHandle stableHandle =
 				mSceneTextureStableSlotsActive ? mSceneTextures.SlotTable().Lookup(upload.key) : NRISceneTextureSlotHandle{};

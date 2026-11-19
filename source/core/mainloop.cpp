@@ -105,6 +105,8 @@
 #include "d_eventbase.h"
 #include "input_lineage.h"
 #include "perf_capture.h"
+#include "level_loading_timing.h"
+#include "../common/platform/loading_window.h"
 #include "perf_route.h"
 #include "perf_route_observer.h"
 #include "perf_actor_census.h"
@@ -351,6 +353,8 @@ static bool gPathTracingLevelPreloadFirstLevelFrameCaptured = false;
 static bool gPathTracingLevelPreloadSimulationHoldActive = false;
 static bool gPathTracingLevelPreloadNeeded = false;
 static bool gPathTracingLevelPreloadFinalCheckNeeded = false;
+static uint64_t gLastLevelPreloadPresentation = 0;
+static LevelLoadingTiming levelLoadingTiming;
 static uint64_t gLevelTransitionSerial = 0;
 static uint64_t gPathTracingLevelLoadClockSerial = 0;
 static uint32_t gPathTracingLevelLoadClockRebases = 0;
@@ -487,6 +491,10 @@ static FString GetLevelTransitionMapName(MapRecord* map)
 
 LevelTransitionInfo G_BeginLevelTransition(LevelTransitionReason reason, MapRecord* newLevel)
 {
+	const bool measure = (int)nri_ptloadingtrace >= 1 && screen && screen->Backend() == 4 &&
+		(newLevel || reason == LevelTransitionReason::SaveGameLoad);
+	levelLoadingTiming.Begin(measure, I_msTimeF());
+	LoadingWindow::onService = measure ? +[]() { levelLoadingTiming.NativeService(I_msTimeF()); } : nullptr;
 	LevelTransitionInfo info;
 	info.reason = reason;
 	info.serial = ++gLevelTransitionSerial;
@@ -546,6 +554,8 @@ static bool BeginPathTracingLevelPreloadGate()
 	const double beginStartMs = I_msTimeF();
 	if (screen == nullptr || !screen->StartPathTracingLevelPreload())
 	{
+		levelLoadingTiming.active = false;
+		LoadingWindow::onService = nullptr;
 		if ((int)nri_ptloadingtrace >= 1)
 		{
 			Printf("NRI PT loading gate: event=begin result=skip reason=%s gamestate=%s gameaction=%d\n",
@@ -557,6 +567,8 @@ static bool BeginPathTracingLevelPreloadGate()
 	}
 
 	gPendingPathTracingLevelPreload = true;
+	// Map initialization can already have consumed this entire frame.
+	gLastLevelPreloadPresentation = gPresentationGeneration;
 	gPathTracingLevelPreloadNeeded = false;
 	gPathTracingLevelPreloadHeldScreenJobCompletion = false;
 	gPathTracingLevelPreloadAwaitingFirstLevelFrame = false;
@@ -588,14 +600,19 @@ static bool BeginPathTracingLevelPreloadGate()
 
 static bool TickPendingPathTracingLevelPreloadGate()
 {
-	if (!gPendingPathTracingLevelPreload || screen == nullptr || !screen->IsPathTracingLevelPreloadPending())
+	if (!gPendingPathTracingLevelPreload || gPathTracingLevelPreloadFinalCheckNeeded ||
+		gLastLevelPreloadPresentation == gPresentationGeneration ||
+		screen == nullptr || !screen->IsPathTracingLevelPreloadPending())
 	{
 		return false;
 	}
 
+	gLastLevelPreloadPresentation = gPresentationGeneration;
 	const double tickStartMs = I_msTimeF();
 	const bool preloadReady = screen->TickPathTracingLevelPreload();
-	RebasePathTracingLevelLoadClock("preload-pump", I_msTimeF() - tickStartMs);
+	const double tickMs = I_msTimeF() - tickStartMs;
+	levelLoadingTiming.maxPreloadTick = std::max(levelLoadingTiming.maxPreloadTick, tickMs);
+	RebasePathTracingLevelLoadClock("preload-pump", tickMs);
 	if ((int)nri_ptloadingtrace >= 2)
 	{
 		Printf("NRI PT loading gate: event=pre-frame-tick ready=%u gamestate=%s gameaction=%d screen_pending=%u\n",
@@ -648,6 +665,13 @@ static bool RunPathTracingLevelPreloadFinalCheck()
 		}
 		gPendingPathTracingLevelPreload = true;
 	}
+	if (gLastLevelPreloadPresentation == gPresentationGeneration)
+	{
+		gamestate = GS_CUTSCENE;
+		gameaction = ga_level;
+		return false;
+	}
+	gLastLevelPreloadPresentation = gPresentationGeneration;
 
 	if (gPathTracingLevelPreloadFirstLevelFrameCaptured)
 	{
@@ -665,11 +689,12 @@ static bool RunPathTracingLevelPreloadFinalCheck()
 	}
 
 	const double finalCheckStartMs = I_msTimeF();
-	for (uint32_t pass = 0; pass < 8u && screen->IsPathTracingLevelPreloadPending(); ++pass)
-	{
-		(void)screen->TickPathTracingLevelPreload();
-	}
-	RebasePathTracingLevelLoadClock("final-check-pump", I_msTimeF() - finalCheckStartMs);
+	// A loading tick can contain native allocation and fence waits. Return
+	// to event service and presentation before advancing another one.
+	(void)screen->TickPathTracingLevelPreload();
+	const double tickMs = I_msTimeF() - finalCheckStartMs;
+	levelLoadingTiming.maxPreloadTick = std::max(levelLoadingTiming.maxPreloadTick, tickMs);
+	RebasePathTracingLevelLoadClock("final-check-pump", tickMs);
 
 	if (screen->IsPathTracingLevelPreloadPending())
 	{
@@ -1352,10 +1377,21 @@ void Display()
 	StartupLoadingScreen::BeforeFirstPresent();
 	screen->Update();
 	StartupLoadingScreen::AfterFirstPresent();
+	if (levelLoadingTiming.active) levelLoadingTiming.ScreenUpdate(I_msTimeF());
 	perfDisplayTraceStats.updateMs += I_msTimeF() - stageStart;
 
 	if (releaseLevelLoadBoundaryAfterPresent)
 	{
+		if (levelLoadingTiming.active)
+		{
+			Printf("NRI PT loading responsiveness: transition=%llu to_first_playable_ms=%.3f max_outer_event_pump_gap_ms=%.3f max_screen_update_gap_ms=%.3f screen_updates=%u max_preload_tick_ms=%.3f max_native_service_gap_ms=%.3f native_services=%u\n",
+				(unsigned long long)gLevelTransitionSerial, I_msTimeF() - levelLoadingTiming.start,
+				levelLoadingTiming.maxEventPumpGap, levelLoadingTiming.maxScreenUpdateGap,
+				levelLoadingTiming.screenUpdates, levelLoadingTiming.maxPreloadTick,
+				levelLoadingTiming.maxNativeServiceGap, levelLoadingTiming.nativeServices);
+			levelLoadingTiming.active = false;
+			LoadingWindow::onService = nullptr;
+		}
 		nri_scene::SetPersistentVoxelActorStartupTransientMode(false, "first-level-frame-release");
 		if ((int)nri_ptloadingtrace >= 1)
 		{
@@ -1420,7 +1456,9 @@ static void TicStabilityWait()
 	using namespace std::chrono;
 	using namespace std::this_thread;
 
-	if (!r_ticstability)
+	// A load can span seconds. It has its own clock policy, and inserting
+	// the preceding loading tick's duration as a busy wait stalls the UI.
+	if (!r_ticstability || IsPathTracingLevelLoadBoundaryActive())
 		return;
 
 	uint64_t start = duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
@@ -1442,7 +1480,8 @@ static void TicStabilityEnd()
 {
 	using namespace std::chrono;
 	uint64_t stabilityendtime = duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
-	stabilityticduration = min(stabilityendtime - stabilitystarttime, (uint64_t)1'000'000);
+	stabilityticduration = IsPathTracingLevelLoadBoundaryActive() ? 0 :
+		min(stabilityendtime - stabilitystarttime, (uint64_t)1'000'000);
 }
 
 //==========================================================================
@@ -1838,6 +1877,7 @@ void MainLoop ()
 			// Update display, next frame, with current state.
 			const double startTicStartMs = I_msTimeF();
 			I_StartTic();
+			if (levelLoadingTiming.active) levelLoadingTiming.EventPump(I_msTimeF());
 			const double startTicMs = I_msTimeF() - startTicStartMs;
 
 			const double displayStartMs = I_msTimeF();

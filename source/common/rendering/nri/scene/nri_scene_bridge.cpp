@@ -1,4 +1,5 @@
 #include "nri_scene_bridge.h"
+#include "../../../platform/loading_window.h"
 #include "nri_actor_sprite_fallback.h"
 #include "nri_enemy_material_key.h"
 #include "nri_enemy_family_preload_policy.h"
@@ -4410,6 +4411,7 @@ namespace
 		TSpriteIterator<DCoreActor> it;
 		while (DCoreActor* actor = it.Next())
 		{
+			LoadingWindow::Scope::ServiceIfActive();
 			if (!IsLiveActorVoxelWarmupCandidate(actor))
 			{
 				continue;
@@ -6693,6 +6695,7 @@ void PreloadLiveActorVoxelRawSources()
 	const auto start = std::chrono::steady_clock::now();
 	for (const LoadingVoxelPreloadRequest& request : graph.requests)
 	{
+		LoadingWindow::Scope::ServiceIfActive();
 		if (request.model == nullptr)
 		{
 			continue;
@@ -7951,6 +7954,7 @@ bool BuildPrecachedVoxelVariantViews(std::vector<PrecachedVoxelVariantView>& out
 
 		for (const LoadingVoxelMaterialContext& context : contexts)
 		{
+			LoadingWindow::Scope::ServiceIfActive();
 			FGameTexture* emissiveSourceTexture = TexMan.GetGameTexture(context.texid);
 			if (emissiveSourceTexture != nullptr && !emissiveSourceTexture->isValid())
 			{
@@ -8145,6 +8149,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 
 		FVoxelRawMeshStats rawStats = {};
 		const bool rawStatsReady = QueryNRIVoxelComputeRawSourceArchiveStats(request.model, rawStats);
+		LoadingWindow::Scope::ServiceIfActive();
 		const uint32_t primitiveCount = rawStatsReady ? rawStats.adjacencySurfaceFaceCount * 2u : request.primitiveCount;
 		const bool cpuSurfaceReady = IsVoxelMeshVariantSurfaceReady(request.meshVariantHash);
 		const bool legacyGpuCandidate = IsLoadingVoxelRequestGpuCandidate(request);

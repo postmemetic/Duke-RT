@@ -1,5 +1,7 @@
 
 #include "i_mainwindow.h"
+#include "../loading_window.h"
+
 #include "resource.h"
 #include "startupinfo.h"
 #include "gstrings.h"
@@ -21,6 +23,23 @@
 #pragma comment(lib, "dwmapi.lib")
 
 MainWindow mainwindow;
+
+void LoadingWindow::Service()
+{
+	// Never steal posted input or a pending WM_QUIT from the outer loop.
+	// Checking for sent messages lets Windows service synchronous queries
+	// even when the loading screen is between GPU submissions.
+	static thread_local ULONGLONG nextUpdate = 0;
+	const ULONGLONG now = GetTickCount64();
+	if (now < nextUpdate) return;
+	nextUpdate = now + 32;
+	const HWND hwnd = mainwindow.GetHandle();
+	if (!hwnd || GetWindowThreadProcessId(hwnd, nullptr) != GetCurrentThreadId()) return;
+	MSG message;
+	PeekMessageW(&message, hwnd, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE);
+	UpdateWindow(hwnd);
+	LoadingWindow::ObservedService();
+}
 
 void MainWindow::Create(const FString& caption, int x, int y, int width, int height)
 {

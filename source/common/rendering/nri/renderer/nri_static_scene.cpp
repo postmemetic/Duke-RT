@@ -1,4 +1,5 @@
 #include "nri_static_scene.h"
+#include "../../../platform/loading_window.h"
 #include "nri_static_scene_animated_bindings.h"
 #include "nri_cvars.h"
 
@@ -991,6 +992,7 @@ bool nri_static_scene::BuildStaticMapAccelerationStructures(
 	uint64_t maxScratchSize = 0;
 	for (const NRIStaticMapBlasBuildInput& buildInput : blasBuildInputs)
 	{
+		LoadingWindow::Scope::ServiceIfActive();
 		auto& chunk = staticScene.chunks[buildInput.chunkListIndex];
 		nri::BottomLevelGeometryDesc geometryDesc =
 			BuildStaticMapBlasGeometryDesc(buildInput, staticResources.vertexBuffer.buffer, staticResources.indexBuffer.buffer);
@@ -1187,6 +1189,7 @@ bool nri_static_scene::BuildLiveStaticMapAccelerationStructures(
 	for (const NRIStaticMapBlasBuildInput& buildInput : blasBuildInputs)
 	{
 		auto& chunk = staticScene.chunks[buildInput.chunkListIndex];
+		LoadingWindow::Scope::ServiceIfActive();
 		nri::BottomLevelGeometryDesc geometryDesc =
 			BuildStaticMapBlasGeometryDesc(buildInput, input.staticVertexBuffer->buffer, input.staticIndexBuffer->buffer);
 
@@ -1757,6 +1760,7 @@ bool nri_static_scene::BuildStaticMapSceneCache(
 	const nri_scene::SceneView* preservedSkyView = preservedSkyState != nullptr ? &preservedSkyState->sceneView : nullptr;
 	for (const nri_scene::PTMapChunk& chunk : mapWorld.chunks)
 	{
+		LoadingWindow::Scope::ServiceIfActive();
 		AppendStaticMapSceneCacheChunk(mapWorld, chunk, preservedSkyView, services, outStaticScene);
 	}
 

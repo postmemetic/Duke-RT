@@ -1,6 +1,13 @@
 #pragma once
 #include <cstdint>
 
+inline double NRIVoxelLoadingAdmissionBudgetMs(int configured)
+{
+	// Yield to the loading screen between jobs. The guard cannot preempt a
+	// single native allocation or build already in progress.
+	return configured > 0 ? double(configured) : 32.0;
+}
+
 // A mounted voxel prewarm preference is not a requirement to block gameplay.
 // Budget denial hands the intact admission queue to runtime when actor sprites
 // are enabled. Explicit strict-prewarm diagnostics retain their closure gate.

@@ -44,6 +44,7 @@
 #include "hw_voxels.h"
 #include "mapinfo.h"
 #include "models/modeldata.h"
+#include "../common/platform/loading_window.h"
 #include "gamefuncs.h"
 #include "texinfo.h"
 #include "../common/rendering/nri/scene/nri_scene_bridge.h"
@@ -144,6 +145,7 @@ void precacheMarkedTiles()
 	decltype(cachemap)::Pair* pair;
 	while (it.NextPair(pair))
 	{
+		LoadingWindow::Service();
 		int texid = pair->Key & 0x7fffffff;
 		int palnum = pair->Key >> 32;
 		doprecache(FSetTextureID(texid), palnum);
