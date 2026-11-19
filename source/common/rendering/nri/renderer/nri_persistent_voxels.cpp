@@ -5341,6 +5341,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			}
 			if (!loadingPhase && actorPolicy.actorPriority && entry->lastReason &&
 				(std::strcmp(entry->lastReason, "scheduler-compute-lane") == 0 ||
+				 std::strcmp(entry->lastReason, "scheduler-compute-preflight") == 0 ||
 				 std::strcmp(entry->lastReason, "scheduler-capacity") == 0 ||
 				 std::strcmp(entry->lastReason, "runtime-compute-capacity") == 0))
 			{
@@ -6597,6 +6598,19 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			const uint32_t directIndexCapacity = variant.primitiveCount * 3u;
 			const uint32_t directPrimitiveCapacity = variant.primitiveCount;
 			const auto oldRange = meshResource.geometryRange;
+			// No commands or provider requests own this fresh reservation. A blocked
+			// compute submission cannot use the range, scratch, or replacement arena.
+			if (newPreflightToken && entry.schedulerTokenId == newPreflightToken && !oldRange.transaction &&
+				!admissionScheduler.CanSubmitCompute(newPreflightToken) &&
+				admissionScheduler.WithdrawUnsubmittedPreflight(newPreflightToken, entry.pairKey))
+			{
+				entry.schedulerTokenId = 0;
+				entry.state = PersistentVoxelAdmissionState::Pending;
+				entry.lastReason = "scheduler-compute-preflight";
+				outInProgress = true;
+				if (outStats) ++outStats->directPending;
+				return true;
+			}
 			NRIPersistentVoxelGeometryRangeHandle previousRange;
 			if (!AllocateGeometryRange(meshResource, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");

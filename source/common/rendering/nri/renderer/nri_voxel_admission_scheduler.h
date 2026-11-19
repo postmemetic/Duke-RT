@@ -214,6 +214,7 @@ public:
 	NRIVoxelAdmissionResult Admit(const NRIVoxelAdmissionRequest& request);
 	bool MarkDependenciesReady(uint64_t tokenId);
 	bool AcquireNextCompute(uint32_t computeSlot, uint64_t& tokenId);
+	bool CanSubmitCompute(uint64_t tokenId) const;
 	bool SubmitCompute(uint64_t tokenId);
 	bool MarkComputeReady(uint64_t tokenId);
 	bool QueueBlas(uint64_t tokenId);
@@ -282,6 +283,7 @@ private:
 	const Token* FindToken(uint64_t tokenId) const;
 	Token* SelectQueuedToken(std::deque<uint64_t>& queue, bool compute);
 	bool CanAcquire(const Token& token, bool compute) const;
+	uint32_t AvailableComputeSlot(const Token* token) const;
 	bool HasQueuedExclusiveToken() const;
 	void CountStageTransition(NRIVoxelAdmissionStage from, NRIVoxelAdmissionStage to);
 

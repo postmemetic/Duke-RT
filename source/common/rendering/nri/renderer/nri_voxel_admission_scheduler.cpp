@@ -442,6 +442,21 @@ bool NRIVoxelAdmissionScheduler::AcquireNextCompute(uint32_t computeSlot, uint64
 	return true;
 }
 
+uint32_t NRIVoxelAdmissionScheduler::AvailableComputeSlot(const Token* token) const
+{
+	if (!token || (token->stage != NRIVoxelAdmissionStage::ComputeQueued &&
+		token->stage != NRIVoxelAdmissionStage::DependencyPending) || !CanAcquire(*token, true))
+		return NRI_VOXEL_ADMISSION_INVALID_SLOT;
+	for (uint32_t slot = 0; slot < m_limits.maxComputeSlots; ++slot)
+		if (m_computeSlots.find(slot) == m_computeSlots.end()) return slot;
+	return NRI_VOXEL_ADMISSION_INVALID_SLOT;
+}
+
+bool NRIVoxelAdmissionScheduler::CanSubmitCompute(uint64_t tokenId) const
+{
+	return AvailableComputeSlot(FindToken(tokenId)) != NRI_VOXEL_ADMISSION_INVALID_SLOT;
+}
+
 bool NRIVoxelAdmissionScheduler::SubmitCompute(uint64_t tokenId)
 {
 	Token* token = FindToken(tokenId);
@@ -453,16 +468,8 @@ bool NRIVoxelAdmissionScheduler::SubmitCompute(uint64_t tokenId)
 	{
 		return false;
 	}
-	if (token->stage != NRIVoxelAdmissionStage::ComputeQueued || !CanAcquire(*token, true))
-	{
-		return false;
-	}
-	uint32_t slot = 0;
-	while (slot < m_limits.maxComputeSlots && m_computeSlots.find(slot) != m_computeSlots.end())
-	{
-		slot++;
-	}
-	if (slot >= m_limits.maxComputeSlots || !Transition(*token, NRIVoxelAdmissionStage::ComputeQueued, NRIVoxelAdmissionStage::ComputeSubmitted))
+	const uint32_t slot = AvailableComputeSlot(token);
+	if (slot == NRI_VOXEL_ADMISSION_INVALID_SLOT || !Transition(*token, NRIVoxelAdmissionStage::ComputeQueued, NRIVoxelAdmissionStage::ComputeSubmitted))
 	{
 		return false;
 	}
