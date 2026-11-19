@@ -28,7 +28,7 @@ enum class Mode { Candidate, Voxel, Sprite };
 struct Source
 {
 	Mode mode = Mode::Candidate;
-	uint64_t frame = 0, signature = 0;
+	uint64_t frame = 0, signature = 0, successorSignature = 0;
 	bool root = false;
 	int failedTexture = -1;
 	std::unique_ptr<tspritetype> sprite;
@@ -128,13 +128,14 @@ void CaptureEnemyVoxelSource(HWDrawInfo& view, const HWSprite& sprite, const Act
 	*source.sprite = *sprite.Sprite;
 	source.sprite->ownerActor = nullptr;
 	source.signature = state.spriteAnimation.enemyVoxelFamily->signature;
+	source.successorSignature = state.spriteAnimation.enemyVoxelFamily->successorSignature;
 }
 
 bool HasEnemyVoxelSource(const ActorPresentationState& state)
 {
 	const auto found = sources.find({state.owner.ownerWorldEpoch, uint64_t(state.owner.ownerLifetimeGeneration)});
 	return Certified(state) && found != sources.end() && found->second.mode != Mode::Sprite && found->second.sprite &&
-		found->second.signature == state.spriteAnimation.enemyVoxelFamily->signature;
+		state.spriteAnimation.enemyVoxelFamily->CoveredBy(found->second.signature, found->second.successorSignature);
 }
 
 void SetEnemyVoxelSourceMode(uint64_t world, uint64_t lifetime, bool voxel)
@@ -159,7 +160,7 @@ void RefreshEnemyVoxelSources(HWDrawInfo& view, uint64_t frame, EnemyVoxelSource
 		if (source.mode != Mode::Voxel || source.frame == frame || !source.sprite) continue;
 		const auto* state = LookupActorPresentationByOwnerKey({pair.first.first, int64_t(pair.first.second)});
 		if (!state || !state->authorityCurrent || !state->publicationEligible || !Certified(*state) ||
-			state->spriteAnimation.enemyVoxelFamily->signature != source.signature ||
+			!state->spriteAnimation.enemyVoxelFamily->CoveredBy(source.signature, source.successorSignature) ||
 			state->physicalSectorIndex < 0 || unsigned(state->physicalSectorIndex) >= sector.Size())
 		{ ++rejected; continue; }
 		tspritetype sprite = *source.sprite;

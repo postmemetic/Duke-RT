@@ -66,7 +66,8 @@ const NRIEnemyRepresentationCommitment* NRIEnemyRepresentationPolicy::Find(NRIEn
 
 const NRIEnemyRepresentationCommitment& NRIEnemyRepresentationPolicy::Commit(NRIEnemyRepresentationOwner owner,
     uint64_t identity, uint32_t family, uint64_t signature, uint32_t frame, bool voxel,
-    const char* reason, std::vector<uint64_t> meshes, std::vector<uint64_t> materials, bool awaitingSprite, bool supported)
+    const char* reason, std::vector<uint64_t> meshes, std::vector<uint64_t> materials, bool awaitingSprite, bool supported,
+    uint64_t successorSignature)
 {
     if (counters.world != owner.world) { Reset(); counters.world = owner.world; }
     auto result = owners.try_emplace(owner);
@@ -74,6 +75,7 @@ const NRIEnemyRepresentationCommitment& NRIEnemyRepresentationPolicy::Commit(NRI
     auto& commitment = result.first->second;
     commitment.mode = voxel ? NRIEnemyRepresentationMode::Voxel : NRIEnemyRepresentationMode::Sprite;
     commitment.identity = identity; commitment.family = family; commitment.familySignature = signature;
+    commitment.successorSignature = successorSignature;
     commitment.sinceFrame = frame; commitment.reason = reason;
     commitment.awaitingSprite = !voxel && awaitingSprite;
     commitment.emergency = commitment.awaitingSprite;

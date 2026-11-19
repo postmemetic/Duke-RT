@@ -145,12 +145,12 @@ const FamilySpec Families[] = {
     {10, "GreenSlime", 2370, nullptr, 0, 8},
     {11, "Battlelord", 2630, BattlelordActions, sizeof(BattlelordActions) / sizeof(ActionShape)},
 };
-struct ClassFamily { const char* name; uint32_t family; };
+struct ClassFamily { const char* name; uint32_t family; int startupTile = 0; };
 const ClassFamily Classes[] = {
     {"DukeShark", 1},
     {"DukeLizTrooper", 2},
-    {"DukeLizTrooperToilet", 2},
-    {"DukeLizTrooperSitting", 2},
+    {"DukeLizTrooperToilet", 2, 1741},
+    {"DukeLizTrooperSitting", 2, 1742},
     {"DukeLizTrooperShoot", 2},
     {"DukeLizTrooperJetpack", 2},
     {"DukeLizTrooperDucking", 2},
@@ -183,7 +183,7 @@ bool Matches(const ActorAction& action, const ActionShape& shape)
         action.increment == shape.increment;
 }
 
-std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec, const PClassActor& cls)
+std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec, const PClassActor& cls, int startupTile)
 {
     auto family = std::make_shared<ActorEnemyVoxelFamily>();
     family->id = spec.id; family->name = spec.name;
@@ -229,15 +229,34 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
             poses.try_emplace(texture, shape.name);
         }
     }
+    int startupTexture = -1;
+    if (startupTile)
+    {
+        // The stock CON actors start with no action on their own image, then
+        // cactor LIZTROOP. Their successor uses only the ordinary action set.
+        const auto texture = tileGetTextureID(startupTile);
+        const auto* defaults = GetDefaultByType(&cls);
+        const auto* art = TexMan.GetGameTexture(texture);
+        family->reason = "startup-pose-mismatch";
+        if (!texture.isValid() || !defaults || defaults->spr.spritetexture() != texture ||
+            cls.ActorInfo()->DefaultAction != NAME_None) return family;
+        if (!art || !art->isValid()) { family->reason = "missing-original-art"; return family; }
+        startupTexture = texture.GetIndex();
+        poses.try_emplace(startupTexture, "class-start-pose");
+    }
     if (poses.empty() || poses.size() > 64) return family;
     uint64_t hash = UINT64_C(1469598103934665603) ^ spec.id;
+    uint64_t successorHash = hash;
     for (const auto& [texture, source] : poses)
     {
         family->textureIds.push_back(texture);
         family->poseSources.push_back(source);
         hash = (hash ^ uint32_t(texture)) * UINT64_C(1099511628211);
+        if (startupTile && texture != startupTexture)
+            successorHash = (successorHash ^ uint32_t(texture)) * UINT64_C(1099511628211);
     }
     family->signature = hash;
+    family->successorSignature = startupTile ? successorHash : 0;
     family->complete = true;
     family->reason = spec.spriteSetSize ? "stock-sprite-set" : "stock-action-set";
     return family;
@@ -280,15 +299,15 @@ void RecordEnemyVoxelFamilyConSource(const char* name, const char* bytes, unsign
 
 namespace
 {
-const FamilySpec* FindStockFamily(const PClassActor* cls)
+const ClassFamily* FindStockFamily(const PClassActor* cls)
 {
     if (!cls) return nullptr;
     for (const auto& entry : Classes)
-        if (cls == PClass::FindClass(entry.name)) return &Families[entry.family - 1];
+        if (cls == PClass::FindClass(entry.name)) return &entry;
     return nullptr; // Unknown subclasses/scripts never inherit a certificate.
 }
 
-std::shared_ptr<const ActorEnemyVoxelFamily> ResolveStockFamily(const PClassActor* cls, const FamilySpec& spec)
+std::shared_ptr<const ActorEnemyVoxelFamily> ResolveStockFamily(const PClassActor* cls, const ClassFamily& entry)
 {
     const unsigned animate = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "animate");
     const unsigned runState = GetVirtualIndex(RUNTIME_CLASS(DDukeActor), "RunState");
@@ -299,12 +318,13 @@ std::shared_ptr<const ActorEnemyVoxelFamily> ResolveStockFamily(const PClassActo
     // after a script reload/reallocation, rather than retaining stale pointers.
     static const ActorAction* actionBase = nullptr;
     static unsigned actionCount = 0;
-    static std::unordered_map<uint32_t, std::shared_ptr<const ActorEnemyVoxelFamily>> cached;
+    static std::unordered_map<const PClassActor*, std::shared_ptr<const ActorEnemyVoxelFamily>> cached;
     const auto* currentBase = actions.Size() ? &actions[0] : nullptr;
     if (actionBase != currentBase || actionCount != actions.Size())
     { cached.clear(); actionBase = currentBase; actionCount = actions.Size(); }
-    auto found = cached.find(spec.id);
-    if (found == cached.end()) found = cached.emplace(spec.id, BuildFamily(spec, *cls)).first;
+    auto found = cached.find(cls);
+    if (found == cached.end())
+        found = cached.emplace(cls, BuildFamily(Families[entry.family - 1], *cls, entry.startupTile)).first;
     return found->second;
 }
 }
@@ -321,14 +341,15 @@ void CaptureEnemyVoxelFamily(const DDukeActor& actor, ActorSpriteAnimationState&
         return;
     }
     const auto* cls = static_cast<PClassActor*>(actor.GetClass());
-    const FamilySpec* spec = FindStockFamily(cls);
-    if (!spec) return;
-    animation.enemyVoxelFamily = ResolveStockFamily(cls, *spec);
+    const auto* entry = FindStockFamily(cls);
+    if (!entry) return;
+    animation.enemyVoxelFamily = ResolveStockFamily(cls, *entry);
     if (actor.curAction && actor.curAction->name != NAME_None)
     {
         bool recognized = false;
-        for (size_t i = 0; i < spec->count; ++i)
-            if (std::strcmp(actor.curAction->name.GetChars(), spec->actions[i].name) == 0 && Matches(*actor.curAction, spec->actions[i]))
+        const auto& spec = Families[entry->family - 1];
+        for (size_t i = 0; i < spec.count; ++i)
+            if (std::strcmp(actor.curAction->name.GetChars(), spec.actions[i].name) == 0 && Matches(*actor.curAction, spec.actions[i]))
             { recognized = true; break; }
         if (!recognized) animation.enemyVoxelFamily.reset();
     }

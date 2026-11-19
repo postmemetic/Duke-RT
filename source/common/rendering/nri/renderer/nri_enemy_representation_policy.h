@@ -20,7 +20,7 @@ struct NRIEnemyRepresentationOwner
 struct NRIEnemyRepresentationCommitment
 {
     NRIEnemyRepresentationMode mode = NRIEnemyRepresentationMode::Uncommitted;
-    uint64_t familySignature = 0, identity = 0;
+    uint64_t familySignature = 0, successorSignature = 0, identity = 0;
     uint32_t family = 0, sinceFrame = 0;
     bool emergency = false;
     bool awaitingSprite = false;
@@ -46,7 +46,8 @@ public:
     const NRIEnemyRepresentationCommitment* Find(NRIEnemyRepresentationOwner owner) const;
     const NRIEnemyRepresentationCommitment& Commit(NRIEnemyRepresentationOwner owner,
         uint64_t identity, uint32_t family, uint64_t signature, uint32_t frame,
-        bool voxel, const char* reason, std::vector<uint64_t> meshes = {}, std::vector<uint64_t> materials = {}, bool awaitingSprite = false, bool supported = false);
+        bool voxel, const char* reason, std::vector<uint64_t> meshes = {}, std::vector<uint64_t> materials = {},
+        bool awaitingSprite = false, bool supported = false, uint64_t successorSignature = 0);
     bool Downgrade(NRIEnemyRepresentationOwner owner, const char* reason);
     bool ResolveSpriteContinuity(NRIEnemyRepresentationOwner owner);
     const std::unordered_map<uint64_t, uint32_t>& MeshPins() const { return meshPins; }

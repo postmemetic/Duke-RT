@@ -202,7 +202,7 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
         if (committed->mode == NRIEnemyRepresentationMode::Voxel && authority)
         {
             const auto& family = authority->spriteAnimation.enemyVoxelFamily;
-            const char* failure = !family || family->signature != committed->familySignature ? "family-authority-changed" :
+            const char* failure = !family || !family->CoveredBy(committed->familySignature, committed->successorSignature) ? "family-authority-changed" :
                 !InspectEnemyFamily(*authority, frame, settings).complete ? "committed-geometry-lost" :
                 !exactReady ? "committed-current-binding-unavailable" :
                 !NRIEnemyFamilyContainsCurrentMesh(committed->meshes, currentMesh) ? "committed-current-pose-outside-family" : nullptr;
@@ -249,9 +249,10 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
             { meshes.push_back(actor.meshResourceKey); materials.push_back(actor.materialKeyHash); }
         }
     }
+    const auto& certificate = authority->spriteAnimation.enemyVoxelFamily;
     const auto& choice = enemyPolicy.Commit(owner, candidate.identityKey, family.family, family.signature, frame,
         voxel, reason, std::move(meshes), std::move(materials), continuityFailure,
-        authority->spriteAnimation.enemyVoxelFamily && authority->spriteAnimation.enemyVoxelFamily->complete);
+        certificate && certificate->complete, certificate ? certificate->successorSignature : 0);
     enemyFamilyStaging.ReleaseOwner(owner);
     nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, voxel);
     TraceChoice(frame, candidate, choice);
@@ -259,11 +260,13 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
     {
         const auto texture = enemyUnavailableTextureKeys.find(candidate.identityKey);
         const uint64_t missingKey = texture == enemyUnavailableTextureKeys.end() ? 0 : texture->second;
-        char fields[600];
+        char fields[1024];
         std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"lifetime\":%llu,\"family\":%u,"
+            "\"actor\":%d,\"actor_picnum\":%d,\"actor_texture\":%d,\"descriptor_texture\":%d,"
             "\"selection\":\"%s\",\"reason\":\"%s\",\"ready_poses\":%u,\"poses\":%u,\"current_mesh\":%llu,"
             "\"missing_mesh\":%llu,\"missing_pose_texture\":%d,\"missing_tile\":%d,\"action\":\"%s\",\"missing_upload_key\":%llu,\"preparation_headroom\":%llu",
-            frame, (unsigned long long)owner.world, (unsigned long long)owner.lifetime, family.family, voxel ? "voxel" : "sprite",
+            frame, (unsigned long long)owner.world, (unsigned long long)owner.lifetime, family.family,
+            authority->actorIndex, authority->picnum, authority->textureId, candidate.descriptorTexture, voxel ? "voxel" : "sprite",
             reason, family.ready, family.poses, (unsigned long long)currentMesh, (unsigned long long)family.firstUnavailableMesh,
             family.firstUnavailableTexture, family.firstUnavailableTile, family.firstUnavailableAction, (unsigned long long)missingKey, (unsigned long long)enemyPreparationHeadroom);
         PerfAuditWriteEvent("enemy_first_visible", PerfAuditCurrentToken(), fields);

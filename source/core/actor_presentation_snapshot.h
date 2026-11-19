@@ -14,6 +14,9 @@ struct ActorEnemyVoxelFamily
 {
 	uint32_t id = 0;
 	uint64_t signature = 0;
+	// A stock startup class may change into a certified, narrower family.
+	// Only that direction preserves the coverage proved at first sight.
+	uint64_t successorSignature = 0;
 	const char* name = "unsupported";
 	const char* reason = "unsupported-family";
 	bool complete = false;
@@ -21,6 +24,11 @@ struct ActorEnemyVoxelFamily
 	// Same order as the unique poses. The first stock action using a pose
 	// identifies its source in family validation diagnostics.
 	std::vector<const char*> poseSources;
+
+	bool CoveredBy(uint64_t initial, uint64_t successor) const
+	{
+		return complete && signature && (signature == initial || signature == successor);
+	}
 };
 
 struct ActorPresentationOwnerKey
