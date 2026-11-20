@@ -2744,6 +2744,10 @@ private:
 	void ReleaseCompletedPersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool waited = false);
 	void RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryRangeHandle range);
 	NRIPersistentVoxelBudgetSnapshot GetPersistentVoxelBudgetSnapshot(bool forceRefresh = false);
+	bool CanReuseVoxelPreflightDenial(const PersistentVoxelMeshVariantResource& mesh, const NRIBufferResource& scratch,
+		const std::array<uint32_t, 3>& rows, nri::AccelerationStructureBits flags, uint64_t reserve,
+		bool growsArena, bool reclaimEnabled, NRIVoxelPreflightDenials::Request& request);
+	bool VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Request& request, uint64_t blasBytes);
 	NRIPersistentVoxelAllocationResult PreparePersistentVoxelGeometryAllocation(
 		PersistentVoxelMeshVariantResource& mesh, NRIBufferResource* scratch,
 		uint32_t vertexCount, uint32_t indexCount, uint32_t primitiveCount, bool privateBuildInputs, const NRIVoxelGeometryAdmissionIntent& intent = {});

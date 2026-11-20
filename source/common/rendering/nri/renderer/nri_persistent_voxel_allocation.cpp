@@ -237,6 +237,19 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
     }
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
+    NRIVoxelPreflightDenials::Request denialRequest;
+    const bool reuseDenials = !overflow && !privateBuildInputs && intent.runtimePump && !intent.ownsWork &&
+        CanReuseVoxelPreflightDenial(mesh, scratch, requestedRows, flags, reserve, growsArena, reclaimEnabled, denialRequest);
+    if (reuseDenials)
+    {
+        arena.preflightDenials.Begin(mMapWorld.buildSerial, retryTick, arena.GetMaintenanceStats().pumpCalls);
+        const uint64_t blasBytes = arena.preflightDenials.Find(mesh.resourceKey, denialRequest);
+        if (blasBytes && VoxelPreflightStillDenied(denialRequest, blasBytes))
+        {
+            arena.preloadHandoff.ObserveBudgetDenial(mMapWorld.buildSerial);
+            return Result::DeferredBudget;
+        }
+    }
     uint64_t predictedBytes = 0, actualBytes = 0, oldArenaBytes = 0, newArenaBytes = 0;
     uint32_t candidatePercent = arena.allocationGrowthRetry.SelectPercent(
         uint32_t(std::clamp((int)nri_ptvoxelarenagrowthpercent, 100, 200)));
@@ -444,7 +457,12 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             return Result::DeferredCooldown;
         }
     }
-    if (!candidateFits) return report("defer-budget", Result::DeferredBudget);
+    if (!candidateFits)
+    {
+        if (reuseDenials && requirementsComplete)
+            arena.preflightDenials.Remember(mesh.resourceKey, denialRequest, asBytes);
+        return report("defer-budget", Result::DeferredBudget);
+    }
 
     // Check after exact requirements so existing allocation-free reuse and a
     // smaller replacement can proceed. Material pairs share the original

@@ -40,6 +40,7 @@ enum class NRIGpuTimingScope : uint8_t;
 struct ID3D12Device;
 struct ID3D12CommandQueue;
 struct IDXGISwapChain4;
+struct IDXGIAdapter3;
 #endif
 
 struct NRIBackendCapabilities
@@ -203,6 +204,7 @@ public:
 #endif
 	uint64_t GetAdapterLocalBudgetBytes() const { return mAdapterLocalBudgetBytes; }
 	NRIAdapterMemoryTelemetry GetAdapterMemoryTelemetry() const;
+	bool GetLocalMemoryUsage(uint64_t& usage, uint64_t& budget) const;
 	void CapturePerfAuditMemoryCensus() const;
 	uint64_t GetAdapterNonLocalBudgetBytes() const { return mAdapterNonLocalBudgetBytes; }
 	NRIBackendCapabilities BuildBackendCapabilities() const;
@@ -473,6 +475,7 @@ private:
 	std::vector<uint64_t> mSwapChainAbandonCounts;
 #ifdef _WIN32
 	ID3D12Device* mNativeD3D12Device = nullptr;
+	IDXGIAdapter3* mMemoryTelemetryAdapter = nullptr;
 	ID3D12CommandQueue* mNativeD3D12GraphicsQueue = nullptr;
 	IDXGISwapChain4* mNativeD3D12SwapChain = nullptr;
 #endif

@@ -16,6 +16,7 @@
 #include "nri_persistent_voxel_overflow_page.h"
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
+#include "nri_voxel_preflight_denials.h"
 #include "nri_persistent_voxel_optional_growth.h"
 #include "nri_persistent_voxel_loading_policy.h"
 #include "nri_voxel_compute_allocation_policy.h"
@@ -1443,6 +1444,7 @@ public:
 	NRIPersistentVoxelAllocationRetry allocationMeshRetry;
 	NRIVoxelArenaRetry allocationArenaRetry;
 	NRIPersistentVoxelAllocationBudgetCeiling allocationBudgetCeiling;
+	NRIVoxelPreflightDenials preflightDenials;
 	NRIPersistentVoxelPrewarmHandoff preloadHandoff;
 	uint64_t schedulerRetirementEpoch = 1;
 	std::vector<NRIPersistentVoxelSchedulerRetirement> quarantinedSchedulerReservations;

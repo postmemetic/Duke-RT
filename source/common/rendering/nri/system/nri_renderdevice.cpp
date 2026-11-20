@@ -2727,6 +2727,10 @@ NRIRenderDevice::~NRIRenderDevice()
 		mStreamerInstance = nullptr;
 	}
 
+#ifdef _WIN32
+	if (mMemoryTelemetryAdapter) mMemoryTelemetryAdapter->Release();
+	mMemoryTelemetryAdapter = nullptr;
+#endif
 	if (mDevice != nullptr && mDestroyDeviceFn != nullptr)
 	{
 		mDestroyDeviceFn(mDevice);
@@ -7517,6 +7521,8 @@ FTexture* NRIRenderDevice::WipeEndScreen()
 void NRIRenderDevice::RefreshNativeFrameGenerationHandles()
 {
 #ifdef _WIN32
+	if (mMemoryTelemetryAdapter) mMemoryTelemetryAdapter->Release();
+	mMemoryTelemetryAdapter = nullptr;
 	mNativeD3D12Device = nullptr;
 	mNativeD3D12GraphicsQueue = nullptr;
 
@@ -7528,6 +7534,12 @@ void NRIRenderDevice::RefreshNativeFrameGenerationHandles()
 	if (mDevice != nullptr && mCore.GetDeviceNativeObject != nullptr)
 	{
 		mNativeD3D12Device = static_cast<ID3D12Device*>(mCore.GetDeviceNativeObject(mDevice));
+		IDXGIFactory4* factory = nullptr;
+		if (mNativeD3D12Device && SUCCEEDED(CreateDxgiFactoryForTelemetry(&factory)) && factory)
+		{
+			factory->EnumAdapterByLuid(mNativeD3D12Device->GetAdapterLuid(), IID_PPV_ARGS(&mMemoryTelemetryAdapter));
+			factory->Release();
+		}
 	}
 
 	if (mGraphicsQueue != nullptr && mCore.GetQueueNativeObject != nullptr)
@@ -8445,12 +8457,41 @@ void NRIRenderDevice::Print2DTextureStatus() const
 		(unsigned long long)stats.totalResourceRecreates);
 }
 
+bool NRIRenderDevice::GetLocalMemoryUsage(uint64_t& usage, uint64_t& budget) const
+{
+#ifdef _WIN32
+	DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
+	if (mMemoryTelemetryAdapter && SUCCEEDED(mMemoryTelemetryAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)) && info.Budget)
+	{
+		usage = info.CurrentUsage;
+		budget = info.Budget;
+		return true;
+	}
+#endif
+	return false;
+}
+
 NRIAdapterMemoryTelemetry NRIRenderDevice::GetAdapterMemoryTelemetry() const
 {
 	NRIAdapterMemoryTelemetry telemetry = {};
 	telemetry.localBudgetBytes = mAdapterLocalBudgetBytes;
 	telemetry.nonLocalBudgetBytes = mAdapterNonLocalBudgetBytes;
 #ifdef _WIN32
+	if (mMemoryTelemetryAdapter)
+	{
+		DXGI_QUERY_VIDEO_MEMORY_INFO nonLocal = {};
+		uint64_t usage = 0, budget = 0;
+		if (GetLocalMemoryUsage(usage, budget) &&
+			SUCCEEDED(mMemoryTelemetryAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &nonLocal)))
+		{
+			telemetry.localBudgetBytes = budget;
+			telemetry.localUsageBytes = usage;
+			telemetry.nonLocalBudgetBytes = nonLocal.Budget;
+			telemetry.nonLocalUsageBytes = nonLocal.CurrentUsage;
+			telemetry.liveUsageAvailable = true;
+			return telemetry;
+		}
+	}
 	if (GetLiveAPI() == nri::GraphicsAPI::D3D12 && mNativeD3D12Device != nullptr)
 	{
 		IDXGIFactory4* factory = nullptr;
