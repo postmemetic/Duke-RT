@@ -21,26 +21,41 @@ uint64_t GetNRIVoxelAdmissionRetryClock()
     return GetGameUpdateSnapshot().presentationGeneration;
 }
 
-static bool OwnsAdmissionUpload(const PersistentVoxelAdmissionEntry& entry)
+static bool OwnsUploadBuffer(const NRIBufferResource& buffer)
 {
-    const auto& mesh = entry.uploadMeshResource;
-    const auto ownsBuffer = [](const NRIBufferResource& buffer)
-    { return buffer.buffer || buffer.shaderView || buffer.storageView || buffer.memorySize; };
+    return buffer.buffer || buffer.shaderView || buffer.storageView || buffer.memorySize;
+}
+
+static bool OwnsMeshStorage(const PersistentVoxelMeshVariantResource& mesh)
+{
     const auto ownsAs = [](const NRIAccelerationStructureResource& as)
     { return as.accelerationStructure || as.descriptor || as.memorySize || as.buildVertexBuffer || as.buildIndexBuffer; };
     const auto ownsRange = [](const NRIPersistentVoxelMaterialRangeHandle& range)
     { return range.offset || range.capacity || range.generation; };
+    return OwnsUploadBuffer(mesh.vertexBuffer) || OwnsUploadBuffer(mesh.indexBuffer) ||
+        ownsAs(mesh.accelerationStructure) || OwnsUploadBuffer(mesh.shadowProxy.vertexBuffer) ||
+        OwnsUploadBuffer(mesh.shadowProxy.indexBuffer) || ownsAs(mesh.shadowProxy.accelerationStructure) ||
+        mesh.computeProviderReservation.Total() || mesh.geometryRange.transaction ||
+        ownsRange(mesh.geometryRange.vertices) || ownsRange(mesh.geometryRange.indices) || ownsRange(mesh.geometryRange.primitives);
+}
+
+bool IsEmptyNRIVoxelMeshPlaceholder(const PersistentVoxelMeshVariantResource& mesh)
+{
+    // Actor-batch budget deferral can leave its key and retry tick in the cache
+    // after releasing its unpublished slice. A live resource keeps its owner.
+    return !mesh.vertexCount && !mesh.indexCount && !mesh.primitiveCount && !mesh.directComputePublished &&
+        !mesh.directComputeGeneration && !mesh.directComputeJobId && !OwnsMeshStorage(mesh);
+}
+
+static bool OwnsAdmissionUpload(const PersistentVoxelAdmissionEntry& entry)
+{
     return entry.directComputeRequested ||
         entry.directComputeGeneration || entry.directComputeJobId || entry.computeGeometryJobId ||
         entry.directBlasFenceValue || entry.directBlasRecordedFrame != UINT32_MAX ||
         entry.uploadPrepared || entry.uploadSubmittedBeforeBlas ||
         entry.vertexBytesUploaded || entry.vertexArenaBytesUploaded || entry.indexBytesUploaded ||
         entry.indexArenaBytesUploaded || entry.primitiveBytesUploaded ||
-        ownsBuffer(entry.directBlasScratchBuffer) || ownsBuffer(mesh.vertexBuffer) || ownsBuffer(mesh.indexBuffer) ||
-        ownsAs(mesh.accelerationStructure) || ownsBuffer(mesh.shadowProxy.vertexBuffer) ||
-        ownsBuffer(mesh.shadowProxy.indexBuffer) || ownsAs(mesh.shadowProxy.accelerationStructure) ||
-        mesh.computeProviderReservation.Total() || mesh.geometryRange.transaction ||
-        ownsRange(mesh.geometryRange.vertices) || ownsRange(mesh.geometryRange.indices) || ownsRange(mesh.geometryRange.primitives);
+        OwnsUploadBuffer(entry.directBlasScratchBuffer) || OwnsMeshStorage(entry.uploadMeshResource);
 }
 
 bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry)

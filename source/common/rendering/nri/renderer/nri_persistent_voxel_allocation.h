@@ -6,7 +6,9 @@
 // Retry policy only; never use this clock as a resource-completion fence.
 uint64_t GetNRIVoxelAdmissionRetryClock();
 struct PersistentVoxelAdmissionEntry;
+struct PersistentVoxelMeshVariantResource;
 class NRIVoxelAdmissionScheduler;
+bool IsEmptyNRIVoxelMeshPlaceholder(const PersistentVoxelMeshVariantResource& mesh);
 bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry);
 bool CanDiscardUnsubmittedVoxelAdmission(const PersistentVoxelAdmissionEntry& entry, const NRIVoxelAdmissionScheduler& scheduler);
 

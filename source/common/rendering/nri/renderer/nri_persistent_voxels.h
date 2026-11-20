@@ -1089,6 +1089,8 @@ public:
     uint32_t enemyFamilyRecoveryScan = UINT32_MAX;
     bool IsEnemyFamilyRecoveryEnabled() const;
     bool AllowsEnemyFamilyRecoveryPair(uint64_t pair) const;
+    bool CanWakeParkedEnemyFamilyPose(const PersistentVoxelAdmissionEntry& entry) const;
+    bool IsEnemyFamilyMeshReady(const PersistentVoxelMeshVariantResource& mesh, uint32_t frame) const;
     void UpdateEnemyFamilyRecovery(uint32_t frame, const NRIPersistentVoxelSettings& settings,
         uint64_t usage, uint64_t budget, const NRIPersistentVoxelResetServices& services);
     void ReconcileEnemyFamilyStaging();

@@ -98,6 +98,15 @@ void NRIPersistentVoxelResidency::FilterEnemyPublicationEntries(
     entries = &enemyPublicationEntries;
 }
 
+bool NRIPersistentVoxelResidency::IsEnemyFamilyMeshReady(const PersistentVoxelMeshVariantResource& mesh, uint32_t frame) const
+{
+    return mesh.meshBakeSpace == nri_scene::VoxelMeshBakeSpace::LocalSpace &&
+        mesh.vertexCount && mesh.indexCount && mesh.primitiveCount && OwnsGeometryRange(mesh.geometryRange) &&
+        mesh.accelerationStructure.accelerationStructure && mesh.accelerationStructure.buildVertexBuffer &&
+        vertexBuffer.shaderView && indexBuffer.shaderView && primitiveBuffer.shaderView &&
+        (mesh.tlasPublished || mesh.tlasReadyFrame <= frame);
+}
+
 const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
     const ActorPresentationState& authority, uint32_t frame, const NRIPersistentVoxelSettings& settings)
 {
@@ -154,12 +163,7 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
         };
         if (found == meshVariantResources.end()) { rememberUnavailable(); continue; }
         const auto& mesh = found->second;
-        const bool ready = mesh.meshBakeSpace == nri_scene::VoxelMeshBakeSpace::LocalSpace &&
-            mesh.vertexCount && mesh.indexCount && mesh.primitiveCount && OwnsGeometryRange(mesh.geometryRange) &&
-            mesh.accelerationStructure.accelerationStructure && mesh.accelerationStructure.buildVertexBuffer &&
-            vertexBuffer.shaderView && indexBuffer.shaderView && primitiveBuffer.shaderView &&
-            (mesh.tlasPublished || mesh.tlasReadyFrame <= frame);
-        if (ready) ++result.ready; else rememberUnavailable();
+        if (IsEnemyFamilyMeshReady(mesh, frame)) ++result.ready; else rememberUnavailable();
         if (!unique.insert(key).second) continue;
         result.meshes.push_back(key);
         result.logicalGeometryBytes += uint64_t(mesh.vertexCapacity) * sizeof(nri_scene::SceneVertex) +

@@ -5206,7 +5206,8 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			continue;
 		}
 		const bool requiredAdmission = IsRequiredAdmission(*entry) || (!loadingPhase &&
-			(enemyFamilyStaging.NeedsSpawnPose(entry->pairKey) || NRIVoxelFamilyRecoveryOnly(entry->admissionOrigins)));
+			(enemyFamilyStaging.NeedsSpawnPose(entry->pairKey) || NRIVoxelFamilyRecoveryOnly(entry->admissionOrigins) ||
+			 (runtimePump && CanWakeParkedEnemyFamilyPose(*entry))));
 		const bool uploadState = isUploadState(entry->state);
 		const bool parkUnstartedOptional = !loadingPhase || (loadingWarmupActive && !BlockOptionalVoxelPreloadAdmissions());
 		if (parkUnstartedOptional && IsUnstartedOptionalAdmission(*entry, requiredAdmission))
@@ -5835,6 +5836,9 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	// The admission pump may still own a previous actor request after its pose
 	// leaves view. The allocation owner checks the current mesh census.
 	const bool liveSpawnPose = runtimePump && enemyFamilyStaging.NeedsSpawnPose(entry.pairKey);
+	// Preserve the parked preload's provenance. Only this speculative start
+	// borrows the permit; a later actor request keeps its normal allocation path.
+	const bool wakeParkedFamilyPose = runtimePump && CanWakeParkedEnemyFamilyPose(entry);
 	uint64_t newPreflightToken = 0;
 	const auto allocationIntent = [&](const NRIPersistentVoxelGeometryRangeHandle& oldRange)
 	{
@@ -5852,6 +5856,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			preloadHandoff.yielded && preloadHandoff.mapEpoch == residencyLastBuildSerial;
 		NRIVoxelGeometryAdmissionIntent intent{entry.sourceBits, entry.priority, entry.admissionOrigins,
 			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff, entry.preloadInputHints};
+		if (wakeParkedFamilyPose) intent.origins = uint8_t(NRIVoxelAdmissionOrigin::FamilyRecovery);
 		if (NRIVoxelFamilyRecoveryOnly(intent.origins) && entry.schedulerTokenId && !newPreflightToken)
 		{
 			// Another material binding can depend on this same scheduler-owned geometry.
@@ -5860,7 +5865,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				for (const auto& binding : token.bindings)
 				{
 					const auto other = admissionQueue.find(binding.pairKey);
-					if (other != admissionQueue.end() && other->second.mapGeneration == entry.mapGeneration &&
+					if (other != admissionQueue.end() && other->first != entry.pairKey && other->second.mapGeneration == entry.mapGeneration &&
 						other->second.state != PersistentVoxelAdmissionState::Ready &&
 						other->second.state != PersistentVoxelAdmissionState::Failed)
 						intent.origins |= other->second.admissionOrigins;
@@ -6940,7 +6945,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			}
 		}
 
-		if (NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins))
+		if (NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins) || wakeParkedFamilyPose)
 			return rollbackAdmission("family-recovery-direct-unavailable", "direct");
 		if (directOnlyAdmission && variant.surface == nullptr)
 		{

@@ -1,5 +1,6 @@
 #include "nri_persistent_voxels.h"
 #include "nri_cvars.h"
+#include "nri_voxel_compute_meshing.h"
 #include "nri_voxel_compute_preload.h"
 #include "../scene/nri_voxel_material_slots.h"
 #include "actor_presentation_snapshot.h"
@@ -73,7 +74,7 @@ bool BeginRecovery(NRIPersistentVoxelResidency& voxels, const ActorPresentationS
 }
 
 const char* PriceRecovery(NRIPersistentVoxelResidency& voxels, NRIEnemyFamilyRecovery& group, uint32_t owners,
-    uint64_t usage, uint64_t budget, RecoveryPrice& price)
+    uint32_t frame, uint64_t usage, uint64_t budget, RecoveryPrice& price)
 {
     const auto& stage = voxels.enemyFamilyStaging;
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024 +
@@ -92,11 +93,10 @@ const char* PriceRecovery(NRIPersistentVoxelResidency& voxels, NRIEnemyFamilyRec
             price.extraCharge = Add(price.extraCharge, Add(native.geometry, native.blas));
         }
         const auto found = voxels.meshVariantResources.find(pose.mesh);
-        if (found != voxels.meshVariantResources.end())
+        if (found != voxels.meshVariantResources.end() && !IsEmptyNRIVoxelMeshPlaceholder(found->second))
         {
             const auto& mesh = found->second;
-            if (mesh.meshBakeSpace != nri_scene::VoxelMeshBakeSpace::LocalSpace || !mesh.directComputePublished ||
-                !voxels.OwnsGeometryRange(mesh.geometryRange) || !mesh.accelerationStructure.accelerationStructure)
+            if (!mesh.directComputePublished || !voxels.IsEnemyFamilyMeshReady(mesh, frame))
                 return "unsupported-resident";
             group.pins.insert(pose.mesh);
             continue;
@@ -148,6 +148,15 @@ bool NRIPersistentVoxelResidency::AllowsEnemyFamilyRecoveryPair(uint64_t pair) c
         enemyFamilyRecovery.build == residencyLastBuildSerial && enemyFamilyStaging.NeedsFamily(enemyFamilyRecovery.signature);
 }
 
+bool NRIPersistentVoxelResidency::CanWakeParkedEnemyFamilyPose(const PersistentVoxelAdmissionEntry& entry) const
+{
+    return AllowsEnemyFamilyRecoveryPair(entry.pairKey) && entry.mapGeneration == residencyMapGeneration &&
+        !NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins) && entry.variant.directOnlyAdmission &&
+        entry.variant.model && entry.variant.primitiveCount && !entry.directComputeFailed && ShouldDirectPublishNRIVoxelComputeMeshing() &&
+        !enemyFamilyStaging.NeedsSpawnPose(entry.pairKey) && IsUnstartedOptionalAdmission(entry, IsRequiredAdmission(entry)) &&
+        CanDiscardUnsubmittedVoxelAdmission(entry, admissionScheduler);
+}
+
 void NRIPersistentVoxelResidency::UpdateEnemyFamilyRecovery(uint32_t frame, const NRIPersistentVoxelSettings& settings,
     uint64_t usage, uint64_t budget, const NRIPersistentVoxelResetServices& services)
 {
@@ -192,7 +201,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyRecovery(uint32_t frame, cons
     budget = std::min(budget, liveBudget);
     const auto previousPair = group.permittedPair;
     RecoveryPrice price;
-    const char* stop = PriceRecovery(*this, group, enemyFamilyStaging.OwnerCount(group.signature), usage, budget, price);
+    const char* stop = PriceRecovery(*this, group, enemyFamilyStaging.OwnerCount(group.signature), frame, usage, budget, price);
     if (!stop && group.pins.size() != group.ready)
     {
         if (!opening && group.pins.size() < group.ready) stop = "lost-progress";
