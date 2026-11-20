@@ -1,12 +1,15 @@
 #pragma once
 
 #include "nri_voxel_family_sweep.h"
+#include <algorithm>
 #include <cstddef>
 
 struct NRIVoxelPageSweepChoice
 {
     size_t page = 0, donor = 0;
     uint64_t remaining = 0;
+    uint64_t sameTierPhysical = 0, cheaperPhysical = 0, largestCheaper = 0;
+    size_t cheaperCount = 0;
 };
 
 // Input is the actual age/warm-ordered, unpinned mesh list, after all family protections.
@@ -32,10 +35,15 @@ inline NRIVoxelPageSweepChoice NRIPriceColdPageSweep(const std::vector<NRIVoxelS
         for (size_t j = i + 1; j < ordered.size() && !ordered[j].warmRank; ++j)
         {
             const auto& donor = ordered[j];
-            if (donor.physicalBytes < remaining || donor.physicalBytes >= ordered[choice.donor].physicalBytes ||
-                donor.bytes > mesh.bytes || NRIVoxelInactiveAgeEligible(frame, donor.since, grace) != aged)
+            if (!donor.physicalBytes || NRIVoxelInactiveAgeEligible(frame, donor.since, grace) != aged)
                 continue;
-            choice.donor = j;
+            choice.sameTierPhysical += std::min(donor.physicalBytes, UINT64_MAX - choice.sameTierPhysical);
+            if (donor.physicalBytes >= mesh.physicalBytes || donor.bytes > mesh.bytes) continue;
+            choice.cheaperPhysical += std::min(donor.physicalBytes, UINT64_MAX - choice.cheaperPhysical);
+            choice.largestCheaper = std::max(choice.largestCheaper, donor.physicalBytes);
+            ++choice.cheaperCount;
+            if (donor.physicalBytes >= remaining && donor.physicalBytes < ordered[choice.donor].physicalBytes)
+                choice.donor = j;
         }
         break;
     }
