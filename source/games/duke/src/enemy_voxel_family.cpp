@@ -40,6 +40,11 @@ struct DirectionalStart
 DirectionalStart directionalStarts[] = {
     {2711, "DukeBoss2Stayput", "voxels/monsters/CYCLOID/2710_CYCLOID.kvx", 0x26e902b9u, 0x0ef47cd7u},
     {2761, "DukeBoss3Stayput", "voxels/monsters/OVERLORD/2760_OVERLORD.kvx", 0x5776bfb1u, 0x778bc212u},
+    {2631, "DukeBoss1Stayput", "voxels/monsters/BATTLELORD/2630_BATTLELORD.kvx", 0xca790092u, 0xc1d01eb4u},
+    {1921, "DukeCommanderStayput", "voxels/monsters/COMMANDER/1920_COMM.kvx", 0xe47375dcu, 0x21cb4655u},
+    {2121, "DukeLizManStayput", "voxels/monsters/ENFORCER/2120_ENFORCER.kvx", 0xc7b799aau, 0x5b7ba499u},
+    {2001, "DukePigCopStayput", "voxels/monsters/PIGCOP/2000_PIGCOP.kvx", 0xabf25e32u, 0xb4afddd7u},
+    {1821, "DukeOctabrainStayput", "voxels/monsters/OCTA/1820_OCTA.kvx", 0xbcd65873u, 0xe3e8d9d1u},
 };
 const DirectionalStart* CanonicalStart(int marker)
 {
@@ -223,20 +228,20 @@ const ClassFamily Classes[] = {
     {"DukeLizManSpitting", 3},
     {"DukeLizManFeeding", 3},
     {"DukeLizManJump", 3},
-    {"DukeLizManStayput", 3},
+    {"DukeLizManStayput", 3, 2121},
     {"DukeDrone", 4},
     {"DukeOctabrain", 5},
-    {"DukeOctabrainStayput", 5},
+    {"DukeOctabrainStayput", 5, 1821},
     {"DukePigCop", 6},
-    {"DukePigCopStayput", 6},
+    {"DukePigCopStayput", 6, 2001},
     {"DukePigCopDive", 6},
     {"DukeCommander", 7},
-    {"DukeCommanderStayput", 7},
+    {"DukeCommanderStayput", 7, 1921},
     {"DukeRotateGun", 8},
     {"DukeEgg", 9},
     {"DukeGreenSlime", 10},
     {"DukeBoss1", 11},
-    {"DukeBoss1Stayput", 11},
+    {"DukeBoss1Stayput", 11, 2631},
     {"DukeBoss2", 12},
     {"DukeBoss2Stayput", 12, 2711},
     {"DukeBoss3", 13},
@@ -344,7 +349,10 @@ void ConfigureEnemyVoxelDirectionalStarts(const TilesetBuildInfo& info, bool wor
     {
         const auto& marker = info.tile[start.marker];
         const auto& front = info.tile[start.marker - 1];
-        start.useFront = worldTour && marker.extinfo.tiletovox < 0 && !marker.imported && !front.imported &&
+        // A DEF tile range can explicitly share one voxel slot across the
+        // front and marker angles. A separately bound slot is its own pose.
+        const bool sharesFront = marker.extinfo.tiletovox < 0 || marker.extinfo.tiletovox == front.extinfo.tiletovox;
+        start.useFront = worldTour && sharesFront && !marker.imported && !front.imported &&
             voxUsesFile(front.extinfo.tiletovox, start.voxelFile) &&
             uint32_t(tileGetCRC32(marker.tileimage)) == start.markerCrc &&
             uint32_t(tileGetCRC32(front.tileimage)) == start.frontCrc;
