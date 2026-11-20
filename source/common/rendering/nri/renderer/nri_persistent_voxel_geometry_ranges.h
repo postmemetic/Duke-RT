@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <unordered_map>
+#include <vector>
 
 // Generation-qualified ownership of all three shared geometry streams. Counts
 // need not have the direct compute path's 2:3:1 relationship.
@@ -18,10 +19,28 @@ struct NRIPersistentVoxelGeometryRangeHandle
     explicit operator bool() const { return transaction != 0 && bool(vertices) && bool(indices) && bool(primitives); }
 };
 
+struct NRIVoxelFamilyRangeRequest
+{
+    uint64_t mesh = 0;
+    uint32_t primitives = 0;
+    NRIPersistentVoxelGeometryRangeHandle reserved;
+};
+
+struct NRIVoxelFamilyRangeFit
+{
+    bool fits = false;
+    uint64_t blockedMesh = 0;
+    std::array<uint64_t, 3> requiredRows = {};
+};
+
 class NRIPersistentVoxelGeometryRanges
 {
 public:
     NRIPersistentVoxelGeometryRangeHandle Allocate(uint32_t vertices, uint32_t indices, uint32_t primitives);
+    // Preview all distinct missing direct-build meshes in admission order.
+    // Capacities are rows in the current buffers. Retiring ranges stay owned.
+    NRIVoxelFamilyRangeFit PreviewFamily(const std::vector<NRIVoxelFamilyRangeRequest>& requests,
+        const std::array<uint64_t, 3>& capacity) const;
     bool Owns(const NRIPersistentVoxelGeometryRangeHandle& handle) const;
     // Caller must establish GPU completion before releasing recorded/published
     // reservations. Until then the handle remains live in this allocator.
