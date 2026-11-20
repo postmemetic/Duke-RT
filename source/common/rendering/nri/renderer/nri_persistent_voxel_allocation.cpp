@@ -198,11 +198,6 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
         uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size);
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
-    if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs))
-    {
-        mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
-        return Result::DeferredIdleGrowth;
-    }
     const bool mayYield = intent.MayYield();
     const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
     if (mayYield && growsArena && arenaRecovery && reclaimEnabled && !arena.retentionQuarantined && mesh.resourceKey)
@@ -513,6 +508,13 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
     }
 
+    // Preserve ordinary denials, retry history, reclaim and the pump's
+    // allocation cadence. Only park work that would now allocate physically.
+    if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs))
+    {
+        mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
+        return Result::DeferredIdleGrowth;
+    }
     if (PerfAuditActive() && !overflow && intent.runtimePump && oldArenaBytes)
         arena.ReportGeometryReplacementConsumers(mesh.resourceKey, mFrameIndex, intent, oldArenaBytes, newArenaBytes);
     std::array<NRIBufferResource, 6> unpublished = {};
