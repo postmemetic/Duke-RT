@@ -4,6 +4,7 @@
 #include "nri_cvars.h"
 #include "nri_render_geometry_helpers.h"
 #include "nri_voxel_compute_preload.h"
+#include "nri_voxel_compute_allocation.h"
 #include "nri_voxel_compute_meshing.h"
 #include "../system/nri_gpu_timing.h"
 #include "../system/nri_renderdevice.h"
@@ -1115,6 +1116,15 @@ public:
         {
             const auto sample = static_cast<NRIRenderer*>(user)->GetPersistentVoxelBudgetSnapshot(true);
             usage = sample.usageBytes; budget = sample.budgetBytes;
+        };
+        services.forecastFamilyProvider = [](void* user, FVoxelModel* model, uint64_t& source, uint64_t& workspace)
+        {
+            NRIVoxelComputeProviderForecast forecast;
+            const auto result = ForecastNRIVoxelComputeProviderAllocations(
+                static_cast<NRIRenderer*>(user)->BuildResourceContext(), model, forecast);
+            source = forecast.reservation.rawSourceBytes;
+            workspace = forecast.bytes - source;
+            return result == NRIPersistentVoxelAllocationResult::Ready;
         };
 		services.retireMaterialRange = [](void* user, NRIPersistentVoxelMaterialRangeHandle range)
 		{ static_cast<NRIRenderer*>(user)->RetirePersistentVoxelMaterialRange(range); };

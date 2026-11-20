@@ -4804,6 +4804,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		RefreshActorDemand(frameIndex, settings, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::EnemyPolicy);
 		UpdateEnemyFamilyStaging(frameIndex, settings, totalTrackedBytes, adapterLocalBudget, resetServices);
+		UpdateEnemyFamilyRecovery(frameIndex, settings, totalTrackedBytes, adapterLocalBudget, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::Reclaim);
 		ProcessAdmissionReclaim(frameIndex, settings, resetServices);
 		diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
@@ -4986,6 +4987,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	candidates.reserve(admissionIndex.ActiveCount());
 	std::vector<uint64_t> drainedReadyKeys;
 	drainedReadyKeys.reserve(admissionIndex.ActiveCount());
+	std::vector<uint64_t> cancelledFamilyKeys;
 	// A gameplay material may share geometry with a required preload under a
 	// different pair key. Collect outstanding obligations in the existing scan.
 	const bool trackRequiredGrowth = !loadingPhase && ((bool)nri_ptvoxelparksupersededgrowth || PerfAuditActive());
@@ -4998,6 +5000,12 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			continue;
 		}
 		PersistentVoxelAdmissionEntry& entry = found->second;
+		if (NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins) && !AllowsEnemyFamilyRecoveryPair(key) &&
+			CanDiscardUnsubmittedVoxelAdmission(entry, admissionScheduler))
+		{
+			cancelledFamilyKeys.push_back(key);
+			continue;
+		}
 		const uint64_t meshResourceKey = BuildPersistentVoxelVariantMeshResourceKey(entry.variant);
 		const PersistentVoxelReadinessStatus readiness = GetSharedVariantReadiness(meshResourceKey, entry.variant.materialKeyHash);
 		const bool resourcesReady = readiness.ready;
@@ -5053,6 +5061,16 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			stats.runtime++;
 		}
 		candidates.push_back(&entry);
+	}
+	// Erase after the active-index iteration. Cancelled entries were never
+	// added to the candidate pointers or the set of required mesh aliases.
+	for (uint64_t key : cancelledFamilyKeys)
+	{
+		auto found = admissionQueue.find(key);
+		admissionIndex.Remove(key, GetAdmissionBucket(found->second));
+		DiscardAdmissionEntry(found->second, resetServices);
+		admissionQueue.erase(found);
+		MarkMaintenanceMutation();
 	}
 	std::sort(requiredGrowthMeshes.begin(), requiredGrowthMeshes.end());
 	requiredGrowthMeshes.erase(std::unique(requiredGrowthMeshes.begin(), requiredGrowthMeshes.end()), requiredGrowthMeshes.end());
@@ -5187,7 +5205,8 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			diagnostic.Disposition("required-only-skip");
 			continue;
 		}
-		const bool requiredAdmission = IsRequiredAdmission(*entry) || (!loadingPhase && enemyFamilyStaging.NeedsSpawnPose(entry->pairKey));
+		const bool requiredAdmission = IsRequiredAdmission(*entry) || (!loadingPhase &&
+			(enemyFamilyStaging.NeedsSpawnPose(entry->pairKey) || NRIVoxelFamilyRecoveryOnly(entry->admissionOrigins)));
 		const bool uploadState = isUploadState(entry->state);
 		const bool parkUnstartedOptional = !loadingPhase || (loadingWarmupActive && !BlockOptionalVoxelPreloadAdmissions());
 		if (parkUnstartedOptional && IsUnstartedOptionalAdmission(*entry, requiredAdmission))
@@ -5833,6 +5852,20 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			preloadHandoff.yielded && preloadHandoff.mapEpoch == residencyLastBuildSerial;
 		NRIVoxelGeometryAdmissionIntent intent{entry.sourceBits, entry.priority, entry.admissionOrigins,
 			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff, entry.preloadInputHints};
+		if (NRIVoxelFamilyRecoveryOnly(intent.origins) && entry.schedulerTokenId && !newPreflightToken)
+		{
+			// Another material binding can depend on this same scheduler-owned geometry.
+			NRIVoxelAdmissionTokenSnapshot token;
+			if (admissionScheduler.GetTokenSnapshot(entry.schedulerTokenId, token))
+				for (const auto& binding : token.bindings)
+				{
+					const auto other = admissionQueue.find(binding.pairKey);
+					if (other != admissionQueue.end() && other->second.mapGeneration == entry.mapGeneration &&
+						other->second.state != PersistentVoxelAdmissionState::Ready &&
+						other->second.state != PersistentVoxelAdmissionState::Failed)
+						intent.origins |= other->second.admissionOrigins;
+				}
+		}
 		if (newPreflightToken && newPreflightToken == entry.schedulerTokenId) intent.freshDirectPair = entry.pairKey;
 		if (liveSpawnPose)
 		{
@@ -5849,7 +5882,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	{
 		RollbackUnsubmittedGeometryRange(mesh, oldRange);
 		const bool idleGrowth = result == NRIPersistentVoxelAllocationResult::DeferredIdleGrowth;
-		if (idleGrowth && newPreflightToken && entry.schedulerTokenId == newPreflightToken &&
+		const bool familyGrowth = result == NRIPersistentVoxelAllocationResult::DeferredFamilyGrowth;
+		if ((idleGrowth || familyGrowth) && newPreflightToken && entry.schedulerTokenId == newPreflightToken &&
 			admissionScheduler.WithdrawUnsubmittedPreflight(newPreflightToken, entry.pairKey))
 			entry.schedulerTokenId = 0;
 		else
@@ -5863,6 +5897,11 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		const uint32_t retryDelay = result == NRIPersistentVoxelAllocationResult::DeferredSource ? 1u : 30u;
 		entry.allocationRetryTick = cooldown ? mesh.allocationRetryTick :
 			NRIVoxelComputeSaturatingAdd(retryTick, retryDelay);
+		if (familyGrowth)
+		{
+			entry.lastReason = "family-recovery-range-growth";
+			entry.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
+		}
 		outInProgress = true;
 		return true;
 	};
@@ -6693,12 +6732,15 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");
 			meshResource.sourceModel = variant.model;
 			meshResource.resourceKey = meshResourceKey;
-			if (!oldRange && EffectiveOverflowPageMode())
+			const auto intent = allocationIntent(oldRange);
+			if (!oldRange && !NRIVoxelFamilyRecoveryOnly(intent.origins) && EffectiveOverflowPageMode())
 				TryReserveOverflowPage(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity,
 					directPrimitiveCapacity, frameIndex, runtimePump);
 			const auto allocation = services.PrepareGeometryAllocation(meshResource,
 				fenceDirectBlas ? &entry.directBlasScratchBuffer : nullptr,
-				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false, allocationIntent(oldRange));
+				directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, false, intent);
+			if (allocation == NRIPersistentVoxelAllocationResult::Disabled && NRIVoxelFamilyRecoveryOnly(intent.origins))
+				return deferAllocation(meshResource, oldRange, NRIPersistentVoxelAllocationResult::DeferredFamilyGrowth);
 			if (allocation != NRIPersistentVoxelAllocationResult::Disabled && allocation != NRIPersistentVoxelAllocationResult::Ready)
 				return deferAllocation(meshResource, oldRange, allocation);
 			services.RetireGeometryRange(previousRange);
@@ -6898,6 +6940,8 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			}
 		}
 
+		if (NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins))
+			return rollbackAdmission("family-recovery-direct-unavailable", "direct");
 		if (directOnlyAdmission && variant.surface == nullptr)
 		{
 			entry.state = PersistentVoxelAdmissionState::Pending;
@@ -10946,13 +10990,17 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	const NRIPersistentVoxelResetServices& services, uint32_t* runtimeTailHeldActors)
 {
 	const bool runtimeRequested = origin == NRIVoxelAdmissionOrigin::RuntimeActor;
+	const bool familyRecovery = origin == NRIVoxelAdmissionOrigin::FamilyRecovery;
+	if (familyRecovery && (!variant.directOnlyAdmission || !variant.model || !variant.primitiveCount ||
+		!ShouldDirectPublishNRIVoxelComputeMeshing() || !(bool)nri_ptvoxelallocationbudget)) return false;
 	nri_scene::VoxelPreloadInputHints inputHints;
 	if (origin == NRIVoxelAdmissionOrigin::Preload)
 	{
 		inputHints = variant.inputHints;
 		if (!inputHints.bits) inputHints.bits = nri_scene::VoxelPreloadInputHints::Unknown;
 	}
-	const char* sourceLabel = origin == NRIVoxelAdmissionOrigin::Preload ? "preload" : "runtime-actor";
+	const char* sourceLabel = familyRecovery ? "family-recovery" :
+		(origin == NRIVoxelAdmissionOrigin::Preload ? "preload" : "runtime-actor");
 	// Warmup requests synthesize mounted/force flags. Preserve the actual
 	// preload obligation before requests for the same material pair merge.
 	const bool requiredPreload = origin == NRIVoxelAdmissionOrigin::Preload && (variant.gpuForce ||
@@ -11042,9 +11090,24 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		MarkMaintenanceMutation();
 		found = admissionQueue.end();
 	}
+	if (familyRecovery && found != admissionQueue.end())
+	{
+		const auto& prior = found->second;
+		const bool terminal = prior.state == PersistentVoxelAdmissionState::Ready || prior.state == PersistentVoxelAdmissionState::Failed;
+		// Existing obligations retain their provenance and normal allocation rights.
+		// A completed, evicted pair starts a fresh admission under the current permit.
+		if (!terminal || IsSharedVariantReady(meshResourceKey, variant.materialKeyHash)) return true;
+		if (!CanDiscardUnsubmittedVoxelAdmission(prior, admissionScheduler)) return false;
+		admissionIndex.Remove(pairKey, GetAdmissionBucket(prior));
+		DiscardAdmissionEntry(found->second, services);
+		admissionQueue.erase(found);
+		MarkMaintenanceMutation();
+		found = admissionQueue.end();
+	}
 	if (found != admissionQueue.end())
 	{
 		PersistentVoxelAdmissionEntry& entry = found->second;
+		const bool adoptingRecovery = NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins);
 		const NRIPersistentVoxelAdmissionBucket oldBucket = GetAdmissionBucket(entry);
 		const uint32_t oldSourceBits = entry.sourceBits;
 		const int32_t oldPriorityValue = entry.priority;
@@ -11088,6 +11151,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		const bool shouldPromoteRuntimeVariant =
 			!resourcesReady &&
 			runtimeDirectCandidate &&
+			(!adoptingRecovery || CanDiscardUnsubmittedVoxelAdmission(entry, admissionScheduler)) &&
 			(!entry.runtimeRequested ||
 			 entry.variant.model == nullptr ||
 			 (variant.directOnlyAdmission && !entry.variant.directOnlyAdmission) ||
@@ -11150,6 +11214,14 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 			}
 			admissionPayloadChanged = true;
 		}
+		if (adoptingRecovery)
+		{
+			// First outside request takes ownership of the existing work at its own rank.
+			entry.admissionOrigins = 0;
+			entry.allocationRetryTick = 0;
+			entry.priority = variant.priority;
+			entry.admissionRank = variantAdmissionRank;
+		}
 		entry.admissionOrigins |= uint8_t(origin);
 		entry.preloadInputHints.bits |= inputHints.bits;
 		entry.requiredPreload |= requiredPreload;
@@ -11176,13 +11248,13 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 			entry.lastReason = "reprioritized";
 		}
 		else if (entry.state == PersistentVoxelAdmissionState::Failed &&
-			(entry.priority != oldPriority || (!oldForce && entry.gpuForce)))
+			(adoptingRecovery || entry.priority != oldPriority || (!oldForce && entry.gpuForce)))
 		{
 			entry.state = PersistentVoxelAdmissionState::Pending;
 			entry.lastReason = "retry-priority";
 		}
 		admissionIndex.Transition(found->first, oldBucket, GetAdmissionBucket(entry));
-		if (admissionPayloadChanged ||
+		if (adoptingRecovery || admissionPayloadChanged ||
 			oldBucket != GetAdmissionBucket(entry) ||
 			oldSourceBits != entry.sourceBits ||
 			oldPriorityValue != entry.priority ||
@@ -11237,11 +11309,11 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 	entry.admissionOrigins = uint8_t(origin);
 	entry.preloadInputHints = inputHints;
 	entry.requiredPreload = requiredPreload;
-	entry.sourceBits = variant.sourceBits;
+	entry.sourceBits = familyRecovery ? 0 : variant.sourceBits;
 	entry.priority = variant.priority;
 	entry.admissionRank = variantAdmissionRank;
-	entry.gpuForce = variant.gpuForce;
-	entry.gpuPrefer = variant.gpuPrefer;
+	entry.gpuForce = !familyRecovery && variant.gpuForce;
+	entry.gpuPrefer = !familyRecovery && variant.gpuPrefer;
 	entry.runtimeRequested = runtimeRequested;
 	entry.mapGeneration = residencyMapGeneration;
 	entry.estimatedBytes = estimatedBytes;

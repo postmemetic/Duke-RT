@@ -11,20 +11,21 @@ NRIVoxelStartupFamilyBudget PriceNRIVoxelStartupFamilies(nri::Device& device, co
     uint32_t heapAlignment, const std::vector<nri_scene::PrecachedVoxelVariantView>& variants)
 {
     NRIVoxelStartupFamilyBudget plan;
+    plan.blasFlags = GetNRIPersistentVoxelAllocationBlasFlags();
     for (const auto& pose : variants)
     {
         if (!pose.preloadGeometry || !(pose.sourceBits & nri_scene::PrecachedVoxelSourceBit_EnemyFamily)) continue;
         const auto key = BuildPersistentVoxelVariantMeshResourceKey(pose);
-        if (!plan.meshes.insert(key).second) continue;
+        if (plan.meshes.count(key)) continue;
         // This plan is an optional credit. Unknown or excessive manifests get ordinary preflight and staging.
         if (!key || !pose.primitiveCount || pose.primitiveCount > UINT32_MAX / 3 ||
-            plan.meshes.size() > NRIEnemyFamilyStaging::MaximumPreparedFamilies * NRIEnemyFamilyStaging::MaximumFamilyPoses)
+            plan.meshes.size() >= NRIEnemyFamilyStaging::MaximumPreparedFamilies * NRIEnemyFamilyStaging::MaximumFamilyPoses)
             return {};
         LoadingWindow::Scope::ServiceIfActive();
         auto geometry = BuildNRIVoxelAllocationGeometry(2 * pose.primitiveCount, 3 * pose.primitiveCount);
         nri::AccelerationStructureDesc desc = {};
         desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
-        desc.flags = GetNRIPersistentVoxelAllocationBlasFlags();
+        desc.flags = plan.blasFlags;
         desc.geometryOrInstanceNum = 1;
         desc.geometries = &geometry;
         nri::AccelerationStructure* metadata = nullptr;
@@ -33,11 +34,15 @@ NRIVoxelStartupFamilyBudget PriceNRIVoxelStartupFamilies(nri::Device& device, co
         rt.GetAccelerationStructureMemoryDesc(*metadata, nri::MemoryLocation::DEVICE, memory);
         const uint64_t scratch = rt.GetAccelerationStructureBuildScratchBufferSize(*metadata);
         rt.DestroyAccelerationStructure(metadata);
+        const uint64_t priorBlas = plan.blasBytes;
         if (!memory.size || !scratch || !AccumulateNRIVoxelStartupHeapCharge(memory.size,
             std::max(heapAlignment, memory.alignment), plan.blasBytes)) return {};
         const uint64_t geometryBytes = uint64_t(pose.primitiveCount) *
             (2 * sizeof(nri_scene::SceneVertex) + 3 * sizeof(uint32_t) + sizeof(nri_scene::PrimitiveData));
         plan.geometryBytes += geometryBytes;
+        uint64_t alignedScratch = 0;
+        if (!AccumulateNRIVoxelStartupHeapCharge(scratch, heapAlignment, alignedScratch)) return {};
+        plan.meshes.emplace(key, NRIVoxelStartupFamilyBudget::PoseCost{geometryBytes, plan.blasBytes - priorBlas, alignedScratch});
         // Reserve one complete material binding per distinct placed pose. At runtime each live owner is priced separately.
         plan.materialBytes += uint64_t(nri_scene::VoxelPaletteMaterialSlotCount) * sizeof(nri_scene::MaterialData);
         plan.largestScratchBytes = std::max(plan.largestScratchBytes, scratch);

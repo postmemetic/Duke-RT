@@ -6,7 +6,10 @@
 #include <cstdint>
 #include <unordered_map>
 
-enum class NRIVoxelAdmissionOrigin : uint8_t { Preload = 1, RuntimeActor = 2, WarmupActor = 4 };
+enum class NRIVoxelAdmissionOrigin : uint8_t { Preload = 1, RuntimeActor = 2, WarmupActor = 4, FamilyRecovery = 8 };
+
+inline bool NRIVoxelFamilyRecoveryOnly(uint8_t origins)
+{ return origins == uint8_t(NRIVoxelAdmissionOrigin::FamilyRecovery); }
 
 struct NRIVoxelGeometryAdmissionIntent
 {
@@ -47,6 +50,7 @@ struct NRIVoxelGeometryAdmissionIntent
     const char* Kind() const
     {
         if (!origins) return "actor-batch";
+        if (NRIVoxelFamilyRecoveryOnly(origins)) return "family-recovery";
         if (ownsWork) return "owned-work";
         if (MergedPreference() && runtimePump && afterHandoff) return "handed-off-merged-preference";
         if (SyntheticWarmupForce()) return runtimePump && afterHandoff ? "handed-off-warmup-actor" : "warmup-forced";

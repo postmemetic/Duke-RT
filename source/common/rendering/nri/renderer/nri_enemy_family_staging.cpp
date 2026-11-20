@@ -18,12 +18,17 @@ uint64_t Cost(const NRIEnemyStageFamily& family)
 void NRIEnemyFamilyStaging::Reset()
 {
     spawnPosesByFamily.clear(); liveSpawnPoses.clear();
-    owners.clear(); selected.clear(); pins.clear(); previouslyStaged.clear(); pressureRejected.clear(); decisions.clear(); stats = {};
+    owners.clear(); selected.clear(); pins.clear(); previouslyStaged.clear(); previouslyPriced.clear(); pressureRejected.clear(); decisions.clear(); stats = {};
 }
 
 bool NRIEnemyFamilyStaging::NeedsFamily(uint64_t signature) const
 {
     return std::any_of(owners.begin(), owners.end(), [=](const auto& item) { return item.family == signature; });
+}
+
+uint32_t NRIEnemyFamilyStaging::OwnerCount(uint64_t signature) const
+{
+    return uint32_t(std::count_if(owners.begin(), owners.end(), [=](const auto& item) { return item.family == signature; }));
 }
 
 bool NRIEnemyFamilyStaging::RequestSpawnPose(uint64_t signature, uint64_t pairKey)
@@ -85,7 +90,7 @@ void NRIEnemyFamilyStaging::Reconcile(uint64_t world, const std::vector<NRIEnemy
     for (auto it = pressureRejected.begin(); it != pressureRejected.end();)
         if (!NeedsFamily(*it)) it = pressureRejected.erase(it); else ++it;
     for (auto it = previouslyStaged.begin(); it != previouslyStaged.end();)
-        if (!NeedsFamily(*it)) it = previouslyStaged.erase(it); else ++it;
+        if (!NeedsFamily(*it)) { previouslyPriced.erase(*it); it = previouslyStaged.erase(it); } else ++it;
     Rebuild();
 }
 
@@ -120,8 +125,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     for (const auto& family : families)
     {
         if (!family.signature || !NeedsFamily(family.signature) || !seen.insert(family.signature).second) continue;
-        const auto count = uint32_t(std::count_if(owners.begin(), owners.end(),
-            [&](const auto& owner) { return owner.family == family.signature; }));
+        const auto count = OwnerCount(family.signature);
         if (family.complete && family.poses && !family.meshes.empty()) candidates.push_back({&family, Cost(family), count});
         else decisions.push_back({family.signature, 0, family.id, count, "incomplete"});
     }
@@ -146,7 +150,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
         {
             // A noisy budget increase is not recovery. Re-admit only after
             // actual usage has regained the complete reserve and margin.
-            if (stats.requiredReclaimBytes) { decision.reason = "pressure-cooldown"; continue; }
+            if (stats.requiredReclaimBytes) { decision.reason = "pressure-cooldown"; decision.reserveLimited = true; continue; }
             pressureRejected.erase(rejected);
         }
         uint64_t extra = 0, cold = 0; std::unordered_set<uint64_t> keys;
@@ -183,10 +187,12 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
         if (future == UINT64_MAX || needed > remainingCold)
         {
             decision.reason = "pressure-reserve";
+            decision.reserveLimited = true;
             if (old.count(family->signature)) { ++stats.pressureDropsTotal; pressureRejected.insert(family->signature); }
             continue;
         }
         previouslyStaged.insert(family->signature);
+        if (family->startupPriced) previouslyPriced.insert(family->signature);
         selected.push_back({*family}); pins.insert(keys.begin(), keys.end());
         charged = Add(charged, extra); protectedCold = retainedCold; prospectiveMaterials = materials;
     }

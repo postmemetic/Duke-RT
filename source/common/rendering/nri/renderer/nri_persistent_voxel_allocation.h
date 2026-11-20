@@ -6,7 +6,9 @@
 // Retry policy only; never use this clock as a resource-completion fence.
 uint64_t GetNRIVoxelAdmissionRetryClock();
 struct PersistentVoxelAdmissionEntry;
+class NRIVoxelAdmissionScheduler;
 bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry);
+bool CanDiscardUnsubmittedVoxelAdmission(const PersistentVoxelAdmissionEntry& entry, const NRIVoxelAdmissionScheduler& scheduler);
 
 enum class NRIPersistentVoxelAllocationResult : uint8_t
 {
@@ -19,6 +21,7 @@ enum class NRIPersistentVoxelAllocationResult : uint8_t
     RequirementsUnavailable,
     AllocationFailed,
     DeferredIdleGrowth,
+    DeferredFamilyGrowth,
 };
 
 inline bool NRIPersistentVoxelAllocationDeferred(NRIPersistentVoxelAllocationResult result)
@@ -26,6 +29,7 @@ inline bool NRIPersistentVoxelAllocationDeferred(NRIPersistentVoxelAllocationRes
     return result == NRIPersistentVoxelAllocationResult::DeferredBudget ||
         result == NRIPersistentVoxelAllocationResult::DeferredCooldown ||
         result == NRIPersistentVoxelAllocationResult::DeferredIdleGrowth ||
+        result == NRIPersistentVoxelAllocationResult::DeferredFamilyGrowth ||
         result == NRIPersistentVoxelAllocationResult::DeferredSource ||
         result == NRIPersistentVoxelAllocationResult::DeferredFence ||
         result == NRIPersistentVoxelAllocationResult::RequirementsUnavailable;

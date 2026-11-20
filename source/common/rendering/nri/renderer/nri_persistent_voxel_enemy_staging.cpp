@@ -147,6 +147,7 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
         if (signatures.size() > NRIEnemyFamilyStaging::MaximumPreparedFamilies) break;
         const auto& resident = InspectEnemyFamily(actor, frame, settings);
         if (!resident.complete && tryRestage &&
+            !(IsEnemyFamilyRecoveryEnabled() && enemyFamilyStaging.WasPriced(certificate->signature)) &&
             (enemyPreparesProspectiveMaterials || enemyFamilyStaging.WasStaged(certificate->signature)) &&
             TryRestageEnemyGeometry(actor, frame, settings, freeAfterReserve, services))
         {

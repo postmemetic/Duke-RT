@@ -5,7 +5,9 @@
 #include "nri_persistent_voxel_actor_demand.h"
 #include "nri_enemy_representation.h"
 #include "nri_enemy_family_staging.h"
+#include "nri_enemy_family_recovery.h"
 #include "nri_voxel_startup_family_budget.h"
+#include "nri_voxel_family_sweep.h"
 #include "nri_persistent_voxel_admission_reclaim.h"
 #include "nri_voxel_publication_order.h"
 
@@ -403,6 +405,7 @@ struct NRIPersistentVoxelResetServices
 	InvalidateSceneDataDescriptorsFn invalidateSceneDataDescriptors = nullptr;
 	bool (*cacheRetirementAllowed)(void*) = nullptr;
     void (*allocationBudget)(void*, uint64_t& usage, uint64_t& budget) = nullptr;
+    bool (*forecastFamilyProvider)(void*, FVoxelModel*, uint64_t& sourceBytes, uint64_t& workspaceBytes) = nullptr;
 	void (*retireSchedulerReservation)(void*, NRIPersistentVoxelSchedulerRetirement) = nullptr;
 	void RetireSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket) const
 	{ if (ticket && retireSchedulerReservation) retireSchedulerReservation(user, ticket); }
@@ -1082,6 +1085,12 @@ public:
         bool authoritativeEmptyAfterWait = false);
     NRIEnemyRepresentationPolicy enemyPolicy;
     NRIEnemyFamilyStaging enemyFamilyStaging;
+    NRIEnemyFamilyRecovery enemyFamilyRecovery;
+    uint32_t enemyFamilyRecoveryScan = UINT32_MAX;
+    bool IsEnemyFamilyRecoveryEnabled() const;
+    bool AllowsEnemyFamilyRecoveryPair(uint64_t pair) const;
+    void UpdateEnemyFamilyRecovery(uint32_t frame, const NRIPersistentVoxelSettings& settings,
+        uint64_t usage, uint64_t budget, const NRIPersistentVoxelResetServices& services);
     void ReconcileEnemyFamilyStaging();
     void UpdateEnemyFamilyStaging(uint32_t frame, const NRIPersistentVoxelSettings& settings,
         uint64_t usageBytes, uint64_t budgetBytes, const NRIPersistentVoxelResetServices& services);
@@ -1198,6 +1207,9 @@ public:
 	void MaintainInactiveCache(const char* phase, uint32_t frameIndex,
 		const NRIPersistentVoxelSettings& settings, uint64_t usageBytes, uint64_t budgetBytes,
 		const NRIPersistentVoxelResetServices& services, bool authoritativeEmptyAfterWait = false);
+    void RetainCompleteFamiliesForSweep(uint32_t frameIndex, uint64_t usageBytes, uint64_t budgetBytes,
+        int32_t meshLimit, std::vector<NRIVoxelSweepCandidate>& candidates,
+        uint64_t& inactiveBytes, uint64_t& warmBytes);
 	bool AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource,
 		uint32_t vertices, uint32_t indices, uint32_t primitives,
 		NRIPersistentVoxelGeometryRangeHandle& previous);

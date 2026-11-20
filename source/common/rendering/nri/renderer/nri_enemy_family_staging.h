@@ -40,6 +40,7 @@ struct NRIEnemyStageDecision
     uint64_t signature = 0, chargedBytes = 0;
     uint32_t family = 0, owners = 0;
     const char* reason = "incomplete";
+    bool reserveLimited = false;
 };
 
 // Geometry-only prospective retention. This owner never allocates or frees a
@@ -62,6 +63,8 @@ public:
     bool RequestedSpawnPose(uint64_t signature, uint64_t pairKey) const;
     bool NeedsSpawnPose(uint64_t pairKey) const { return liveSpawnPoses.count(pairKey) != 0; }
     bool WasStaged(uint64_t signature) const { return previouslyStaged.count(signature) != 0; }
+    bool WasPriced(uint64_t signature) const { return previouslyPriced.count(signature) != 0; }
+    uint32_t OwnerCount(uint64_t signature) const;
 private:
     struct Set { NRIEnemyStageFamily family; };
     void Rebuild();
@@ -72,6 +75,7 @@ private:
     std::unordered_set<uint64_t> pins;
     std::unordered_set<uint64_t> pressureRejected;
     std::unordered_set<uint64_t> previouslyStaged;
+    std::unordered_set<uint64_t> previouslyPriced;
     std::vector<NRIEnemyStageDecision> decisions;
     NRIEnemyStageStats stats;
 };

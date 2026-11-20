@@ -27,7 +27,10 @@ bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSetti
     for (const auto& pair : enemyPolicy.MeshPins()) if (pair.second) pinnedMeshes.insert(pair.first);
     for (const auto& pair : enemyPolicy.MaterialPins()) if (pair.second) pinnedMaterials.insert(pair.first);
     if (includeEnemyStaging && !authoritativeEmptyAfterWait)
+    {
         pinnedMeshes.insert(enemyFamilyStaging.MeshPins().begin(), enemyFamilyStaging.MeshPins().end());
+        pinnedMeshes.insert(enemyFamilyRecovery.pins.begin(), enemyFamilyRecovery.pins.end());
+    }
     std::vector<nri_scene::PersistentVoxelCacheEntryView> current;
     if (authoritativeEmptyAfterWait && (!batch.actors.empty() || !instances.empty() || !admissionQueue.empty())) return false;
     if (!authoritativeEmptyAfterWait && !nri_scene::BuildPersistentVoxelCacheEntries(current, maximum))
@@ -48,6 +51,9 @@ bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSetti
         const auto& admission = pair.second;
         if (admission.state == PersistentVoxelAdmissionState::Ready ||
             admission.state == PersistentVoxelAdmissionState::Failed) continue;
+        if (NRIVoxelFamilyRecoveryOnly(admission.admissionOrigins) &&
+            (!includeEnemyStaging || !AllowsEnemyFamilyRecoveryPair(admission.pairKey)) &&
+            CanDiscardUnsubmittedVoxelAdmission(admission, admissionScheduler)) continue;
         const uint64_t meshKey = BuildPersistentVoxelVariantMeshResourceKey(admission.variant);
         pendingMeshes.insert(meshKey);
         pinnedMeshes.insert(meshKey);
@@ -186,8 +192,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     NRIVoxelCachePins pins;
     if (!CollectCachePins(settings, pins, SIZE_MAX, authoritativeEmptyAfterWait)) return;
     auto& pinnedMeshes = pins.meshes; auto& pinnedMaterials = pins.materials;
-    struct Candidate { uint64_t key, bytes, physicalBytes; uint32_t since, warmRank; };
-    std::vector<Candidate> meshes, materials;
+    std::vector<NRIVoxelSweepCandidate> meshes, materials;
     uint64_t inactiveMeshBytes = 0, inactiveMaterialBytes = 0, warmMeshBytes = 0;
     uint32_t inactiveMaterialCount = 0;
     for (const auto& pair : meshVariantResources)
@@ -220,20 +225,21 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         if (pressure || NRIVoxelInactiveAgeEligible(frameIndex, since, grace))
             materials.push_back({ pair.first, bytes, 0, since, warmPolicy ? actorDemand.WarmMaterialRank(pair.first, frameIndex) : 0 });
     }
-    const auto oldest = [](const Candidate& a, const Candidate& b)
+    const auto oldest = [](const NRIVoxelSweepCandidate& a, const NRIVoxelSweepCandidate& b)
     {
         if (a.warmRank != b.warmRank) return a.warmRank < b.warmRank;
         return a.since != b.since ? a.since < b.since : a.key < b.key;
     };
     std::sort(meshes.begin(), meshes.end(), oldest);
     std::sort(materials.begin(), materials.end(), oldest);
+    if (!authoritativeEmptyAfterWait && warmPolicy && pressure && warmRetentionPressure.reclaimBytes)
+        RetainCompleteFamiliesForSweep(frameIndex, usageBytes, budgetBytes, configuredMeshLimit,
+            meshes, inactiveMeshBytes, warmMeshBytes);
     const auto meshTrim = ResolveNRIVoxelInactiveMeshTrim(
         configuredMeshLimit, inactiveMeshBytes, pressure && !warmPolicy, authoritativeEmptyAfterWait);
-    const bool trimMeshes = meshTrim.trim;
     // Releasing palette aliases/CPU vectors creates reusable rows, not released
     // device backing. Honor their bounds without purging them for VRAM pressure.
     const bool trimMaterials = (pressure && !warmPolicy) || inactiveMaterialBytes > materialLimit || inactiveMaterialCount > materialCountLimit;
-    const uint64_t meshTarget = meshTrim.targetBytes;
     const uint64_t materialTarget = pressure && !warmPolicy ? 0 : NRIVoxelCacheLowTarget(materialLimit);
     const uint64_t materialCountTarget = pressure && !warmPolicy ? 0 : NRIVoxelCacheLowTarget(materialCountLimit);
     uint32_t evictedMeshes = 0, evictedMaterials = 0, terminalPruned = 0;
@@ -243,10 +249,8 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     {
         // A deferred/failed all-zero placeholder has no byte weight. Remove
         // it once unpinned and aged even when the byte target is already met.
-        const bool pressureVictim = warmPolicy && pressure && NRIVoxelPressureVictim(candidate.physicalBytes,
-            candidate.warmRank, warmMeshBytes, warmRetentionPressure.warmLogicalTarget,
-            physicalRetiringBytes, warmRetentionPressure.reclaimBytes);
-        if ((!trimMeshes || inactiveMeshBytes <= meshTarget) && !pressureVictim && candidate.bytes != 0) continue;
+        if (!NRIVoxelSweepVictim(candidate, meshTrim, inactiveMeshBytes, warmPolicy && pressure,
+            warmMeshBytes, warmRetentionPressure, physicalRetiringBytes)) continue;
         auto found = meshVariantResources.find(candidate.key);
         if (found == meshVariantResources.end()) continue;
         auto& resource = found->second;

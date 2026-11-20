@@ -988,6 +988,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_lifetime.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_diagnostics.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_retention.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_family_sweep.cpp
+	common/rendering/nri/renderer/nri_voxel_family_sweep.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_reclaim.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_reclaim.h
 	common/rendering/nri/renderer/nri_persistent_voxel_reclaim_services.cpp
@@ -1006,6 +1008,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_blas_compaction.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_geometry_arena_policy.cpp
 	common/rendering/nri/renderer/nri_voxel_startup_family_budget.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_family_recovery.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_geometry_arena.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp

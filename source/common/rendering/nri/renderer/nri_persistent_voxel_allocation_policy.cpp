@@ -143,6 +143,7 @@ bool NRIPersistentVoxelAllocationWaitCanContinue(const char* reason, bool hasOwn
 {
     return !hasOwnedWork && reason &&
         (std::strcmp(reason, "allocation-budget-deferred") == 0 ||
+         std::strcmp(reason, "family-recovery-range-growth") == 0 ||
          std::strcmp(reason, "allocation-budget-cooldown") == 0 ||
          std::strcmp(reason, "allocation-mesh-cooldown") == 0 ||
          std::strcmp(reason, "compute-provider-budget-retry") == 0);

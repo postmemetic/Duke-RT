@@ -59,6 +59,7 @@ void NRIPersistentVoxelResidency::RefreshEnemyRepresentations(uint32_t frame,
 
 void NRIPersistentVoxelResidency::ResetEnemyRepresentationsForLevelTransition()
 {
+    enemyFamilyRecovery = {}; enemyFamilyRecoveryScan = UINT32_MAX;
     enemyFamilyStaging.Reset(); enemyStagingFrame = enemyRestageAttemptFrame = UINT32_MAX;
     enemyPreparesProspectiveMaterials = false; enemyPreparationHeadroom = 0; enemyPreparationCursor = 0;
     prospectiveMaterialOwners.clear();

@@ -146,7 +146,7 @@ NRIVoxelOptionalGrowth::Demand NRIPersistentVoxelResidency::GeometryGrowthDemand
     const auto& pins = enemyPolicy.MeshPins();
     auto family = pins.find(mesh);
     demand.family = family != pins.end() && family->second != 0;
-    demand.staged = enemyFamilyStaging.MeshPins().count(mesh) != 0;
+    demand.staged = enemyFamilyStaging.MeshPins().count(mesh) != 0 || enemyFamilyRecovery.pins.count(mesh) != 0;
     if (includeRequiredJobs)
     {
         demand.authoritative &= requiredGrowthFrame == frame && requiredGrowthMap == residencyMapGeneration;

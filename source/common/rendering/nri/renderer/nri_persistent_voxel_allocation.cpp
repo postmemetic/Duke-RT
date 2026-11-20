@@ -21,7 +21,7 @@ uint64_t GetNRIVoxelAdmissionRetryClock()
     return GetGameUpdateSnapshot().presentationGeneration;
 }
 
-bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry)
+static bool OwnsAdmissionUpload(const PersistentVoxelAdmissionEntry& entry)
 {
     const auto& mesh = entry.uploadMeshResource;
     const auto ownsBuffer = [](const NRIBufferResource& buffer)
@@ -30,10 +30,10 @@ bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entr
     { return as.accelerationStructure || as.descriptor || as.memorySize || as.buildVertexBuffer || as.buildIndexBuffer; };
     const auto ownsRange = [](const NRIPersistentVoxelMaterialRangeHandle& range)
     { return range.offset || range.capacity || range.generation; };
-    const bool hasOwnedWork = entry.schedulerTokenId || entry.directComputeRequested ||
+    return entry.directComputeRequested ||
         entry.directComputeGeneration || entry.directComputeJobId || entry.computeGeometryJobId ||
         entry.directBlasFenceValue || entry.directBlasRecordedFrame != UINT32_MAX ||
-        entry.uploadPrepared || entry.uploadSubmittedBeforeBlas || entry.bytesUploaded ||
+        entry.uploadPrepared || entry.uploadSubmittedBeforeBlas ||
         entry.vertexBytesUploaded || entry.vertexArenaBytesUploaded || entry.indexBytesUploaded ||
         entry.indexArenaBytesUploaded || entry.primitiveBytesUploaded ||
         ownsBuffer(entry.directBlasScratchBuffer) || ownsBuffer(mesh.vertexBuffer) || ownsBuffer(mesh.indexBuffer) ||
@@ -41,8 +41,28 @@ bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entr
         ownsBuffer(mesh.shadowProxy.indexBuffer) || ownsAs(mesh.shadowProxy.accelerationStructure) ||
         mesh.computeProviderReservation.Total() || mesh.geometryRange.transaction ||
         ownsRange(mesh.geometryRange.vertices) || ownsRange(mesh.geometryRange.indices) || ownsRange(mesh.geometryRange.primitives);
+}
+
+bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entry)
+{
     return entry.state == PersistentVoxelAdmissionState::Deferred &&
-        NRIPersistentVoxelAllocationWaitCanContinue(entry.lastReason, hasOwnedWork);
+        NRIPersistentVoxelAllocationWaitCanContinue(entry.lastReason, entry.schedulerTokenId || entry.bytesUploaded || OwnsAdmissionUpload(entry));
+}
+
+bool CanDiscardUnsubmittedVoxelAdmission(const PersistentVoxelAdmissionEntry& entry, const NRIVoxelAdmissionScheduler& scheduler)
+{
+    const bool terminal = entry.state == PersistentVoxelAdmissionState::Ready || entry.state == PersistentVoxelAdmissionState::Failed;
+    if (!terminal && entry.state != PersistentVoxelAdmissionState::Pending && entry.state != PersistentVoxelAdmissionState::Deferred) return false;
+    // bytesUploaded is lifetime telemetry after publication. Concrete ranges,
+    // fences, resources and scheduler ownership below still prevent disposal.
+    if (!terminal && entry.bytesUploaded) return false;
+    if (OwnsAdmissionUpload(entry) || entry.directBlasExclusive || entry.uploadGeometryFromCompute ||
+        entry.uploadMeshResource.directComputeGeneration || entry.uploadMeshResource.directComputeJobId) return false;
+    NRIVoxelAdmissionTokenSnapshot token;
+    if (!entry.schedulerTokenId || !scheduler.GetTokenSnapshot(entry.schedulerTokenId, token)) return true;
+    if (token.reservationState != NRIVoxelAdmissionReservationState::Active) return true;
+    return token.stage == NRIVoxelAdmissionStage::ComputeQueued && token.bindings.size() == 1 &&
+        token.bindings.front().pairKey == entry.pairKey;
 }
 
 nri::BottomLevelGeometryDesc BuildNRIVoxelAllocationGeometry(uint32_t vertices, uint32_t indices)
@@ -173,7 +193,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const NRIVoxelGeometryAdmissionIntent& intent)
 {
     using Result = NRIPersistentVoxelAllocationResult;
-    if (!(bool)nri_ptvoxelallocationbudget) return Result::Disabled;
+    const bool familyRecovery = NRIVoxelFamilyRecoveryOnly(intent.origins);
+    if (!(bool)nri_ptvoxelallocationbudget) return familyRecovery ? Result::DeferredFamilyGrowth : Result::Disabled;
     if (!mFrameBuffer || !mFrameBuffer->mDevice || !mFrameBuffer->HasCurrentCommandBuffer() ||
         !mFrameBuffer->GetRecordingCommandFenceValue() || mResidentUploadScratchFrames.empty())
         return Result::DeferredFence;
@@ -197,6 +218,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const bool growsArena = !overflow && (uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex) > arena.vertexBuffer.size ||
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
         uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size);
+    if (familyRecovery && (growsArena || overflow || privateBuildInputs)) return Result::DeferredFamilyGrowth;
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     const bool mayYield = intent.MayYield();
     const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
@@ -324,6 +346,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         return result;
     };
     if (overflow && !budget.liveAvailable) return report("defer-page-live-budget", Result::DeferredBudget);
+    if (familyRecovery && !budget.liveAvailable) return report("defer-family-live-budget", Result::DeferredBudget);
     if (!privateBuildInputs)
     {
         const auto forecast = ForecastNRIVoxelComputeProviderAllocations(BuildResourceContext(), mesh.sourceModel, provider);
@@ -424,6 +447,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         candidatePercent = 100;
         candidateFits = candidate(candidatePercent);
     }
+    // Hardware can also require replacement for incompatible views or usage,
+    // even when the logical ranges fit all three existing buffer sizes.
+    if (familyRecovery && newArenaBytes) return report("defer-family-range-growth", Result::DeferredFamilyGrowth);
     if (reclaimEnabled)
     {
         // Signature includes exact non-arena/private/AS/scratch/provider requirements,
