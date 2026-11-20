@@ -35,7 +35,7 @@ struct DirectionalStart
     uint32_t markerCrc, frontCrc;
     bool useFront = false;
 };
-// The stay-put marker is rotation 1 of the first walk frame. Its mounted
+// Each marker is rotation 1 of the first walk frame. Its mounted
 // 3D front pose already handles that angle with the actor's transform.
 DirectionalStart directionalStarts[] = {
     {2711, "DukeBoss2Stayput", "voxels/monsters/CYCLOID/2710_CYCLOID.kvx", 0x26e902b9u, 0x0ef47cd7u},
@@ -45,6 +45,7 @@ DirectionalStart directionalStarts[] = {
     {2121, "DukeLizManStayput", "voxels/monsters/ENFORCER/2120_ENFORCER.kvx", 0xc7b799aau, 0x5b7ba499u},
     {2001, "DukePigCopStayput", "voxels/monsters/PIGCOP/2000_PIGCOP.kvx", 0xabf25e32u, 0xb4afddd7u},
     {1821, "DukeOctabrainStayput", "voxels/monsters/OCTA/1820_OCTA.kvx", 0xbcd65873u, 0xe3e8d9d1u},
+    {1681, "DukeLizTrooperRunning", "voxels/monsters/TROOPER/1680_TROOPER.kvx", 0x504ec209u, 0x0af310f3u},
 };
 const DirectionalStart* CanonicalStart(int marker)
 {
@@ -222,7 +223,7 @@ const ClassFamily Classes[] = {
     {"DukeLizTrooperShoot", 2},
     {"DukeLizTrooperJetpack", 2},
     {"DukeLizTrooperDucking", 2},
-    {"DukeLizTrooperRunning", 2},
+    {"DukeLizTrooperRunning", 2, 1681},
     {"DukeLizTrooperStayput", 2},
     {"DukeLizMan", 3},
     {"DukeLizManSpitting", 3},
@@ -256,6 +257,12 @@ bool Matches(const ActorAction& action, const ActionShape& shape)
     return !action.base.isValid() && action.offset == shape.offset &&
         action.numframes == shape.frames && action.rotationtype == shape.rotation &&
         action.increment == shape.increment;
+}
+
+bool IsTrooperStand(const ActorAction& action)
+{
+    const auto& stand = TrooperActions[0];
+    return !std::strcmp(action.name.GetChars(), stand.name) && Matches(action, stand);
 }
 
 std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec, const PClassActor& cls, int startupTile)
@@ -307,8 +314,8 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
     int startupTexture = -1;
     if (startupTile)
     {
-        // These CON actors start with no action on their own image. Their
-        // cactor successor uses only the ordinary action set.
+        // These CON actors initially use their class image. The running
+        // Trooper starts with ATROOPSTAND, whose sole frame has offset zero.
         const auto texture = tileGetTextureID(startupTile);
         const auto* defaults = GetDefaultByType(&cls);
         const auto* art = TexMan.GetGameTexture(texture);
@@ -317,8 +324,13 @@ std::shared_ptr<const ActorEnemyVoxelFamily> BuildFamily(const FamilySpec& spec,
         const auto address = gs.actorinfo[startupTile].scriptaddress;
         family->reason = "startup-pose-mismatch";
         if (!texture.isValid() || !defaults || defaults->spr.spritetexture() != texture ||
-            cls.ActorInfo()->TypeNum != startupTile || !address || uint64_t(address) + 1 >= ScriptCode.Size() ||
-            ScriptCode[address + 1] != 0) return family;
+            cls.ActorInfo()->TypeNum != startupTile || !address || uint64_t(address) + 1 >= ScriptCode.Size()) return family;
+        const int action = ScriptCode[address + 1];
+        if (startupTile == 1681)
+        {
+            if (action <= 0 || action >= actions.SSize() || !IsTrooperStand(actions[action])) return family;
+        }
+        else if (action != 0) return family;
         if (!art || !art->isValid()) { family->reason = "missing-original-art"; return family; }
         startupTexture = texture.GetIndex();
         poses.try_emplace(startupTexture, "class-start-pose");
@@ -364,6 +376,7 @@ int ResolveEnemyVoxelDirectionalStart(const DDukeActor& actor)
     if (!stockConSources || !stockGameSeen || !(bool)nri_ptenemystablerepresentation || !r_voxels) return -1;
     const auto* start = CanonicalStart(actor.spr.picnum);
     if (!start || actor.GetClass() != PClass::FindClass(start->cls) || V_GetBackend() != 4) return -1;
+    if (start->marker == 1681 && (!actor.curAction || actor.curframe != 0 || !IsTrooperStand(*actor.curAction))) return -1;
     return tileGetTextureID(start->marker - 1).GetIndex();
 }
 

@@ -262,7 +262,7 @@ static void CaptureSpriteAction(const DDukeActor& h, ActorSpriteAnimationState& 
 	out.actionActive = h.curAction != nullptr && h.curAction->name != NAME_None;
 	// The snapshot's default recipe uses this image for a retained voxel.
 	// Both the normal and retained 2D paths keep the original marker image.
-	if (!out.actionActive && badguy(&h))
+	if ((!out.actionActive || h.spr.picnum == 1681) && badguy(&h))
 		out.recipeTextureId = ResolveEnemyVoxelDirectionalStart(h);
 	if (h.curAction != nullptr)
 	{
