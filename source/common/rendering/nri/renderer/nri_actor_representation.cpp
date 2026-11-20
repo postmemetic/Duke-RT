@@ -20,6 +20,12 @@ CVAR(Int, nri_ptactorholdframes, 8, 0)
 CVAR(Int, nri_ptactorspriteforce, -1, 0)
 CVAR(Bool, nri_ptactorrepresentationtrace, false, 0)
 CVAR(Int, nri_ptactorrepresentationactor, -1, 0)
+// Maximum decision and assembly detail rows per pass after the actor filter.
+CUSTOM_CVAR(Int, nri_ptactorrepresentationtracelimit, 128, 0)
+{
+	if (self < 0) self = 0;
+	else if (self > 16384) self = 16384;
+}
 EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
 
 namespace
@@ -87,7 +93,7 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 	NRIVoxelFrameKeyCounts owners;
 	owners.Begin((uint32_t)candidates.size());
 	std::unordered_set<int32_t> actorIndices;
-	uint32_t traced = 0;
+	int traced = 0;
 	for (const auto& candidate : candidates)
 	{
 		++mStats.candidates;
@@ -211,7 +217,7 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 				authority->spriteAnimation.enemyVoxelFamily->complete;
 		}
 
-		if ((bool)nri_ptactorrepresentationtrace && traced < 128u &&
+		if ((bool)nri_ptactorrepresentationtrace && traced < (int)nri_ptactorrepresentationtracelimit &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == candidate.actorIndex))
 		{
 			char fields[768];
@@ -259,7 +265,8 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 				++materialPrimitives[actorIndex];
 		}
 	}
-	uint32_t spritesPublished = 0, voxelsPublished = 0, absent = 0, duplicates = 0, suppressedPublished = 0, traced = 0;
+	uint32_t spritesPublished = 0, voxelsPublished = 0, absent = 0, duplicates = 0, suppressedPublished = 0;
+	int traced = 0;
 	uint32_t missingTraced = 0;
 	NRIEnemyBodyCensus enemyBodies;
 	for (const auto& row : mDecisions)
@@ -296,7 +303,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 			PerfAuditWriteEvent("actor_representation_missing", PerfAuditCurrentToken(), missingFields);
 			++missingTraced;
 		}
-		if ((bool)nri_ptactorrepresentationtrace && traced < 128u &&
+		if ((bool)nri_ptactorrepresentationtrace && traced < (int)nri_ptactorrepresentationtracelimit &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == row.actorIndex))
 		{
 			char fields[1024];
