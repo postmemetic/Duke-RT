@@ -71,6 +71,7 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
         cache.geometryRanges.Reset();
         cache.SyncGeometryCursors();
         cache.arenaPresizeBuildSerial = 0;
+        cache.startupFamilyBudget = {};
         cache.MarkMaintenanceMutation();
     }
     if (PerfAuditActive())

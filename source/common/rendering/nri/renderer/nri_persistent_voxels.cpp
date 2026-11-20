@@ -10244,6 +10244,7 @@ void NRIPersistentVoxelResidency::Reset(
 	materialRangeCompactions = 0;
 	materialRangeCompactedRows = 0;
 	arenaPresizeBuildSerial = 0;
+	startupFamilyBudget = {};
 	blasPolicyTraceBuildSerial = 0;
 	for (auto& pair : meshVariantResources)
 	{
