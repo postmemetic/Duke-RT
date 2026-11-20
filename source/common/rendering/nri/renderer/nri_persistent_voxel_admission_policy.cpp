@@ -1,5 +1,6 @@
 #include "nri_persistent_voxels.h"
 #include "nri_cvars.h"
+#include "nri_voxel_compute_allocation.h"
 #include "perf_audit.h"
 #include "../scene/nri_hash.h"
 #include <algorithm>
@@ -8,6 +9,7 @@
 CVAR(Bool, nri_ptvoxelactoradmission, true, 0)
 CVAR(Bool, nri_ptvoxelcoalesce, true, 0)
 CVAR(Bool, nri_ptvoxelwarmretention, true, 0)
+CVAR(Bool, nri_ptvoxelparksupersededgrowth, true, 0)
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
 EXTERN_CVAR(Int, nri_ptactorholdframes)
 
@@ -57,7 +59,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     const auto policy = GetNRIVoxelAdmissionPolicySettings();
     const bool allowOverflowPage = EffectiveOverflowPageMode() != 0;
     if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames &&
-        !(bool)nri_ptvoxeladmissionreclaim && !allowOverflowPage)
+        !(bool)nri_ptvoxeladmissionreclaim && !(bool)nri_ptvoxelparksupersededgrowth && !allowOverflowPage)
     {
         actorDemand.Reset();
         return;
@@ -96,7 +98,8 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         }
         inputs.push_back(input);
     }
-    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs, (bool)nri_ptvoxeladmissionreclaim || allowOverflowPage != 0);
+    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs,
+        (bool)nri_ptvoxeladmissionreclaim || (bool)nri_ptvoxelparksupersededgrowth || allowOverflowPage);
     uint32_t coalesced = 0;
     if (policy.coalesce)
     {
@@ -129,4 +132,72 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
             coalesced, policy.actorPriority ? "true" : "false", policy.coalesce ? "true" : "false", policy.warmRetention ? "true" : "false");
         PerfAuditWriteEvent("voxel_actor_demand", PerfAuditCurrentToken(), fields);
     }
+}
+
+NRIVoxelOptionalGrowth::Demand NRIPersistentVoxelResidency::GeometryGrowthDemand(uint64_t mesh, uint32_t frame) const
+{
+    NRIVoxelOptionalGrowth::Demand demand;
+    demand.authoritative = actorDemand.HasCurrentMeshAuthority(frame);
+    // requestedConsumers includes retained and indirect-only sources, even
+    // when the mesh is already exact or no direct-view upgrade is needed.
+    demand.consumers = actorDemand.Upgrade(mesh, frame).requestedConsumers;
+    auto active = activeMeshReferences.find(mesh);
+    demand.active = active == activeMeshReferences.end() ? 0 : active->second;
+    const auto& pins = enemyPolicy.MeshPins();
+    auto family = pins.find(mesh);
+    demand.family = family != pins.end() && family->second != 0;
+    demand.staged = enemyFamilyStaging.MeshPins().count(mesh) != 0;
+    return demand;
+}
+
+NRIVoxelOptionalGrowth::Replacement NRIPersistentVoxelResidency::GeometryGrowthReplacement() const
+{
+    NRIVoxelOptionalGrowth::Replacement replacement;
+    const auto stream = [&](const NRIBufferResource& backing, uint64_t required)
+    {
+        if (required <= backing.size) return;
+        replacement.oldBytes = NRIVoxelComputeSaturatingAdd(replacement.oldBytes, backing.memorySize);
+        replacement.minimumBytes = NRIVoxelComputeSaturatingAdd(replacement.minimumBytes, required);
+    };
+    stream(vertexBuffer, uint64_t(arenaVertexCursor) * sizeof(nri_scene::SceneVertex));
+    stream(indexBuffer, uint64_t(arenaIndexCursor) * sizeof(uint32_t));
+    stream(primitiveBuffer, uint64_t(arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData));
+    return replacement;
+}
+
+bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMeshVariantResource& mesh, uint32_t frame,
+    const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena) const
+{
+    NRIVoxelOptionalGrowth::Demand demand;
+    NRIVoxelOptionalGrowth::Replacement replacement;
+    const char* bypass = "other-work";
+    if ((bool)nri_ptvoxelparksupersededgrowth && growsArena && intent.IsUnownedGameplayRequest() &&
+        !loadingWarmupActive && !preloadPending && !retentionQuarantined && mesh.resourceKey)
+    {
+        replacement = GeometryGrowthReplacement();
+        if (replacement.oldBytes >= NRIVoxelOptionalGrowth::MinimumCopyBytes)
+        {
+            demand = GeometryGrowthDemand(mesh.resourceKey, frame);
+            bypass = demand.Bypass();
+        }
+        else bypass = "existing-or-small";
+    }
+    const bool park = !bypass;
+    if (park) PerfAuditAdd(PerfAuditMetric::VoxelSupersededGrowthDeferrals);
+    // This flag records an episode. Each new pump rechecks actual range fit
+    // and current ownership, including any source or family that just arrived.
+    if (mesh.supersededGrowthParked != park && PerfAuditActive())
+    {
+        char fields[512];
+        snprintf(fields, sizeof(fields), "\"map_epoch\":%u,\"renderer_frame\":%u,\"mesh_key\":%llu,\"pair_key\":%llu,"
+            "\"action\":\"%s\",\"reason\":\"%s\",\"current_authority\":%s,\"requested_consumers\":%u,\"active_references\":%u,"
+            "\"family_pinned\":%u,\"family_staged\":%u,\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu",
+            residencyMapGeneration, frame, (unsigned long long)mesh.resourceKey, (unsigned long long)intent.freshDirectPair,
+            park ? "park" : "resume", park ? "superseded-gameplay-pose" : bypass, demand.authoritative ? "true" : "false",
+            demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
+            (unsigned long long)replacement.oldBytes, (unsigned long long)replacement.minimumBytes);
+        PerfAuditWriteEvent("voxel_superseded_growth", PerfAuditCurrentToken(), fields);
+    }
+    mesh.supersededGrowthParked = park;
+    return park;
 }

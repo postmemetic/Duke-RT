@@ -5803,6 +5803,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	// The admission pump may still own a previous actor request after its pose
 	// leaves view. The allocation owner checks the current mesh census.
 	const bool liveSpawnPose = runtimePump && enemyFamilyStaging.NeedsSpawnPose(entry.pairKey);
+	uint64_t newPreflightToken = 0;
 	const auto allocationIntent = [&](const NRIPersistentVoxelGeometryRangeHandle& oldRange)
 	{
 		const auto& mesh = entry.uploadMeshResource;
@@ -5819,6 +5820,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			preloadHandoff.yielded && preloadHandoff.mapEpoch == residencyLastBuildSerial;
 		NRIVoxelGeometryAdmissionIntent intent{entry.sourceBits, entry.priority, entry.admissionOrigins,
 			entry.gpuForce, entry.gpuPrefer, ownsWork, entry.requiredPreload, runtimePump, afterHandoff, entry.preloadInputHints};
+		if (newPreflightToken && newPreflightToken == entry.schedulerTokenId) intent.freshDirectPair = entry.pairKey;
 		if (liveSpawnPose)
 		{
 			// Record the current service obligation without adding it to the
@@ -5829,7 +5831,6 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 		return intent;
 	};
-	uint64_t newPreflightToken = 0;
 	auto deferAllocation = [&](PersistentVoxelMeshVariantResource& mesh,
 		const NRIPersistentVoxelGeometryRangeHandle& oldRange, NRIPersistentVoxelAllocationResult result)
 	{

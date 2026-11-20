@@ -16,6 +16,7 @@ struct NRIVoxelGeometryAdmissionIntent
     bool force = false, prefer = false, ownsWork = false, requiredPreload = false;
     bool runtimePump = false, afterHandoff = false;
     nri_scene::VoxelPreloadInputHints inputHints;
+    uint64_t freshDirectPair = 0;
 
     bool RuntimeActor() const { return (origins & uint8_t(NRIVoxelAdmissionOrigin::RuntimeActor)) != 0; }
     bool PreferredManifest() const
@@ -38,6 +39,11 @@ struct NRIVoxelGeometryAdmissionIntent
     }
     bool MayYield() const
     { return runtimePump && !ownsWork && !Required() && (RuntimeActor() || PreferredManifest() || SyntheticWarmupForce() || MergedPreference()); }
+    bool IsUnownedGameplayRequest() const
+    {
+        return freshDirectPair && runtimePump && !ownsWork && origins == uint8_t(NRIVoxelAdmissionOrigin::RuntimeActor) &&
+            !sourceBits && !force && !prefer && !requiredPreload && !inputHints.bits;
+    }
     const char* Kind() const
     {
         if (!origins) return "actor-batch";
@@ -77,6 +83,7 @@ struct NRIVoxelOptionalGrowth
         std::array<uint32_t, 3> rows = {};
         uint64_t generation = 0, bytes = 0;
     };
+    struct Replacement { uint64_t oldBytes = 0, minimumBytes = 0; };
     struct Owner { Footprint footprint; uint64_t probe = 0; };
     struct Decision { bool defer; const char* reason; bool first = false; };
 

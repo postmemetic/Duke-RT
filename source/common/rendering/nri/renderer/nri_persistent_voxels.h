@@ -158,6 +158,7 @@ struct PersistentVoxelMeshVariantResource
 	bool tlasPublished = false;
 	bool shadowProxyPrimitiveSemanticsCertified = false;
 	bool directComputePublished = false;
+	bool supersededGrowthParked = false;
 	NRIVoxelComputeDirectPublishOutputKind directComputeOutputKind = NRIVoxelComputeDirectPublishOutputKind::None;
 	NRIVoxelComputeDirectPublishFailure directComputeFailure = NRIVoxelComputeDirectPublishFailure::None;
 	bool cold = false;
@@ -1115,6 +1116,10 @@ public:
     NRIVoxelRetentionPressure warmRetentionPressure;
     NRIVoxelAdmissionReclaim admissionReclaim;
     NRIVoxelOptionalGrowth optionalGrowth;
+    NRIVoxelOptionalGrowth::Demand GeometryGrowthDemand(uint64_t mesh, uint32_t frame) const;
+    NRIVoxelOptionalGrowth::Replacement GeometryGrowthReplacement() const;
+    bool ParkSupersededGeometryGrowth(PersistentVoxelMeshVariantResource& mesh, uint32_t frame,
+        const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena) const;
     uint64_t reclaimGeometryRevision = 0;
     bool CollectCachePins(const NRIPersistentVoxelSettings& settings, NRIVoxelCachePins& pins,
         size_t maximum = SIZE_MAX, bool authoritativeEmptyAfterWait = false, bool includeEnemyStaging = true) const;

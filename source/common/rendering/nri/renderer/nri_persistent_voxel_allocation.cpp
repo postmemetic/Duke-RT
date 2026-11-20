@@ -95,28 +95,12 @@ namespace
     {
         const bool audit = PerfAuditActive();
         const uint64_t start = audit ? PerfAuditClockNs() : 0;
-        NRIVoxelOptionalGrowth::Demand demand;
-        demand.authoritative = arena.actorDemand.HasCurrentMeshAuthority(frame);
-        demand.consumers = arena.actorDemand.Upgrade(mesh, frame).requestedConsumers;
-        auto active = arena.activeMeshReferences.find(mesh);
-        demand.active = active == arena.activeMeshReferences.end() ? 0 : active->second;
-        const auto& pins = arena.enemyPolicy.MeshPins();
-        auto family = pins.find(mesh);
-        demand.family = family != pins.end() && family->second != 0;
-        demand.staged = arena.enemyFamilyStaging.MeshPins().count(mesh) != 0;
+        const auto demand = arena.GeometryGrowthDemand(mesh, frame);
         if (const char* bypass = demand.Bypass()) return {false, bypass};
 
-        NRIVoxelOptionalGrowth::Footprint footprint{rows, arena.allocationArenaRetry.Generation()};
-        uint64_t oldBytes = 0;
-        const auto stream = [&](const NRIBufferResource& backing, uint64_t required)
-        {
-            if (required <= backing.size) return;
-            oldBytes = NRIVoxelComputeSaturatingAdd(oldBytes, backing.memorySize);
-            footprint.bytes = NRIVoxelComputeSaturatingAdd(footprint.bytes, required);
-        };
-        stream(arena.vertexBuffer, uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex));
-        stream(arena.indexBuffer, uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t));
-        stream(arena.primitiveBuffer, uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData));
+        const auto replacement = arena.GeometryGrowthReplacement();
+        NRIVoxelOptionalGrowth::Footprint footprint{rows, arena.allocationArenaRetry.Generation(), replacement.minimumBytes};
+        const uint64_t oldBytes = replacement.oldBytes;
         if (oldBytes < NRIVoxelOptionalGrowth::MinimumCopyBytes) return {false, "existing-or-small"};
 
         auto& policy = arena.optionalGrowth;
@@ -214,6 +198,11 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
         uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size);
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
+    if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs))
+    {
+        mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
+        return Result::DeferredIdleGrowth;
+    }
     const bool mayYield = intent.MayYield();
     const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
     if (mayYield && growsArena && arenaRecovery && reclaimEnabled && !arena.retentionQuarantined && mesh.resourceKey)
