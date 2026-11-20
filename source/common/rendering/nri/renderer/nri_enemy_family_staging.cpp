@@ -106,6 +106,11 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     const bool prepareAll = budget.completePreloadFits && budget.usage < available;
     if (prepareAll)
         stats.limitBytes = std::max(stats.limitBytes, Add(stats.chargedBytes, available - budget.usage));
+    // Geometry in the committed arena is already paid, but its logical ranges cannot be handed
+    // to another family while pinned. Bound that opportunity cost along with actual retained BLAS.
+    const uint64_t ordinaryLimit = stats.limitBytes;
+    const uint64_t pricedLimit = std::min(budget.startupChargedBytes, budget.budget / 2);
+    if (!prepareAll) stats.limitBytes = std::max(ordinaryLimit, pricedLimit);
     const uint32_t familyLimit = prepareAll ? MaximumPreparedFamilies : MaximumFamilies;
     const uint32_t meshLimit = prepareAll ? MaximumPreparedFamilies * MaximumFamilyPoses : MaximumMeshes;
     decisions.clear();
@@ -120,15 +125,17 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
         if (family.complete && family.poses && !family.meshes.empty()) candidates.push_back({&family, Cost(family), count});
         else decisions.push_back({family.signature, 0, family.id, count, "incomplete"});
     }
-    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b)
+    std::sort(candidates.begin(), candidates.end(), [&](const Candidate& a, const Candidate& b)
     {
+        if (!prepareAll && pricedLimit && a.family->startupPriced != b.family->startupPriced)
+            return a.family->startupPriced;
         if (a.cost != b.cost) return a.cost < b.cost;
         return a.owners != b.owners ? a.owners > b.owners : a.family->signature < b.family->signature;
     });
     std::unordered_set<uint64_t> old;
     for (const auto& item : selected) old.insert(item.family.signature);
     selected.clear(); pins.clear();
-    uint64_t charged = 0, protectedCold = 0;
+    uint64_t charged = 0, protectedCold = 0, prospectiveMaterials = 0;
     for (const auto& candidate : candidates)
     {
         const auto* family = candidate.family;
@@ -150,8 +157,10 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
             if (!pins.count(mesh.key) && keys.insert(mesh.key).second)
             { extra = Add(extra, Add(mesh.geometryBytes, mesh.physicalBytes)); cold = Add(cold, mesh.coldPhysicalBytes); }
         }
+        const bool credit = family->startupPriced && !prepareAll && pricedLimit > ordinaryLimit;
+        const uint64_t limit = credit ? stats.limitBytes : ordinaryLimit;
         if (!valid || family->poses > MaximumFamilyPoses || selected.size() >= familyLimit ||
-            keys.size() > meshLimit - std::min<size_t>(meshLimit, pins.size()) || extra > stats.limitBytes - std::min(charged, stats.limitBytes))
+            keys.size() > meshLimit - std::min<size_t>(meshLimit, pins.size()) || extra > limit - std::min(charged, limit))
         {
             ++stats.capRefusalsTotal; decision.reason = "cap";
             if (old.count(family->signature) && stats.limitBytes < previousLimit)
@@ -160,7 +169,18 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
         }
         const uint64_t retainedCold = Add(protectedCold, cold);
         const uint64_t remainingCold = budget.coldPhysical - std::min(retainedCold, budget.coldPhysical);
-        if (stats.requiredReclaimBytes > remainingCold)
+        uint64_t materials = prospectiveMaterials;
+        if (credit)
+        {
+            // Limits above bound owners and poses. The caller supplies the actual palette stride.
+            const uint64_t bindings = uint64_t(candidate.owners) * family->poses;
+            if (bindings && budget.materialBytesPerPose > UINT64_MAX / bindings) materials = UINT64_MAX;
+            else materials = Add(materials, bindings * budget.materialBytesPerPose);
+        }
+        const uint64_t future = materials ? Add(materials, budget.startupScratchBytes) : 0;
+        const uint64_t projected = Add(budget.usage, future);
+        const uint64_t needed = projected > available ? projected - available : 0;
+        if (future == UINT64_MAX || needed > remainingCold)
         {
             decision.reason = "pressure-reserve";
             if (old.count(family->signature)) { ++stats.pressureDropsTotal; pressureRejected.insert(family->signature); }
@@ -168,7 +188,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
         }
         previouslyStaged.insert(family->signature);
         selected.push_back({*family}); pins.insert(keys.begin(), keys.end());
-        charged = Add(charged, extra); protectedCold = retainedCold;
+        charged = Add(charged, extra); protectedCold = retainedCold; prospectiveMaterials = materials;
     }
     stats.otherColdPhysicalBytes = budget.coldPhysical - std::min(protectedCold, budget.coldPhysical);
     Rebuild();

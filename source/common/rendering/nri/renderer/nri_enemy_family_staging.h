@@ -20,11 +20,13 @@ struct NRIEnemyStageFamily
     uint32_t id = 0, poses = 0;
     bool complete = false;
     std::vector<NRIEnemyStageMesh> meshes;
+    bool startupPriced = false;
 };
 struct NRIEnemyStageBudget
 {
     uint64_t usage = 0, budget = 0, reserve = 0, coldPhysical = 0;
     bool completePreloadFits = false;
+    uint64_t startupChargedBytes = 0, startupScratchBytes = 0, materialBytesPerPose = 0;
 };
 struct NRIEnemyStageStats
 {

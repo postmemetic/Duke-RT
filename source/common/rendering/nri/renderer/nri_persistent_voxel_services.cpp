@@ -1470,12 +1470,12 @@ public:
 					computePreloadSettings.strict ? 1 : 0,
 					(uint32_t)GetPersistentVoxelBlasBuildFlags());
 			}
-			if ((bool)nri_ptvoxelarenapresize)
-			{
-				renderer.PreSizePersistentVoxelGeometryArenas(computePreloadStats, computePreloadSettings);
-			}
 			std::vector<nri_scene::PrecachedVoxelVariantView> directPreloadVariants;
 			BuildNRIVoxelComputePreloadDirectVariants(rawVariants, computePreloadSettings, directPreloadVariants);
+			if ((bool)nri_ptvoxelarenapresize)
+			{
+				renderer.PreSizePersistentVoxelGeometryArenas(computePreloadStats, computePreloadSettings, directPreloadVariants);
+			}
 			if (!directPreloadVariants.empty())
 			{
 				if ((int)nri_ptloadingtrace >= 1 || computePreloadSettings.traceLevel >= 1 || (int)nri_ptvoxelcomputetrace >= 1)

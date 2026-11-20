@@ -34,3 +34,4 @@ inline bool NRIPersistentVoxelAllocationDeferred(NRIPersistentVoxelAllocationRes
 // Shared by metadata reservation and the later voxel build so their required
 // memory and build flags cannot silently diverge.
 nri::AccelerationStructureBits GetNRIPersistentVoxelAllocationBlasFlags();
+nri::BottomLevelGeometryDesc BuildNRIVoxelAllocationGeometry(uint32_t vertices, uint32_t indices);

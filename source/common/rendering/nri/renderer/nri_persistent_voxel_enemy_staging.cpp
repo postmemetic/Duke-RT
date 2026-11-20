@@ -3,6 +3,7 @@
 #include "c_cvars.h"
 #include "nri_voxel_compute_preload.h"
 #include "nri_voxel_preload_budget.h"
+#include "../scene/nri_voxel_material_slots.h"
 #include "perf_audit.h"
 #include <algorithm>
 #include <cstdio>
@@ -11,6 +12,7 @@
 EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
 EXTERN_CVAR(Bool, nri_ptenemyrepresentationtrace)
 EXTERN_CVAR(Int, nri_ptvoxelallocationreservemb)
+EXTERN_CVAR(Bool, nri_ptvoxelstartupfamilybudget)
 
 namespace
 {
@@ -195,16 +197,22 @@ void NRIPersistentVoxelResidency::UpdateEnemyFamilyStaging(uint32_t frame,
         costs.emplace(item.first, NRIEnemyStageMesh{item.first, geometry, physical, cold});
         coldPhysical = Add(coldPhysical, cold);
     }
+    const bool hasPricedBacking = (bool)nri_ptvoxelstartupfamilybudget && startupFamilyBudget.build &&
+        startupFamilyBudget.build == residencyLastBuildSerial;
     for (auto& family : families)
     {
+        family.startupPriced = hasPricedBacking && family.complete;
         for (auto& mesh : family.meshes)
         {
+            family.startupPriced = family.startupPriced && startupFamilyBudget.meshes.count(mesh.key);
             const auto found = costs.find(mesh.key);
             if (found == costs.end()) family.complete = false;
             else mesh = found->second;
         }
     }
-    enemyFamilyStaging.Select(families, {usageBytes, budgetBytes, reserve, coldPhysical, enemyPreparesProspectiveMaterials});
+    enemyFamilyStaging.Select(families, {usageBytes, budgetBytes, reserve, coldPhysical, enemyPreparesProspectiveMaterials,
+        hasPricedBacking ? startupFamilyBudget.StageCharge() : 0, hasPricedBacking ? startupFamilyBudget.largestScratchBytes : 0,
+        uint64_t(nri_scene::VoxelPaletteMaterialSlotCount) * sizeof(nri_scene::MaterialData)});
     // No allocation or immediate freed-memory claim follows this selection.
     // Ordinary retirement and allocation admission retain their fence/budget gates.
     if ((bool)nri_ptenemyrepresentationtrace && PerfAuditActive())

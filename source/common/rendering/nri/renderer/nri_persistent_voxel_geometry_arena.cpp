@@ -16,7 +16,8 @@
 #include <limits>
 
 void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
-    const NRIVoxelComputePreloadStats& stats, const NRIVoxelComputePreloadSettings& settings)
+    const NRIVoxelComputePreloadStats& stats, const NRIVoxelComputePreloadSettings& settings,
+    const std::vector<nri_scene::PrecachedVoxelVariantView>& variants)
 {
     auto& arena = mPersistentVoxels;
     const uint64_t buildSerial = mMapWorld.buildSerial;
@@ -27,6 +28,8 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     // This is optional capacity planning, never a migration of published data.
     // One attempt per map prevents a failed reservation from stalling every load tick.
     arena.arenaPresizeBuildSerial = buildSerial;
+    arena.startupFamilyBudget = {};
+    NRIVoxelStartupFamilyBudget families;
     const auto start = std::chrono::steady_clock::now();
     const bool inventorySizing = (bool)nri_ptvoxelallocationbudget && (bool)nri_ptvoxelarenastartupinventory;
     const auto& inventory = stats.startupGeometry;
@@ -49,7 +52,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
         const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         if (PerfAuditActive())
         {
-            char fields[2048];
+            char fields[2560];
             snprintf(fields, sizeof(fields),
                 "\"renderer_frame\":%u,\"map_epoch\":%llu,\"phase\":\"loading\",\"decision\":\"%s\","
                 "\"selected_geometry_bytes\":%llu,\"withheld_geometry_bytes\":%llu,\"alias_reserve_bytes\":%llu,"
@@ -57,6 +60,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
                 "\"inventory_sizing\":%s,\"required_geometry_bytes\":%llu,\"optional_preload_bytes\":%llu,"
                 "\"pressure_target_bytes\":%llu,\"pressure_alias_bytes\":%llu,\"pressure_withheld_bytes\":%llu,"
                 "\"preflight_allocation_bytes\":%llu,\"accounting_allowance_bytes\":%llu,"
+                "\"placed_meshes\":%zu,\"placed_geometry_bytes\":%llu,\"placed_blas_bytes\":%llu,\"placed_scratch_bytes\":%llu,\"placed_material_bytes\":%llu,"
                 "\"candidate_count\":%u,\"budget_candidate_valid\":%s,\"predicted_allocation_bytes\":%llu,\"committed_bytes\":%llu,"
                 "\"live_budget_available\":%s,\"current_usage_bytes\":%llu,\"local_budget_bytes\":%llu,"
                 "\"minimum_reserve_bytes\":%llu,\"future_bytes\":%llu,\"required_headroom_bytes\":%llu,"
@@ -71,7 +75,9 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
                 (unsigned long long)inventory.requiredBytes, (unsigned long long)inventory.optionalPreloadBytes,
                 (unsigned long long)pressurePlan.targetGeometryBytes, (unsigned long long)inventory.largestPreloadBytes,
                 (unsigned long long)inventory.largestWithheldBytes, (unsigned long long)preflightBytes,
-                (unsigned long long)(inventorySizing ? NRIVoxelStartupAccountingAllowance : 0), testedCandidates,
+                (unsigned long long)(inventorySizing ? NRIVoxelStartupAccountingAllowance : 0), families.meshes.size(),
+                (unsigned long long)families.geometryBytes, (unsigned long long)families.blasBytes,
+                (unsigned long long)families.largestScratchBytes, (unsigned long long)families.materialBytes, testedCandidates,
                 selectedBytes != 0 ? "true" : "false",
                 (unsigned long long)predictedBytes, (unsigned long long)committedBytes,
                 adapter.liveUsageAvailable ? "true" : "false", (unsigned long long)currentUsage,
@@ -136,6 +142,8 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     const uint64_t minimumPrimitives = std::max<uint64_t>(1, (minimumMeshBytes + bytesPerPrimitive - 1) / bytesPerPrimitive);
     std::array<nri::BufferDesc, 3> descriptors = {};
     std::array<uint64_t, 3> predicted = {};
+    if (inventorySizing && (bool)nri_ptvoxelstartupfamilybudget)
+        families = PriceNRIVoxelStartupFamilies(*mFrameBuffer->mDevice, mFrameBuffer->mRayTracing, limits.alignmentDefault, variants);
     const auto selection = SelectNRIPersistentVoxelGeometryArenaCapacity(maximumPrimitives, minimumPrimitives,
         [&](uint64_t candidatePrimitives)
     {
@@ -167,10 +175,23 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
         }
         // A partial plan budgets future AS/scratch for the selected geometry
         // capacity, not an assertion that the entire manifest will fit later.
-        const auto candidateBudget = BuildNRIPersistentVoxelGeometryArenaBudget(currentUsage, adapter.localBudgetBytes,
+        auto candidateBudget = BuildNRIPersistentVoxelGeometryArenaBudget(currentUsage, adapter.localBudgetBytes,
             settings.minimumLocalMemoryReserveBytes, inventorySizing ? chargedBytes : candidateBytes, candidatePrimitives * bytesPerPrimitive,
             stats.rawSelectedUniqueSourceBytes, settings.peakEstimatePercent);
         if (!candidateBudget.fits) return false;
+        if (!families.meshes.empty())
+        {
+            // The ordinary percentage forecast already includes AS and scratch. Apply the native floor once.
+            uint64_t nativeFuture = families.FutureBytes();
+            if (!AccumulateNRIVoxelStartupHeapCharge(stats.rawSelectedUniqueSourceBytes, 1, nativeFuture)) return false;
+            if (nativeFuture > candidateBudget.futureBytes)
+            {
+                const uint64_t extra = nativeFuture - candidateBudget.futureBytes;
+                if (extra > candidateBudget.availableBytes - candidateBudget.requiredBytes) return false;
+                candidateBudget.requiredBytes += extra;
+                candidateBudget.futureBytes = nativeFuture;
+            }
+        }
         descriptors = candidate;
         predicted = requirementsBytes;
         predictedBytes = candidateBytes;
@@ -219,4 +240,9 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     arena.primitiveBuffer = reserved[2];
     arena.allocationArenaRetry.BackingChanged();
     report("reserved");
+    if (!families.meshes.empty() && selectedBytes >= families.geometryBytes)
+    {
+        families.build = buildSerial;
+        arena.startupFamilyBudget = std::move(families);
+    }
 }

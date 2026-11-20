@@ -2538,7 +2538,8 @@ private:
 	void NoteWorldBlasContentChanged();
 	bool PreloadStaticMapResources();
 	bool PreloadPersistentVoxelResources();
-	void PreSizePersistentVoxelGeometryArenas(const NRIVoxelComputePreloadStats& stats, const NRIVoxelComputePreloadSettings& settings);
+	void PreSizePersistentVoxelGeometryArenas(const NRIVoxelComputePreloadStats& stats, const NRIVoxelComputePreloadSettings& settings,
+		const std::vector<nri_scene::PrecachedVoxelVariantView>& variants);
 	bool PreloadMaterialResources();
 	bool PreGrowLevelSceneResourcesForLoading();
 	bool EnsurePersistentVoxelBatch();

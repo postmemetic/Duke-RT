@@ -5,6 +5,7 @@
 #include "nri_persistent_voxel_actor_demand.h"
 #include "nri_enemy_representation.h"
 #include "nri_enemy_family_staging.h"
+#include "nri_voxel_startup_family_budget.h"
 #include "nri_persistent_voxel_admission_reclaim.h"
 #include "nri_voxel_publication_order.h"
 
@@ -1117,6 +1118,8 @@ public:
     NRIVoxelAdmissionReclaim admissionReclaim;
     NRIVoxelOptionalGrowth optionalGrowth;
     NRIVoxelOptionalGrowth::Demand GeometryGrowthDemand(uint64_t mesh, uint32_t frame) const;
+    void ReportGeometryReplacementConsumers(uint64_t mesh, uint32_t frame, const NRIVoxelGeometryAdmissionIntent& intent,
+        uint64_t oldArenaBytes, uint64_t newArenaBytes) const;
     NRIVoxelOptionalGrowth::Replacement GeometryGrowthReplacement() const;
     bool ParkSupersededGeometryGrowth(PersistentVoxelMeshVariantResource& mesh, uint32_t frame,
         const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena) const;
@@ -1486,6 +1489,7 @@ public:
 	std::vector<NRIPersistentVoxelMaterialRangeHandle> quarantinedMaterialRanges;
 	NRIPersistentVoxelMaterialUploadMirror materialUploadMirror;
 	uint64_t arenaPresizeBuildSerial = 0;
+	NRIVoxelStartupFamilyBudget startupFamilyBudget;
 	uint64_t blasPolicyTraceBuildSerial = 0;
 	uint64_t materialResourceGeneration = 1;
 	uint64_t batchMaterialResourceGeneration = 0;

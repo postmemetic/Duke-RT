@@ -45,23 +45,23 @@ bool CanContinueNRIVoxelAllocationWait(const PersistentVoxelAdmissionEntry& entr
         NRIPersistentVoxelAllocationWaitCanContinue(entry.lastReason, hasOwnedWork);
 }
 
+nri::BottomLevelGeometryDesc BuildNRIVoxelAllocationGeometry(uint32_t vertices, uint32_t indices)
+{
+    nri::BottomLevelGeometryDesc geometry = {};
+    geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
+    geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+    geometry.triangles.vertexBuffer = nri::HAS_BUFFER;
+    geometry.triangles.vertexNum = vertices;
+    geometry.triangles.vertexStride = sizeof(nri_scene::SceneVertex);
+    geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
+    geometry.triangles.indexBuffer = nri::HAS_BUFFER;
+    geometry.triangles.indexNum = indices;
+    geometry.triangles.indexType = nri::IndexType::UINT32;
+    return geometry;
+}
+
 namespace
 {
-    nri::BottomLevelGeometryDesc Geometry(uint32_t vertices, uint32_t indices)
-    {
-        nri::BottomLevelGeometryDesc geometry = {};
-        geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
-        geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
-        geometry.triangles.vertexBuffer = nri::HAS_BUFFER;
-        geometry.triangles.vertexNum = vertices;
-        geometry.triangles.vertexStride = sizeof(nri_scene::SceneVertex);
-        geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
-        geometry.triangles.indexBuffer = nri::HAS_BUFFER;
-        geometry.triangles.indexNum = indices;
-        geometry.triangles.indexType = nri::IndexType::UINT32;
-        return geometry;
-    }
-
     bool AddBytes(uint64_t& total, uint64_t bytes)
     {
         if (bytes > std::numeric_limits<uint64_t>::max() - total) return false;
@@ -337,7 +337,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     // Re-preparation replaces this owner's promise; other pending jobs remain reserved.
     budget.usageBytes = NRIVoxelComputeUsageAfterOwnerCredit(budget.usageBytes,
         budget.computeReservedBytes, mesh.computeProviderReservation.Total());
-    auto geometry = Geometry(vertexCount, indexCount);
+    auto geometry = BuildNRIVoxelAllocationGeometry(vertexCount, indexCount);
     nri::AccelerationStructureDesc asDesc = {};
     asDesc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
     asDesc.flags = flags;
@@ -513,6 +513,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
     }
 
+    if (PerfAuditActive() && !overflow && intent.runtimePump && oldArenaBytes >= NRIVoxelOptionalGrowth::MinimumCopyBytes)
+        arena.ReportGeometryReplacementConsumers(mesh.resourceKey, mFrameIndex, intent, oldArenaBytes, newArenaBytes);
     std::array<NRIBufferResource, 6> unpublished = {};
     std::array<double, 6> allocationMs = {};
     NRIAccelerationStructureResource unpublishedAs;
@@ -765,7 +767,7 @@ bool NRIRenderer::BuildPreparedPersistentVoxelBottomLevel(const NRIBufferResourc
         !scratch.buffer || scratch.size < resource.buildScratchSize) return false;
     // All device allocations were reserved physically before arena publication.
     // Budget contraction cannot cause an extra allocation at this build boundary.
-    auto geometry = Geometry(vertexCount, indexCount);
+    auto geometry = BuildNRIVoxelAllocationGeometry(vertexCount, indexCount);
     geometry.triangles.vertexBuffer = vertices.buffer;
     geometry.triangles.vertexOffset = uint64_t(vertexOffset) * sizeof(nri_scene::SceneVertex);
     geometry.triangles.indexBuffer = indices.buffer;
