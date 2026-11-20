@@ -1,5 +1,6 @@
 #include "nri_scene_upload.h"
 #include "nri_cvars.h"
+#include "nri_persistent_voxel_cache_diagnostics.h"
 
 #include "nri_renderer.h"
 #include "../scene/nri_mutation_pipeline_audit.h"
@@ -2524,7 +2525,10 @@ void NRIRenderer::RetirePersistentVoxelGeometryRange(NRIPersistentVoxelGeometryR
 			return;
 		}
 	}
-	if (mFrameBuffer && mFrameBuffer->mCommandBuffer && !mResidentUploadScratchFrames.empty())
+	const bool queued = mFrameBuffer && mFrameBuffer->mCommandBuffer && !mResidentUploadScratchFrames.empty();
+	if (!range.overflowPage && (bool)nri_ptvoxelmeshlifetrace && PerfAuditActive())
+		NRIAuditVoxelRangeRetirement(range.transaction, queued ? mFrameBuffer->GetRecordingCommandFenceValue() : 0, queued);
+	if (queued)
 		GetResidentUploadScratchFrame().retiredVoxelGeometryRanges.push_back(range);
 	else
 		mPersistentVoxels.quarantinedGeometryRanges.push_back(range);

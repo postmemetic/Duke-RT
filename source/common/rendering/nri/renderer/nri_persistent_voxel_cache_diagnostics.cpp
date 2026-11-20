@@ -32,6 +32,14 @@ std::string JsonName(const char* text)
 }
 }
 
+void NRIAuditVoxelRangeRetirement(uint64_t transaction, uint64_t recordingFence, bool queued)
+{
+    char fields[160];
+    std::snprintf(fields, sizeof(fields), "\"transaction\":%llu,\"recording_fence\":%llu,\"queued\":%s",
+        U64(transaction), U64(recordingFence), Bool(queued));
+    PerfAuditWriteEvent("voxel_geometry_retirement", PerfAuditCurrentToken(), fields);
+}
+
 struct NRIPersistentVoxelCacheDiagnosticState
 {
     struct Actor

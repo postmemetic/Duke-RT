@@ -6,6 +6,8 @@ class NRIPersistentVoxelResidency;
 struct NRIPersistentVoxelSettings;
 struct NRIPersistentVoxelCacheDiagnosticState;
 
+void NRIAuditVoxelRangeRetirement(uint64_t transaction, uint64_t recordingFence, bool queued);
+
 // Correctness-only observation of batch publication. Never owns actor/resource
 // pointers across calls, and allocates no history with cache validation disabled.
 class NRIVoxelCacheDiagnosticScope
