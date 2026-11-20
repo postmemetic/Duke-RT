@@ -9,7 +9,7 @@
 CVAR(Bool, nri_ptvoxelactoradmission, true, 0)
 CVAR(Bool, nri_ptvoxelcoalesce, true, 0)
 CVAR(Bool, nri_ptvoxelwarmretention, true, 0)
-CVAR(Bool, nri_ptvoxelparksupersededgrowth, true, 0)
+CVAR(Bool, nri_ptvoxelparksupersededgrowth, false, 0)
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
 EXTERN_CVAR(Int, nri_ptactorholdframes)
 
