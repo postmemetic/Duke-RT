@@ -110,7 +110,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     // to another family while pinned. Bound that opportunity cost along with actual retained BLAS.
     const uint64_t ordinaryLimit = stats.limitBytes;
     const uint64_t pricedLimit = std::min(budget.startupChargedBytes, budget.budget / 2);
-    if (!prepareAll) stats.limitBytes = std::max(ordinaryLimit, pricedLimit);
+    stats.limitBytes = std::max(ordinaryLimit, pricedLimit);
     const uint32_t familyLimit = prepareAll ? MaximumPreparedFamilies : MaximumFamilies;
     const uint32_t meshLimit = prepareAll ? MaximumPreparedFamilies * MaximumFamilyPoses : MaximumMeshes;
     decisions.clear();
@@ -127,7 +127,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     }
     std::sort(candidates.begin(), candidates.end(), [&](const Candidate& a, const Candidate& b)
     {
-        if (!prepareAll && pricedLimit && a.family->startupPriced != b.family->startupPriced)
+        if (pricedLimit > ordinaryLimit && a.family->startupPriced != b.family->startupPriced)
             return a.family->startupPriced;
         if (a.cost != b.cost) return a.cost < b.cost;
         return a.owners != b.owners ? a.owners > b.owners : a.family->signature < b.family->signature;
@@ -157,7 +157,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
             if (!pins.count(mesh.key) && keys.insert(mesh.key).second)
             { extra = Add(extra, Add(mesh.geometryBytes, mesh.physicalBytes)); cold = Add(cold, mesh.coldPhysicalBytes); }
         }
-        const bool credit = family->startupPriced && !prepareAll && pricedLimit > ordinaryLimit;
+        const bool credit = family->startupPriced && pricedLimit > ordinaryLimit;
         const uint64_t limit = credit ? stats.limitBytes : ordinaryLimit;
         if (!valid || family->poses > MaximumFamilyPoses || selected.size() >= familyLimit ||
             keys.size() > meshLimit - std::min<size_t>(meshLimit, pins.size()) || extra > limit - std::min(charged, limit))
