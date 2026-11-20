@@ -165,6 +165,21 @@ NRIVoxelOptionalGrowth::Replacement NRIPersistentVoxelResidency::GeometryGrowthR
     return replacement;
 }
 
+void NRIPersistentVoxelResidency::ReportGeometryReplacementConsumers(uint64_t mesh, uint32_t frame,
+    const NRIVoxelGeometryAdmissionIntent& intent, uint64_t oldArenaBytes, uint64_t newArenaBytes) const
+{
+    const auto demand = GeometryGrowthDemand(mesh, frame);
+    char fields[512];
+    snprintf(fields, sizeof(fields), "\"map_epoch\":%u,\"renderer_frame\":%u,\"mesh_key\":%llu,\"pair_key\":%llu,"
+        "\"pure_unowned_gameplay\":%s,\"current_authority\":%s,\"requested_consumers\":%u,\"active_references\":%u,"
+        "\"family_pinned\":%u,\"family_staged\":%u,\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu",
+        residencyMapGeneration, frame, (unsigned long long)mesh, (unsigned long long)intent.freshDirectPair,
+        intent.IsUnownedGameplayRequest() ? "true" : "false", demand.authoritative ? "true" : "false",
+        demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
+        (unsigned long long)oldArenaBytes, (unsigned long long)newArenaBytes);
+    PerfAuditWriteEvent("voxel_replacement_consumers", PerfAuditCurrentToken(), fields);
+}
+
 bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMeshVariantResource& mesh, uint32_t frame,
     const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena) const
 {
