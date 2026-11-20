@@ -513,7 +513,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         }
     }
 
-    if (PerfAuditActive() && !overflow && intent.runtimePump && oldArenaBytes >= NRIVoxelOptionalGrowth::MinimumCopyBytes)
+    if (PerfAuditActive() && !overflow && intent.runtimePump && oldArenaBytes)
         arena.ReportGeometryReplacementConsumers(mesh.resourceKey, mFrameIndex, intent, oldArenaBytes, newArenaBytes);
     std::array<NRIBufferResource, 6> unpublished = {};
     std::array<double, 6> allocationMs = {};

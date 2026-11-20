@@ -4986,6 +4986,10 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	candidates.reserve(admissionIndex.ActiveCount());
 	std::vector<uint64_t> drainedReadyKeys;
 	drainedReadyKeys.reserve(admissionIndex.ActiveCount());
+	// A gameplay material may share geometry with a required preload under a
+	// different pair key. Collect outstanding obligations in the existing scan.
+	const bool trackRequiredGrowth = !loadingPhase && ((bool)nri_ptvoxelparksupersededgrowth || PerfAuditActive());
+	requiredGrowthMeshes.clear();
 	for (uint64_t key : admissionIndex.ActiveKeys())
 	{
 		auto found = admissionQueue.find(key);
@@ -5025,6 +5029,9 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			stats.failed++;
 			continue;
 		}
+		if (trackRequiredGrowth && entry.mapGeneration == residencyMapGeneration &&
+			(entry.gpuForce || entry.requiredPreload || entry.preloadInputHints.HasObligation() || IsRequiredAdmission(entry)))
+			requiredGrowthMeshes.push_back(meshResourceKey);
 		stampQueuedEntry(entry);
 		if (entry.state == PersistentVoxelAdmissionState::Deferred)
 		{
@@ -5047,6 +5054,10 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		}
 		candidates.push_back(&entry);
 	}
+	std::sort(requiredGrowthMeshes.begin(), requiredGrowthMeshes.end());
+	requiredGrowthMeshes.erase(std::unique(requiredGrowthMeshes.begin(), requiredGrowthMeshes.end()), requiredGrowthMeshes.end());
+	requiredGrowthFrame = trackRequiredGrowth ? frameIndex : UINT32_MAX;
+	requiredGrowthMap = residencyMapGeneration;
 	for (uint64_t key : drainedReadyKeys)
 	{
 		const auto found = admissionQueue.find(key);

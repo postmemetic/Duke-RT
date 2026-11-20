@@ -134,7 +134,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     }
 }
 
-NRIVoxelOptionalGrowth::Demand NRIPersistentVoxelResidency::GeometryGrowthDemand(uint64_t mesh, uint32_t frame) const
+NRIVoxelOptionalGrowth::Demand NRIPersistentVoxelResidency::GeometryGrowthDemand(uint64_t mesh, uint32_t frame, bool includeRequiredJobs) const
 {
     NRIVoxelOptionalGrowth::Demand demand;
     demand.authoritative = actorDemand.HasCurrentMeshAuthority(frame);
@@ -147,6 +147,11 @@ NRIVoxelOptionalGrowth::Demand NRIPersistentVoxelResidency::GeometryGrowthDemand
     auto family = pins.find(mesh);
     demand.family = family != pins.end() && family->second != 0;
     demand.staged = enemyFamilyStaging.MeshPins().count(mesh) != 0;
+    if (includeRequiredJobs)
+    {
+        demand.authoritative &= requiredGrowthFrame == frame && requiredGrowthMap == residencyMapGeneration;
+        demand.requiredJob = std::binary_search(requiredGrowthMeshes.begin(), requiredGrowthMeshes.end(), mesh);
+    }
     return demand;
 }
 
@@ -168,14 +173,14 @@ NRIVoxelOptionalGrowth::Replacement NRIPersistentVoxelResidency::GeometryGrowthR
 void NRIPersistentVoxelResidency::ReportGeometryReplacementConsumers(uint64_t mesh, uint32_t frame,
     const NRIVoxelGeometryAdmissionIntent& intent, uint64_t oldArenaBytes, uint64_t newArenaBytes) const
 {
-    const auto demand = GeometryGrowthDemand(mesh, frame);
+    const auto demand = GeometryGrowthDemand(mesh, frame, true);
     char fields[512];
     snprintf(fields, sizeof(fields), "\"map_epoch\":%u,\"renderer_frame\":%u,\"mesh_key\":%llu,\"pair_key\":%llu,"
         "\"pure_unowned_gameplay\":%s,\"current_authority\":%s,\"requested_consumers\":%u,\"active_references\":%u,"
-        "\"family_pinned\":%u,\"family_staged\":%u,\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu",
+        "\"family_pinned\":%u,\"family_staged\":%u,\"required_job\":%u,\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu",
         residencyMapGeneration, frame, (unsigned long long)mesh, (unsigned long long)intent.freshDirectPair,
         intent.IsUnownedGameplayRequest() ? "true" : "false", demand.authoritative ? "true" : "false",
-        demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
+        demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged), unsigned(demand.requiredJob),
         (unsigned long long)oldArenaBytes, (unsigned long long)newArenaBytes);
     PerfAuditWriteEvent("voxel_replacement_consumers", PerfAuditCurrentToken(), fields);
 }
@@ -192,7 +197,7 @@ bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMe
         replacement = GeometryGrowthReplacement();
         if (replacement.oldBytes >= NRIVoxelOptionalGrowth::MinimumCopyBytes)
         {
-            demand = GeometryGrowthDemand(mesh.resourceKey, frame);
+            demand = GeometryGrowthDemand(mesh.resourceKey, frame, true);
             bypass = demand.Bypass();
         }
         else bypass = "existing-or-small";
@@ -206,10 +211,10 @@ bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMe
         char fields[512];
         snprintf(fields, sizeof(fields), "\"map_epoch\":%u,\"renderer_frame\":%u,\"mesh_key\":%llu,\"pair_key\":%llu,"
             "\"action\":\"%s\",\"reason\":\"%s\",\"current_authority\":%s,\"requested_consumers\":%u,\"active_references\":%u,"
-            "\"family_pinned\":%u,\"family_staged\":%u,\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu",
+            "\"family_pinned\":%u,\"family_staged\":%u,\"required_job\":%u,\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu",
             residencyMapGeneration, frame, (unsigned long long)mesh.resourceKey, (unsigned long long)intent.freshDirectPair,
             park ? "park" : "resume", park ? "superseded-gameplay-pose" : bypass, demand.authoritative ? "true" : "false",
-            demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged),
+            demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged), unsigned(demand.requiredJob),
             (unsigned long long)replacement.oldBytes, (unsigned long long)replacement.minimumBytes);
         PerfAuditWriteEvent("voxel_superseded_growth", PerfAuditCurrentToken(), fields);
     }

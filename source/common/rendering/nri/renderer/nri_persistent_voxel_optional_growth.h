@@ -67,7 +67,7 @@ struct NRIVoxelOptionalGrowth
     {
         bool authoritative = false;
         uint32_t consumers = 0, active = 0;
-        bool family = false, staged = false;
+        bool family = false, staged = false, requiredJob = false;
         const char* Bypass() const
         {
             if (!authoritative) return "authority-unavailable";
@@ -75,6 +75,7 @@ struct NRIVoxelOptionalGrowth
             if (active) return "active-reference";
             if (family) return "family-pin";
             if (staged) return "family-stage";
+            if (requiredJob) return "required-job";
             return nullptr;
         }
     };

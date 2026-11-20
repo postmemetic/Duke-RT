@@ -1117,7 +1117,9 @@ public:
     NRIVoxelRetentionPressure warmRetentionPressure;
     NRIVoxelAdmissionReclaim admissionReclaim;
     NRIVoxelOptionalGrowth optionalGrowth;
-    NRIVoxelOptionalGrowth::Demand GeometryGrowthDemand(uint64_t mesh, uint32_t frame) const;
+    std::vector<uint64_t> requiredGrowthMeshes;
+    uint32_t requiredGrowthFrame = UINT32_MAX, requiredGrowthMap = 0;
+    NRIVoxelOptionalGrowth::Demand GeometryGrowthDemand(uint64_t mesh, uint32_t frame, bool includeRequiredJobs = false) const;
     void ReportGeometryReplacementConsumers(uint64_t mesh, uint32_t frame, const NRIVoxelGeometryAdmissionIntent& intent,
         uint64_t oldArenaBytes, uint64_t newArenaBytes) const;
     NRIVoxelOptionalGrowth::Replacement GeometryGrowthReplacement() const;
