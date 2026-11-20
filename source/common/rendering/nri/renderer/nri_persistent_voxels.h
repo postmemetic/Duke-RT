@@ -1490,6 +1490,7 @@ public:
 	enum class PageTraceState { Cold, WaitingForLoad, Ready, Unavailable };
 	PageTraceState pageTraceState = PageTraceState::Cold;
 	int EffectiveOverflowPageMode();
+	uint64_t CurrentExplicitPagePair(uint32_t frame) const;
 	void BindOverflowPageForScene(const std::vector<SceneInstanceData>& instances);
 	bool SceneUsesOverflowPage() const
 	{ return boundOverflowGeneration != 0 && boundOverflowGeneration == overflowPage.PublishedGeneration(); }

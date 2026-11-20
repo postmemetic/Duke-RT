@@ -3,18 +3,21 @@
 #include "printf.h"
 #include "nri_cvars.h"
 #include "nri_diagnostic_names.h"
+#include "../scene/nri_hash.h"
 #include <cstdio>
 #include <algorithm>
 
+CVAR(Bool, nri_ptvoxelpageactorpriority, false, 0)
+
 namespace
 {
-    bool IsSelectedOverflowMesh(uint64_t mesh)
+    uint64_t SelectedOverflowMesh()
     {
         switch (int(nri_ptvoxeloverflowpagetarget))
         {
-        case 0: return mesh == NRIVoxelOverflowPage::TelescopeMesh;
-        case 1: return mesh == 14261219071072162745ull; // 1905_EXPLODE.kvx
-        default: return false;
+        case 0: return NRIVoxelOverflowPage::TelescopeMesh;
+        case 1: return 14261219071072162745ull; // 1905_EXPLODE.kvx
+        default: return 0;
         }
     }
 }
@@ -108,7 +111,7 @@ void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVox
 
 bool NRIPersistentVoxelResidency::HasOverflowNoFit(uint64_t mesh) const
 {
-    if (!IsSelectedOverflowMesh(mesh) || overflowPage.Lease()) return false;
+    if (!mesh || mesh != SelectedOverflowMesh() || overflowPage.Lease()) return false;
     const auto& records = admissionReclaim.Records();
     const auto found = records.find(mesh);
     if (found == records.end()) return false;
@@ -153,12 +156,26 @@ int NRIPersistentVoxelResidency::EffectiveOverflowPageMode()
     return pageTraceState == PageTraceState::Ready ? mode : 0;
 }
 
+uint64_t NRIPersistentVoxelResidency::CurrentExplicitPagePair(uint32_t frame) const
+{
+    if (!(bool)nri_ptvoxelpageactorpriority || (int)nri_ptvoxeloverflowpage != 2 ||
+        pageTraceState != PageTraceState::Ready || overflowPage.Lease() || retentionQuarantined ||
+        !(bool)nri_ptvoxelallocationbudget) return 0;
+    const uint64_t mesh = SelectedOverflowMesh();
+    if (!mesh) return 0;
+    const auto demand = actorDemand.Upgrade(mesh, frame);
+    if (!demand.consumers) return 0;
+    const auto actor = actorDemand.GetActor(demand.identity, demand.world, demand.lifetime, frame);
+    return actor.found && actor.desiredMesh == mesh && actor.desiredMaterial ?
+        nri_scene::HashCombine64(mesh, actor.desiredMaterial) : 0;
+}
+
 bool NRIPersistentVoxelResidency::TryReserveOverflowPage(PersistentVoxelMeshVariantResource& resource,
     uint64_t mesh, uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime)
 {
     const int mode = EffectiveOverflowPageMode();
     if ((mode != 1 && mode != 2) || !(bool)nri_ptvoxelallocationbudget ||
-        !IsSelectedOverflowMesh(mesh) || retentionQuarantined || overflowPage.Lease()) return false;
+        !mesh || mesh != SelectedOverflowMesh() || retentionQuarantined || overflowPage.Lease()) return false;
     if (!runtime || !actorDemand.Upgrade(mesh, frame).requestedConsumers) return false;
     if (mode == 1)
     {
