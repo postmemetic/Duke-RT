@@ -353,6 +353,40 @@ namespace
 		return result;
 	}
 
+	NRIVoxelStartupGeometryInventory MeasureStartupGeometry(
+		const std::vector<nri_scene::PrecachedVoxelVariantView>& poses)
+	{
+		enum class Use { Withheld, OptionalPreload, Required };
+		struct Geometry { uint64_t bytes; Use use; };
+		std::unordered_map<uint64_t, Geometry> meshes;
+		for (const auto& pose : poses)
+		{
+			const auto use = !pose.preloadGeometry ? Use::Withheld :
+				IsRequiredComputePreloadVariant(pose) ? Use::Required : Use::OptionalPreload;
+			const auto key = BuildPersistentVoxelVariantMeshResourceKey(pose);
+			auto entry = meshes.emplace(key, Geometry{EstimateVariantGeometryBytes(pose), use}).first;
+			// Material bindings may share a mesh. Any immediate user needs its backing at load.
+			entry->second.use = std::max(entry->second.use, use);
+		}
+		NRIVoxelStartupGeometryInventory inventory;
+		for (const auto& entry : meshes)
+		{
+			const auto& mesh = entry.second;
+			if (mesh.use == Use::Withheld)
+			{
+				inventory.withheldBytes += mesh.bytes;
+				inventory.largestWithheldBytes = std::max(inventory.largestWithheldBytes, mesh.bytes);
+			}
+			else
+			{
+				if (mesh.use == Use::Required) inventory.requiredBytes += mesh.bytes;
+				else inventory.optionalPreloadBytes += mesh.bytes;
+				inventory.largestPreloadBytes = std::max(inventory.largestPreloadBytes, mesh.bytes);
+			}
+		}
+		return inventory;
+	}
+
 	struct PreloadPlanState
 	{
 		uint64_t buildSerial = 0;
@@ -859,6 +893,7 @@ NRIVoxelComputePreloadStats PlanNRIVoxelComputePreload(
 	stats.rawSelectedUniqueGeometryBytes = rawPlan.uniqueGeometryBytes;
 	stats.rawSelectedLargestUniqueGeometryBytes = rawPlan.largestUniqueGeometryBytes;
 	stats.rawSelectedUniqueSourceBytes = rawPlan.uniqueSourceBytes;
+	stats.startupGeometry = MeasureStartupGeometry(rawPlan.directVariants);
 	stats.manifestHash = rawPlan.manifestHash;
 	stats.currentTrackedBytes = currentTrackedBytes;
 	stats.localMemoryBudgetBytes = localMemoryBudgetBytes;

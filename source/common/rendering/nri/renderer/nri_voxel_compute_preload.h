@@ -33,6 +33,15 @@ struct NRIVoxelComputePreloadSettings
 	uint64_t minimumLocalMemoryReserveBytes = 0;
 };
 
+struct NRIVoxelStartupGeometryInventory
+{
+	uint64_t requiredBytes = 0;
+	uint64_t optionalPreloadBytes = 0;
+	uint64_t withheldBytes = 0;
+	uint64_t largestPreloadBytes = 0;
+	uint64_t largestWithheldBytes = 0;
+};
+
 struct NRIVoxelComputePreloadStats
 {
 	bool emitted = false;
@@ -120,6 +129,7 @@ struct NRIVoxelComputePreloadStats
 	uint64_t rawSelectedUniqueGeometryBytes = 0;
 	uint64_t rawSelectedLargestUniqueGeometryBytes = 0;
 	uint64_t rawSelectedUniqueSourceBytes = 0;
+	NRIVoxelStartupGeometryInventory startupGeometry;
 	uint64_t currentTrackedBytes = 0;
 	uint64_t localMemoryBudgetBytes = 0;
 	uint64_t minimumLocalMemoryReserveBytes = 0;

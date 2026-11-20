@@ -16,6 +16,14 @@ namespace
 	}
 }
 
+bool AccumulateNRIVoxelStartupHeapCharge(uint64_t bytes, uint32_t alignment, uint64_t& charge)
+{
+	const uint64_t remainder = alignment ? bytes % alignment : 0;
+	uint64_t alignedBytes = 0;
+	return TryAdd(bytes, remainder ? alignment - remainder : 0, alignedBytes) &&
+		TryAdd(charge, alignedBytes, charge);
+}
+
 NRIPersistentVoxelGeometryArenaPlan BuildNRIPersistentVoxelGeometryArenaPlan(
 	uint64_t plannedGeometryBytes,
 	uint64_t plannedRuntimeTailBytes,

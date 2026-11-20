@@ -28,23 +28,35 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     // One attempt per map prevents a failed reservation from stalling every load tick.
     arena.arenaPresizeBuildSerial = buildSerial;
     const auto start = std::chrono::steady_clock::now();
-    const auto plan = BuildNRIPersistentVoxelGeometryArenaPlan(stats.rawSelectedUniqueGeometryBytes,
-        stats.rawRuntimeWithheldUniqueGeometryBytes, stats.rawSelectedLargestUniqueGeometryBytes);
+    const bool inventorySizing = (bool)nri_ptvoxelallocationbudget && (bool)nri_ptvoxelarenastartupinventory;
+    const auto& inventory = stats.startupGeometry;
+    const uint64_t preloadBytes = inventory.requiredBytes + inventory.optionalPreloadBytes;
+    const auto plan = BuildNRIPersistentVoxelGeometryArenaPlan(
+        inventorySizing ? preloadBytes : stats.rawSelectedUniqueGeometryBytes,
+        inventorySizing ? inventory.withheldBytes : stats.rawRuntimeWithheldUniqueGeometryBytes,
+        stats.rawSelectedLargestUniqueGeometryBytes);
+    // When full inventory won't fit, warm the admitted poses, allow one late
+    // alias of a warmed mesh and one actual deferred mesh before the first grow.
+    const auto pressurePlan = BuildNRIPersistentVoxelGeometryArenaPlan(preloadBytes,
+        inventory.largestWithheldBytes, inventory.largestPreloadBytes);
     NRIAdapterMemoryTelemetry adapter = {};
     NRIAdapterMemoryTelemetry postAdapter = {};
     NRIPersistentVoxelGeometryArenaBudget budget = {};
-    uint64_t currentUsage = 0, predictedBytes = 0, committedBytes = 0, selectedBytes = 0;
+    uint64_t currentUsage = 0, predictedBytes = 0, committedBytes = 0, selectedBytes = 0, preflightBytes = 0;
     uint32_t testedCandidates = 0;
     const auto report = [&](const char* decision)
     {
         const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         if (PerfAuditActive())
         {
-            char fields[1536];
+            char fields[2048];
             snprintf(fields, sizeof(fields),
                 "\"renderer_frame\":%u,\"map_epoch\":%llu,\"phase\":\"loading\",\"decision\":\"%s\","
                 "\"selected_geometry_bytes\":%llu,\"withheld_geometry_bytes\":%llu,\"alias_reserve_bytes\":%llu,"
                 "\"full_target_geometry_bytes\":%llu,\"selected_target_geometry_bytes\":%llu,\"plan_kind\":\"%s\","
+                "\"inventory_sizing\":%s,\"required_geometry_bytes\":%llu,\"optional_preload_bytes\":%llu,"
+                "\"pressure_target_bytes\":%llu,\"pressure_alias_bytes\":%llu,\"pressure_withheld_bytes\":%llu,"
+                "\"preflight_allocation_bytes\":%llu,\"accounting_allowance_bytes\":%llu,"
                 "\"candidate_count\":%u,\"budget_candidate_valid\":%s,\"predicted_allocation_bytes\":%llu,\"committed_bytes\":%llu,"
                 "\"live_budget_available\":%s,\"current_usage_bytes\":%llu,\"local_budget_bytes\":%llu,"
                 "\"minimum_reserve_bytes\":%llu,\"future_bytes\":%llu,\"required_headroom_bytes\":%llu,"
@@ -54,7 +66,12 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
                 (unsigned long long)plan.plannedGeometryBytes, (unsigned long long)plan.plannedRuntimeTailBytes,
                 (unsigned long long)plan.lateAliasReserveBytes, (unsigned long long)plan.targetGeometryBytes,
                 (unsigned long long)selectedBytes, selectedBytes == 0 ? "none" :
-                    (selectedBytes >= plan.targetGeometryBytes ? "full" : "partial"), testedCandidates,
+                    (selectedBytes >= plan.targetGeometryBytes ? "full" : "partial"),
+                inventorySizing ? "true" : "false",
+                (unsigned long long)inventory.requiredBytes, (unsigned long long)inventory.optionalPreloadBytes,
+                (unsigned long long)pressurePlan.targetGeometryBytes, (unsigned long long)inventory.largestPreloadBytes,
+                (unsigned long long)inventory.largestWithheldBytes, (unsigned long long)preflightBytes,
+                (unsigned long long)(inventorySizing ? NRIVoxelStartupAccountingAllowance : 0), testedCandidates,
                 selectedBytes != 0 ? "true" : "false",
                 (unsigned long long)predictedBytes, (unsigned long long)committedBytes,
                 adapter.liveUsageAvailable ? "true" : "false", (unsigned long long)currentUsage,
@@ -77,7 +94,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     { report("retained-arena"); return; }
     constexpr uint64_t bytesPerPrimitive = 2ull * sizeof(nri_scene::SceneVertex) +
         3ull * sizeof(uint32_t) + sizeof(nri_scene::PrimitiveData);
-    if (plan.overflow || plan.targetGeometryBytes == 0 ||
+    if (plan.overflow || (inventorySizing && pressurePlan.overflow) || plan.targetGeometryBytes == 0 ||
         plan.targetGeometryBytes > std::numeric_limits<uint64_t>::max() - (bytesPerPrimitive - 1))
     { report("estimate-overflow"); return; }
     const uint64_t startupTarget = (bool)nri_ptvoxelallocationbudget ?
@@ -107,8 +124,16 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
         maximumPrimitives = std::min<uint64_t>(maximumPrimitives, limits.bufferMaxSize / (3ull * sizeof(uint32_t)));
         maximumPrimitives = std::min<uint64_t>(maximumPrimitives, limits.bufferMaxSize / sizeof(nri_scene::PrimitiveData));
     }
-    const uint64_t minimumPrimitives = std::max<uint64_t>(1,
-        (stats.rawSelectedLargestUniqueGeometryBytes + bytesPerPrimitive - 1) / bytesPerPrimitive);
+    uint64_t partialTarget = maximumPrimitives;
+    if (inventorySizing)
+    {
+        const uint64_t bytes = std::min(startupTarget, pressurePlan.targetGeometryBytes);
+        partialTarget = std::min(maximumPrimitives, (bytes + bytesPerPrimitive - 1) / bytesPerPrimitive);
+        if (maximumPrimitives < requestedPrimitives) maximumPrimitives = partialTarget;
+    }
+    const uint64_t minimumMeshBytes = inventorySizing && inventory.largestPreloadBytes ?
+        inventory.largestPreloadBytes : stats.rawSelectedLargestUniqueGeometryBytes;
+    const uint64_t minimumPrimitives = std::max<uint64_t>(1, (minimumMeshBytes + bytesPerPrimitive - 1) / bytesPerPrimitive);
     std::array<nri::BufferDesc, 3> descriptors = {};
     std::array<uint64_t, 3> predicted = {};
     const auto selection = SelectNRIPersistentVoxelGeometryArenaCapacity(maximumPrimitives, minimumPrimitives,
@@ -126,6 +151,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
         candidate[2].structureStride = sizeof(nri_scene::PrimitiveData);
         candidate[2].usage = primitiveUsage;
         uint64_t candidateBytes = 0;
+        uint64_t chargedBytes = inventorySizing ? NRIVoxelStartupAccountingAllowance : 0;
         std::array<uint64_t, 3> requirementsBytes = {};
         for (size_t i = 0; i < candidate.size(); ++i)
         {
@@ -136,19 +162,22 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
                 (limits.allocationMaxSize != 0 && requirements.size > limits.allocationMaxSize)) return false;
             requirementsBytes[i] = requirements.size;
             candidateBytes += requirements.size;
+            if (inventorySizing && !AccumulateNRIVoxelStartupHeapCharge(requirements.size,
+                std::max(limits.alignmentDefault, requirements.alignment), chargedBytes)) return false;
         }
         // A partial plan budgets future AS/scratch for the selected geometry
         // capacity, not an assertion that the entire manifest will fit later.
         const auto candidateBudget = BuildNRIPersistentVoxelGeometryArenaBudget(currentUsage, adapter.localBudgetBytes,
-            settings.minimumLocalMemoryReserveBytes, candidateBytes, candidatePrimitives * bytesPerPrimitive,
+            settings.minimumLocalMemoryReserveBytes, inventorySizing ? chargedBytes : candidateBytes, candidatePrimitives * bytesPerPrimitive,
             stats.rawSelectedUniqueSourceBytes, settings.peakEstimatePercent);
         if (!candidateBudget.fits) return false;
         descriptors = candidate;
         predicted = requirementsBytes;
         predictedBytes = candidateBytes;
+        preflightBytes = inventorySizing ? chargedBytes : candidateBytes;
         budget = candidateBudget;
         return true;
-    });
+    }, partialTarget);
     testedCandidates = selection.candidates;
     if (selection.primitives == 0)
     { report("insufficient-meaningful-capacity"); return; }
