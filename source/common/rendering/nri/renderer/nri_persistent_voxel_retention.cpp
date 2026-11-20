@@ -1,6 +1,7 @@
 #include "nri_persistent_voxels.h"
 #include "nri_persistent_voxel_publication_services.h"
 #include "nri_cvars.h"
+#include "nri_voxel_page_sweep.h"
 #include "perf_audit.h"
 #include "../scene/nri_cpu_perf_audit.h"
 #include "printf.h"
@@ -237,6 +238,10 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
             meshes, inactiveMeshBytes, warmMeshBytes);
     const auto meshTrim = ResolveNRIVoxelInactiveMeshTrim(
         configuredMeshLimit, inactiveMeshBytes, pressure && !warmPolicy, authoritativeEmptyAfterWait);
+    if (pressure && warmPolicy && !authoritativeEmptyAfterWait && configuredMeshLimit < 0 &&
+        (int)nri_ptvoxeloverflowpage == 2 && overflowPage.Published())
+        NRIConsiderColdPageSweep(meshes, overflowPage.Owner(), overflowPage.PublishedGeneration(),
+            warmRetentionPressure.reclaimBytes, frameIndex, grace);
     // Releasing palette aliases/CPU vectors creates reusable rows, not released
     // device backing. Honor their bounds without purging them for VRAM pressure.
     const bool trimMaterials = (pressure && !warmPolicy) || inactiveMaterialBytes > materialLimit || inactiveMaterialCount > materialCountLimit;
