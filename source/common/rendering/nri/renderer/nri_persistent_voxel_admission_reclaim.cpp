@@ -13,11 +13,35 @@ bool NRIVoxelReclaimFits(NRIPersistentVoxelGeometryRanges& preview,
     return fits;
 }
 
+static void ProbeWholeLeaseAfterLimit(NRIVoxelReclaimTailProbe& result,
+    const NRIPersistentVoxelGeometryRanges& ranges, const NRIVoxelReclaimRequest& request,
+    const std::array<uint64_t, 3>& capacity, const std::vector<NRIVoxelReclaimCandidate>& candidates,
+    size_t first, size_t end)
+{
+    result.limited = true;
+    for (size_t i = first; i < end; ++i)
+    {
+        const auto& candidate = candidates[i];
+        ++result.examined;
+        const auto& lease = candidate.range;
+        if ((request.beforeGrowth && candidate.warmRank != 0) || candidate.pinned || candidate.mesh == request.mesh ||
+            lease.vertices.capacity < request.rows[0] || lease.indices.capacity < request.rows[1] ||
+            lease.primitives.capacity < request.rows[2] || !ranges.Owns(lease)) continue;
+        // At most one extra allocator copy. The physical bounds must hold in
+        // all three streams with every other transaction still live.
+        auto preview = ranges;
+        preview.Release(lease);
+        if (NRIVoxelReclaimFits(preview, request.rows, capacity)) result.donor = candidate;
+        return;
+    }
+}
+
 NRIVoxelReclaimPlan PlanNRIVoxelAdmissionReclaim(const NRIPersistentVoxelGeometryRanges& ranges,
     const NRIVoxelReclaimRequest& request, const std::array<uint64_t, 3>& capacity,
-    std::vector<NRIVoxelReclaimCandidate> candidates)
+    std::vector<NRIVoxelReclaimCandidate> candidates, NRIVoxelReclaimTailProbe* tailProbe)
 {
     NRIVoxelReclaimPlan plan;
+    if (tailProbe) *tailProbe = {};
     for (size_t i = 0; i < request.rows.size(); ++i)
         if (!request.rows[i] || request.rows[i] > capacity[i])
         { plan.reason = "request-exceeds-existing-capacity"; return plan; }
@@ -51,14 +75,19 @@ NRIVoxelReclaimPlan PlanNRIVoxelAdmissionReclaim(const NRIPersistentVoxelGeometr
     });
     uint32_t previews = 0;
     std::vector<NRIVoxelReclaimCandidate> combined;
-    for (const auto& candidate : candidates)
+    const size_t end = std::min<size_t>(candidates.size(), NRIVoxelAdmissionReclaim::MaxCandidates);
+    for (size_t i = 0; i < end; ++i)
     {
-        if (plan.examined == NRIVoxelAdmissionReclaim::MaxCandidates) break;
+        const auto& candidate = candidates[i];
         ++plan.examined;
         if (request.beforeGrowth && candidate.warmRank != 0) continue;
         if (candidate.pinned || candidate.mesh == request.mesh || !preview.Owns(candidate.range)) continue;
         if (previews == NRIVoxelAdmissionReclaim::MaxPreviews)
-        { plan.reason = "bounded-preview-limit"; break; }
+        {
+            plan.reason = "bounded-preview-limit";
+            if (tailProbe) ProbeWholeLeaseAfterLimit(*tailProbe, ranges, request, capacity, candidates, i, end);
+            break;
+        }
         ++previews;
         auto single = ranges;
         single.Release(candidate.range);

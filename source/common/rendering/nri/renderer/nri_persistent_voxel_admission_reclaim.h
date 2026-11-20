@@ -45,13 +45,22 @@ struct NRIVoxelReclaimPlan
     bool fits = false;
 };
 
+// Optional audit of the unpreviewed part of the bounded candidate list.
+// A verified donor is still owned by its original transaction.
+struct NRIVoxelReclaimTailProbe
+{
+    NRIVoxelReclaimCandidate donor;
+    uint32_t examined = 0;
+    bool limited = false;
+};
+
 // Preview uses the actual range allocator, including contiguous holes and tail
 // trim. Buffer row capacity must come from buffer.size, never padded memorySize.
 bool NRIVoxelReclaimFits(NRIPersistentVoxelGeometryRanges& preview,
     const std::array<uint32_t, 3>& rows, const std::array<uint64_t, 3>& capacity);
 NRIVoxelReclaimPlan PlanNRIVoxelAdmissionReclaim(const NRIPersistentVoxelGeometryRanges& ranges,
     const NRIVoxelReclaimRequest& request, const std::array<uint64_t, 3>& capacity,
-    std::vector<NRIVoxelReclaimCandidate> candidates);
+    std::vector<NRIVoxelReclaimCandidate> candidates, NRIVoxelReclaimTailProbe* tailProbe = nullptr);
 
 class NRIVoxelAdmissionReclaim
 {

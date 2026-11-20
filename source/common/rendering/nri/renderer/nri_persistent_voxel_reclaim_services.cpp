@@ -149,10 +149,20 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
     }
     services.allocationBudget(services.user, record.request.usage, record.request.budget);
     workRequest = record.request;
-    const auto plan = PlanNRIVoxelAdmissionReclaim(geometryRanges, record.request, capacity, std::move(candidates));
+    NRIVoxelReclaimTailProbe tailProbe;
+    const bool traceTail = (bool)nri_ptvoxelmeshlifetrace && PerfAuditActive();
+    const auto plan = PlanNRIVoxelAdmissionReclaim(geometryRanges, record.request, capacity, std::move(candidates),
+        traceTail ? &tailProbe : nullptr);
     workPlans = 1; workCandidates = plan.examined; workPins = uint32_t(pins.meshes.size());
     ReportAdmissionReclaim("plan", plan.reason, record.request, frameIndex, 0, 0, 0, 0,
         plan.examined, uint32_t(pins.meshes.size()));
+    if (tailProbe.limited)
+    {
+        const auto& donor = tailProbe.donor;
+        ReportAdmissionReclaim("probe", donor.mesh ? "verified-whole-tail-lease" : "no-verified-whole-tail-lease",
+            record.request, frameIndex, donor.mesh, donor.warmRank, 0, 0,
+            tailProbe.examined, uint32_t(pins.meshes.size()), &donor.range);
+    }
     if (!plan.fits)
     {
         record.noRangeFit = strcmp(plan.reason, "bounded-preview-limit") == 0 ||
