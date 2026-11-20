@@ -83,6 +83,21 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
     const bool audit = PerfAuditActive();
     const auto protection = NRIRestrictFamilySweep(candidates, held, inactiveBytes, warmBytes, meshLimit,
         warmRetentionPressure, audit);
+    if ((bool)nri_ptvoxelfamilyposegrace && meshLimit < 0 && meshCount < NRIEnemyFamilyStaging::MaximumMeshes)
+    {
+        for (auto& mesh : candidates) mesh.lastSelectedFrame = actorDemand.RepeatedMeshSelectionFrame(mesh.key, frameIndex);
+        const auto grace = NRIKeepRecurringPoseForSweep(candidates, inactiveBytes, warmBytes, warmRetentionPressure,
+            hardDeficit, remainingCharge, frameIndex, uint32_t(std::max(1, (int)nri_ptvoxelcacheintervalframes)));
+        if (grace.mesh && audit)
+        {
+            char row[384];
+            std::snprintf(row, sizeof(row), "\"renderer_frame\":%u,\"world\":%llu,\"mesh_key\":%llu,\"last_selected_frame\":%u,"
+                "\"logical_bytes\":%llu,\"hard_deficit\":%llu,\"other_victim_bytes\":%llu", frameIndex,
+                (unsigned long long)stage.world, (unsigned long long)grace.mesh, grace.selectedFrame,
+                (unsigned long long)grace.bytes, (unsigned long long)hardDeficit, (unsigned long long)grace.otherRetiring);
+            PerfAuditWriteEvent("enemy_family_sweep_pose_grace", PerfAuditCurrentToken(), row);
+        }
+    }
     if (!audit) return;
     char fields[384];
     std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"additional_protected_meshes\":%u,"

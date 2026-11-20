@@ -59,6 +59,7 @@ public:
     uint64_t UpgradeRevision() const { return upgradeRevision; }
     NRIVoxelActorDemandState GetActor(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame) const;
     uint32_t WarmMeshRank(uint64_t key, uint32_t frame) const;
+    uint32_t RepeatedMeshSelectionFrame(uint64_t key, uint32_t frame) const;
     uint32_t WarmMaterialRank(uint64_t key, uint32_t frame) const;
     const NRIVoxelActorDemandSnapshot& Snapshot() const { return snapshot; }
     bool AuthorityAvailable() const { return valid; }

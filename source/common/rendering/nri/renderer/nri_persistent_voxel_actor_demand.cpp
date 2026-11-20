@@ -193,4 +193,11 @@ uint32_t NRIVoxelActorDemand::WarmRank(const std::unordered_map<uint64_t, Warm>&
     return found->second.uses > 1 ? 2u : 1u;
 }
 uint32_t NRIVoxelActorDemand::WarmMeshRank(uint64_t key, uint32_t frame) const { return WarmRank(meshes, key, frame); }
+uint32_t NRIVoxelActorDemand::RepeatedMeshSelectionFrame(uint64_t key, uint32_t frame) const
+{
+    const auto found = meshes.find(key);
+    if (!valid || found == meshes.end() || found->second.uses < 2 || frame < found->second.frame ||
+        frame - found->second.frame > HistoryFrames) return UINT32_MAX;
+    return found->second.frame;
+}
 uint32_t NRIVoxelActorDemand::WarmMaterialRank(uint64_t key, uint32_t frame) const { return WarmRank(materials, key, frame); }

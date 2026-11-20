@@ -1,5 +1,6 @@
 #include "nri_voxel_family_sweep.h"
 #include <algorithm>
+#include <tuple>
 
 namespace
 {
@@ -74,4 +75,33 @@ NRIVoxelSweepProtection NRIRestrictFamilySweep(std::vector<NRIVoxelSweepCandidat
     candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
         [&](const auto& mesh) { return !mesh.ordinaryVictim || held.count(mesh.key); }), candidates.end());
     return protection;
+}
+
+NRIVoxelRecurringPoseGrace NRIKeepRecurringPoseForSweep(std::vector<NRIVoxelSweepCandidate>& candidates,
+    uint64_t inactive, uint64_t warm, const NRIVoxelRetentionPressure& policy, uint64_t hardDeficit,
+    uint64_t availableCharge, uint32_t frame, uint32_t interval)
+{
+    NRIVoxelRecurringPoseGrace grace;
+    // This is a share of the current warm allowance, inside the family staging charge.
+    const uint64_t limit = std::min(availableCharge, policy.warmLogicalTarget / 8);
+    if (!limit) return grace;
+    SweepForecast forecast(inactive, warm, -1, policy);
+    for (auto& mesh : candidates) mesh.ordinaryVictim = forecast.Take(mesh);
+    for (const auto& mesh : candidates)
+    {
+        if (!mesh.ordinaryVictim || !mesh.physicalBytes || mesh.bytes > limit || mesh.lastSelectedFrame == UINT32_MAX || mesh.lastSelectedFrame > frame ||
+            frame - mesh.lastSelectedFrame >= interval || forecast.retiring - mesh.physicalBytes < hardDeficit) continue;
+        // Prefer the latest real selection, then the smaller retained charge and a stable key.
+        if (grace.mesh && std::make_tuple(frame - mesh.lastSelectedFrame, mesh.bytes, mesh.key) >=
+            std::make_tuple(frame - grace.selectedFrame, grace.bytes, grace.mesh)) continue;
+        grace = {mesh.key, mesh.bytes, forecast.retiring - mesh.physicalBytes, mesh.lastSelectedFrame};
+    }
+    if (grace.mesh)
+    {
+        // Only the original retirements can proceed. An unrelated mesh cannot become a substitute.
+        candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [&](const auto& mesh) {
+            return !mesh.ordinaryVictim || mesh.key == grace.mesh;
+        }), candidates.end());
+    }
+    return grace;
 }

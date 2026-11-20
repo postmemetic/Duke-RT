@@ -9,6 +9,7 @@ struct NRIVoxelSweepCandidate
     uint64_t key, bytes, physicalBytes;
     uint32_t since, warmRank;
     bool ordinaryVictim = false;
+    uint32_t lastSelectedFrame = UINT32_MAX;
 };
 
 inline bool NRIVoxelSweepVictim(const NRIVoxelSweepCandidate& mesh, NRIVoxelInactiveMeshTrim trim,
@@ -53,3 +54,13 @@ struct NRIVoxelSweepProtection
 NRIVoxelSweepProtection NRIRestrictFamilySweep(std::vector<NRIVoxelSweepCandidate>& candidates,
     const std::unordered_set<uint64_t>& held, uint64_t inactive, uint64_t warm, int32_t meshLimit,
     const NRIVoxelRetentionPressure& policy, bool diagnoseSubstitutions);
+
+struct NRIVoxelRecurringPoseGrace
+{
+    uint64_t mesh = 0, bytes = 0, otherRetiring = 0;
+    uint32_t selectedFrame = UINT32_MAX;
+};
+
+NRIVoxelRecurringPoseGrace NRIKeepRecurringPoseForSweep(std::vector<NRIVoxelSweepCandidate>& candidates,
+    uint64_t inactive, uint64_t warm, const NRIVoxelRetentionPressure& policy, uint64_t hardDeficit,
+    uint64_t availableCharge, uint32_t frame, uint32_t interval);

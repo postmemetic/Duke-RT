@@ -327,6 +327,7 @@ CVAR(Bool, nri_ptvoxelarenastartupinventory, false, 0)
 // Price and retain already resident placed enemy families when sizing from inventory.
 CVAR(Bool, nri_ptvoxelstartupfamilybudget, true, 0)
 CVAR(Bool, nri_ptvoxelfamilyrecovery, false, 0)
+CVAR(Bool, nri_ptvoxelfamilyposegrace, false, 0)
 CVAR(Bool, nri_ptvoxellatefamilyrecovery, false, 0)
 CVAR(Int, nri_ptvoxelpublicationvalidate, 0, 0)
 CVAR(Bool, nri_ptvoxelactorindexvalidate, false, 0)
