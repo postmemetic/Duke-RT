@@ -3588,6 +3588,8 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 			(int)nri_ptvoxelcomputetrace > 0 &&
 			meshResourceFirstPublish;
 		meshResourceIt->second.tlasPublished = true;
+		if (meshResourceFirstPublish)
+			TraceMeshLifecycle(actor.meshResourceKey, frameIndex, "tlas", "first-occurrence", actor.materialKeyHash);
 		const uint64_t schedulerTokenId = admissionScheduler.FindTlasPending({ residencyMapGeneration, actor.meshResourceKey });
 		if (schedulerTokenId != 0)
 		{
@@ -5959,6 +5961,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		auto existingMeshIt = meshVariantResources.find(meshResourceKey);
 		if (existingMeshIt != meshVariantResources.end())
 		{
+			TraceMeshLifecycle(meshResourceKey, frameIndex, "replace", "direct-publication");
 			services.RetireBuffer(existingMeshIt->second.vertexBuffer);
 			services.RetireBuffer(existingMeshIt->second.indexBuffer);
 			services.RetireAccelerationStructure(existingMeshIt->second.accelerationStructure);
@@ -5970,6 +5973,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		InvalidateEnemyFamilyGeometry();
 		entry.uploadMeshResource = {}; // Transfer raw buffer/range ownership exactly once.
 		publishedMeshKeys.insert(meshResourceKey);
+		TraceMeshLifecycle(meshResourceKey, frameIndex, "publish", "direct", variant.materialKeyHash);
 		NoteNRIVoxelDirectBlasFence(entry, published, frameIndex, "published");
 		if (loadingTraceLevel >= 1 || voxelStatsEnabled || (int)nri_ptvoxelcomputetrace > 0)
 		{
@@ -6589,6 +6593,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				return rollbackAdmission("material-publish-failed", "publish");
 			}
 			publishedMeshKeys.insert(meshResourceKey);
+			TraceMeshLifecycle(meshResourceKey, frameIndex, "bind", "already-resident", variant.materialKeyHash);
 			entry.uploadMaterialResource = {};
 			outReusedMesh = true;
 			entry.uploadPrepared = false;
@@ -7212,6 +7217,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	auto existingMeshIt = meshVariantResources.find(meshResourceKey);
 	if (existingMeshIt != meshVariantResources.end())
 	{
+		TraceMeshLifecycle(meshResourceKey, frameIndex, "replace", "geometry-publication");
 		services.RetireBuffer(existingMeshIt->second.vertexBuffer);
 		services.RetireBuffer(existingMeshIt->second.indexBuffer);
 		services.RetireAccelerationStructure(existingMeshIt->second.accelerationStructure);
@@ -7222,6 +7228,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	InvalidateEnemyFamilyGeometry();
 	entry.uploadMeshResource = {}; // Transfer raw buffer/range ownership exactly once.
 	publishedMeshKeys.insert(meshResourceKey);
+	TraceMeshLifecycle(meshResourceKey, frameIndex, "publish", "geometry", variant.materialKeyHash);
 	entry.uploadMaterialResource = {};
 	entry.uploadGeometry = {};
 	entry.uploadGpuIndices.clear();

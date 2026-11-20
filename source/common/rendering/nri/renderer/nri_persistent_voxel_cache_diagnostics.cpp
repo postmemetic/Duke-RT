@@ -11,6 +11,8 @@
 #include <cstring>
 #include <string>
 
+CVAR(Bool, nri_ptvoxelmeshlifetrace, false, 0)
+
 namespace
 {
 constexpr size_t ActorLimit = 32768, MeshLimit = 8192;
@@ -116,9 +118,35 @@ void NRIPersistentVoxelResidency::NoteCacheActorDeferred(uint64_t identity, cons
     else ++cacheDiagnosticState->reasonOverflow;
 }
 
+void NRIPersistentVoxelResidency::TraceMeshLifecycle(uint64_t key, uint32_t frameIndex, const char* action,
+    const char* cause, uint64_t material, bool sourceOrPendingPinned) const
+{
+    if (!(bool)nri_ptvoxelmeshlifetrace || !PerfAuditActive()) return;
+    const auto it = meshVariantResources.find(key);
+    if (it == meshVariantResources.end()) return;
+    const auto& mesh = it->second;
+    const auto demand = GeometryGrowthDemand(key, frameIndex);
+    const auto& range = mesh.geometryRange;
+    const uint64_t geometryBytes = uint64_t(range.vertices.capacity) * sizeof(nri_scene::SceneVertex) +
+        uint64_t(range.indices.capacity) * sizeof(uint32_t) +
+        uint64_t(range.primitives.capacity) * sizeof(nri_scene::PrimitiveData);
+    char fields[896];
+    std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_generation\":%u,\"mesh_key\":%llu,"
+        "\"material_key\":%llu,\"action\":\"%s\",\"cause\":\"%s\",\"generation\":%llu,\"page\":%s,"
+        "\"published_page_generation\":%llu,\"last_used_frame\":%u,\"range_bytes\":%llu,\"blas_bytes\":%llu,"
+        "\"priority\":%d,\"source_bits\":%u,\"active_refs\":%u,\"authority_current\":%s,\"consumers\":%u,"
+        "\"family_pin\":%s,\"family_staged\":%s,\"source_or_pending_pinned\":%s",
+        frameIndex, residencyMapGeneration, U64(key), U64(material), action, cause, U64(range.transaction),
+        Bool(range.overflowPage), U64(overflowPage.PublishedGeneration()), mesh.lastUsedFrame, U64(geometryBytes),
+        U64(mesh.accelerationStructure.memorySize), mesh.priority, mesh.sourceBits, demand.active, Bool(demand.authoritative),
+        demand.consumers, Bool(demand.family), Bool(demand.staged), Bool(sourceOrPendingPinned));
+    PerfAuditWriteEvent("voxel_mesh_lifecycle", PerfAuditCurrentToken(), fields);
+}
+
 void NRIPersistentVoxelResidency::NoteCacheMeshEviction(uint64_t key, uint32_t frameIndex,
     const char* cause, bool sourceOrPendingPinned)
 {
+    TraceMeshLifecycle(key, frameIndex, "evict", cause, 0, sourceOrPendingPinned);
     if (!(bool)nri_ptvoxelcachevalidate || !PerfAuditActive()) return;
     if (!cacheDiagnosticState) cacheDiagnosticState = std::make_shared<NRIPersistentVoxelCacheDiagnosticState>();
     auto& state = *cacheDiagnosticState;

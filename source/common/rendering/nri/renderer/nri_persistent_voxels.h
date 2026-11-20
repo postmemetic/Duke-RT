@@ -1319,6 +1319,8 @@ public:
 	void EndCacheDiagnostics(uint32_t frameIndex, const NRIPersistentVoxelSettings& settings);
 	void NoteCacheActorDeferred(uint64_t identity, const char* reason);
 	void NoteCacheMeshEviction(uint64_t key, uint32_t frameIndex, const char* cause, bool sourceOrPendingPinned);
+	void TraceMeshLifecycle(uint64_t key, uint32_t frameIndex, const char* action, const char* cause,
+		uint64_t material = 0, bool sourceOrPendingPinned = false) const;
 	bool PublishCanonicalMaterialResource(
 		PersistentVoxelMaterialVariantResource& candidate,
 		bool& outReused);
