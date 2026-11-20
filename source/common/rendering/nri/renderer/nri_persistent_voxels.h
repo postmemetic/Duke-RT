@@ -1086,6 +1086,13 @@ public:
     NRIEnemyRepresentationPolicy enemyPolicy;
     NRIEnemyFamilyStaging enemyFamilyStaging;
     NRIEnemyFamilyRecovery enemyFamilyRecovery;
+    struct
+    {
+        uint64_t world = 0, build = 0;
+        uint32_t frame = 0;
+        std::vector<uint64_t> signatures;
+    } lastProtectedFamilySweep;
+    uint64_t FindHeldUpgradeFamilyVictim(const NRIVoxelReclaimRequest& request, const NRIVoxelReclaimPlan& plan, uint32_t frame) const;
     uint32_t enemyFamilyRecoveryScan = UINT32_MAX;
     bool IsEnemyFamilyRecoveryEnabled() const;
     bool AllowsEnemyFamilyRecoveryPair(uint64_t pair) const;
@@ -1147,7 +1154,7 @@ public:
         uint32_t frameIndex, uint64_t victim = 0, uint32_t rank = 0, uint64_t geometryBytes = 0,
         uint64_t physicalBytes = 0, uint32_t candidates = 0, uint32_t pins = 0,
         const NRIPersistentVoxelGeometryRangeHandle* victimRange = nullptr, double workCpuMs = 0,
-        uint32_t recordsExamined = 0, uint32_t plansEvaluated = 0) const;
+        uint32_t recordsExamined = 0, uint32_t plansEvaluated = 0, const NRIVoxelMeshUpgradeDemand* previousDemand = nullptr) const;
 
     std::unordered_set<uint64_t> spriteFallbackActors;
     uint32_t spriteFallbackFrame = UINT32_MAX;

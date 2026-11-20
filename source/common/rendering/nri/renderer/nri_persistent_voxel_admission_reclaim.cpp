@@ -128,6 +128,10 @@ bool NRIVoxelAdmissionReclaim::Observe(NRIVoxelReclaimRequest& request)
     const auto oldStage = record.stage;
     if (changed) request.episode = nextEpisode++;
     record.request = request;
+    // A change during the one-presentation wait gets a fresh plan on the
+    // original deadline. Changes after that episode may start a new observation.
+    if (oldStage == Stage::Confirming) return changed;
+    if (changed) { record.confirmationVictim = 0; record.confirmationDemand = {}; }
     record.stage = changed ? Stage::Observed :
         (oldStage == Stage::Retry ? Stage::Blocked : oldStage);
     if (record.stage != Stage::Waiting) record.retiring.clear();
@@ -174,11 +178,28 @@ bool NRIVoxelAdmissionReclaim::RetryAllowed(uint64_t mesh) const
     return found != records.end() && found->second.stage == Stage::Retry;
 }
 
+bool NRIVoxelAdmissionReclaim::ConfirmHeldUpgrade(Record& record, uint64_t victim, const NRIVoxelMeshUpgradeDemand& demand)
+{
+    if (!victim || record.confirmationVictim || record.request.beforeGrowth || !record.request.freshActorPair ||
+        demand.consumers != 1 || demand.requestedConsumers != 1 || demand.oldestWait > 1) return false;
+    record.confirmationVictim = victim;
+    record.confirmationDemand = demand;
+    record.lastPlanTick = tick;
+    record.stage = Stage::Confirming;
+    return true;
+}
+
 const char* NRIVoxelAdmissionReclaim::Poll(Record& record, bool usefulDemand,
     uint64_t geometryRevision, uint64_t demandRevision, const NRIPersistentVoxelGeometryRanges& ranges,
     const std::array<uint64_t, 3>& capacity)
 {
-    if (!usefulDemand || record.request.epoch != epoch) return "demand-superseded";
+    if (!usefulDemand || record.request.epoch != epoch)
+        return record.stage == Stage::Confirming ? "held-upgrade-superseded" : "demand-superseded";
+    if (record.stage == Stage::Confirming && tick != record.lastPlanTick)
+    {
+        record.stage = Stage::Observed;
+        return "held-upgrade-confirmed";
+    }
     if (record.request.beforeGrowth &&
         ((record.stage == Stage::Observed && tick - record.request.tick > 1) ||
          (record.stage == Stage::Waiting && tick - record.request.tick >= ProbeTicks)))

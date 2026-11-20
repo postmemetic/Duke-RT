@@ -9,10 +9,14 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
     uint64_t usageBytes, uint64_t budgetBytes, int32_t meshLimit,
     std::vector<NRIVoxelSweepCandidate>& candidates, uint64_t& inactiveBytes, uint64_t& warmBytes)
 {
+    lastProtectedFamilySweep.signatures.clear();
     if (!IsEnemyFamilyRecoveryEnabled() || enemyFamilyRecovery.signature || enemyFamilyFrame != frameIndex) return;
     const auto& snapshot = GetActorPresentationSnapshot();
     const auto& stage = enemyFamilyStaging.Stats();
     if (!snapshot.complete || !snapshot.worldEpoch || stage.world != snapshot.worldEpoch) return;
+    lastProtectedFamilySweep.frame = frameIndex;
+    lastProtectedFamilySweep.world = stage.world;
+    lastProtectedFamilySweep.build = residencyLastBuildSerial;
 
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024 +
         std::max<uint64_t>(budgetBytes / 64, 16ull * 1024 * 1024);
@@ -64,6 +68,7 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
             PerfAuditWriteEvent("enemy_family_sweep", PerfAuditCurrentToken(), fields);
         }
         if (!keep) continue;
+        lastProtectedFamilySweep.signatures.push_back(choice.signature);
         ++familyCount;
         meshCount += uint32_t(proof.additionalKeys.size());
         remainingCharge -= proof.additionalBytes;
@@ -93,4 +98,47 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
             mesh.since, (unsigned long long)mesh.bytes, (unsigned long long)mesh.physicalBytes);
         PerfAuditWriteEvent("enemy_family_sweep_spared", PerfAuditCurrentToken(), fields);
     }
+}
+
+uint64_t NRIPersistentVoxelResidency::FindHeldUpgradeFamilyVictim(const NRIVoxelReclaimRequest& request,
+    const NRIVoxelReclaimPlan& plan, uint32_t frame) const
+{
+    if (!request.freshActorPair || request.beforeGrowth || lastProtectedFamilySweep.signatures.empty() ||
+        !IsEnemyFamilyRecoveryEnabled() || lastProtectedFamilySweep.build != residencyLastBuildSerial ||
+        enemyFamilyFrame != frame || frame < lastProtectedFamilySweep.frame ||
+        frame - lastProtectedFamilySweep.frame >= uint32_t(std::max(1, (int)nri_ptvoxelcacheintervalframes))) return 0;
+    const auto& snapshot = GetActorPresentationSnapshot();
+    if (!snapshot.complete || snapshot.worldEpoch != lastProtectedFamilySweep.world ||
+        !actorDemand.HasCurrentMeshAuthority(frame)) return 0;
+    const auto demand = actorDemand.Upgrade(request.mesh, frame);
+    if (demand.consumers != 1 || demand.requestedConsumers != 1 || demand.oldestWait > 1) return 0;
+    const auto body = actorDemand.GetActor(demand.identity, demand.world, demand.lifetime, frame);
+    if (!body.found || body.desiredMesh != request.mesh || body.representation != NRIVoxelActorRepresentation::HeldVoxel ||
+        !body.selectedMesh || !body.selectedMaterial) return 0;
+
+    for (const auto signature : lastProtectedFamilySweep.signatures)
+    {
+        const auto family = enemyFamilyResidency.find(signature);
+        if (family == enemyFamilyResidency.end() || !family->second.complete || !enemyFamilyStaging.WasPriced(signature) ||
+            !enemyFamilyStaging.NeedsFamily(signature)) continue;
+        for (const auto& victim : plan.victims)
+        {
+            if (!NRIEnemyFamilyContainsCurrentMesh(family->second.meshes, victim.mesh)) continue;
+            // A later upgrade or preload may have adopted the same geometry
+            // between the notice and the live victim plan.
+            if (admissionIndex.ActiveCount() > NRIVoxelAdmissionReclaim::MaxOwnerRows) return 0;
+            for (const auto key : admissionIndex.ActiveKeys())
+            {
+                const auto found = admissionQueue.find(key);
+                if (found == admissionQueue.end() || found->second.mapGeneration != residencyMapGeneration) continue;
+                const auto& entry = found->second;
+                if (BuildPersistentVoxelVariantMeshResourceKey(entry.variant) != request.mesh) continue;
+                if (key != request.freshActorPair || entry.admissionOrigins != uint8_t(NRIVoxelAdmissionOrigin::RuntimeActor) ||
+                    entry.sourceBits || entry.gpuForce || entry.gpuPrefer || entry.requiredPreload || entry.preloadInputHints.bits ||
+                    !CanDiscardUnsubmittedVoxelAdmission(entry, admissionScheduler)) return 0;
+            }
+            return victim.mesh;
+        }
+    }
+    return 0;
 }

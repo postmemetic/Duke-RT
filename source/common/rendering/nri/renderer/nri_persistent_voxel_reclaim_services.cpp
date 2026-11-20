@@ -27,15 +27,16 @@ void NRIPersistentVoxelResidency::ReportAdmissionReclaim(const char* action, con
     const NRIVoxelReclaimRequest& request, uint32_t frameIndex, uint64_t victim, uint32_t rank,
     uint64_t geometryBytes, uint64_t physicalBytes, uint32_t candidates, uint32_t pins,
     const NRIPersistentVoxelGeometryRangeHandle* victimRange, double workCpuMs,
-    uint32_t recordsExamined, uint32_t plansEvaluated) const
+    uint32_t recordsExamined, uint32_t plansEvaluated, const NRIVoxelMeshUpgradeDemand* previousDemand) const
 {
     if (!PerfAuditActive()) return;
     const auto demand = actorDemand.Upgrade(request.mesh, frameIndex);
+    const auto& witness = previousDemand ? *previousDemand : demand;
     const auto lease = victimRange ? *victimRange : NRIPersistentVoxelGeometryRangeHandle{};
     char fields[3072];
     snprintf(fields, sizeof(fields), "\"action\":\"%s\",\"reason\":\"%s\",\"map_epoch\":%u,"
         "\"renderer_frame\":%u,\"retry_tick\":%llu,\"retry_clock_unit\":\"presentation\",\"mesh_key\":%llu,"
-        "\"actor_identity\":%llu,\"actor_world\":%llu,\"actor_lifetime\":%llu,\"useful_consumers\":%u,"
+        "\"actor_identity\":%llu,\"actor_world\":%llu,\"actor_lifetime\":%llu,\"actor_from_prior_observation\":%s,\"useful_consumers\":%u,"
         "\"oldest_exact_wait_frames\":%u,\"vertex_rows\":%u,\"index_rows\":%u,\"primitive_rows\":%u,"
         "\"usage_bytes\":%llu,\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"nonarena_bytes\":%llu,"
         "\"avoided_arena_allocation_bytes\":%llu,\"victim_mesh_key\":%llu,\"warm_rank\":%u,"
@@ -48,8 +49,8 @@ void NRIPersistentVoxelResidency::ReportAdmissionReclaim(const char* action, con
         "\"victim_index_offset\":%u,\"victim_index_capacity\":%u,\"victim_index_generation\":%llu,"
         "\"victim_primitive_offset\":%u,\"victim_primitive_capacity\":%u,\"victim_primitive_generation\":%llu",
         action, reason, residencyMapGeneration, frameIndex, (unsigned long long)GetNRIVoxelAdmissionRetryClock(),
-        (unsigned long long)request.mesh, (unsigned long long)demand.identity, (unsigned long long)demand.world,
-        (unsigned long long)demand.lifetime, demand.consumers, demand.oldestWait,
+        (unsigned long long)request.mesh, (unsigned long long)witness.identity, (unsigned long long)witness.world,
+        (unsigned long long)witness.lifetime, previousDemand ? "true" : "false", demand.consumers, witness.oldestWait,
         request.rows[0], request.rows[1], request.rows[2], (unsigned long long)request.usage,
         (unsigned long long)request.budget, (unsigned long long)request.reserve, (unsigned long long)request.nonArenaBytes,
         (unsigned long long)request.avoidedArenaBytes, (unsigned long long)victim, rank,
@@ -84,6 +85,7 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
     NRIVoxelAdmissionReclaim::Record* selected = nullptr;
     uint32_t oldest = 0;
     bool activeEpisode = false;
+    bool selectedConfirmed = false;
     const std::array<uint64_t, 3> capacity = { vertexBuffer.size / sizeof(nri_scene::SceneVertex),
         indexBuffer.size / sizeof(uint32_t), primitiveBuffer.size / sizeof(nri_scene::PrimitiveData) };
     for (auto it = records.begin(); it != records.end(); )
@@ -97,22 +99,25 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
             continue;
         }
         const auto demand = actorDemand.Upgrade(it->first, frameIndex);
+        const bool confirming = record.stage == NRIVoxelAdmissionReclaim::Stage::Confirming;
         const auto transition = admissionReclaim.Poll(record, demand.consumers != 0,
             reclaimGeometryRevision, actorDemand.UpgradeRevision(), geometryRanges, capacity);
         if (!demand.consumers || record.request.epoch != residencyMapGeneration)
         {
-            ReportAdmissionReclaim("outcome", "demand-superseded", record.request, frameIndex);
+            ReportAdmissionReclaim("outcome", transition, record.request, frameIndex, confirming ? record.confirmationVictim : 0,
+                0, 0, 0, 0, 0, nullptr, 0, 0, 0, confirming ? &record.confirmationDemand : nullptr);
             it = records.erase(it); continue; // Retirement stays owned by its original fence.
         }
         ++it;
         if (transition)
-            ReportAdmissionReclaim(record.stage == NRIVoxelAdmissionReclaim::Stage::Retry ? "retry" : "outcome",
-                transition, record.request, frameIndex);
+            ReportAdmissionReclaim(confirming || record.stage == NRIVoxelAdmissionReclaim::Stage::Retry ? "retry" : "outcome",
+                transition, record.request, frameIndex, confirming ? record.confirmationVictim : 0);
         activeEpisode |= record.stage == NRIVoxelAdmissionReclaim::Stage::Waiting ||
             record.stage == NRIVoxelAdmissionReclaim::Stage::Retry;
         if (record.stage == NRIVoxelAdmissionReclaim::Stage::Observed &&
-            (!selected || demand.oldestWait > oldest || (demand.oldestWait == oldest && record.request.mesh < selected->request.mesh)))
-        { selected = &record; oldest = demand.oldestWait; }
+            (!selected || (confirming != selectedConfirmed ? confirming :
+                demand.oldestWait > oldest || (demand.oldestWait == oldest && record.request.mesh < selected->request.mesh))))
+        { selected = &record; oldest = demand.oldestWait; selectedConfirmed = confirming; }
     }
     if (activeEpisode || !selected || retentionQuarantined || preloadPending || loadingWarmupActive ||
         !services.cacheRetirementAllowed || !services.cacheRetirementAllowed(services.user) ||
@@ -156,6 +161,15 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
     }
     if (plan.victims.empty())
     { record.stage = NRIVoxelAdmissionReclaim::Stage::Retry; record.retryReadyTick = admissionReclaim.Tick(); return; }
+    if (!record.confirmationVictim)
+    {
+        const auto victim = FindHeldUpgradeFamilyVictim(record.request, plan, frameIndex);
+        if (admissionReclaim.ConfirmHeldUpgrade(record, victim, actorDemand.Upgrade(record.request.mesh, frameIndex)))
+        {
+            ReportAdmissionReclaim("defer", "verify-held-upgrade", record.request, frameIndex, victim);
+            return;
+        }
+    }
     // No submission occurs between the authoritative pin snapshot and these
     // retire calls. The live allocator remains occupied until completion.
     for (const auto& victim : plan.victims)

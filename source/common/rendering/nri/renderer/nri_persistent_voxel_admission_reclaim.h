@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nri_persistent_voxel_geometry_ranges.h"
+#include "nri_persistent_voxel_actor_demand.h"
 #include <array>
 #include <cstdint>
 #include <unordered_map>
@@ -25,6 +26,7 @@ struct NRIVoxelReclaimRequest
     uint64_t usage = 0, budget = 0, reserve = 0, nonArenaBytes = 0;
     uint64_t signature = 0, avoidedArenaBytes = 0, episode = 0;
     bool beforeGrowth = false;
+    uint64_t freshActorPair = 0;
 };
 
 struct NRIVoxelReclaimCandidate
@@ -57,7 +59,7 @@ public:
     static constexpr uint32_t MaxRecords = 256, MaxCandidates = 128, MaxVictims = 4, MaxPreviews = 16;
     static constexpr uint32_t MaxOwnerRows = 4096, MaxPreflightsPerTick = 16;
     static constexpr uint64_t ProbeTicks = 120;
-    enum class Stage { Observed, Waiting, Retry, Blocked };
+    enum class Stage { Observed, Waiting, Retry, Blocked, Confirming };
     enum class GrowthPreview { Proceed, Queued, Waiting };
     struct Record
     {
@@ -68,6 +70,8 @@ public:
         uint64_t processedRevision = UINT64_MAX;
         uint64_t retryReadyTick = 0;
         uint64_t processedDemandRevision = 0, lastPlanTick = 0;
+        uint64_t confirmationVictim = 0;
+        NRIVoxelMeshUpgradeDemand confirmationDemand;
     };
     void Reset();
     void BeginTick(uint64_t epoch, uint64_t tick);
@@ -79,6 +83,7 @@ public:
         const std::array<uint64_t, 3>& capacity, uint64_t oldBacking, uint64_t projectedPeak);
     void Success(uint64_t mesh);
     bool RetryAllowed(uint64_t mesh) const;
+    bool ConfirmHeldUpgrade(Record& record, uint64_t victim, const NRIVoxelMeshUpgradeDemand& demand);
     const char* Poll(Record& record, bool usefulDemand, uint64_t geometryRevision, uint64_t demandRevision,
         const NRIPersistentVoxelGeometryRanges& ranges, const std::array<uint64_t, 3>& capacity);
     std::unordered_map<uint64_t, Record>& Records() { return records; }

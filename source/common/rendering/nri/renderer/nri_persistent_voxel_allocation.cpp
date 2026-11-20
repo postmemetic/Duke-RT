@@ -295,6 +295,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         request.budget = budget.budgetBytes; request.reserve = reserve;
         request.nonArenaBytes = NRIVoxelComputeSaturatingAdd(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes);
         request.signature = reclaimSignature; request.avoidedArenaBytes = newArenaBytes;
+        if (intent.IsUnownedGameplayRequest()) request.freshActorPair = intent.freshDirectPair;
         return request;
     };
     const auto report = [&](const char* decision, Result result)
