@@ -238,7 +238,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     }
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
     NRIVoxelPreflightDenials::Request denialRequest;
-    const bool reuseDenials = !overflow && !privateBuildInputs && intent.runtimePump && !intent.ownsWork &&
+    const bool reuseDenials = (bool)nri_ptvoxelpreflightreuse && !overflow && !privateBuildInputs && intent.runtimePump && !intent.ownsWork &&
         CanReuseVoxelPreflightDenial(mesh, scratch, requestedRows, flags, reserve, growsArena, reclaimEnabled, denialRequest);
     if (reuseDenials)
     {
@@ -459,7 +459,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     }
     if (!candidateFits)
     {
-        if (reuseDenials && requirementsComplete)
+        // A logically large-enough stream can still be incompatible with
+        // its required usage/views. Keep that replacement on the reclaim path.
+        if (reuseDenials && requirementsComplete && (!reclaimEnabled || growsArena || !newArenaBytes))
             arena.preflightDenials.Remember(mesh.resourceKey, denialRequest, asBytes);
         return report("defer-budget", Result::DeferredBudget);
     }

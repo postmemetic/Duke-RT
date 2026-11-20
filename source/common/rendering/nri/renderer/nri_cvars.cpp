@@ -306,6 +306,7 @@ CVAR(Bool, nri_ptvoxelpublication, true, 0)
 // The low-memory test branch enables the validated residency/continuity policy
 // without changing device selection, render resolution or upscaler settings.
 CVAR(Bool, nri_ptvoxelallocationbudget, true, 0)
+CVAR(Bool, nri_ptvoxelpreflightreuse, true, 0)
 CVAR(Int, nri_ptvoxelinterimbudget, 0, 0) // Mid-allocation live budget: 0 off, 1 observe, 2 enforce.
 CVAR(Bool, nri_ptvoxelallocationretrybackoff, true, 0)
 CVAR(Bool, nri_ptvoxeladmissiontiming, false, 0)

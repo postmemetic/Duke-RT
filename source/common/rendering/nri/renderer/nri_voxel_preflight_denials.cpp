@@ -3,7 +3,44 @@
 #include "nri_voxel_compute_allocation.h"
 #include "../system/nri_renderdevice.h"
 #include "perf_audit.h"
+#include "perf_audit_frame_report.h"
 #include <algorithm>
+#include <cstdio>
+
+namespace
+{
+    struct DenialAuditFrame
+    {
+        uint32_t tracked = 0, live = 0, rechecked = 0, queries = 0;
+        uint64_t cpuNs = 0;
+    };
+    DenialAuditFrame frame;
+
+    void FlushDenialAudit()
+    {
+        char fields[256];
+        std::snprintf(fields, sizeof(fields), "\"tracked_denials\":%u,\"live_denials\":%u,\"full_rechecks\":%u,"
+            "\"local_queries\":%u,\"proof_cpu_ns\":%llu", frame.tracked, frame.live, frame.rechecked, frame.queries,
+            (unsigned long long)frame.cpuNs);
+        PerfAuditWriteEvent("voxel_preflight_denial_frame", PerfAuditCurrentToken(), fields);
+        frame = {};
+    }
+
+    bool ReportDenialProof(PerfAuditMetric result, bool queried, uint64_t start)
+    {
+        if (start)
+        {
+            if (!frame.tracked && !frame.live && !frame.rechecked) PerfAuditDeferFrameReport(FlushDenialAudit);
+            PerfAuditAdd(result);
+            if (result == PerfAuditMetric::VoxelPreflightDenialsTracked) ++frame.tracked;
+            else if (result == PerfAuditMetric::VoxelPreflightDenialsLive) ++frame.live;
+            else ++frame.rechecked;
+            frame.queries += queried;
+            frame.cpuNs += PerfAuditClockNs() - start;
+        }
+        return result != PerfAuditMetric::VoxelPreflightDenialsRechecked;
+    }
+}
 
 bool NRIRenderer::CanReuseVoxelPreflightDenial(const PersistentVoxelMeshVariantResource& mesh,
     const NRIBufferResource& scratch, const std::array<uint32_t, 3>& rows, nri::AccelerationStructureBits flags,
@@ -39,6 +76,7 @@ bool NRIRenderer::CanReuseVoxelPreflightDenial(const PersistentVoxelMeshVariantR
 
 bool NRIRenderer::VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Request& request, uint64_t blasBytes)
 {
+    const uint64_t start = PerfAuditActive() ? PerfAuditClockNs() : 0;
     auto& arena = mPersistentVoxels;
     // The new BLAS and the full size of each undersized replacement are
     // unavoidable. Ignore all scratch, provider, private and pending bytes.
@@ -63,15 +101,14 @@ bool NRIRenderer::VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Requ
     };
     if (cap)
     {
-        // A fresh tracked floor below a held policy ceiling is sufficient to
+        // A fresh tracked floor exceeding a held policy ceiling is sufficient to
         // decide some cohorts even if OS usage falls or its budget rebounds.
         // Refresh the same voxel census the full transaction would consume.
         arena.MarkMaintenanceMutation();
         const uint64_t tracked = GetMemoryTelemetry().totalTrackedBytes;
         if (denied(tracked, cap))
         {
-            PerfAuditAdd(PerfAuditMetric::VoxelPreflightDenialsTracked);
-            return true;
+            return ReportDenialProof(PerfAuditMetric::VoxelPreflightDenialsTracked, false, start);
         }
     }
     uint64_t usage = 0, budget = 0;
@@ -80,12 +117,10 @@ bool NRIRenderer::VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Requ
         PerfAuditAdd(PerfAuditMetric::VoxelPreflightLocalQueries);
         if (mFrameBuffer->GetLocalMemoryUsage(usage, budget) && denied(usage, cap ? std::min(cap, budget) : budget))
         {
-            PerfAuditAdd(PerfAuditMetric::VoxelPreflightDenialsLive);
-            return true;
+            return ReportDenialProof(PerfAuditMetric::VoxelPreflightDenialsLive, true, start);
         }
     }
     // Any chance of fitting (including unavailable live telemetry) returns
     // to the full native requirements and all current budget inputs.
-    PerfAuditAdd(PerfAuditMetric::VoxelPreflightDenialsRechecked);
-    return false;
+    return ReportDenialProof(PerfAuditMetric::VoxelPreflightDenialsRechecked, !testBudget, start);
 }
