@@ -9,6 +9,42 @@
 #include <cstdio>
 #include <limits>
 
+bool NRIPersistentVoxelResidency::PreviewEnemyFamilyMaterials(uint64_t signature, uint32_t owners,
+    uint32_t& rows, uint32_t& reused) const
+{
+    const auto& snapshot = GetActorPresentationSnapshot();
+    if (!owners || !materialBuffer.buffer || !materialBuffer.shaderView || !snapshot.complete) return false;
+    auto preview = materialRangeAllocator;
+    const auto maximum = uint32_t(std::min<uint64_t>(materialBuffer.size / sizeof(nri_scene::MaterialData), UINT32_MAX));
+    constexpr auto slots = nri_scene::VoxelPaletteMaterialSlotCount;
+    uint32_t matched = 0;
+    for (const auto& actor : snapshot.actors)
+    {
+        const auto& family = actor.spriteAnimation.enemyVoxelFamily;
+        const NRIEnemyRepresentationOwner owner{actor.owner.ownerWorldEpoch, uint64_t(actor.owner.ownerLifetimeGeneration)};
+        if (!family || family->signature != signature || !actor.owner.IsValid() || !actor.authorityCurrent ||
+            owner.world != snapshot.worldEpoch || !actor.spriteAnimation.enemy || enemyPolicy.Find(owner)) continue;
+        if (++matched > owners || !family->complete || family->textureIds.empty() ||
+            family->textureIds.size() > NRIEnemyFamilyStaging::MaximumFamilyPoses || actor.actorIndex < 0) return false;
+        std::unordered_set<uint64_t> seen;
+        for (auto texture : family->textureIds)
+        {
+            const auto key = nri_scene::BuildEnemyStableMaterialKey(owner.world, owner.lifetime, texture);
+            if (!seen.insert(key).second) continue;
+            rows += slots;
+            const auto resource = materialVariantResources.find(key);
+            if (!key || (resource != materialVariantResources.end() && !resource->second.enemyStableMaterialBinding)) return false;
+            if (materialPayloads.FindBinding(key))
+            {
+                if (!materialPayloads.CanReusePrivateBinding(key, actor.actorIndex, slots, maximum, materialRangeAllocator)) return false;
+                reused += slots;
+            }
+            else if (!preview.AllocateWithin(slots, maximum)) return false;
+        }
+    }
+    return matched == owners;
+}
+
 bool NRIPersistentVoxelResidency::PrepareEnemyMaterialCommit(const ActorPresentationState& authority)
 {
     const auto& family = authority.spriteAnimation.enemyVoxelFamily;

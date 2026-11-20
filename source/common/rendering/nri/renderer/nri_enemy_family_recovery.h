@@ -14,6 +14,7 @@ struct NRIEnemyFamilyRecovery
     };
     uint64_t signature = 0, world = 0, build = 0, permittedPair = 0;
     uint32_t family = 0, poseCount = 0, lastProgressFrame = 0, ready = 0;
+    bool late = false;
     std::vector<Pose> poses;
     std::unordered_set<uint64_t> pins;
 };

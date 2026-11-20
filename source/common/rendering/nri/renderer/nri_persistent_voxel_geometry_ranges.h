@@ -28,6 +28,8 @@ struct NRIVoxelFamilyRangeRequest
 
 struct NRIVoxelFamilyRangeFit
 {
+    struct Placement { uint64_t mesh; NRIPersistentVoxelGeometryRangeHandle range; bool backed; };
+    std::vector<Placement> placements;
     bool fits = false;
     uint64_t blockedMesh = 0;
     std::array<uint64_t, 3> requiredRows = {};
@@ -40,7 +42,7 @@ public:
     // Preview all distinct missing direct-build meshes in admission order.
     // Capacities are rows in the current buffers. Retiring ranges stay owned.
     NRIVoxelFamilyRangeFit PreviewFamily(const std::vector<NRIVoxelFamilyRangeRequest>& requests,
-        const std::array<uint64_t, 3>& capacity) const;
+        const std::array<uint64_t, 3>& capacity, bool detail = false) const;
     bool Owns(const NRIPersistentVoxelGeometryRangeHandle& handle) const;
     // Caller must establish GPU completion before releasing recorded/published
     // reservations. Until then the handle remains live in this allocator.

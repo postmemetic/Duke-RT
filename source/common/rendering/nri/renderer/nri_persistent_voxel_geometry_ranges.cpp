@@ -28,7 +28,7 @@ NRIPersistentVoxelGeometryRangeHandle NRIPersistentVoxelGeometryRanges::Allocate
 }
 
 NRIVoxelFamilyRangeFit NRIPersistentVoxelGeometryRanges::PreviewFamily(
-    const std::vector<NRIVoxelFamilyRangeRequest>& requests, const std::array<uint64_t, 3>& capacity) const
+    const std::vector<NRIVoxelFamilyRangeRequest>& requests, const std::array<uint64_t, 3>& capacity, bool detail) const
 {
     NRIVoxelFamilyRangeFit result;
     result.requiredRows = {VertexStats().cursorRows, IndexStats().cursorRows, PrimitiveStats().cursorRows};
@@ -58,24 +58,35 @@ NRIVoxelFamilyRangeFit NRIPersistentVoxelGeometryRanges::PreviewFamily(
 
     auto preview = *this;
     std::unordered_set<uint64_t> usedReservations;
+    uint64_t firstOutside = 0;
     for (const auto& pose : meshes)
     {
         result.blockedMesh = pose.mesh;
         const uint32_t vertices = 2u * pose.primitives, indices = 3u * pose.primitives;
         if (pose.reserved && !usedReservations.insert(pose.reserved.transaction).second) return result;
+        auto placement = pose.reserved;
         // A too-small old lease stays live until the replacement's fence.
         if (!pose.reserved || pose.reserved.vertices.capacity < vertices ||
             pose.reserved.indices.capacity < indices || pose.reserved.primitives.capacity < pose.primitives)
         {
-            if (!preview.Allocate(vertices, indices, pose.primitives)) return result;
+            placement = preview.Allocate(vertices, indices, pose.primitives);
+            if (!placement) return result;
             result.requiredRows = {preview.VertexStats().cursorRows, preview.IndexStats().cursorRows,
                 preview.PrimitiveStats().cursorRows};
         }
+        const bool backed = uint64_t(placement.vertices.offset) + vertices <= capacity[0] &&
+            uint64_t(placement.indices.offset) + indices <= capacity[1] &&
+            uint64_t(placement.primitives.offset) + pose.primitives <= capacity[2];
+        if (detail) result.placements.push_back({pose.mesh, placement, backed});
         if (result.requiredRows[0] > capacity[0] || result.requiredRows[1] > capacity[1] ||
-            result.requiredRows[2] > capacity[2]) return result;
+            result.requiredRows[2] > capacity[2] || !backed)
+        {
+            if (!detail) return result;
+            if (!firstOutside) firstOutside = pose.mesh;
+        }
     }
-    result.fits = true;
-    result.blockedMesh = 0;
+    result.fits = !firstOutside;
+    result.blockedMesh = firstOutside;
     return result;
 }
 

@@ -3,7 +3,7 @@
 #include "../scene/nri_enemy_material_key.h"
 #include "../scene/nri_enemy_voxel_retained.h"
 #include "actor_presentation_snapshot.h"
-#include "c_cvars.h"
+#include "nri_cvars.h"
 #include "perf_audit.h"
 #include "printf.h"
 #include <algorithm>
@@ -144,6 +144,7 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
         result.reason = failure.reason;
         return finish();
     }
+    result.recoveryPricesKnown = (bool)nri_ptvoxellatefamilyrecovery && IsEnemyFamilyRecoveryEnabled() && !views.empty();
     std::unordered_set<uint64_t> unique;
     for (size_t pose = 0; pose < views.size(); ++pose)
     {
@@ -153,6 +154,7 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
         variant.renderPrimitiveHash = view.renderPrimitiveHash;
         variant.geometryContentHash = view.geometryContentHash;
         const uint64_t key = BuildPersistentVoxelVariantMeshResourceKey(variant);
+        if (result.recoveryPricesKnown && !startupFamilyBudget.RecoveryCost(key)) result.recoveryPricesKnown = false;
         const auto found = meshVariantResources.find(key);
         const auto rememberUnavailable = [&]()
         {

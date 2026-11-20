@@ -13,7 +13,7 @@ struct NRIEnemyFamilyResidency
     uint64_t firstUnavailableMesh = 0;
     int32_t firstUnavailableTexture = -1, firstUnavailableTile = -1;
     const char* firstUnavailableAction = "none";
-    bool complete = false;
+    bool complete = false, recoveryPricesKnown = false;
     const char* reason = "unknown-family";
     std::vector<uint64_t> meshes;
 };

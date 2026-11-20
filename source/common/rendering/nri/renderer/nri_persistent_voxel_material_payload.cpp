@@ -143,6 +143,17 @@ NRIPersistentVoxelMaterialRangeHandle NRIVoxelMaterialPayloadOwner::FindBinding(
 	return binding == bindings.end() ? NRIPersistentVoxelMaterialRangeHandle{} : payloads.at(binding->second).range;
 }
 
+bool NRIVoxelMaterialPayloadOwner::CanReusePrivateBinding(uint64_t key, int32_t actorIndex, uint32_t capacity,
+    uint32_t maximumRows, const NRIPersistentVoxelMaterialRangeAllocator& allocator) const
+{
+    const auto binding = bindings.find(key);
+    if (binding == bindings.end()) return false;
+    const auto& payload = payloads.at(binding->second);
+    return !payload.certificate.invariant && payload.aliases == 1 && bindingActors.at(key) == actorIndex &&
+        payload.range.capacity >= capacity && uint64_t(payload.range.offset) + payload.range.capacity <= maximumRows &&
+        allocator.Owns(payload.range);
+}
+
 bool NRIVoxelMaterialPayloadOwner::ReservePrivateBinding(uint64_t key, int32_t actorIndex,
 	uint32_t capacity, uint32_t maximumRows, NRIPersistentVoxelMaterialRangeAllocator& allocator,
 	NRIPersistentVoxelMaterialRangeHandle& result, bool& created)
@@ -153,9 +164,7 @@ bool NRIVoxelMaterialPayloadOwner::ReservePrivateBinding(uint64_t key, int32_t a
 	if (previous != bindings.end())
 	{
 		auto& payload = payloads.at(previous->second);
-		if (payload.certificate.invariant || payload.aliases != 1 || bindingActors.at(key) != actorIndex ||
-			payload.range.capacity < capacity || uint64_t(payload.range.offset) + payload.range.capacity > maximumRows ||
-			!allocator.Owns(payload.range)) return false;
+		if (!CanReusePrivateBinding(key, actorIndex, capacity, maximumRows, allocator)) return false;
 		payload.capacityReserved = true;
 		result = payload.range;
 		return true;

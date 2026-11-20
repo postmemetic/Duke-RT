@@ -57,6 +57,8 @@ public:
 	bool ReservePrivateBinding(uint64_t key, int32_t actorIndex, uint32_t capacity, uint32_t maximumRows,
 		NRIPersistentVoxelMaterialRangeAllocator& allocator,
 		NRIPersistentVoxelMaterialRangeHandle& result, bool& created);
+    bool CanReusePrivateBinding(uint64_t key, int32_t actorIndex, uint32_t capacity, uint32_t maximumRows,
+        const NRIPersistentVoxelMaterialRangeAllocator& allocator) const;
 	NRIPersistentVoxelMaterialRangeHandle FindBinding(uint64_t key) const;
 	std::vector<uint64_t> BindingsForActor(int32_t actorIndex) const;
 	bool BindingIsShared(uint64_t key) const;

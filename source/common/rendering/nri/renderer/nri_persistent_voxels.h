@@ -1080,6 +1080,7 @@ public:
         uint32_t frameIndex, const NRIPersistentVoxelSettings& settings);
     NRIEnemyRepresentationChoice SelectEnemyRepresentation(const nri_scene::ActorSpriteFallbackCandidate& candidate,
         uint32_t frameIndex, const NRIPersistentVoxelSettings& settings, bool exactReady, bool spriteReady);
+    bool PreviewEnemyFamilyMaterials(uint64_t signature, uint32_t owners, uint32_t& rows, uint32_t& reused) const;
     bool PrepareEnemyMaterialCommit(const ActorPresentationState& authority);
     void ReleaseEnemyMaterialCommits(const std::vector<uint64_t>& keys, const NRIPersistentVoxelResetServices& services,
         bool authoritativeEmptyAfterWait = false);
