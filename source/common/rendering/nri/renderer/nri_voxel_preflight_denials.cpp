@@ -12,6 +12,7 @@ namespace
     struct DenialAuditFrame
     {
         uint32_t tracked = 0, live = 0, rechecked = 0, queries = 0;
+        uint32_t trackedCensuses = 0, skippedCensuses = 0;
         uint64_t cpuNs = 0;
     };
     DenialAuditFrame frame;
@@ -20,7 +21,8 @@ namespace
     {
         char fields[256];
         std::snprintf(fields, sizeof(fields), "\"tracked_denials\":%u,\"live_denials\":%u,\"full_rechecks\":%u,"
-            "\"local_queries\":%u,\"proof_cpu_ns\":%llu", frame.tracked, frame.live, frame.rechecked, frame.queries,
+            "\"local_queries\":%u,\"tracked_censuses\":%u,\"skipped_tracked_censuses\":%u,\"proof_cpu_ns\":%llu",
+            frame.tracked, frame.live, frame.rechecked, frame.queries, frame.trackedCensuses, frame.skippedCensuses,
             (unsigned long long)frame.cpuNs);
         PerfAuditWriteEvent("voxel_preflight_denial_frame", PerfAuditCurrentToken(), fields);
         frame = {};
@@ -74,13 +76,13 @@ bool NRIRenderer::CanReuseVoxelPreflightDenial(const PersistentVoxelMeshVariantR
     return true;
 }
 
-bool NRIRenderer::VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Request& request, uint64_t blasBytes)
+bool NRIRenderer::VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Request& request, NRIVoxelPreflightDenials::Proof& proof)
 {
     const uint64_t start = PerfAuditActive() ? PerfAuditClockNs() : 0;
     auto& arena = mPersistentVoxels;
     // The new BLAS and the full size of each undersized replacement are
     // unavoidable. Ignore all scratch, provider, private and pending bytes.
-    uint64_t minimum = blasBytes;
+    uint64_t minimum = proof.blasBytes;
     const auto stream = [&](uint64_t bytes, const NRIBufferResource& backing)
     {
         if (bytes > backing.size) minimum = NRIVoxelComputeSaturatingAdd(minimum, bytes);
@@ -99,18 +101,23 @@ bool NRIRenderer::VoxelPreflightStillDenied(const NRIVoxelPreflightDenials::Requ
     {
         return !BuildNRIPersistentVoxelAllocationBudget(usage, budget, minimum, request.reserve).fits;
     };
-    if (cap)
+    if (cap && (testBudget || cap != proof.insufficientTrackedCeiling))
     {
         // A fresh tracked floor exceeding a held policy ceiling is sufficient to
         // decide some cohorts even if OS usage falls or its budget rebounds.
         // Refresh the same voxel census the full transaction would consume.
         arena.MarkMaintenanceMutation();
+        if (start) ++frame.trackedCensuses;
         const uint64_t tracked = GetMemoryTelemetry().totalTrackedBytes;
         if (denied(tracked, cap))
         {
             return ReportDenialProof(PerfAuditMetric::VoxelPreflightDenialsTracked, false, start);
         }
+        // An equivalent alias can try fresh local usage first under the same
+        // ceiling. If usage fell, the full path reevaluates every owner.
+        if (!testBudget) proof.insufficientTrackedCeiling = cap;
     }
+    else if (cap && start) ++frame.skippedCensuses;
     uint64_t usage = 0, budget = 0;
     if (!testBudget)
     {

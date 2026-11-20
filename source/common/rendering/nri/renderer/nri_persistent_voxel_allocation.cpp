@@ -243,8 +243,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     if (reuseDenials)
     {
         arena.preflightDenials.Begin(mMapWorld.buildSerial, retryTick, arena.GetMaintenanceStats().pumpCalls);
-        const uint64_t blasBytes = arena.preflightDenials.Find(mesh.resourceKey, denialRequest);
-        if (blasBytes && VoxelPreflightStillDenied(denialRequest, blasBytes))
+        auto* proof = arena.preflightDenials.Find(mesh.resourceKey, denialRequest);
+        if (proof && VoxelPreflightStillDenied(denialRequest, *proof))
         {
             // The full preflight refreshes the sample used by family staging
             // and retention. Let their next reader sample the current budget.

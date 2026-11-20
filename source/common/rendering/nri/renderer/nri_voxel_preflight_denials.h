@@ -39,20 +39,27 @@ public:
         pumpSerial = pump;
     }
 
-    uint64_t Find(uint64_t mesh, const Request& request) const
+    struct Proof
+    {
+        uint64_t blasBytes = 0;
+        // Chooses which fresh measurement to try; never evidence of denial.
+        uint64_t insufficientTrackedCeiling = 0;
+    };
+
+    Proof* Find(uint64_t mesh, const Request& request)
     {
         const auto it = records.find(mesh);
-        return it != records.end() && it->second.request == request ? it->second.blasBytes : 0;
+        return it != records.end() && it->second.request == request ? &it->second.proof : nullptr;
     }
 
     void Remember(uint64_t mesh, const Request& request, uint64_t blasBytes)
     {
         if (blasBytes && (records.size() < 512 || records.count(mesh)))
-            records[mesh] = {request, blasBytes};
+            records[mesh] = {request, {blasBytes, 0}};
     }
 
 private:
-    struct Record { Request request; uint64_t blasBytes; };
+    struct Record { Request request; Proof proof; };
     std::unordered_map<uint64_t, Record> records;
     uint64_t mapEpoch = 0, tick = UINT64_MAX, pumpSerial = 0;
 };
