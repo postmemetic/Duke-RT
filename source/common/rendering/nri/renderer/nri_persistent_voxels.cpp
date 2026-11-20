@@ -5088,7 +5088,6 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		}
 	}
 
-	const uint64_t explicitPagePair = !loadingPhase && actorPolicy.actorPriority ? CurrentExplicitPagePair(frameIndex) : 0;
 	std::sort(candidates.begin(), candidates.end(), [&](const PersistentVoxelAdmissionEntry* left, const PersistentVoxelAdmissionEntry* right)
 	{
 		if (!loadingPhase && actorPolicy.actorPriority && actorDemand.AuthorityAvailable())
@@ -5098,14 +5097,6 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			const bool leftStarted = left->uploadPrepared || left->schedulerTokenId || left->directComputeRequested;
 			const bool rightStarted = right->uploadPrepared || right->schedulerTokenId || right->directComputeRequested;
 			if (leftStarted != rightStarted) return leftStarted;
-			if (explicitPagePair && !leftStarted)
-			{
-				// A short-lived visible occurrence can disappear while older unstarted jobs
-				// wait. Explicit page selection can use the next free slot while it is current.
-				const bool leftPage = left->pairKey == explicitPagePair;
-				const bool rightPage = right->pairKey == explicitPagePair;
-				if (leftPage != rightPage) return leftPage;
-			}
 			const auto a = actorDemand.Pair(left->pairKey), b = actorDemand.Pair(right->pairKey);
 			if (NRIVoxelActorDemand::HigherPriority(a, b)) return true;
 			if (NRIVoxelActorDemand::HigherPriority(b, a)) return false;
