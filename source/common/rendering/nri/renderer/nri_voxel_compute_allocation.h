@@ -55,9 +55,10 @@ struct NRIVoxelComputeProviderSource
 bool ReadNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputeProviderSource& source, bool queueIfMissing);
 
 // Forecasts a complete direct-publication provider footprint before committing
-// geometry/AS. An unknown source queues only CPU ingestion and defers admission.
+// geometry/AS. Real admissions can request CPU ingestion. Prospective family
+// pricing only inspects existing archive metadata, including still-unbacked GPU pages.
 NRIPersistentVoxelAllocationResult ForecastNRIVoxelComputeProviderAllocations(
-    const NRIResourceContext& context, FVoxelModel* model, NRIVoxelComputeProviderForecast& forecast);
+    const NRIResourceContext& context, FVoxelModel* model, NRIVoxelComputeProviderForecast& forecast, bool queueMissingSource = true);
 
 // Exact physical allocations, queried and allocated together before commands
 // reference them. Call only for a free completion slot or an archive page whose

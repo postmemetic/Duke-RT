@@ -48,12 +48,12 @@ bool QueryNRIVoxelComputeBufferAllocation(const NRIResourceContext& context,
 }
 
 NRIPersistentVoxelAllocationResult ForecastNRIVoxelComputeProviderAllocations(
-    const NRIResourceContext& context, FVoxelModel* model, NRIVoxelComputeProviderForecast& forecast)
+    const NRIResourceContext& context, FVoxelModel* model, NRIVoxelComputeProviderForecast& forecast, bool queueMissingSource)
 {
     using Result = NRIPersistentVoxelAllocationResult;
     forecast = {};
     NRIVoxelComputeProviderSource source;
-    if (!ReadNRIVoxelComputeProviderSource(model, source, true)) return Result::DeferredSource;
+    if (!ReadNRIVoxelComputeProviderSource(model, source, queueMissingSource)) return Result::DeferredSource;
     forecast.sourcePage = source.pageIndex;
     const auto add = [&](uint64_t size, uint32_t stride, nri::BufferUsageBits usage, nri::MemoryLocation location)
     {

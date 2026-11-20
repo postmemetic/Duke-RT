@@ -75,7 +75,7 @@ bool BeginRecovery(NRIPersistentVoxelResidency& voxels, const ActorPresentationS
         if (!key || !voxels.startupFamilyBudget.RecoveryCost(key) || !planned || !planned->model ||
             !planned->directOnlyAdmission || !planned->primitiveCount || !planned->materialKeyHash) return false;
         uint64_t source = 0, workspace = 0;
-        if (!services.forecastFamilyProvider(services.user, planned->model, source, workspace)) return false;
+        if (!services.forecastFamilyProvider(services.user, planned->model, source, workspace, !group.late)) return false;
         group.poses.push_back({key, nri_scene::HashCombine64(key, planned->materialKeyHash), source, workspace, planned->primitiveCount});
     }
     // One prospective job at a time. Starting with the largest contiguous

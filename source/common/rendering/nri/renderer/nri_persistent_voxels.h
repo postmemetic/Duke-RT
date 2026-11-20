@@ -405,7 +405,7 @@ struct NRIPersistentVoxelResetServices
 	InvalidateSceneDataDescriptorsFn invalidateSceneDataDescriptors = nullptr;
 	bool (*cacheRetirementAllowed)(void*) = nullptr;
     void (*allocationBudget)(void*, uint64_t& usage, uint64_t& budget) = nullptr;
-    bool (*forecastFamilyProvider)(void*, FVoxelModel*, uint64_t& sourceBytes, uint64_t& workspaceBytes) = nullptr;
+    bool (*forecastFamilyProvider)(void*, FVoxelModel*, uint64_t& sourceBytes, uint64_t& workspaceBytes, bool queueMissingSource) = nullptr;
 	void (*retireSchedulerReservation)(void*, NRIPersistentVoxelSchedulerRetirement) = nullptr;
 	void RetireSchedulerReservation(NRIPersistentVoxelSchedulerRetirement ticket) const
 	{ if (ticket && retireSchedulerReservation) retireSchedulerReservation(user, ticket); }

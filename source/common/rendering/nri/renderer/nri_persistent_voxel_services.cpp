@@ -1117,11 +1117,11 @@ public:
             const auto sample = static_cast<NRIRenderer*>(user)->GetPersistentVoxelBudgetSnapshot(true);
             usage = sample.usageBytes; budget = sample.budgetBytes;
         };
-        services.forecastFamilyProvider = [](void* user, FVoxelModel* model, uint64_t& source, uint64_t& workspace)
+        services.forecastFamilyProvider = [](void* user, FVoxelModel* model, uint64_t& source, uint64_t& workspace, bool queueMissingSource)
         {
             NRIVoxelComputeProviderForecast forecast;
             const auto result = ForecastNRIVoxelComputeProviderAllocations(
-                static_cast<NRIRenderer*>(user)->BuildResourceContext(), model, forecast);
+                static_cast<NRIRenderer*>(user)->BuildResourceContext(), model, forecast, queueMissingSource);
             source = forecast.reservation.rawSourceBytes;
             workspace = forecast.bytes - source;
             return result == NRIPersistentVoxelAllocationResult::Ready;
