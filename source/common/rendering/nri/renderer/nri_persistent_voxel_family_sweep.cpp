@@ -23,6 +23,7 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
     uint64_t remainingCharge = limit - std::min(limit, stage.chargedBytes);
     uint32_t familyCount = stage.families, meshCount = stage.meshes;
     std::unordered_set<uint64_t> held;
+    bool ordinaryMarked = false;
 
     // Decisions retain the normal staging priority. Earlier selections and all active, required
     // or pending owners were excluded from this sweep's candidate list upstream.
@@ -37,6 +38,11 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
             !std::all_of(family.meshes.begin(), family.meshes.end(),
                 [&](uint64_t key) { return startupFamilyBudget.meshes.count(key) != 0; })) continue;
 
+        if (!ordinaryMarked)
+        {
+            NRIMarkOrdinarySweepVictims(candidates, inactiveBytes, warmBytes, meshLimit, warmRetentionPressure);
+            ordinaryMarked = true;
+        }
         const auto proof = NRIPriceFamilySweep(candidates, held, family.meshes,
             inactiveBytes, warmBytes, meshLimit, warmRetentionPressure);
         if (proof.additionalKeys.empty()) continue;
@@ -49,10 +55,11 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
             char fields[512];
             std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"family\":%u,"
                 "\"signature\":%llu,\"poses\":%u,\"additional_meshes\":%u,\"additional_bytes\":%llu,"
-                "\"remaining_charge\":%llu,\"hard_deficit\":%llu,\"other_victim_bytes\":%llu,\"keep\":%s",
+                "\"ordinary_family_victims\":%u,\"remaining_charge\":%llu,\"hard_deficit\":%llu,"
+                "\"other_victim_bytes\":%llu,\"keep\":%s",
                 frameIndex, (unsigned long long)stage.world, family.family, (unsigned long long)choice.signature,
                 family.poses, (unsigned)proof.additionalKeys.size(), (unsigned long long)proof.additionalBytes,
-                (unsigned long long)remainingCharge, (unsigned long long)hardDeficit,
+                proof.ordinaryFamilyVictims, (unsigned long long)remainingCharge, (unsigned long long)hardDeficit,
                 (unsigned long long)proof.otherRetiringBytes, keep ? "true" : "false");
             PerfAuditWriteEvent("enemy_family_sweep", PerfAuditCurrentToken(), fields);
         }
@@ -67,6 +74,23 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
     if (held.empty()) return;
     // The proof chooses this sweep's victims only. No retired bytes become credit for an
     // allocation until the backend's ordinary fence and live-budget checks allow it.
-    candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
-        [&](const auto& mesh) { return held.count(mesh.key) != 0; }), candidates.end());
+    const bool audit = PerfAuditActive();
+    const auto protection = NRIRestrictFamilySweep(candidates, held, inactiveBytes, warmBytes, meshLimit,
+        warmRetentionPressure, audit);
+    if (!audit) return;
+    char fields[384];
+    std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"additional_protected_meshes\":%u,"
+        "\"additional_protected_logical_bytes\":%llu,\"additional_protected_physical_bytes\":%llu,"
+        "\"sampled_meshes\":%u", frameIndex, (unsigned long long)stage.world, protection.meshCount,
+        (unsigned long long)protection.logicalBytes, (unsigned long long)protection.physicalBytes,
+        (unsigned)protection.samples.size());
+    PerfAuditWriteEvent("enemy_family_sweep_protection", PerfAuditCurrentToken(), fields);
+    for (const auto& mesh : protection.samples)
+    {
+        std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"mesh_key\":\"%llu\","
+            "\"warm_rank\":%u,\"inactive_since\":%u,\"logical_bytes\":%llu,\"physical_bytes\":%llu",
+            frameIndex, (unsigned long long)stage.world, (unsigned long long)mesh.key, mesh.warmRank,
+            mesh.since, (unsigned long long)mesh.bytes, (unsigned long long)mesh.physicalBytes);
+        PerfAuditWriteEvent("enemy_family_sweep_spared", PerfAuditCurrentToken(), fields);
+    }
 }
