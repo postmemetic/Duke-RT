@@ -26,6 +26,12 @@ void NRIPersistentVoxelResidency::SyncGeometryCursors()
     arenaPrimitiveCursor = uint32_t(geometryRanges.PrimitiveStats().cursorRows);
 }
 
+void NRIPersistentVoxelResidency::ResetGeometryRanges()
+{
+    geometryRanges.Reset();
+    TraceGeometryLease("reset", 0, {});
+}
+
 void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
     const NRIPersistentVoxelGeometryRangeHandle& previous)
 {
@@ -43,7 +49,7 @@ void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVox
     resource.primitiveCapacity = previous.primitives.capacity;
 }
 
-bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource,
+bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource, uint64_t meshKey,
     uint32_t vertices, uint32_t indices, uint32_t primitives, NRIPersistentVoxelGeometryRangeHandle& previous)
 {
     previous = {};
@@ -54,6 +60,7 @@ bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVaria
         geometryRanges.IndexStats().highWaterRows, geometryRanges.PrimitiveStats().highWaterRows };
     const auto replacement = geometryRanges.Allocate(vertices, indices, primitives);
     if (!replacement) return false;
+    TraceGeometryLease("allocate", meshKey, replacement);
     PerfAuditAdd(PerfAuditMetric::VoxelGeometryRangeAllocations);
     const auto reused = [](const NRIPersistentVoxelMaterialRangeHandle& range, uint64_t high)
     { return high > range.offset ? std::min<uint64_t>(range.capacity, high - range.offset) : 0; };
@@ -88,6 +95,7 @@ void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVox
     }
     if (geometryRanges.Release(range))
     {
+        TraceGeometryLease(committedRetirement ? "retired" : "rollback", 0, range);
         PerfAuditAdd(PerfAuditMetric::VoxelGeometryRangeReleases);
         PerfAuditAdd(PerfAuditMetric::VoxelGeometryRangeReleasedBytes,
             uint64_t(range.vertices.capacity) * sizeof(nri_scene::SceneVertex) +

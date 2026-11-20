@@ -1756,7 +1756,7 @@ void NRIPersistentVoxelResidency::ClearActorInstances(const NRIPersistentVoxelRe
 		arenaVertexCursor = 0;
 		arenaIndexCursor = 0;
 		arenaPrimitiveCursor = 0;
-		geometryRanges.Reset();
+		ResetGeometryRanges();
 	}
 	services.InvalidateSceneDataDescriptors();
 }
@@ -6733,7 +6733,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				return true;
 			}
 			NRIPersistentVoxelGeometryRangeHandle previousRange;
-			if (!AllocateGeometryRange(meshResource, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
+			if (!AllocateGeometryRange(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");
 			meshResource.sourceModel = variant.model;
 			meshResource.resourceKey = meshResourceKey;
@@ -6983,7 +6983,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		NRIPersistentVoxelGeometryRangeHandle previousRange;
 		if (entry.uploadGeometry.vertices.size() > UINT32_MAX || entry.uploadGeometry.indices.size() > UINT32_MAX ||
 			entry.uploadGeometry.primitives.size() > UINT32_MAX ||
-			!AllocateGeometryRange(meshResource, (uint32_t)entry.uploadGeometry.vertices.size(),
+			!AllocateGeometryRange(meshResource, meshResourceKey, (uint32_t)entry.uploadGeometry.vertices.size(),
 				(uint32_t)entry.uploadGeometry.indices.size(), (uint32_t)entry.uploadGeometry.primitives.size(), previousRange))
 			return rollbackAdmission("geometry-range-allocation-failed", "reserve");
 		meshResource.resourceKey = meshResourceKey;
@@ -8478,7 +8478,7 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		NRIPersistentVoxelGeometryRangeHandle previousRange;
 		if (actorGeometry.vertices.size() > UINT32_MAX || actorGeometry.indices.size() > UINT32_MAX ||
 			actorGeometry.primitives.size() > UINT32_MAX ||
-			!AllocateGeometryRange(meshResource, (uint32_t)actorGeometry.vertices.size(),
+			!AllocateGeometryRange(meshResource, meshResourceKey, (uint32_t)actorGeometry.vertices.size(),
 				(uint32_t)actorGeometry.indices.size(), (uint32_t)actorGeometry.primitives.size(), previousRange))
 		{
 			Reset("persistent-voxel-range-allocation-failed", true, loadingTraceLevel >= 1 || voxelStatsEnabled, resetServices);
@@ -10273,7 +10273,7 @@ void NRIPersistentVoxelResidency::Reset(
 	arenaVertexCursor = 0;
 	arenaIndexCursor = 0;
 	arenaPrimitiveCursor = 0;
-	geometryRanges.Reset();
+	ResetGeometryRanges();
 	if (overflowPage.Lease() && !overflowPage.Retiring())
 		services.RetireGeometryRange(overflowPage.Lease());
 	// Keep a page without a known fence quarantined until an explicit wait.

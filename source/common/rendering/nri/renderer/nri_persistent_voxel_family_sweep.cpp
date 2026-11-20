@@ -77,6 +77,7 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
         held.insert(proof.additionalKeys.begin(), proof.additionalKeys.end());
     }
     if (held.empty()) return;
+    TraceOrdinarySweepVictims(frameIndex, candidates, held);
     // The proof chooses this sweep's victims only. No retired bytes become credit for an
     // allocation until the backend's ordinary fence and live-budget checks allow it.
     const bool audit = PerfAuditActive();

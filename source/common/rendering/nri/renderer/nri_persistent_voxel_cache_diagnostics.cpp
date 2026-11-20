@@ -118,6 +118,40 @@ void NRIPersistentVoxelResidency::NoteCacheActorDeferred(uint64_t identity, cons
     else ++cacheDiagnosticState->reasonOverflow;
 }
 
+void NRIPersistentVoxelResidency::TraceGeometryLease(const char* action, uint64_t meshKey,
+    const NRIPersistentVoxelGeometryRangeHandle& range) const
+{
+    if (!(bool)nri_ptvoxelmeshlifetrace || !PerfAuditActive()) return;
+    // Releases join to their allocation by transaction, including fence callbacks after a map change.
+    char fields[768];
+    std::snprintf(fields, sizeof(fields), "\"action\":\"%s\",\"map_generation\":%u,\"mesh_key\":%llu,"
+        "\"transaction\":%llu,\"live\":%zu,\"offsets\":[%u,%u,%u],\"rows\":[%u,%u,%u],"
+        "\"cursor\":[%llu,%llu,%llu],\"physical_capacity\":[%llu,%llu,%llu]",
+        action, residencyMapGeneration, U64(meshKey), U64(range.transaction), geometryRanges.TransactionCount(),
+        range.vertices.offset, range.indices.offset, range.primitives.offset,
+        range.vertices.capacity, range.indices.capacity, range.primitives.capacity,
+        U64(geometryRanges.VertexStats().cursorRows), U64(geometryRanges.IndexStats().cursorRows),
+        U64(geometryRanges.PrimitiveStats().cursorRows), U64(vertexBuffer.size / sizeof(nri_scene::SceneVertex)),
+        U64(indexBuffer.size / sizeof(uint32_t)), U64(primitiveBuffer.size / sizeof(nri_scene::PrimitiveData)));
+    PerfAuditWriteEvent("voxel_geometry_lease", PerfAuditCurrentToken(), fields);
+}
+
+void NRIPersistentVoxelResidency::TraceOrdinarySweepVictims(uint32_t frame,
+    const std::vector<NRIVoxelSweepCandidate>& candidates, const std::unordered_set<uint64_t>& protectedMeshes) const
+{
+    if (!(bool)nri_ptvoxelmeshlifetrace || !PerfAuditActive()) return;
+    for (const auto& mesh : candidates)
+    {
+        if (!mesh.ordinaryVictim) continue;
+        char fields[320];
+        std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_generation\":%u,\"mesh_key\":%llu,"
+            "\"family_protected\":%s,\"warm_rank\":%u,\"physical_bytes\":%llu",
+            frame, residencyMapGeneration, U64(mesh.key), Bool(protectedMeshes.count(mesh.key) != 0),
+            mesh.warmRank, U64(mesh.physicalBytes));
+        PerfAuditWriteEvent("voxel_ordinary_sweep_victim", PerfAuditCurrentToken(), fields);
+    }
+}
+
 void NRIPersistentVoxelResidency::TraceMeshLifecycle(uint64_t key, uint32_t frameIndex, const char* action,
     const char* cause, uint64_t material, bool sourceOrPendingPinned) const
 {

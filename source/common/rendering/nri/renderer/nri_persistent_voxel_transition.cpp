@@ -68,7 +68,7 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
         DestroyBufferResource(cache.indexBuffer);
         DestroyBufferResource(cache.primitiveBuffer);
         cache.allocationArenaRetry.BackingChanged();
-        cache.geometryRanges.Reset();
+        cache.ResetGeometryRanges();
         cache.SyncGeometryCursors();
         cache.arenaPresizeBuildSerial = 0;
         cache.startupFamilyBudget = {};

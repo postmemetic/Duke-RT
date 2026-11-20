@@ -1219,12 +1219,16 @@ public:
     void RetainCompleteFamiliesForSweep(uint32_t frameIndex, uint64_t usageBytes, uint64_t budgetBytes,
         int32_t meshLimit, std::vector<NRIVoxelSweepCandidate>& candidates,
         uint64_t& inactiveBytes, uint64_t& warmBytes);
-	bool AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource,
+	bool AllocateGeometryRange(PersistentVoxelMeshVariantResource& resource, uint64_t meshKey,
 		uint32_t vertices, uint32_t indices, uint32_t primitives,
 		NRIPersistentVoxelGeometryRangeHandle& previous);
 	void RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
 		const NRIPersistentVoxelGeometryRangeHandle& previous);
 	void SyncGeometryCursors();
+	void ResetGeometryRanges();
+	void TraceGeometryLease(const char* action, uint64_t meshKey, const NRIPersistentVoxelGeometryRangeHandle& range) const;
+	void TraceOrdinarySweepVictims(uint32_t frame, const std::vector<NRIVoxelSweepCandidate>& candidates,
+		const std::unordered_set<uint64_t>& protectedMeshes) const;
 	void ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool committedRetirement = true);
 	NRIPersistentVoxelSchedulerRetirement TerminalizeAdmissionSchedulerToken(PersistentVoxelAdmissionEntry& entry, bool failed);
 	bool IsSchedulerRetirementPending(NRIPersistentVoxelSchedulerRetirement ticket, uint64_t* bytes = nullptr) const;
