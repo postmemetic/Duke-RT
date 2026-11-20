@@ -6,6 +6,19 @@
 #include <cstdio>
 #include <algorithm>
 
+namespace
+{
+    bool IsSelectedOverflowMesh(uint64_t mesh)
+    {
+        switch (int(nri_ptvoxeloverflowpagetarget))
+        {
+        case 0: return mesh == NRIVoxelOverflowPage::TelescopeMesh;
+        case 1: return mesh == 14261219071072162745ull; // 1905_EXPLODE.kvx
+        default: return false;
+        }
+    }
+}
+
 void NRIPersistentVoxelResidency::SyncGeometryCursors()
 {
     arenaVertexCursor = uint32_t(geometryRanges.VertexStats().cursorRows);
@@ -87,7 +100,7 @@ void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVox
 
 bool NRIPersistentVoxelResidency::HasOverflowNoFit(uint64_t mesh) const
 {
-    if (mesh != NRIVoxelOverflowPage::TelescopeMesh || overflowPage.Lease()) return false;
+    if (!IsSelectedOverflowMesh(mesh) || overflowPage.Lease()) return false;
     const auto& records = admissionReclaim.Records();
     const auto found = records.find(mesh);
     if (found == records.end()) return false;
@@ -137,7 +150,7 @@ bool NRIPersistentVoxelResidency::TryReserveOverflowPage(PersistentVoxelMeshVari
 {
     const int mode = EffectiveOverflowPageMode();
     if ((mode != 1 && mode != 2) || !(bool)nri_ptvoxelallocationbudget ||
-        mesh != NRIVoxelOverflowPage::TelescopeMesh || retentionQuarantined || overflowPage.Lease()) return false;
+        !IsSelectedOverflowMesh(mesh) || retentionQuarantined || overflowPage.Lease()) return false;
     if (!runtime || !actorDemand.Upgrade(mesh, frame).requestedConsumers) return false;
     if (mode == 1)
     {
