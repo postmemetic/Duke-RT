@@ -2215,7 +2215,7 @@ bool PreloadNRIVoxelComputeRawSource(FVoxelModel* model, NRIVoxelComputeRawSourc
 	return true;
 }
 
-bool PrepareNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputeProviderSource& source)
+bool ReadNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputeProviderSource& source, bool queueIfMissing)
 {
 	source = {};
 	if (!model || !IsRawSourceArchiveEnabled()) return false;
@@ -2223,7 +2223,7 @@ bool PrepareNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputePro
 	const auto found = state.rawSourceArchive.find(model);
 	if (found == state.rawSourceArchive.end())
 	{
-		QueueRuntimeRawSource(model, state.lastObservedFrame);
+		if (queueIfMissing) QueueRuntimeRawSource(model, state.lastObservedFrame);
 		return false;
 	}
 	const auto& archive = found->second;

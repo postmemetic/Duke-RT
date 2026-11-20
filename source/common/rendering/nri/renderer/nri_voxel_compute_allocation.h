@@ -50,9 +50,9 @@ struct NRIVoxelComputeProviderSource
     bool fullReadback = false;
 };
 
-// Source owner supplies only an immutable count/capacity snapshot. False queues
-// bounded CPU ingestion if necessary; it does not allocate device memory.
-bool PrepareNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputeProviderSource& source);
+// Read the count/capacity snapshot. Only an actual forecast requests CPU
+// ingestion when the raw model is missing from the archive.
+bool ReadNRIVoxelComputeProviderSource(FVoxelModel* model, NRIVoxelComputeProviderSource& source, bool queueIfMissing);
 
 // Forecasts a complete direct-publication provider footprint before committing
 // geometry/AS. An unknown source queues only CPU ingestion and defers admission.

@@ -56,7 +56,7 @@ bool NRIRenderer::CanReuseVoxelPreflightDenial(const PersistentVoxelMeshVariantR
         arena.actorDemand.Upgrade(mesh.resourceKey, mFrameIndex).consumers)) return false;
 
     NRIVoxelComputeProviderSource source;
-    if (!PrepareNRIVoxelComputeProviderSource(mesh.sourceModel, source)) return false;
+    if (!ReadNRIVoxelComputeProviderSource(mesh.sourceModel, source, false)) return false;
     request.device = mFrameBuffer->mDevice;
     request.model = mesh.sourceModel;
     request.rows = rows;

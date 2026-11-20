@@ -246,6 +246,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         const uint64_t blasBytes = arena.preflightDenials.Find(mesh.resourceKey, denialRequest);
         if (blasBytes && VoxelPreflightStillDenied(denialRequest, blasBytes))
         {
+            // The full preflight refreshes the sample used by family staging
+            // and retention. Let their next reader sample the current budget.
+            mVoxelBudgetSnapshotFrame = UINT32_MAX;
             arena.preloadHandoff.ObserveBudgetDenial(mMapWorld.buildSerial);
             return Result::DeferredBudget;
         }
