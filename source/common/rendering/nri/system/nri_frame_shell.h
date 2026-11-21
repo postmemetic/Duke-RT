@@ -11,6 +11,11 @@ public:
 	static constexpr uint32_t FrameSequenceHistorySize = 8;
 	static constexpr uint32_t QueuedFrameCount = 3;
 
+	static uint64_t RecycleFenceValue(uint64_t frameIndex, std::size_t queuedFrames)
+	{
+		return queuedFrames && frameIndex >= queuedFrames ? 1 + frameIndex - queuedFrames : 0;
+	}
+
 	struct QueuedFrame
 	{
 		nri::CommandAllocator* commandAllocator = nullptr;

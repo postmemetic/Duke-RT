@@ -1,4 +1,5 @@
 #include "nri_gpu_timing.h"
+#include "nri_frame_fence_audit.h"
 
 #include "nri_renderdevice.h"
 #include "c_cvars.h"
@@ -142,6 +143,7 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 	uint32_t validSmokeScopes = 0;
 	uint32_t invalidSmokeScopes = 0;
 	bool segmentValid = false;
+	uint64_t segmentBeginTick = 0, segmentEndTick = 0;
 	const uint64_t readbackSize = (uint64_t)slot.querySize * slot.queryCount;
 	const uint8_t* mapped = static_cast<const uint8_t*>(core.MapBuffer(*slot.readback, 0, readbackSize));
 	if (mapped == nullptr)
@@ -184,8 +186,9 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 			std::memcpy(&value, mapped + (uint64_t)query * slot.querySize, sizeof(value));
 			return value;
 		};
-		const double segmentMs = TimestampDeltaMs(
-			readTimestamp(slot.segmentBeginQuery), readTimestamp(slot.segmentEndQuery), mFrequencyHz);
+		segmentBeginTick = readTimestamp(slot.segmentBeginQuery);
+		segmentEndTick = readTimestamp(slot.segmentEndQuery);
+		const double segmentMs = TimestampDeltaMs(segmentBeginTick, segmentEndTick, mFrequencyHz);
 		if (segmentMs < 0.0) timing.invalidPairs++;
 		else
 		{
@@ -308,6 +311,15 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 			validResidentBlasScopes, invalidResidentBlasScopes, slot.droppedResidentBlasScopes, slot.queryCount, (unsigned long long)readbackSize,
 			slot.resumedScopes, slot.continuedScopes);
 		PerfAuditWriteEvent("gpu_timing_sample", slot.auditToken, fields);
+		if (nri_fence_audit::Enabled())
+		{
+			std::snprintf(fields, sizeof(fields), "\"request\":%llu,\"frame_index\":%llu,\"queued_slot\":%u,"
+				"\"valid\":%s,\"gpu_begin_ticks\":%llu,\"gpu_end_ticks\":%llu,\"gpu_hz\":%llu",
+				(unsigned long long)slot.auditRequest, (unsigned long long)slot.rendererFrame, slotIndex,
+				segmentValid ? "true" : "false", (unsigned long long)segmentBeginTick,
+				(unsigned long long)segmentEndTick, (unsigned long long)mFrequencyHz);
+			PerfAuditWriteEvent("frame_fence_gpu_segment", slot.auditToken, fields);
+		}
 	}
 	if (slot.token) Printf("PERF pt smoke gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f simulation=%.6f volume=%.6f total=%.6f detail_total=%.6f unattributed=%.6f grid_allocate=%.6f grid_initialize=%.6f grid_deposit=%.6f grid_halo=%.6f grid_simulate=%.6f grid_rebuild=%.6f dormant_archive=%.6f dormant_promote=%.6f dormant_evolve=%.6f world_active=%.6f world_link=%.6f world_proposal=%.6f world_seed=%.6f world_temporal=%.6f world_filter=%.6f world_scatter=%.6f carrier=%.6f view_prepare=%.6f materialize=%.6f evaluate_grid=%.6f analytic_materialize=%.6f transient_bins=%.6f transient_light_build=%.6f transient_materialize=%.6f view_point=%.6f view_directional=%.6f view_direct_reuse=%.6f view_emissive=%.6f analytic_emissive_build=%.6f analytic_emissive_apply=%.6f view_indirect=%.6f integrate=%.6f reconstruction=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
 		(unsigned long long)slot.rendererFrame,
@@ -440,7 +452,7 @@ void NRIGpuTiming::CancelContinuation(const char* reason)
 void NRIGpuTiming::BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& commandBuffer, uint32_t slotIndex, uint64_t rendererFrame, bool resumeScopes)
 {
 	if (!resumeScopes) CancelContinuation("restart_not_resumed");
-	const bool auditRequested = nri_ptgputiming && PerfAuditCensusRequested();
+	const bool auditRequested = nri_ptgputiming && (PerfAuditCensusRequested() || nri_fence_audit::DenseGpuTiming());
 	const PerfAuditToken auditToken = auditRequested ? PerfAuditCurrentToken() : PerfAuditToken{};
 	const PerfCompactCaptureToken compactToken = PerfCompactCaptureGetCurrentToken();
 	static uint64_t nextAuditRequest = 0;

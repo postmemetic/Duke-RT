@@ -4,6 +4,7 @@
 #include "common/platform/startup_progress.h"
 #include "../scene/nri_sector_color_policy.h"
 #include "nri_gpu_timing.h"
+#include "nri_frame_fence_audit.h"
 #include "perf_audit.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_settings_availability.h"
@@ -2984,6 +2985,7 @@ void NRIRenderDevice::BeginFrame()
 	mLastFrameBoundaryStats.postProcessInvoked = false;
 	SelectQueuedFrame(mCurrentQueuedFrameIndex);
 
+	const auto recycleAudit = nri_fence_audit::BeginWait(mCore, mFrameFence);
 	{
 		ScopedNriTiming waitTiming(NriPTFrameWait, mLastFrameBoundaryStats.waitMs);
 		WaitForCommands(false);
@@ -2992,6 +2994,9 @@ void NRIRenderDevice::BeginFrame()
 	{
 		FatalTerminalDeviceLoss("Wait(FrameFenceRecycle)");
 	}
+	if (recycleAudit.startTicks)
+		nri_fence_audit::EndWait(recycleAudit, mCore, mFrameFence, mCreatedDeviceApi, mGraphicsQueue,
+			mFrameIndex, mCurrentQueuedFrameIndex, mQueuedFrames);
 	ReleaseRetiredTextureResources(false);
 	SetViewportRects(nullptr);
 
@@ -3817,12 +3822,7 @@ void NRIRenderDevice::WaitForCommands(bool finish)
 		return;
 	}
 
-	if (mFrameIndex < mQueuedFrames.size())
-	{
-		return;
-	}
-
-	const uint64_t recycleFenceValue = 1 + mFrameIndex - mQueuedFrames.size();
+	const uint64_t recycleFenceValue = NRIFrameShell::RecycleFenceValue(mFrameIndex, mQueuedFrames.size());
 	if (recycleFenceValue != 0)
 	{
 		WaitForFenceValue(*mFrameFence, recycleFenceValue, "Wait(FrameFenceRecycle)");
@@ -10579,13 +10579,18 @@ void NRIRenderDevice::EndFrameAndPresent()
 		}
 	}
 	const uint64_t inputLineageSubmitStartUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
+	const uint64_t fenceAuditStart = nri_fence_audit::Enabled() ? nri_fence_audit::CpuTicks() : 0;
 	{
 		ScopedNriTiming submitTiming(NriPTQueueSubmit, mLastFrameBoundaryStats.submitMs);
 		stageStartMs = I_msTimeF();
 		submitResult = mCore.QueueSubmit(*mGraphicsQueue, submitDesc);
 		submitCallMs = I_msTimeF() - stageStartMs;
 	}
+	const uint64_t fenceAuditEnd = fenceAuditStart ? nri_fence_audit::CpuTicks() : 0;
 	const uint64_t inputLineageSubmitEndUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
+	if (fenceAuditStart)
+		nri_fence_audit::RecordSubmit(mFrameIndex, mCurrentQueuedFrameIndex, mCurrentSwapChainImage, frameFence.value,
+			commandFence.value, fenceAuditStart, fenceAuditEnd, submitResult, submitDesc.waitFenceNum != 0);
 	if (inputLineageActive)
 	{
 		PerfInputLineageNoteNriSubmit(

@@ -927,6 +927,7 @@ set (NRI_SOURCES
 	common/rendering/nri/system/nri_image_capture.cpp
 	common/rendering/nri/system/nri_capture_color.cpp
 	common/rendering/nri/system/nri_perf_capture.cpp
+	common/rendering/nri/system/nri_frame_fence_audit.cpp
 	common/rendering/nri/system/nri_cpu_frame_capture.cpp
 	common/rendering/nri/system/nri_gpu_timing.cpp
 	common/rendering/nri/system/nri_hwbuffer.cpp
