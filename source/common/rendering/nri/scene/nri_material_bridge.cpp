@@ -611,7 +611,8 @@ namespace
 				out[i] = t[i] < 128.0f ? (tc[i] * t[i]) / 128.0f : 255.0f - (((255.0f - tc[i]) * (255.0f - t[i])) / 128.0f);
 			break;
 		}
-		for (int i = 0; i < 3; i++) c[i] = out[i] / 255.0f;
+		// Colorize tints go up to ~4x, so blends can leave [0,255]; the bake stores bytes.
+		for (int i = 0; i < 3; i++) c[i] = clamp(out[i] / 255.0f, 0.0f, 1.0f);
 	}
 
 	void ApplyBake(uint8_t* bgra, uint32_t width, uint32_t height, const ReplacementBake& bake)
@@ -642,6 +643,11 @@ namespace
 					c[0] = c[1] = c[2] = r;
 					p[3] = 255;
 				}
+				// main.fp order: the tint is applied to the texel (getTexel), detail after.
+				if (bake.tintFlags != -1)
+				{
+					ApplyTint(c, bake.tintFlags, bake.tintRGB);
+				}
 				if (!detail.empty())
 				{
 					// main.fp: Base.rgb *= texture(detail, uv * scale) * 2 (bias 2, from PreBindTexture)
@@ -663,10 +669,6 @@ namespace
 							(texel((int)fu, (int)fv + 1, ch) * (1 - ax) + texel((int)fu + 1, (int)fv + 1, ch) * ax) * ay;
 						c[i] = clamp(c[i] * d * 2.0f, 0.0f, 1.0f);
 					}
-				}
-				if (bake.tintFlags != -1)
-				{
-					ApplyTint(c, bake.tintFlags, bake.tintRGB);
 				}
 
 				p[2] = (uint8_t)(c[0] * 255.0f + 0.5f);
