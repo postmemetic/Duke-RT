@@ -8271,7 +8271,10 @@ std::vector<ActorPresentationState> CollectOpeningEnemyMaterialCandidates(uint32
 	auto* viewer = player ? player->GetActor() : nullptr;
 	if (!world || !gi || !viewer || !viewer->exists() || !viewer->sector()) return candidates;
 	const auto eye = viewer->getPosWithOffsetZ();
-	const auto facing = (viewer->spr.Angles.Yaw + player->ViewAngles.Yaw).ToVector();
+	const auto bodyFacing = viewer->spr.Angles.Yaw.ToVector();
+	const auto lookFacing = (viewer->spr.Angles.Yaw + player->ViewAngles.Yaw).ToVector();
+	const bool returningLook = player->ViewAngles.Yaw != nullAngle &&
+		!(player->cmd.ucmd.actions & (SB_LOOK_LEFT | SB_LOOK_RIGHT));
 	// Portals clip sprite bounds. A ray to a sprite center alone can miss the
 	// visible part or another exposed actor in the same opening sector.
 	std::unordered_set<int32_t> sightSectors{viewer->sectno()};
@@ -8283,7 +8286,10 @@ std::vector<ActorPresentationState> CollectOpeningEnemyMaterialCandidates(uint32
 		LoadingWindow::Scope::ServiceIfActive();
 		if (!IsLiveActorVoxelWarmupCandidate(actor) || !actor->sector()) continue;
 		const auto delta = actor->spr.pos.XY() - eye.XY();
-		if (delta.X * facing.X + delta.Y * facing.Y < 0.0) continue;
+		// A saved side-look springs back to body yaw as simulation starts.
+		// Price both endpoints of that sweep before the first visible decision.
+		if (delta.X * lookFacing.X + delta.Y * lookFacing.Y < 0.0 &&
+			(!returningLook || delta.X * bodyFacing.X + delta.Y * bodyFacing.Y < 0.0)) continue;
 		ActorPresentationState owner;
 		gi->CaptureActorSpriteAnimation(*actor, owner.spriteAnimation);
 		const auto& animation = owner.spriteAnimation;
