@@ -2538,6 +2538,7 @@ private:
 	void NoteWorldBlasContentChanged();
 	bool PreloadStaticMapResources();
 	bool PreloadPersistentVoxelResources();
+	void PreloadOpeningEnemyMaterialBacking();
 	void PreSizePersistentVoxelGeometryArenas(const NRIVoxelComputePreloadStats& stats, const NRIVoxelComputePreloadSettings& settings,
 		const std::vector<nri_scene::PrecachedVoxelVariantView>& variants);
 	bool PreloadMaterialResources();
@@ -2982,6 +2983,7 @@ private:
 	NRISurfaceLightOverlayCache mSurfaceLightOverlayCache;
 	DynamicSceneFrameState mDynamicSceneLastFrame = {};
 	NRIPersistentVoxelResidency mPersistentVoxels;
+	uint64_t mOpeningEnemyMaterialBuild = 0;
 	NRIActorRepresentations mActorRepresentations;
 	NRIVoxelRepresentationPolicy mVoxelRepresentationPolicy;
 	StateCommitDomainGenerations mLastStateCommitDomainGenerations = {};

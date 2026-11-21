@@ -1110,6 +1110,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_texture_ordered.cpp
 	common/rendering/nri/renderer/nri_enemy_representation_textures.cpp
 	common/rendering/nri/renderer/nri_enemy_material_bootstrap.cpp
+	common/rendering/nri/renderer/nri_enemy_opening_material_backing.cpp
 	common/rendering/nri/renderer/nri_scene_texture_slot_table.cpp
 	common/rendering/nri/renderer/nri_scene_textures.cpp
 	common/rendering/nri/renderer/nri_sky_environment.cpp

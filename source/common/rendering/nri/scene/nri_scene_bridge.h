@@ -470,6 +470,10 @@ struct EnemyVoxelPoseFailure
 	int textureId = -1, buildTile = -1, voxelIndex = -1;
 };
 
+// Placed, certified enemies in sight of the loading player's start position.
+// These are sizing hints only; publication consumes the simulation snapshot.
+std::vector<ActorPresentationState> CollectOpeningEnemyMaterialCandidates();
+
 // Read-only family inventory. Does not load raw sources, generate geometry or
 // enqueue work. An incomplete mounted mapping clears output and fails closed.
 bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,

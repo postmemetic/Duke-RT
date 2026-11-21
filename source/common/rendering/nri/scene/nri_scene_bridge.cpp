@@ -8262,6 +8262,55 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 	return !outEntries.empty();
 }
 
+std::vector<ActorPresentationState> CollectOpeningEnemyMaterialCandidates()
+{
+	std::vector<ActorPresentationState> candidates;
+	const auto world = GetActorLifecycleJournal().WorldEpoch();
+	auto* player = myconnectindex >= 0 && myconnectindex < MAXPLAYERS ? PlayerArray[myconnectindex] : nullptr;
+	auto* viewer = player ? player->GetActor() : nullptr;
+	if (!world || !gi || !viewer || !viewer->exists() || !viewer->sector()) return candidates;
+	const auto eye = viewer->getPosWithOffsetZ();
+	const auto facing = (viewer->spr.Angles.Yaw + player->ViewAngles.Yaw).ToVector();
+	TSpriteIterator<DCoreActor> actors;
+	while (auto* actor = actors.Next())
+	{
+		LoadingWindow::Scope::ServiceIfActive();
+		if (!IsLiveActorVoxelWarmupCandidate(actor) || !actor->sector() || actor == viewer) continue;
+		const auto delta = actor->spr.pos.XY() - eye.XY();
+		if (delta.X * facing.X + delta.Y * facing.Y < 0.0) continue;
+		ActorPresentationState owner;
+		gi->CaptureActorSpriteAnimation(*actor, owner.spriteAnimation);
+		const auto& animation = owner.spriteAnimation;
+		if (!animation.enemy || !animation.recipeCertified || animation.recipeHidden ||
+			!animation.enemyVoxelFamily || !animation.enemyVoxelFamily->complete) continue;
+		auto target = actor->spr.pos;
+		if (auto* art = TexMan.GetGameTexture(actor->spr.spritetexture()); art && art->isValid())
+		{
+			double height = 0;
+			const double bottom = actor->GetOffsetAndHeight(height);
+			target.Z += bottom - height / 2;
+		}
+		if (!cansee(eye, viewer->sector(), target, actor->sector())) continue;
+		owner.actorIndex = int32_t(actor->GetIndex());
+		owner.owner = {world, owner.actorIndex};
+		owner.position = {target.X, target.Y, target.Z};
+		owner.cstat = uint32_t(actor->spr.cstat);
+		owner.alpha = actor->sprext.alpha;
+		candidates.push_back(std::move(owner));
+	}
+	const auto distance = [&](const ActorPresentationState& a)
+	{
+		const double x = a.position.x - eye.X, y = a.position.y - eye.Y;
+		return x * x + y * y;
+	};
+	std::sort(candidates.begin(), candidates.end(), [&](const auto& a, const auto& b)
+	{
+		const double da = distance(a), db = distance(b);
+		return da == db ? a.actorIndex < b.actorIndex : da < db;
+	});
+	return candidates;
+}
+
 bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 	std::vector<PrecachedVoxelRawManifestView>& outEntries, EnemyVoxelPoseFailure* failure)
 {

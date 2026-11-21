@@ -3,11 +3,14 @@
 #include "../scene/nri_enemy_material_key.h"
 #include "../scene/nri_voxel_material_slots.h"
 #include "actor_presentation_snapshot.h"
+#include "c_cvars.h"
 #include "perf_audit.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <limits>
+
+EXTERN_CVAR(Bool, nri_ptenemyrepresentationtrace)
 
 bool NRIPersistentVoxelResidency::PreviewEnemyFamilyMaterials(uint64_t signature, uint32_t owners,
     uint32_t& rows, uint32_t& reused) const
@@ -113,6 +116,21 @@ bool NRIPersistentVoxelResidency::PrepareEnemyMaterialCommit(const ActorPresenta
             maximumRows, (unsigned long long)materialRangeAllocator.Stats().cursorRows, complete ? -1 : attemptedTexture,
             (unsigned long long)(complete ? 0 : attemptedKey));
         PerfAuditWriteEvent("enemy_material_reservation", PerfAuditCurrentToken(), fields);
+        if (complete && (bool)nri_ptenemyrepresentationtrace)
+        {
+            for (const int32_t texture : family->textureIds)
+            {
+                const auto key = nri_scene::BuildEnemyStableMaterialKey(authority.owner.ownerWorldEpoch,
+                    uint64_t(authority.owner.ownerLifetimeGeneration), texture);
+                const auto range = materialPayloads.FindBinding(key);
+                std::snprintf(fields, sizeof(fields), "\"world\":%llu,\"lifetime\":%lld,\"family\":%u,"
+                    "\"texture\":%d,\"binding\":%llu,\"offset\":%u,\"capacity\":%u,\"generation\":%llu,\"backed_rows\":%u",
+                    (unsigned long long)authority.owner.ownerWorldEpoch, (long long)authority.owner.ownerLifetimeGeneration,
+                    family->id, texture, (unsigned long long)key, range.offset, range.capacity,
+                    (unsigned long long)range.generation, maximumRows);
+                PerfAuditWriteEvent("enemy_material_binding", PerfAuditCurrentToken(), fields);
+            }
+        }
     }
     return complete;
 }

@@ -567,6 +567,7 @@ NRIPreloadCoordinator::StepResult NRIPreloadCoordinator::PreloadResidentSceneRes
 	// materials, resident voxel materials, and the remaining scene stages still
 	// pass through their usual readiness checks before gameplay is released.
 	LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::Materials);
+	renderer.PreloadOpeningEnemyMaterialBacking();
 	if (!renderer.PreloadMaterialResources())
 	{
 		if (renderer.HasMaterialPreloadPending())
