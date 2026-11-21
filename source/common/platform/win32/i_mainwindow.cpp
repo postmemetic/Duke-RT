@@ -1,8 +1,6 @@
 
 #include "i_mainwindow.h"
 #include "../loading_window.h"
-#include "../level_loading_progress.h"
-#include "level_loading_progress_win32.h"
 
 #include "resource.h"
 #include "startupinfo.h"
@@ -25,11 +23,6 @@
 #pragma comment(lib, "dwmapi.lib")
 
 MainWindow mainwindow;
-
-void LevelLoadingProgress::Begin()
-{
-	BeginForWindow(mainwindow.GetHandle());
-}
 
 void LoadingWindow::Service()
 {

@@ -1084,17 +1084,15 @@ class DukeLoadScreen : ScreenJob
 	{
 		Screen.DrawTexture(TexMan.CheckForTexture("LOADSCREEN"), false, 0, 0, DTA_FullscreenEx, FSMode_ScaleToFit43, DTA_LegacyRenderStyle, STYLE_Normal);
 
-		if (!isRR())
-		{
-			Duke.BigText(160, 90, (rec.flags & MapRecord.USERMAP)? "$TXT_LOADUM" : "$TXT_LOADING", 0);
-			Duke.BigText(160, 114, rec.DisplayName(), 0);
-		}
-		else
-		{
-			int y = isRRRA()? 140 : 90;
+		int y = isRRRA()? 140 : 90;
+		if (isRR())
 			Duke.BigText(160, y, (rec.flags & MapRecord.USERMAP)? "$TXT_ENTRUM" : "$TXT_ENTERIN", 0);
-			Duke.BigText(160, y+24, rec.DisplayName(), 0);
-		}
+		else
+			Duke.BigText(160, y, (rec.flags & MapRecord.USERMAP)? "$TXT_LOADUM" : "$TXT_LOADING", 0);
+		Duke.BigText(160, y + 24, rec.DisplayName(), 0);
+		String stageText = Raze.GetLoadingStageText();
+		if (stageText != "")
+			Duke.BigText(160, y + 48, stageText, 0);
 	}
 }
 

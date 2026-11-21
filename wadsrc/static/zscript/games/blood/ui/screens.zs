@@ -279,6 +279,9 @@ class BloodLoadScreen : ScreenJob
 		BloodScreen.DrawBackground();
 		BloodScreen.DrawCaption(loadtext, 0, true);
 		BloodScreen.DrawText(Raze.PickBigFont(), rec.DisplayName(), 160, 50, 1);
+		String stageText = Raze.GetLoadingStageText();
+		if (stageText != "")
+			BloodScreen.DrawText(Raze.PickBigFont(stageText), stageText, 160, 74, 1);
 		BloodScreen.DrawLocalizedText(160, 134, "$TXTB_PLSWAIT");
 	}
 }

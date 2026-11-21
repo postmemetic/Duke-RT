@@ -11,7 +11,7 @@
 #include "../scene/nri_material_palette.h"
 #include "../system/nri_renderdevice.h"
 #include "../../../platform/loading_window.h"
-#include "../../../platform/level_loading_progress.h"
+#include "../../../cutscenes/level_loading_progress.h"
 
 #include "mapinfo.h"
 #include "c_dispatch.h"
@@ -696,6 +696,7 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		std::strcmp(preliminaryClosure.outcome, "complete") == 0 &&
 		!renderer.PumpPersistentVoxelBlasCompaction(renderer.mMapWorld.buildSerial))
 	{
+		LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::Actors);
 		if ((int)nri_ptloadingtrace >= 1)
 		{
 			Printf("NRI PT loading gate: event=renderer-preload result=wait reason=voxel-blas-compaction build_serial=%llu ms=%.3f\n",
@@ -775,6 +776,7 @@ bool NRIPreloadCoordinator::Finish(NRIRenderer& renderer, const Context& context
 		}
 		if (closure.strictRequested && std::strcmp(closure.outcome, "incomplete") == 0)
 		{
+			LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::Actors);
 			if ((int)nri_ptloadingtrace >= 1)
 			{
 				Printf("NRI PT loading gate: event=renderer-preload result=wait reason=strict-voxel-incomplete sequence=%llu pending=%u admission_queue=%u compute_inflight=%u blas_inflight=%u ms=%.3f\n",
@@ -945,6 +947,7 @@ bool NRIPreloadCoordinator::Run(NRIRenderer& renderer, const NRIPreloadLevelScen
 	UpdateVoxelPreloadTimeline(renderer, renderer.mMapWorld.buildSerial, adapterMemory, "preload-tick");
 	if (computePreloadSettings.strict && gVoxelPreloadTimeline.strictAbortLatched)
 	{
+		LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::Actors);
 		return false;
 	}
 	if (computePreloadSettings.strict &&

@@ -357,6 +357,9 @@ class SWLoadScreen : ScreenJob
 		Screen.DrawTexture(TexMan.CheckForTexture("TITLE_PIC", TexMan.Type_Any), true, 0, 0, DTA_FullscreenEx, FSMode_ScaleToFit43, DTA_LegacyRenderStyle, STYLE_Normal);
 		SW.DrawString(160, 170, "$TXT_ENTERING", 1, 16, 0);
 		SW.DrawString(160, 180, rec.DisplayName(), 1, 16, 0);
+		String stageText = Raze.GetLoadingStageText();
+		if (stageText != "")
+			SW.DrawString(160, 190, stageText, 1, 16, 0);
 	}
 }
 

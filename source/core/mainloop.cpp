@@ -107,7 +107,7 @@
 #include "perf_capture.h"
 #include "level_loading_timing.h"
 #include "../common/platform/loading_window.h"
-#include "../common/platform/level_loading_progress.h"
+#include "../common/cutscenes/level_loading_progress.h"
 #include "perf_route.h"
 #include "perf_route_observer.h"
 #include "perf_actor_census.h"
@@ -494,9 +494,7 @@ LevelTransitionInfo G_BeginLevelTransition(LevelTransitionReason reason, MapReco
 {
 	const bool loading = screen && screen->Backend() == 4 &&
 		(newLevel || reason == LevelTransitionReason::SaveGameLoad);
-	LevelLoadingProgress::End();
-	if (loading && cl_loadingscreens)
-		LevelLoadingProgress::Begin();
+	LevelLoadingProgress::Begin(loading && cl_loadingscreens);
 	const bool measure = (int)nri_ptloadingtrace >= 1 && loading;
 	levelLoadingTiming.Begin(measure, I_msTimeF());
 	LoadingWindow::onService = measure ? +[]() { levelLoadingTiming.NativeService(I_msTimeF()); } : nullptr;
@@ -575,6 +573,8 @@ static bool BeginPathTracingLevelPreloadGate()
 	gPendingPathTracingLevelPreload = true;
 	// Map initialization can already have consumed this entire frame.
 	gLastLevelPreloadPresentation = gPresentationGeneration;
+	// This presentation precedes the first synchronous world build.
+	LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::World);
 	gPathTracingLevelPreloadNeeded = false;
 	gPathTracingLevelPreloadHeldScreenJobCompletion = false;
 	gPathTracingLevelPreloadAwaitingFirstLevelFrame = false;
@@ -1384,18 +1384,14 @@ void Display()
 	StartupLoadingScreen::BeforeFirstPresent();
 	screen->Update();
 	StartupLoadingScreen::AfterFirstPresent();
-	LevelLoadingProgress::Presented();
 	if (levelLoadingTiming.active) levelLoadingTiming.ScreenUpdate(I_msTimeF());
 	perfDisplayTraceStats.updateMs += I_msTimeF() - stageStart;
 
 	if (releaseLevelLoadBoundaryAfterPresent)
 	{
-		const auto progress = LevelLoadingProgress::End();
+		LevelLoadingProgress::End();
 		if (levelLoadingTiming.active)
 		{
-			Printf("NRI PT loading progress panel: transition=%llu appearances=%u paints=%u max_paint_gap_ms=%llu\n",
-				(unsigned long long)gLevelTransitionSerial, progress.shows, progress.paints,
-				(unsigned long long)progress.maxPaintGapMs);
 			Printf("NRI PT loading responsiveness: transition=%llu to_first_playable_ms=%.3f max_outer_event_pump_gap_ms=%.3f max_screen_update_gap_ms=%.3f screen_updates=%u max_preload_tick_ms=%.3f max_native_service_gap_ms=%.3f native_services=%u\n",
 				(unsigned long long)gLevelTransitionSerial, I_msTimeF() - levelLoadingTiming.start,
 				levelLoadingTiming.maxEventPumpGap, levelLoadingTiming.maxScreenUpdateGap,

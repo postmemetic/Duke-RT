@@ -206,6 +206,7 @@ struct Raze
 	static double bobval(double angle) { return sin(angle * (360. / 2048)); }
 	native static TextureID PickTexture(TextureID texid);
 	native static int GetBuildTime();
+	native static String GetLoadingStageText();
 	native static void forceSyncInput(int playeridx);
 	native static Font PickBigFont(String cmptext = "");
 	native static Font PickSmallFont(String cmptext = "");

@@ -49,11 +49,53 @@
 #include "raze_music.h"
 #include "vm.h"
 #include "mapinfo.h"
+#include "gstrings.h"
+#include "../common/cutscenes/level_loading_progress.h"
 
 static PType* maprecordtype;
 static PType* summaryinfotype;
 static int ticks;
 static SummaryInfo summaryinfo;
+
+namespace LevelLoadingProgress
+{
+static Stage current = Stage::None;
+
+void Begin(bool show)
+{
+	current = show ? Stage::Level : Stage::None;
+}
+
+void SetStage(Stage stage)
+{
+	// The final check revisits preload work while the first playable frame is being prepared.
+	if (current != Stage::None && current != Stage::FirstFrame) current = stage;
+}
+
+void End()
+{
+	current = Stage::None;
+}
+
+static const char* StageText()
+{
+	switch (current)
+	{
+	case Stage::Level:      return GStrings.GetString("TXT_LOAD_MAPDATA");
+	case Stage::World:      return GStrings.GetString("TXT_LOAD_GEOMETRY");
+	case Stage::Actors:     return GStrings.GetString("TXT_LOAD_ACTORS");
+	case Stage::Materials:  return GStrings.GetString("TXT_LOAD_MATERIALS");
+	case Stage::FirstFrame: return GStrings.GetString("TXT_LOAD_FIRSTFRAME");
+	default:                return "";
+	}
+}
+}
+
+DEFINE_ACTION_FUNCTION(_Raze, GetLoadingStageText)
+{
+	PARAM_PROLOGUE;
+	ACTION_RETURN_STRING(LevelLoadingProgress::StageText());
+}
 
 //=============================================================================
 //

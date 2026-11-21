@@ -411,7 +411,6 @@ set( PLAT_WIN32_SOURCES
 	common/platform/win32/i_specialpaths.cpp
 	common/platform/win32/st_start.cpp
 	common/platform/win32/startup_progress_win32.cpp
-	common/platform/win32/level_loading_progress_win32.cpp
 	common/platform/win32/gl_sysfb.cpp
 	common/platform/win32/base_sysfb.cpp
 	common/platform/win32/win32basevideo.cpp
