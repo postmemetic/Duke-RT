@@ -29,7 +29,8 @@ void NRIRenderer::PreloadOpeningEnemyMaterialBacking()
 
     NRIEnemyMaterialBootstrapPlan plan;
     plan.cursorRows = voxels.MaterialRangeStats().cursorRows;
-    const auto candidates = nri_scene::CollectOpeningEnemyMaterialCandidates();
+    uint32_t currentPoseOwners = 0;
+    const auto candidates = nri_scene::CollectOpeningEnemyMaterialCandidates(currentPoseOwners);
     for (const auto& owner : candidates)
     {
         if (plan.owners == plan.ownerLimit) break;
@@ -60,7 +61,14 @@ void NRIRenderer::PreloadOpeningEnemyMaterialBacking()
         }
     }
     // Only backing is prefunded. Runtime still proves actual owner, lifetime, mesh, material and current visibility.
-    const uint64_t required = plan.RequiredBytes(stride);
+    // The first capture may allocate current-pose bindings for other placed
+    // voxels before it reserves a certified family. Bound each by one palette;
+    // this is physical space only, with no speculative texture/key ownership.
+    const uint64_t currentPoseRows = uint64_t(currentPoseOwners) * slots;
+    const uint64_t maxExtraRows = plan.extraByteLimit / stride;
+    const bool currentPosesFit = plan.extraRows <= maxExtraRows && currentPoseRows <= maxExtraRows - plan.extraRows &&
+        plan.cursorRows + plan.extraRows + currentPoseRows <= UINT32_MAX;
+    const uint64_t required = plan.owners && currentPosesFit ? plan.RequiredBytes(stride) + currentPoseRows * stride : 0;
     const auto before = GetPersistentVoxelBudgetSnapshot(true);
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     NRIPersistentVoxelBudgetSnapshot after = {};
@@ -70,15 +78,17 @@ void NRIRenderer::PreloadOpeningEnemyMaterialBacking()
         if (!PerfAuditActive()) return;
         char fields[768];
         std::snprintf(fields, sizeof(fields), "\"build\":%llu,\"decision\":\"%s\",\"candidates\":%zu,\"owners\":%u,"
-            "\"cursor_rows\":%llu,\"extra_rows\":%llu,\"requested_bytes\":%llu,\"predicted_bytes\":%llu,\"actual_bytes\":%llu,"
+            "\"current_pose_owners\":%u,\"current_pose_rows\":%llu,\"cursor_rows\":%llu,\"extra_rows\":%llu,\"requested_bytes\":%llu,\"predicted_bytes\":%llu,\"actual_bytes\":%llu,"
             "\"usage\":%llu,\"budget\":%llu,\"reserve\":%llu,\"post_usage\":%llu,\"post_budget\":%llu",
-            (unsigned long long)build, reason, candidates.size(), plan.owners, (unsigned long long)plan.cursorRows,
+            (unsigned long long)build, reason, candidates.size(), plan.owners, currentPoseOwners, (unsigned long long)currentPoseRows,
+            (unsigned long long)plan.cursorRows,
             (unsigned long long)plan.extraRows, (unsigned long long)required, (unsigned long long)predicted,
             (unsigned long long)actual, (unsigned long long)before.usageBytes, (unsigned long long)before.budgetBytes,
             (unsigned long long)reserve, (unsigned long long)after.usageBytes, (unsigned long long)after.budgetBytes);
         PerfAuditWriteEvent("enemy_opening_material_backing", PerfAuditCurrentToken(), fields);
     };
-    if (!plan.extraRows || !required) { report("no-opening-demand"); return; }
+    if (!plan.extraRows) { report("no-opening-demand"); return; }
+    if (!required) { report("capacity-limit"); return; }
     auto& core = mFrameBuffer->mCore;
     const auto& device = core.GetDeviceDesc(*mFrameBuffer->mDevice);
     if (!before.liveAvailable || !core.GetBufferMemoryDesc2 || !device.features.getMemoryDesc2 ||

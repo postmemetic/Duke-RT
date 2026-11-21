@@ -8262,42 +8262,63 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 	return !outEntries.empty();
 }
 
-std::vector<ActorPresentationState> CollectOpeningEnemyMaterialCandidates()
+std::vector<ActorPresentationState> CollectOpeningEnemyMaterialCandidates(uint32_t& currentPoseOwners)
 {
 	std::vector<ActorPresentationState> candidates;
+	currentPoseOwners = 0;
 	const auto world = GetActorLifecycleJournal().WorldEpoch();
 	auto* player = myconnectindex >= 0 && myconnectindex < MAXPLAYERS ? PlayerArray[myconnectindex] : nullptr;
 	auto* viewer = player ? player->GetActor() : nullptr;
 	if (!world || !gi || !viewer || !viewer->exists() || !viewer->sector()) return candidates;
 	const auto eye = viewer->getPosWithOffsetZ();
 	const auto facing = (viewer->spr.Angles.Yaw + player->ViewAngles.Yaw).ToVector();
+	// Portals clip sprite bounds. A ray to a sprite center alone can miss the
+	// visible part or another exposed actor in the same opening sector.
+	std::unordered_set<int32_t> sightSectors{viewer->sectno()};
+	std::vector<std::pair<int32_t, ActorPresentationState>> placed;
+	std::vector<int32_t> otherSectors;
 	TSpriteIterator<DCoreActor> actors;
 	while (auto* actor = actors.Next())
 	{
 		LoadingWindow::Scope::ServiceIfActive();
-		if (!IsLiveActorVoxelWarmupCandidate(actor) || !actor->sector() || actor == viewer) continue;
+		if (!IsLiveActorVoxelWarmupCandidate(actor) || !actor->sector()) continue;
 		const auto delta = actor->spr.pos.XY() - eye.XY();
 		if (delta.X * facing.X + delta.Y * facing.Y < 0.0) continue;
 		ActorPresentationState owner;
 		gi->CaptureActorSpriteAnimation(*actor, owner.spriteAnimation);
 		const auto& animation = owner.spriteAnimation;
-		if (!animation.enemy || !animation.recipeCertified || animation.recipeHidden ||
-			!animation.enemyVoxelFamily || !animation.enemyVoxelFamily->complete) continue;
+		const bool certified = animation.enemy && animation.recipeCertified && !animation.recipeHidden &&
+			animation.enemyVoxelFamily && animation.enemyVoxelFamily->complete;
+		if (!certified && !tilehasvoxel(actor->spr.spritetexture())) continue;
 		auto target = actor->spr.pos;
+		double height = 0;
 		if (auto* art = TexMan.GetGameTexture(actor->spr.spritetexture()); art && art->isValid())
 		{
-			double height = 0;
 			const double bottom = actor->GetOffsetAndHeight(height);
 			target.Z += bottom - height / 2;
 		}
-		if (!cansee(eye, viewer->sector(), target, actor->sector())) continue;
+		const auto sectorId = actor->sectno();
+		if (!sightSectors.count(sectorId) &&
+			(cansee(eye, viewer->sector(), target, actor->sector()) ||
+			 (height > 0 && (cansee(eye, viewer->sector(), target.plusZ(-height * 0.49), actor->sector()) ||
+				cansee(eye, viewer->sector(), target.plusZ(height * 0.49), actor->sector())))))
+			sightSectors.insert(sectorId);
+		if (!certified)
+		{
+			otherSectors.push_back(sectorId);
+			continue;
+		}
 		owner.actorIndex = int32_t(actor->GetIndex());
 		owner.owner = {world, owner.actorIndex};
 		owner.position = {target.X, target.Y, target.Z};
 		owner.cstat = uint32_t(actor->spr.cstat);
 		owner.alpha = actor->sprext.alpha;
-		candidates.push_back(std::move(owner));
+		placed.emplace_back(sectorId, std::move(owner));
 	}
+	for (auto& entry : placed)
+		if (sightSectors.count(entry.first)) candidates.push_back(std::move(entry.second));
+	for (auto sectorId : otherSectors)
+		if (sightSectors.count(sectorId)) ++currentPoseOwners;
 	const auto distance = [&](const ActorPresentationState& a)
 	{
 		const double x = a.position.x - eye.X, y = a.position.y - eye.Y;
