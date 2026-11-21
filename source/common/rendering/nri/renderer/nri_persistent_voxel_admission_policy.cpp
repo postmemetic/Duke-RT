@@ -60,8 +60,10 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     const auto policy = GetNRIVoxelAdmissionPolicySettings();
     const bool allowOverflowPage = EffectiveOverflowPageMode() != 0;
     const bool capturePoseRequests = (bool)nri_ptvoxelfamilyposegrace && IsEnemyFamilyRecoveryEnabled();
+    const bool captureUpgrades = (bool)nri_ptvoxeladmissionreclaim || (bool)nri_ptvoxelparksupersededgrowth ||
+        allowOverflowPage || (arenaUsesRequiredLayout && (bool)nri_ptvoxelarenaposepriority);
     if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames &&
-        !(bool)nri_ptvoxeladmissionreclaim && !(bool)nri_ptvoxelparksupersededgrowth && !allowOverflowPage && !capturePoseRequests)
+        !captureUpgrades && !capturePoseRequests)
     {
         actorDemand.Reset();
         return;
@@ -101,8 +103,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         }
         inputs.push_back(input);
     }
-    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs,
-        (bool)nri_ptvoxeladmissionreclaim || (bool)nri_ptvoxelparksupersededgrowth || allowOverflowPage, capturePoseRequests);
+    actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs, captureUpgrades, capturePoseRequests);
     uint32_t coalesced = 0;
     if (policy.coalesce)
     {

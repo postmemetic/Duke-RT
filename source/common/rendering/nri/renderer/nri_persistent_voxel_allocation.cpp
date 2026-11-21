@@ -263,7 +263,15 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             return Result::DeferredBudget;
         }
     }
-    const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
+    const bool protectLayout = arena.arenaUsesRequiredLayout && (bool)nri_ptvoxelarenaposepriority &&
+        arena.arenaPresizeBuildSerial == mMapWorld.buildSerial && mMapWorld.buildSerial &&
+        (bool)r_voxels && (bool)nri_ptactorspritefallback && !(bool)nri_ptvoxelcomputepreloadstrict;
+    const uint64_t ordinaryReserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
+    // Replacing this entire backing repeats the peak the loading planner
+    // priced. A reclaimed in-place lease or a page pays only ordinary costs.
+    uint64_t reserve = ordinaryReserve;
+    if (protectLayout && growsArena && intent.runtimePump && intent.afterHandoff)
+        reserve = std::max<uint64_t>(reserve, uint64_t(std::max(0, (int)nri_ptvoxelcomputepreloadminreservemb)) * 1024 * 1024);
     const bool mayYield = intent.MayYield();
     const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
     if (mayYield && growsArena && arenaRecovery && reclaimEnabled && !arena.retentionQuarantined && mesh.resourceKey)
@@ -321,7 +329,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         request.mesh = mesh.resourceKey; request.epoch = arena.residencyMapGeneration;
         request.tick = retryTick; request.revision = arena.reclaimGeometryRevision;
         request.rows = requestedRows; request.usage = budget.usageBytes;
-        request.budget = budget.budgetBytes; request.reserve = reserve;
+        request.budget = budget.budgetBytes; request.reserve = ordinaryReserve;
         request.nonArenaBytes = NRIVoxelComputeSaturatingAdd(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes);
         request.signature = reclaimSignature; request.avoidedArenaBytes = newArenaBytes;
         if (intent.IsUnownedGameplayRequest()) request.freshActorPair = intent.freshDirectPair;
@@ -581,9 +589,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
 
     // Preserve ordinary denials, retry history, reclaim and the pump's
     // allocation cadence. Only park work that would now allocate physically.
-    const bool fundedOrdinaryFit = !growsArena && !privateBuildInputs && !overflow && arena.arenaUsesRequiredLayout &&
-        arena.arenaPresizeBuildSerial == mMapWorld.buildSerial && mMapWorld.buildSerial &&
-        (bool)r_voxels && (bool)nri_ptactorspritefallback && !(bool)nri_ptvoxelcomputepreloadstrict;
+    const bool fundedOrdinaryFit = protectLayout && !growsArena && !privateBuildInputs && !overflow;
     if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs, fundedOrdinaryFit))
     {
         mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
