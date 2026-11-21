@@ -89,12 +89,12 @@ NRIVoxelRecurringPoseGrace NRIKeepRecurringPoseForSweep(std::vector<NRIVoxelSwee
     for (auto& mesh : candidates) mesh.ordinaryVictim = forecast.Take(mesh);
     for (const auto& mesh : candidates)
     {
-        if (!mesh.ordinaryVictim || !mesh.physicalBytes || mesh.bytes > limit || mesh.lastSelectedFrame == UINT32_MAX || mesh.lastSelectedFrame > frame ||
-            frame - mesh.lastSelectedFrame >= interval || forecast.retiring - mesh.physicalBytes < hardDeficit) continue;
-        // Prefer the latest real selection, then the smaller retained charge and a stable key.
-        if (grace.mesh && std::make_tuple(frame - mesh.lastSelectedFrame, mesh.bytes, mesh.key) >=
-            std::make_tuple(frame - grace.selectedFrame, grace.bytes, grace.mesh)) continue;
-        grace = {mesh.key, mesh.bytes, forecast.retiring - mesh.physicalBytes, mesh.lastSelectedFrame};
+        if (!mesh.ordinaryVictim || !mesh.physicalBytes || mesh.bytes > limit || mesh.lastRequestedFrame == UINT32_MAX || mesh.lastRequestedFrame > frame ||
+            frame - mesh.lastRequestedFrame >= interval || forecast.retiring - mesh.physicalBytes < hardDeficit) continue;
+        // Prefer the latest current-owner request, then the smaller retained charge and a stable key.
+        if (grace.mesh && std::make_tuple(frame - mesh.lastRequestedFrame, mesh.bytes, mesh.key) >=
+            std::make_tuple(frame - grace.requestedFrame, grace.bytes, grace.mesh)) continue;
+        grace = {mesh.key, mesh.bytes, forecast.retiring - mesh.physicalBytes, mesh.lastRequestedFrame};
     }
     if (grace.mesh)
     {

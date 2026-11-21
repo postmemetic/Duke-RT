@@ -9,6 +9,11 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
     uint64_t usageBytes, uint64_t budgetBytes, int32_t meshLimit,
     std::vector<NRIVoxelSweepCandidate>& candidates, uint64_t& inactiveBytes, uint64_t& warmBytes)
 {
+    const auto interval = uint32_t(std::max(1, (int)nri_ptvoxelcacheintervalframes));
+    const bool adjacentSweep = !lastProtectedFamilySweep.signatures.empty() &&
+        lastProtectedFamilySweep.build == residencyLastBuildSerial && frameIndex > lastProtectedFamilySweep.frame &&
+        frameIndex - lastProtectedFamilySweep.frame <= interval;
+    const auto previousWorld = lastProtectedFamilySweep.world;
     lastProtectedFamilySweep.signatures.clear();
     if (!IsEnemyFamilyRecoveryEnabled() || enemyFamilyRecovery.signature || enemyFamilyFrame != frameIndex) return;
     const auto& snapshot = GetActorPresentationSnapshot();
@@ -28,6 +33,7 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
     uint32_t familyCount = stage.families, meshCount = stage.meshes;
     std::unordered_set<uint64_t> held;
     bool ordinaryMarked = false;
+    bool familyRefused = false;
 
     // Decisions retain the normal staging priority. Earlier selections and all active, required
     // or pending owners were excluded from this sweep's candidate list upstream.
@@ -67,7 +73,7 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
                 (unsigned long long)proof.otherRetiringBytes, keep ? "true" : "false");
             PerfAuditWriteEvent("enemy_family_sweep", PerfAuditCurrentToken(), fields);
         }
-        if (!keep) continue;
+        if (!keep) { familyRefused = true; continue; }
         lastProtectedFamilySweep.signatures.push_back(choice.signature);
         ++familyCount;
         meshCount += uint32_t(proof.additionalKeys.size());
@@ -76,29 +82,40 @@ void NRIPersistentVoxelResidency::RetainCompleteFamiliesForSweep(uint32_t frameI
         warmBytes -= proof.additionalWarmBytes;
         held.insert(proof.additionalKeys.begin(), proof.additionalKeys.end());
     }
-    if (held.empty()) return;
-    TraceOrdinarySweepVictims(frameIndex, candidates, held);
-    // The proof chooses this sweep's victims only. No retired bytes become credit for an
-    // allocation until the backend's ordinary fence and live-budget checks allow it.
     const bool audit = PerfAuditActive();
-    const auto protection = NRIRestrictFamilySweep(candidates, held, inactiveBytes, warmBytes, meshLimit,
-        warmRetentionPressure, audit);
-    if ((bool)nri_ptvoxelfamilyposegrace && meshLimit < 0 && meshCount < NRIEnemyFamilyStaging::MaximumMeshes)
+    const bool allowGrace = (bool)nri_ptvoxelfamilyposegrace && !familyRefused && meshLimit < 0 &&
+        meshCount < NRIEnemyFamilyStaging::MaximumMeshes &&
+        (!held.empty() || (adjacentSweep && stage.world == previousWorld));
+    if (held.empty() && !allowGrace) return;
+    if (!ordinaryMarked)
+        NRIMarkOrdinarySweepVictims(candidates, inactiveBytes, warmBytes, meshLimit, warmRetentionPressure);
+    TraceOrdinarySweepVictims(frameIndex, candidates, held);
+    // A grace on the next pressure sweep cannot renew itself. Both sweeps can retain
+    // only from the actual victim list, and the other victims must pay the hard reserve.
+    NRIVoxelSweepProtection protection;
+    if (!held.empty())
+        protection = NRIRestrictFamilySweep(candidates, held, inactiveBytes, warmBytes, meshLimit, warmRetentionPressure, audit);
+    if (allowGrace)
     {
-        for (auto& mesh : candidates) mesh.lastSelectedFrame = actorDemand.RepeatedMeshSelectionFrame(mesh.key, frameIndex);
+        const auto requests = actorDemand.RecentRecurringPoseRequests(frameIndex, interval);
+        for (auto& mesh : candidates)
+        {
+            const auto found = requests.find(mesh.key);
+            if (found != requests.end()) mesh.lastRequestedFrame = found->second;
+        }
         const auto grace = NRIKeepRecurringPoseForSweep(candidates, inactiveBytes, warmBytes, warmRetentionPressure,
-            hardDeficit, remainingCharge, frameIndex, uint32_t(std::max(1, (int)nri_ptvoxelcacheintervalframes)));
+            hardDeficit, remainingCharge, frameIndex, interval);
         if (grace.mesh && audit)
         {
             char row[384];
-            std::snprintf(row, sizeof(row), "\"renderer_frame\":%u,\"world\":%llu,\"mesh_key\":%llu,\"last_selected_frame\":%u,"
+            std::snprintf(row, sizeof(row), "\"renderer_frame\":%u,\"world\":%llu,\"mesh_key\":%llu,\"last_requested_frame\":%u,\"adjacent_sweep\":%s,"
                 "\"logical_bytes\":%llu,\"hard_deficit\":%llu,\"other_victim_bytes\":%llu", frameIndex,
-                (unsigned long long)stage.world, (unsigned long long)grace.mesh, grace.selectedFrame,
+                (unsigned long long)stage.world, (unsigned long long)grace.mesh, grace.requestedFrame, held.empty() ? "true" : "false",
                 (unsigned long long)grace.bytes, (unsigned long long)hardDeficit, (unsigned long long)grace.otherRetiring);
             PerfAuditWriteEvent("enemy_family_sweep_pose_grace", PerfAuditCurrentToken(), row);
         }
     }
-    if (!audit) return;
+    if (!audit || held.empty()) return;
     char fields[384];
     std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"world\":%llu,\"additional_protected_meshes\":%u,"
         "\"additional_protected_logical_bytes\":%llu,\"additional_protected_physical_bytes\":%llu,"

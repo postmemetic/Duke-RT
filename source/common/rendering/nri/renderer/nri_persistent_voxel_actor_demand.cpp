@@ -15,7 +15,8 @@ void NRIVoxelActorDemand::Reset()
     valid = false;
     actors.clear(); pairs.clear(); upgrades.clear(); meshes.clear(); materials.clear(); snapshot = {};
     refreshedFrame = UINT32_MAX;
-    captureUpgrades = false; upgradeRevision = upgradeSignature = 0;
+    captureUpgrades = capturePoseRequests = false; upgradeRevision = upgradeSignature = 0;
+    poseRequests.clear();
 }
 
 void NRIVoxelActorDemand::NoteSelected(Actor& actor, uint64_t mesh, uint64_t material, uint32_t frame)
@@ -27,7 +28,8 @@ void NRIVoxelActorDemand::NoteSelected(Actor& actor, uint64_t mesh, uint64_t mat
     }
     const auto touch = [frame](Warm& item)
     {
-        if (item.uses == 0 || item.frame != frame) item.uses = std::min(65535u, item.uses + 1u);
+        if (item.frame == frame) return;
+        item.previousFrame = item.frame;
         item.frame = frame;
     };
     if (mesh && material) { touch(meshes[mesh]); touch(materials[material]); }
@@ -53,11 +55,26 @@ void NRIVoxelActorDemand::TrimHistory(std::unordered_map<uint64_t, Warm>& histor
     for (size_t i = 0; i < remove; ++i) history.erase(oldest[i].second);
 }
 
-void NRIVoxelActorDemand::Refresh(uint64_t nextGeneration, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs, bool nextCaptureUpgrades)
+void NRIVoxelActorDemand::NotePoseRequest(const NRIVoxelActorDemandInput& input, uint32_t frame)
+{
+    if (!input.rayEligible || !input.lifetime || !input.mesh || !input.material) return;
+    auto& recent = poseRequests[input.identity];
+    auto pos = std::find_if(recent.begin(), recent.end(), [&](const MeshRequest& request) {
+        return !request.mesh || request.mesh == input.mesh;
+    });
+    if (pos == recent.end()) --pos;
+    std::move_backward(recent.begin(), pos, pos + 1);
+    recent.front() = {input.mesh, frame};
+}
+
+void NRIVoxelActorDemand::Refresh(uint64_t nextGeneration, uint32_t frame,
+    const std::vector<NRIVoxelActorDemandInput>& inputs, bool nextCaptureUpgrades, bool nextCapturePoseRequests)
 {
     if (generation != nextGeneration) { Reset(); generation = nextGeneration; }
     valid = true;
     captureUpgrades = nextCaptureUpgrades;
+    if (capturePoseRequests && !nextCapturePoseRequests) poseRequests.clear();
+    capturePoseRequests = nextCapturePoseRequests;
     if (captureUpgrades)
     {
         uint64_t signature = inputs.size();
@@ -75,15 +92,24 @@ void NRIVoxelActorDemand::Refresh(uint64_t nextGeneration, uint32_t frame, const
     {
         if (!input.identity || !input.world || !input.pair) continue;
         Actor& actor = actors[input.identity];
-        if (actor.input.world != input.world || actor.input.lifetime != input.lifetime) actor = {};
+        if (actor.input.world != input.world || actor.input.lifetime != input.lifetime)
+        {
+            if (capturePoseRequests && actor.input.identity) poseRequests.erase(input.identity);
+            actor = {};
+        }
         actor.input = input;
         actor.seen = frame;
         if (input.representation == NRIVoxelActorRepresentation::Exact) actor.exactMissingSince = UINT32_MAX;
         else if (actor.exactMissingSince == UINT32_MAX) actor.exactMissingSince = frame;
         NoteSelected(actor, input.selectedMesh, input.selectedMaterial, frame);
+        if (capturePoseRequests) NotePoseRequest(input, frame);
     }
     for (auto it = actors.begin(); it != actors.end();)
-        if (it->second.seen != frame) it = actors.erase(it); else ++it;
+    {
+        if (it->second.seen == frame) { ++it; continue; }
+        if (capturePoseRequests) poseRequests.erase(it->first);
+        it = actors.erase(it);
+    }
     TrimHistory(meshes, frame); TrimHistory(materials, frame);
     RebuildPairs(frame);
 }
@@ -190,14 +216,34 @@ uint32_t NRIVoxelActorDemand::WarmRank(const std::unordered_map<uint64_t, Warm>&
     const auto found = history.find(key);
     if (!valid || found == history.end() || Age(frame, found->second.frame) > HistoryFrames) return 0;
     if (found->second.currentActorFrame == frame) return 3;
-    return found->second.uses > 1 ? 2u : 1u;
+    return found->second.previousFrame != UINT32_MAX ? 2u : 1u;
 }
 uint32_t NRIVoxelActorDemand::WarmMeshRank(uint64_t key, uint32_t frame) const { return WarmRank(meshes, key, frame); }
 uint32_t NRIVoxelActorDemand::RepeatedMeshSelectionFrame(uint64_t key, uint32_t frame) const
 {
     const auto found = meshes.find(key);
-    if (!valid || found == meshes.end() || found->second.uses < 2 || frame < found->second.frame ||
-        frame - found->second.frame > HistoryFrames) return UINT32_MAX;
+    if (!valid || found == meshes.end() || found->second.previousFrame == UINT32_MAX ||
+        frame < found->second.frame || frame < found->second.previousFrame ||
+        frame - found->second.previousFrame > HistoryFrames) return UINT32_MAX;
     return found->second.frame;
+}
+std::unordered_map<uint64_t, uint32_t> NRIVoxelActorDemand::RecentRecurringPoseRequests(uint32_t frame, uint32_t interval) const
+{
+    std::unordered_map<uint64_t, uint32_t> latest;
+    if (!valid || !capturePoseRequests || refreshedFrame != frame || !interval) return latest;
+    for (const auto& entry : poseRequests)
+    {
+        const auto owner = actors.find(entry.first);
+        if (owner == actors.end() || owner->second.seen != frame || !owner->second.input.rayEligible) continue;
+        for (const auto& request : entry.second)
+        {
+            if (!request.mesh) break;
+            if (request.frame > frame || frame - request.frame >= interval ||
+                RepeatedMeshSelectionFrame(request.mesh, frame) == UINT32_MAX) continue;
+            auto& last = latest[request.mesh];
+            last = std::max(last, request.frame);
+        }
+    }
+    return latest;
 }
 uint32_t NRIVoxelActorDemand::WarmMaterialRank(uint64_t key, uint32_t frame) const { return WarmRank(materials, key, frame); }

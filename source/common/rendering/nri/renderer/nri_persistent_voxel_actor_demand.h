@@ -14,6 +14,7 @@ struct NRIVoxelActorDemandInput
     uint64_t selectedMesh = 0, selectedMaterial = 0;
     bool visible = false;
     NRIVoxelActorRepresentation representation = NRIVoxelActorRepresentation::Missing;
+    bool rayEligible = false;
 };
 
 struct NRIVoxelPairDemand
@@ -48,7 +49,8 @@ class NRIVoxelActorDemand
 {
 public:
     void Reset();
-    void Refresh(uint64_t generation, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs, bool captureUpgrades = false);
+    void Refresh(uint64_t generation, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs,
+        bool captureUpgrades = false, bool capturePoseRequests = false);
     void InvalidateAuthority() { valid = false; snapshot.authorityAvailable = false; }
     void ObserveRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,
         NRIVoxelActorRepresentation representation, uint64_t selectedMesh, uint64_t selectedMaterial, uint32_t frame);
@@ -60,6 +62,7 @@ public:
     NRIVoxelActorDemandState GetActor(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame) const;
     uint32_t WarmMeshRank(uint64_t key, uint32_t frame) const;
     uint32_t RepeatedMeshSelectionFrame(uint64_t key, uint32_t frame) const;
+    std::unordered_map<uint64_t, uint32_t> RecentRecurringPoseRequests(uint32_t frame, uint32_t interval) const;
     uint32_t WarmMaterialRank(uint64_t key, uint32_t frame) const;
     const NRIVoxelActorDemandSnapshot& Snapshot() const { return snapshot; }
     bool AuthorityAvailable() const { return valid; }
@@ -73,7 +76,10 @@ private:
         uint32_t exactMissingSince = UINT32_MAX, seen = 0;
         std::array<Pose, 4> recent = {};
     };
-    struct Warm { uint32_t frame = 0, uses = 0, currentActorFrame = UINT32_MAX; };
+    struct Warm { uint32_t frame = UINT32_MAX, previousFrame = UINT32_MAX, currentActorFrame = UINT32_MAX; };
+    struct MeshRequest { uint64_t mesh = 0; uint32_t frame = 0; };
+    std::unordered_map<uint64_t, std::array<MeshRequest, 8>> poseRequests;
+    void NotePoseRequest(const NRIVoxelActorDemandInput& input, uint32_t frame);
     void NoteSelected(Actor& actor, uint64_t mesh, uint64_t material, uint32_t frame);
     void RebuildPairs(uint32_t frame);
     void TrimHistory(std::unordered_map<uint64_t, Warm>& history, uint32_t frame);
@@ -84,7 +90,7 @@ private:
     std::unordered_map<uint64_t, NRIVoxelPairDemand> pairs;
     std::unordered_map<uint64_t, NRIVoxelMeshUpgradeDemand> upgrades;
     uint32_t refreshedFrame = UINT32_MAX;
-    bool captureUpgrades = false;
+    bool captureUpgrades = false, capturePoseRequests = false;
     uint64_t upgradeRevision = 0, upgradeSignature = 0;
     std::unordered_map<uint64_t, Warm> meshes, materials;
     NRIVoxelActorDemandSnapshot snapshot;

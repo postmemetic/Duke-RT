@@ -58,8 +58,9 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
 {
     const auto policy = GetNRIVoxelAdmissionPolicySettings();
     const bool allowOverflowPage = EffectiveOverflowPageMode() != 0;
+    const bool capturePoseRequests = (bool)nri_ptvoxelfamilyposegrace && IsEnemyFamilyRecoveryEnabled();
     if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames &&
-        !(bool)nri_ptvoxeladmissionreclaim && !(bool)nri_ptvoxelparksupersededgrowth && !allowOverflowPage)
+        !(bool)nri_ptvoxeladmissionreclaim && !(bool)nri_ptvoxelparksupersededgrowth && !allowOverflowPage && !capturePoseRequests)
     {
         actorDemand.Reset();
         return;
@@ -80,6 +81,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         input.mesh = BuildPersistentVoxelMeshResourceKey(item, settings); input.material = item.materialKeyHash;
         input.pair = nri_scene::HashCombine64(input.mesh, input.material);
         input.visible = item.capturedThisFrame && item.publicationEligible && !item.indirectOnly && !item.pendingRemoval;
+        input.rayEligible = item.authorityCurrent && item.publicationEligible && !item.pendingRemoval;
         const auto slot = batch.actorIndex.Find(item.identityKey);
         if (slot < batch.actors.size())
         {
@@ -99,7 +101,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         inputs.push_back(input);
     }
     actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs,
-        (bool)nri_ptvoxeladmissionreclaim || (bool)nri_ptvoxelparksupersededgrowth || allowOverflowPage);
+        (bool)nri_ptvoxeladmissionreclaim || (bool)nri_ptvoxelparksupersededgrowth || allowOverflowPage, capturePoseRequests);
     uint32_t coalesced = 0;
     if (policy.coalesce)
     {
