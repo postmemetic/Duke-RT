@@ -4,6 +4,7 @@ param(
     [string]$GameRoot = "",
     [string]$SourceRoot = "",
     [string]$VoxelZip = "",
+    [string]$HrpZip = "",
     [string]$StatePath = "",
     [string]$LaunchVarsPath = "",
     [switch]$Yes,
@@ -13,6 +14,9 @@ param(
     [switch]$VoxelNo,
     [switch]$VoxelAsk,
     [switch]$ForceVoxels,
+    [switch]$HrpYes,
+    [switch]$HrpNo,
+    [switch]$HrpAsk,
     [switch]$Force,
     [switch]$Quiet
 )
@@ -43,7 +47,8 @@ function Write-LaunchVars {
         [string]$Path,
         [string]$InstallRoot,
         [string]$GrpPath,
-        [string]$NormalSourceRoot
+        [string]$NormalSourceRoot,
+        [string]$HrpDir = ""
     )
 
     $varsDir = Split-Path -Parent $Path
@@ -55,7 +60,8 @@ function Write-LaunchVars {
         "@echo off",
         "set `"DUKE_RT_INSTALL_ROOT=$InstallRoot`"",
         "set `"DUKE_RT_GRP=$GrpPath`"",
-        "set `"DUKE_RT_NORMAL_SOURCE=$NormalSourceRoot`""
+        "set `"DUKE_RT_NORMAL_SOURCE=$NormalSourceRoot`"",
+        "set `"DUKE_RT_HRP_DIR=$HrpDir`""
     )
     Set-Content -LiteralPath $Path -Value ($lines -join [Environment]::NewLine) -Encoding ASCII
 }
@@ -132,6 +138,9 @@ function New-DefaultState {
             voxel_pack = @{
                 prompt = "ask"
             }
+            hrp = @{
+                prompt = "ask"
+            }
             duke_world_tour = @{}
         }
     }
@@ -154,6 +163,12 @@ function Ensure-StateShape {
     }
     if (-not $State["providers"]["voxel_pack"].ContainsKey("prompt")) {
         $State["providers"]["voxel_pack"]["prompt"] = "ask"
+    }
+    if (-not $State["providers"].ContainsKey("hrp")) {
+        $State["providers"]["hrp"] = @{ prompt = "ask" }
+    }
+    if (-not $State["providers"]["hrp"].ContainsKey("prompt")) {
+        $State["providers"]["hrp"]["prompt"] = "ask"
     }
     if (-not $State["providers"].ContainsKey("duke_world_tour")) {
         $State["providers"]["duke_world_tour"] = @{}
@@ -930,6 +945,216 @@ function Invoke-VoxelPackImport {
     }
 }
 
+function Test-HrpInstall {
+    param([string]$HrpDir)
+
+    return (
+        (Test-Path -LiteralPath (Join-Path $HrpDir "duke3d.def") -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $HrpDir "highres") -PathType Container)
+    )
+}
+
+# The newest duke3d_hrp*.zip beside the launcher or in Downloads. Whatever the user
+# downloaded is used, so new HRP releases need no launcher change.
+function Find-HrpArchives {
+    param([string]$LaunchRoot)
+
+    $roots = @($LaunchRoot, (Get-DownloadsDirectory)) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+    return @($roots | ForEach-Object { Get-ChildItem -LiteralPath $_ -File -Filter "duke3d_hrp*.zip" } |
+        Sort-Object LastWriteTimeUtc -Descending)
+}
+
+function Find-HrpRoot {
+    param([string]$ExtractRoot)
+
+    if (Test-HrpInstall -HrpDir $ExtractRoot) {
+        return [System.IO.Path]::GetFullPath($ExtractRoot)
+    }
+    foreach ($dir in @(Get-ChildItem -LiteralPath $ExtractRoot -Directory)) {
+        if (Test-HrpInstall -HrpDir $dir.FullName) {
+            return [System.IO.Path]::GetFullPath($dir.FullName)
+        }
+    }
+    return ""
+}
+
+function Install-HrpArchive {
+    param(
+        [string]$LaunchRoot,
+        [string]$ZipPath,
+        [string]$HrpDir,
+        [hashtable]$ProviderState
+    )
+
+    Assert-SafeZipArchive -ZipPath $ZipPath
+
+    $tempRoot = Get-FullPathSafe -Base $LaunchRoot -Child "generated-content\temp\hrp"
+    Ensure-WithinRoot -RootPath $LaunchRoot -CandidatePath $tempRoot -Label "HRP temp"
+    if (Test-Path -LiteralPath $tempRoot) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+
+    try {
+        if (-not $Quiet) {
+            Write-Info "Unpacking the High Resolution Pack (about 1 GB, this takes a few minutes)..."
+        }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $tempRoot)
+        $contentRoot = Find-HrpRoot -ExtractRoot $tempRoot
+        if (-not $contentRoot) {
+            throw "The selected archive did not contain the expected HRP files (duke3d.def and highres)."
+        }
+
+        if (Test-Path -LiteralPath $HrpDir) {
+            Remove-Item -LiteralPath $HrpDir -Recurse -Force
+        }
+        Move-Item -LiteralPath $contentRoot -Destination $HrpDir
+
+        $archive = Get-Item -LiteralPath $ZipPath
+        $ProviderState["installed"] = $true
+        $ProviderState["last_archive"] = $archive.FullName
+        $ProviderState["last_archive_name"] = $archive.Name
+        $ProviderState["last_archive_size"] = $archive.Length
+        $ProviderState["last_install_utc"] = [DateTime]::UtcNow.ToString("o")
+
+        if (-not $Quiet) {
+            Write-Info "High Resolution Pack installed into:"
+            Write-Info "  $HrpDir"
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
+# Returns the HRP folder to mount (launcher adds -file plus -adddef for the
+# overlay's maphack/voxel DEFs, which the HRP's own duke3d.def would shadow),
+# or "" to launch without it. The HRP is extracted to generated-content\hrp,
+# not into the overlay, because it ships its own duke3d.def.
+function Invoke-HrpImport {
+    param(
+        [string]$LaunchRoot,
+        [string]$ExplicitHrpZip,
+        [hashtable]$State
+    )
+
+    $providerState = $State["providers"]["hrp"]
+    $downloadPage = "https://hrp.duke4.net/download.php"
+    $hrpDir = Get-FullPathSafe -Base $LaunchRoot -Child "generated-content\hrp"
+    Ensure-WithinRoot -RootPath $LaunchRoot -CandidatePath $hrpDir -Label "HRP"
+
+    if ($HrpNo) {
+        $providerState["prompt"] = "skip"
+        if (-not $Quiet) {
+            Write-Info "Skipping the High Resolution Pack by user request."
+        }
+        return ""
+    }
+
+    $installed = Test-HrpInstall -HrpDir $hrpDir
+    $explicit = ""
+    if ($ExplicitHrpZip) {
+        $explicit = Normalize-CandidatePath -Path $ExplicitHrpZip
+        if (-not (Test-Path -LiteralPath $explicit -PathType Leaf)) {
+            throw "The path passed to -HrpZip is not a file: $ExplicitHrpZip"
+        }
+    }
+
+    if (-not $HrpYes -and -not $HrpAsk -and -not $explicit -and $providerState["prompt"] -eq "skip") {
+        if (-not $Quiet) {
+            Write-Info "High Resolution Pack is disabled in local content preferences; skipping."
+        }
+        return ""
+    }
+
+    $archives = Find-HrpArchives -LaunchRoot $LaunchRoot
+    $newest = if ($explicit) { Get-Item -LiteralPath $explicit } elseif ($archives.Count -gt 0) { $archives[0] } else { $null }
+
+    if ($installed) {
+        $providerState["installed"] = $true
+        # A different archive than the installed one (e.g. a newer release) offers an update.
+        if ($newest -and ($explicit -or $newest.Name -ne $providerState["last_archive_name"] -or $newest.Length -ne $providerState["last_archive_size"])) {
+            $update = $HrpYes -or [bool]$explicit
+            if (-not $update -and -not $Quiet) {
+                Write-Host ""
+                Write-Info "Found a High Resolution Pack archive that differs from the installed one:"
+                Write-Info "  $($newest.FullName)"
+                Write-Info "Installed from: $($providerState["last_archive_name"])"
+                $update = Prompt-YesNo -Question "Install this HRP archive"
+            }
+            if ($update) {
+                Install-HrpArchive -LaunchRoot $LaunchRoot -ZipPath $newest.FullName -HrpDir $hrpDir -ProviderState $providerState
+            }
+        } elseif (-not $Quiet) {
+            Write-Info "High Resolution Pack is installed."
+        }
+        return $hrpDir
+    }
+
+    if (-not $newest) {
+        if ($Quiet) {
+            return ""
+        }
+        Write-Host ""
+        Write-Info "Duke-RT can use the Duke Nukem 3D High Resolution Pack (HRP) by the HRP team: high-resolution textures in the ray-traced world."
+        Write-Info "We can open the HRP download page in your default browser. Download the latest duke3d_hrp zip (about 1 GB) to your Downloads folder."
+        Write-Info "Leave the zip as downloaded; it is detected by its name (duke3d_hrp*.zip)."
+        Write-Host ""
+        $consent = $HrpYes -or (Prompt-YesNo -Question "Open the High Resolution Pack download page now?")
+        $providerState["prompt"] = if ($consent) { "always-yes" } else { "skip" }
+        if (-not $consent) {
+            Write-Info "High Resolution Pack declined."
+            return ""
+        }
+
+        Start-Process $downloadPage
+        Write-Host ""
+        [void](Read-Host "When the HRP download has finished, return here and press Enter")
+        $archives = Find-HrpArchives -LaunchRoot $LaunchRoot
+        if ($archives.Count -eq 0) {
+            while ($true) {
+                $reply = Read-Host "Enter the full path to the duke3d_hrp zip, or leave blank to skip"
+                if ($null -eq $reply -or [string]::IsNullOrWhiteSpace($reply)) {
+                    Write-Info "No HRP archive was selected; launch will continue without it."
+                    return ""
+                }
+                try {
+                    $candidate = Normalize-CandidatePath -Path $reply
+                    if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and $candidate.EndsWith(".zip", [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $newest = Get-Item -LiteralPath $candidate
+                        break
+                    }
+                }
+                catch {
+                }
+                Write-Info "That path was not a readable .zip archive."
+            }
+        } else {
+            $newest = $archives[0]
+        }
+    } elseif (-not $HrpYes -and -not $explicit -and $providerState["prompt"] -ne "always-yes") {
+        if ($Quiet) {
+            return ""
+        }
+        Write-Host ""
+        Write-Info "Found a Duke Nukem 3D High Resolution Pack archive:"
+        Write-Info "  $($newest.FullName)"
+        $consent = Prompt-YesNo -Question "Install it for Duke-RT"
+        $providerState["prompt"] = if ($consent) { "always-yes" } else { "skip" }
+        if (-not $consent) {
+            Write-Info "High Resolution Pack declined."
+            return ""
+        }
+    }
+
+    $providerState["prompt"] = "always-yes"
+    Install-HrpArchive -LaunchRoot $LaunchRoot -ZipPath $newest.FullName -HrpDir $hrpDir -ProviderState $providerState
+    return $hrpDir
+}
+
 function Invoke-NormalImport {
     param(
         [string]$LaunchRoot,
@@ -1113,9 +1338,20 @@ catch {
     Write-Warning "Launch will continue without installed voxels."
 }
 
+Write-Section -Title "Step 4: Set up the optional hi-res pack (HRP)"
+$hrpDir = ""
+try {
+    $hrpDir = Invoke-HrpImport -LaunchRoot $LaunchRoot -ExplicitHrpZip $HrpZip -State $state
+}
+catch {
+    Write-Warning "High Resolution Pack setup failed: $($_.Exception.Message)"
+    Write-Warning "Launch will continue without the HRP."
+    $hrpDir = ""
+}
+
 Save-DukeInstallState -State $state -ResolvedInstall $resolvedInstall
 Save-State -Path $StatePath -State $state
-Write-LaunchVars -Path $LaunchVarsPath -InstallRoot $resolvedInstall["install_root"] -GrpPath $resolvedInstall["grp_path"] -NormalSourceRoot $resolvedSourceRoot
+Write-LaunchVars -Path $LaunchVarsPath -InstallRoot $resolvedInstall["install_root"] -GrpPath $resolvedInstall["grp_path"] -NormalSourceRoot $resolvedSourceRoot -HrpDir $hrpDir
 
 if (-not $Quiet) {
     Write-Info "Using Duke3D.grp at: $($resolvedInstall["grp_path"])"
