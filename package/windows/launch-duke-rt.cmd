@@ -118,16 +118,6 @@ if /I "%~1"=="-HrpZip" (
     shift
     goto parse_args
 )
-rem A user -file folder with its own duke3d.def (a DEF pack) shadows the overlay's.
-if /I "%~1"=="-file" (
-    if not "%~2"=="" (
-        if exist "%~f2\duke3d.def" set "USER_DEF_PACK=1"
-        set GAME_ARGS=%GAME_ARGS% -file "%~2"
-        shift
-        shift
-        goto parse_args
-    )
-)
 if /I "%~1"=="-SourceRoot" (
     if "%~2"=="" (
         echo [duke-rt] -SourceRoot requires a path argument.
@@ -189,20 +179,13 @@ if not exist "%DUKE_RT_GRP%" (
 )
 
 rem The installed High Resolution Pack is mounted after the overlay. Raze loads only
-rem one duke3d.def (the last mounted), so when a DEF pack (the HRP, or a user -file
-rem folder with its own duke3d.def) shadows the overlay's, re-add the DEFs that file
-rem includes (Duke-RT maphacks and the voxel pack) with -adddef. Without a DEF pack
-rem the overlay's duke3d.def already includes them; adding them again would load
-rem every voxel twice.
+rem one duke3d.def (the last mounted), so the overlay has none and the voxel pack's
+rem DEFs (voxels and maphacks) are always added with -adddef: a DEF pack (the HRP, or
+rem any user -file folder or archive with its own duke3d.def) can't shadow them.
 set "CONTENT_ARGS="
-set "DEF_PACK="
-if defined USER_DEF_PACK set "DEF_PACK=1"
-if defined DUKE_RT_HRP_DIR if exist "%DUKE_RT_HRP_DIR%\duke3d.def" (
-    set CONTENT_ARGS=-file "%DUKE_RT_HRP_DIR%"
-    set "DEF_PACK=1"
-)
-if defined DEF_PACK if exist "%OVERLAY_DIR%\duke3d_maphacks.def" set CONTENT_ARGS=%CONTENT_ARGS% -adddef duke3d_maphacks.def
-if defined DEF_PACK if exist "%OVERLAY_DIR%\duke3d_voxels.def" set CONTENT_ARGS=%CONTENT_ARGS% -adddef duke3d_voxels.def
+if defined DUKE_RT_HRP_DIR if exist "%DUKE_RT_HRP_DIR%\duke3d.def" set CONTENT_ARGS=-file "%DUKE_RT_HRP_DIR%"
+if exist "%OVERLAY_DIR%\duke3d_maphacks.def" set CONTENT_ARGS=%CONTENT_ARGS% -adddef duke3d_maphacks.def
+if exist "%OVERLAY_DIR%\duke3d_voxels.def" set CONTENT_ARGS=%CONTENT_ARGS% -adddef duke3d_voxels.def
 
 "%RAZE_EXE%" -gamegrp "%DUKE_RT_GRP%" -file "%OVERLAY_DIR%" %CONTENT_ARGS% %GAME_ARGS%
 exit /b %errorlevel%

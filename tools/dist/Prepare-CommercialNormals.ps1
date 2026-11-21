@@ -628,7 +628,6 @@ function Test-VoxelPackInstall {
     param([string]$OverlayDir)
 
     return (
-        (Test-Path -LiteralPath (Join-Path $OverlayDir "duke3d.def") -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-Path $OverlayDir "duke3d_voxels.def") -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-Path $OverlayDir "duke3d_maphacks.def") -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-Path $OverlayDir "voxels") -PathType Container) -and
@@ -785,8 +784,8 @@ function Copy-VoxelPackContent {
         [string]$SourceRoot
     )
 
+    # Not the pack's duke3d.def: the launcher adds its two DEFs with -adddef.
     $items = @(
-        "duke3d.def",
         "duke3d_voxels.def",
         "duke3d_maphacks.def",
         "readme.txt",
@@ -817,6 +816,22 @@ function Copy-VoxelPackContent {
     }
 }
 
+# Older launchers also copied the voxel pack's duke3d.def, which includes its two
+# DEFs, into the overlay. The launcher now always adds those with -adddef (a DEF
+# pack's own duke3d.def would shadow the overlay's), so keeping it would load every
+# voxel twice. Renamed rather than deleted, in case it was edited.
+function Disable-LegacyVoxelDukeDef {
+    param([string]$OverlayDir)
+
+    $def = Join-Path $OverlayDir "duke3d.def"
+    if ((Test-Path -LiteralPath $def -PathType Leaf) -and (Select-String -LiteralPath $def -Pattern "duke3d_(voxels|maphacks)\.def" -Quiet)) {
+        Move-Item -LiteralPath $def -Destination "$def.old" -Force
+        if (-not $Quiet) {
+            Write-Info "Renamed the overlay's voxel pack duke3d.def to duke3d.def.old; its DEFs are now added at launch."
+        }
+    }
+}
+
 function Invoke-VoxelPackImport {
     param(
         [string]$LaunchRoot,
@@ -824,6 +839,8 @@ function Invoke-VoxelPackImport {
         [string]$ExplicitVoxelZip,
         [hashtable]$State
     )
+
+    Disable-LegacyVoxelDukeDef -OverlayDir $OverlayDir
 
     $providerState = $State["providers"]["voxel_pack"]
     $downloadPage = "https://www.moddb.com/mods/voxel-duke-nukem-3d/addons/voxel-duke-3d"
@@ -1030,10 +1047,9 @@ function Install-HrpArchive {
     }
 }
 
-# Returns the HRP folder to mount (launcher adds -file plus -adddef for the
-# overlay's maphack/voxel DEFs, which the HRP's own duke3d.def would shadow),
-# or "" to launch without it. The HRP is extracted to generated-content\hrp,
-# not into the overlay, because it ships its own duke3d.def.
+# Returns the HRP folder to mount (the launcher adds it with -file after the
+# overlay), or "" to launch without it. The HRP is extracted to
+# generated-content\hrp, not into the overlay, so an update replaces it whole.
 function Invoke-HrpImport {
     param(
         [string]$LaunchRoot,
