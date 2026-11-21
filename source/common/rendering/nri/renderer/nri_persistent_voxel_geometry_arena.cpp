@@ -18,6 +18,7 @@
 #include <tuple>
 
 CVAR(Bool, nri_ptvoxelarenarequiredlayout, false, 0)
+CVAR(Int, nri_ptvoxelruntimeextentmb, 0, 0)
 
 namespace
 {
@@ -55,6 +56,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     // One attempt per map prevents a failed reservation from stalling every load tick.
     arena.arenaPresizeBuildSerial = buildSerial;
     arena.arenaUsesRequiredLayout = false;
+    arena.InvalidateRuntimeExtent();
     arena.startupFamilyBudget = {};
     NRIVoxelStartupFamilyBudget families;
     const auto start = std::chrono::steady_clock::now();
@@ -78,6 +80,9 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     uint32_t testedCandidates = 0;
     uint32_t firstRequiredPrimitives = 0;
     bool selectedRequiredLayout = false;
+    std::array<uint64_t, 3> ordinaryRows{};
+    uint64_t extraPrimitives = 0;
+    const char* extentFallback = "none";
     const auto report = [&](const char* decision)
     {
         const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -88,7 +93,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
                 "\"renderer_frame\":%u,\"map_epoch\":%llu,\"phase\":\"loading\",\"decision\":\"%s\","
                 "\"selected_geometry_bytes\":%llu,\"withheld_geometry_bytes\":%llu,\"alias_reserve_bytes\":%llu,"
                 "\"full_target_geometry_bytes\":%llu,\"selected_target_geometry_bytes\":%llu,\"plan_kind\":\"%s\","
-                "\"inventory_sizing\":%s,\"required_layout\":%s,\"first_required_primitives\":%u,\"required_geometry_bytes\":%llu,\"optional_preload_bytes\":%llu,"
+                "\"inventory_sizing\":%s,\"required_layout\":%s,\"first_required_primitives\":%u,\"runtime_extent_primitives\":%llu,\"runtime_extent_fallback\":\"%s\",\"required_geometry_bytes\":%llu,\"optional_preload_bytes\":%llu,"
                 "\"pressure_target_bytes\":%llu,\"pressure_alias_bytes\":%llu,\"pressure_withheld_bytes\":%llu,"
                 "\"preflight_allocation_bytes\":%llu,\"accounting_allowance_bytes\":%llu,"
                 "\"placed_meshes\":%zu,\"placed_geometry_bytes\":%llu,\"placed_blas_bytes\":%llu,\"placed_scratch_bytes\":%llu,\"placed_material_bytes\":%llu,"
@@ -103,6 +108,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
                 (unsigned long long)selectedBytes, selectedBytes == 0 ? "none" :
                     (selectedBytes >= plan.targetGeometryBytes ? "full" : "partial"),
                 inventorySizing ? "true" : "false", selectedRequiredLayout ? "true" : "false", firstRequiredPrimitives,
+                (unsigned long long)extraPrimitives, extentFallback,
                 (unsigned long long)inventory.requiredBytes, (unsigned long long)inventory.optionalPreloadBytes,
                 (unsigned long long)pressurePlan.targetGeometryBytes, (unsigned long long)inventory.largestPreloadBytes,
                 (unsigned long long)inventory.largestWithheldBytes, (unsigned long long)preflightBytes,
@@ -248,8 +254,28 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
             const uint64_t bytes = rows[0] * strides[0] + rows[1] * strides[1] + rows[2] * strides[2];
             if (bytes && bytes <= startupTarget)
             {
-                ++testedCandidates;
-                selectedRequiredLayout = priceRows(rows);
+                const uint64_t extentBudget = uint64_t(std::max(0, (int)nri_ptvoxelruntimeextentmb)) * 1024 * 1024;
+                const uint64_t extra = std::min(extentBudget, startupTarget - bytes) / bytesPerPrimitive;
+                const int pageMode = (int)nri_ptvoxeloverflowpage;
+                if (extra >= 2 && (pageMode == 1 || pageMode == 2) && arena.SelectedOverflowMesh())
+                {
+                    const std::array<uint64_t, 3> extended{rows[0] + 2 * extra, rows[1] + 3 * extra, rows[2] + extra};
+                    constexpr uint64_t ordinaryLimit = NRIPersistentVoxelGeometryRangeHandle::PageTag;
+                    ++testedCandidates;
+                    if (extended[0] <= ordinaryLimit && extended[1] <= UINT32_MAX && extended[2] <= ordinaryLimit &&
+                        priceRows(extended))
+                    {
+                        extraPrimitives = extra;
+                        selectedRequiredLayout = true;
+                        ordinaryRows = rows;
+                    }
+                    else extentFallback = "extended-preflight";
+                }
+                if (!selectedRequiredLayout)
+                {
+                    ++testedCandidates;
+                    selectedRequiredLayout = priceRows(rows);
+                }
             }
         }
     }
@@ -267,37 +293,69 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
         committedBytes = 0;
     };
     const auto services = BuildNRIPersistentVoxelAdmissionServices(*this);
-    for (size_t i = 0; i < reserved.size(); ++i)
+    const auto reserve = [&]() -> const char*
     {
-        if (!services.EnsureArenaBuffer(reserved[i], descriptors[i].size, descriptors[i].structureStride,
-            descriptors[i].usage, NRIResourceComputeShaderResourceAccess()))
-        { discard(); report("allocation-failed"); return; }
-        // Reservation creates no geometry. Do not copy uninitialized reserved
-        // capacity if an unmanifested runtime mesh eventually causes growth.
-        reserved[i].usedSize = 0;
-        if (reserved[i].memorySize != predicted[i])
-        { discard(); report("memory-requirements-changed"); return; }
-        committedBytes += reserved[i].memorySize;
+        for (size_t i = 0; i < reserved.size(); ++i)
+        {
+            if (!services.EnsureArenaBuffer(reserved[i], descriptors[i].size, descriptors[i].structureStride,
+                descriptors[i].usage, NRIResourceComputeShaderResourceAccess())) return "allocation-failed";
+            // Reservation creates no geometry. Ignore unused rows in any later copy.
+            reserved[i].usedSize = 0;
+            if (reserved[i].memorySize != predicted[i]) return "memory-requirements-changed";
+            committedBytes += reserved[i].memorySize;
+        }
+        // Budget can change while the driver allocates. A second live query and a
+        // conservative initial+actual floor protect against delayed usage reporting.
+        postAdapter = mFrameBuffer->GetAdapterMemoryTelemetry();
+        const uint64_t usageFloor = currentUsage > std::numeric_limits<uint64_t>::max() - committedBytes ?
+            std::numeric_limits<uint64_t>::max() : currentUsage + committedBytes;
+        const uint64_t finalUsage = std::max(usageFloor, postAdapter.localUsageBytes);
+        const uint64_t remaining = postAdapter.localBudgetBytes > finalUsage ? postAdapter.localBudgetBytes - finalUsage : 0;
+        if (!postAdapter.liveUsageAvailable || postAdapter.localBudgetBytes == 0 || finalUsage > postAdapter.localBudgetBytes ||
+            remaining < budget.futureBytes || remaining - budget.futureBytes < settings.minimumLocalMemoryReserveBytes)
+            return "budget-changed";
+        return nullptr;
+    };
+    if (const char* failure = reserve())
+    {
+        discard();
+        if (!extraPrimitives) { report(failure); return; }
+        // An optional extent must never cost the required cohort its ordinary
+        // layout. These buffers were unpublished and no commands reference them.
+        extentFallback = failure;
+        extraPrimitives = selectedBytes = predictedBytes = preflightBytes = 0;
+        selectedRequiredLayout = false;
+        postAdapter = {};
+        budget = {};
+        adapter = mFrameBuffer->GetAdapterMemoryTelemetry();
+        currentUsage = std::max(GetMemoryTelemetry().totalTrackedBytes, adapter.localUsageBytes);
+        if (!adapter.liveUsageAvailable || !adapter.localBudgetBytes) { report("live-budget-unavailable"); return; }
+        budget.availableBytes = adapter.localBudgetBytes > currentUsage ? adapter.localBudgetBytes - currentUsage : 0;
+        ++testedCandidates;
+        if (!priceRows(ordinaryRows)) { report("required-layout-reprice-denied"); return; }
+        selectedRequiredLayout = true;
+        if (const char* ordinaryFailure = reserve()) { discard(); report(ordinaryFailure); return; }
     }
-    // Budget can change while the driver allocates. A second live query and a
-    // conservative initial+actual floor protect against delayed usage reporting.
-    postAdapter = mFrameBuffer->GetAdapterMemoryTelemetry();
-    const uint64_t usageFloor = currentUsage > std::numeric_limits<uint64_t>::max() - committedBytes ?
-        std::numeric_limits<uint64_t>::max() : currentUsage + committedBytes;
-    const uint64_t finalUsage = std::max(usageFloor, postAdapter.localUsageBytes);
-    const uint64_t remaining = postAdapter.localBudgetBytes > finalUsage ? postAdapter.localBudgetBytes - finalUsage : 0;
-    if (!postAdapter.liveUsageAvailable || postAdapter.localBudgetBytes == 0 || finalUsage > postAdapter.localBudgetBytes ||
-        remaining < budget.futureBytes ||
-        remaining - budget.futureBytes < settings.minimumLocalMemoryReserveBytes)
-    { discard(); report("budget-changed"); return; }
 
+    if (extraPrimitives)
+    {
+        arena.runtimeExtent.extraPrimitives = extraPrimitives;
+        for (size_t i = 0; i < reserved.size(); ++i)
+        {
+            arena.runtimeExtent.buffers[i] = reserved[i].buffer;
+            arena.runtimeExtent.physicalBytes[i] = descriptors[i].size;
+            // Views already span the complete descriptor. Expose only the
+            // ordinary prefix to preload, growth, and reclaim sizing.
+            reserved[i].size = ordinaryRows[i] * strides[i];
+        }
+    }
     arena.vertexBuffer = reserved[0];
     arena.indexBuffer = reserved[1];
     arena.primitiveBuffer = reserved[2];
     arena.arenaUsesRequiredLayout = selectedRequiredLayout;
     arena.allocationArenaRetry.BackingChanged();
     report("reserved");
-    if (!families.meshes.empty() && selectedBytes >= families.geometryBytes)
+    if (!families.meshes.empty() && selectedBytes - extraPrimitives * bytesPerPrimitive >= families.geometryBytes)
     {
         families.build = buildSerial;
         arena.startupFamilyBudget = std::move(families);

@@ -992,6 +992,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_family_sweep.cpp
 	common/rendering/nri/renderer/nri_voxel_family_sweep.cpp
 	common/rendering/nri/renderer/nri_voxel_page_sweep.cpp
+	common/rendering/nri/renderer/nri_voxel_page_pose_demand.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_reclaim.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_admission_reclaim.h
 	common/rendering/nri/renderer/nri_persistent_voxel_reclaim_services.cpp

@@ -104,12 +104,12 @@ namespace
         return true;
     }
 
-    bool Compatible(const NRIBufferResource& resource, const nri::BufferDesc& desc, bool views)
+    bool Compatible(const NRIBufferResource& resource, const nri::BufferDesc& desc, bool views, uint64_t capacity)
     {
         return resource.buffer && (!views || resource.shaderView) &&
             (!NRIResourceUsageIncludes(desc.usage, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE) || resource.storageView) &&
             resource.memoryLocation == nri::MemoryLocation::DEVICE && resource.stride == desc.structureStride &&
-            NRIResourceUsageIncludes(resource.usage, desc.usage) && resource.size >= desc.size;
+            NRIResourceUsageIncludes(resource.usage, desc.usage) && capacity >= desc.size;
     }
 
     void FormatAdmissionIntent(char (&fields)[384], const NRIVoxelGeometryAdmissionIntent& intent)
@@ -230,9 +230,16 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     const std::array<uint32_t, 3> requestedRows = { vertexCount, indexCount, primitiveCount };
     const bool overflow = mesh.geometryRange.overflowPage;
     if (overflow && (privateBuildInputs || !arena.overflowPage.Owns(mesh.geometryRange))) return Result::RequirementsUnavailable;
-    const bool growsArena = !overflow && (uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex) > arena.vertexBuffer.size ||
-        uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
-        uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size);
+    const std::array<uint64_t, 3> endBytes{uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex),
+        uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t), uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData)};
+    const bool spills = !overflow && (endBytes[0] > arena.vertexBuffer.size || endBytes[1] > arena.indexBuffer.size ||
+        endBytes[2] > arena.primitiveBuffer.size);
+    const bool extentUse = spills && arena.runtimeExtent.Funded() && !familyRecovery && !privateBuildInputs &&
+        intent.runtimePump && intent.afterHandoff && !arena.retentionQuarantined &&
+        arena.overflowPage.Published() && arena.overflowPage.Owner() == arena.SelectedOverflowMesh() &&
+        arena.pagePoseDemand.MayUse(mesh.resourceKey, mFrameIndex) && arena.runtimeExtent.Covers(
+            {arena.vertexBuffer.buffer, arena.indexBuffer.buffer, arena.primitiveBuffer.buffer}, requestedRows, endBytes);
+    const bool growsArena = spills && !extentUse;
     if (familyRecovery && (growsArena || overflow || privateBuildInputs)) return Result::DeferredFamilyGrowth;
     // A funded required-cohort reservation can fill unused space with optional
     // preloads. Hand the intact optional queue to gameplay at its first spill.
@@ -296,7 +303,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     }
     const auto flags = GetNRIPersistentVoxelAllocationBlasFlags();
     NRIVoxelPreflightDenials::Request denialRequest;
-    const bool reuseDenials = (bool)nri_ptvoxelpreflightreuse && !overflow && !privateBuildInputs && intent.runtimePump && !intent.ownsWork &&
+    const bool reuseDenials = (bool)nri_ptvoxelpreflightreuse && !extentUse && !overflow && !privateBuildInputs && intent.runtimePump && !intent.ownsWork &&
         CanReuseVoxelPreflightDenial(mesh, scratch, requestedRows, flags, reserve, growsArena, reclaimEnabled, denialRequest);
     if (reuseDenials)
     {
@@ -365,7 +372,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             char fields[2688], origin[384];
             FormatAdmissionIntent(origin, intent);
             snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"decision\":\"%s\","
-                "\"mesh_key\":%llu,%s,\"optional_growth_reason\":\"%s\",\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
+                "\"mesh_key\":%llu,%s,\"runtime_extent\":%s,\"optional_growth_reason\":\"%s\",\"budget_age_frames\":0,\"live_available\":%s,\"usage_bytes\":%llu,"
                 "\"budget_bytes\":%llu,\"reserve_bytes\":%llu,\"combined_allocation_bytes\":%llu,\"geometry_allocation_bytes\":%llu,"
                 "\"actual_allocation_bytes\":%llu,\"projected_peak_bytes\":%llu,\"growth_percent\":%u,"
                 "\"old_arena_bytes\":%llu,\"new_arena_bytes\":%llu,\"concrete_as_scratch_reservation\":true,\"provider_forecast_bytes\":%llu,"
@@ -375,7 +382,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
                 "\"post_raw_budget_bytes\":%llu,\"observed_budget_ceiling_bytes\":%llu,"
                 "\"observed_budget_hold_ticks\":%llu,\"observed_budget_contraction_streak\":%u,\"observed_budget_probe_reason\":\"%s\"",
                 mFrameIndex, (unsigned long long)mMapWorld.buildSerial, decision, (unsigned long long)mesh.resourceKey,
-                origin, optionalReason, budget.liveAvailable ? "true" : "false",
+                origin, extentUse ? "true" : "false", optionalReason, budget.liveAvailable ? "true" : "false",
                 (unsigned long long)budget.usageBytes, (unsigned long long)budget.budgetBytes,
                 (unsigned long long)reserve, (unsigned long long)NRIVoxelComputeSaturatingAdd(predictedBytes, provider.bytes),
                 (unsigned long long)predictedBytes, (unsigned long long)actualBytes,
@@ -399,6 +406,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         return result;
     };
     if (overflow && !budget.liveAvailable) return report("defer-page-live-budget", Result::DeferredBudget);
+    if (extentUse && !budget.liveAvailable) return report("defer-extent-live-budget", Result::DeferredBudget);
     if (familyRecovery && !budget.liveAvailable) return report("defer-family-live-budget", Result::DeferredBudget);
     if (!privateBuildInputs)
     {
@@ -471,7 +479,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             desc.size = std::max<uint64_t>(required[i], strides[i]);
             desc.structureStride = strides[i];
             desc.usage = usages[i];
-            replace[i] = !Compatible(*targets[i], desc, i != 5);
+            const uint64_t capacity = extentUse && i < 3 ? arena.runtimeExtent.physicalBytes[i] : targets[i]->size;
+            replace[i] = !Compatible(*targets[i], desc, i != 5, capacity);
+            if (extentUse && i < 3 && (replace[i] || core.GetBufferDesc(*targets[i]->buffer).size < desc.size)) return false;
             predicted[i] = 0;
             if (!replace[i]) continue;
             if (i < 3 && !overflow) desc.size = GetNRIPersistentVoxelGrowthCapacity(targets[i]->size, desc.size, strides[i], percent);
@@ -590,7 +600,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     // Preserve ordinary denials, retry history, reclaim and the pump's
     // allocation cadence. Only park work that would now allocate physically.
     const bool fundedOrdinaryFit = protectLayout && !growsArena && !privateBuildInputs && !overflow;
-    if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs, fundedOrdinaryFit))
+    if (!extentUse && arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs, fundedOrdinaryFit))
     {
         mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
         return Result::DeferredIdleGrowth;
@@ -747,6 +757,8 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         provider.bytes, reserve, postBudget.budgetBytes);
     if (overflow && !postBudget.liveAvailable)
         return deferCommitted("defer-page-post-live-budget", 0, false);
+    if (extentUse && !postBudget.liveAvailable)
+        return deferCommitted("defer-extent-post-live-budget", 0, false);
     if ((actualBytes != 0 || provider.bytes != 0) && !peak.fits)
         return deferCommitted("defer-post-budget", postBudget.rawBudgetBytes, postBudget.liveAvailable);
 
@@ -759,6 +771,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         if (!targets[i]) continue;
         if (!replace[i])
         {
+            if (extentUse && i < 3) targets[i]->size = std::max(targets[i]->size, required[i]);
             targets[i]->usedSize = std::max(targets[i]->usedSize, required[i]);
             continue;
         }
@@ -818,8 +831,13 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         next = {};
     }
     PerfAuditSet(PerfAuditMetric::VoxelGeometryArenaOverlapBytes, oldArenaBytes + newArenaBytes);
+    if (extentUse) arena.AuditRuntimeExtent(mesh, mFrameIndex, mFrameBuffer->GetRecordingCommandFenceValue());
     if (overflow) arena.ReportOverflowPage("committed", mFrameBuffer->GetRecordingCommandFenceValue());
-    else if (newArenaBytes) arena.allocationArenaRetry.BackingChanged();
+    else if (newArenaBytes || extentUse)
+    {
+        arena.allocationArenaRetry.BackingChanged();
+        if (newArenaBytes) arena.InvalidateRuntimeExtent();
+    }
     if (!reuseAs)
     {
         timing.Measure(timing.retireNs, [&] { RetireResidentAccelerationStructure(mesh.accelerationStructure); });

@@ -1,6 +1,7 @@
 #include "nri_persistent_voxels.h"
 #include "nri_cvars.h"
 #include "nri_voxel_compute_allocation.h"
+#include "actor_presentation_snapshot.h"
 #include "perf_audit.h"
 #include "../scene/nri_hash.h"
 #include <algorithm>
@@ -68,7 +69,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         return;
     }
     std::vector<nri_scene::PersistentVoxelCacheEntryView> source;
-    if (!nri_scene::BuildPersistentVoxelCacheEntries(source)) { actorDemand.InvalidateAuthority(); return; }
+    if (!nri_scene::BuildPersistentVoxelCacheEntries(source)) { actorDemand.InvalidateAuthority(); pagePoseDemand.Reset(); return; }
     std::vector<NRIVoxelActorDemandInput> inputs;
     inputs.reserve(source.size());
     for (const auto& item : source)
@@ -77,7 +78,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         // Every source-owned desired pair protects coalescing, including
         // retained/offscreen and not-yet-publication-eligible demand.
         if (!item.identityKey || !item.ownerWorldEpoch)
-        { actorDemand.InvalidateAuthority(); return; }
+        { actorDemand.InvalidateAuthority(); pagePoseDemand.Reset(); return; }
         NRIVoxelActorDemandInput input;
         input.identity = item.identityKey; input.world = item.ownerWorldEpoch; input.lifetime = item.ownerLifetimeGeneration;
         input.mesh = BuildPersistentVoxelMeshResourceKey(item, settings); input.material = item.materialKeyHash;
@@ -103,6 +104,12 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
         inputs.push_back(input);
     }
     actorDemand.Refresh(residencyMapGeneration, frameIndex, inputs, captureUpgrades, capturePoseRequests);
+    if (runtimeExtent.Funded())
+    {
+        const uint64_t anchor = allowOverflowPage ? SelectedOverflowMesh() : 0;
+        pagePoseDemand.Refresh(GetActorPresentationSnapshot().worldEpoch, frameIndex, anchor,
+            overflowPage.Published() && overflowPage.Owner() == anchor, inputs);
+    }
     uint32_t coalesced = 0;
     if (policy.coalesce)
     {

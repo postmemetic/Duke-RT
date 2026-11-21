@@ -2248,7 +2248,11 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	}
 	resource.usedSize = requiredSize;
 	uint64_t copiedSize = 0;
-	if (voxelGeometryArena) mPersistentVoxels.allocationArenaRetry.BackingChanged();
+	if (voxelGeometryArena)
+	{
+		mPersistentVoxels.allocationArenaRetry.BackingChanged();
+		mPersistentVoxels.InvalidateRuntimeExtent();
+	}
 
 	if (oldResource.buffer != nullptr && mFrameBuffer->mCommandBuffer != nullptr)
 	{

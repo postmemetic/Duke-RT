@@ -6,16 +6,13 @@
 #include <cstdio>
 #include <algorithm>
 
-namespace
+uint64_t NRIPersistentVoxelResidency::SelectedOverflowMesh()
 {
-    bool IsSelectedOverflowMesh(uint64_t mesh)
+    switch (int(nri_ptvoxeloverflowpagetarget))
     {
-        switch (int(nri_ptvoxeloverflowpagetarget))
-        {
-        case 0: return mesh == NRIVoxelOverflowPage::TelescopeMesh;
-        case 1: return mesh == 14261219071072162745ull; // 1905_EXPLODE.kvx
-        default: return false;
-        }
+    case 0: return NRIVoxelOverflowPage::TelescopeMesh;
+    case 1: return 14261219071072162745ull; // 1905_EXPLODE.kvx
+    default: return 0;
     }
 }
 
@@ -24,6 +21,30 @@ void NRIPersistentVoxelResidency::SyncGeometryCursors()
     arenaVertexCursor = uint32_t(geometryRanges.VertexStats().cursorRows);
     arenaIndexCursor = uint32_t(geometryRanges.IndexStats().cursorRows);
     arenaPrimitiveCursor = uint32_t(geometryRanges.PrimitiveStats().cursorRows);
+}
+
+void NRIPersistentVoxelResidency::InvalidateRuntimeExtent()
+{
+    runtimeExtent = {};
+    pagePoseDemand.Reset();
+}
+
+void NRIPersistentVoxelResidency::AuditRuntimeExtent(const PersistentVoxelMeshVariantResource& mesh,
+    uint32_t frame, uint64_t fence) const
+{
+    if (!PerfAuditActive()) return;
+    const auto& range = mesh.geometryRange;
+    char fields[704];
+    std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"mesh_key\":%llu,\"range_generation\":%llu,"
+        "\"page_owner\":%llu,\"page_generation\":%llu,\"fence\":%llu,\"offset_rows\":[%u,%u,%u],\"lease_rows\":[%u,%u,%u],"
+        "\"exposed_bytes\":[%llu,%llu,%llu],\"physical_bytes\":[%llu,%llu,%llu]",
+        frame, (unsigned long long)mesh.resourceKey, (unsigned long long)range.transaction,
+        (unsigned long long)overflowPage.Owner(), (unsigned long long)overflowPage.PublishedGeneration(), (unsigned long long)fence,
+        range.vertices.offset, range.indices.offset, range.primitives.offset, range.vertices.capacity, range.indices.capacity, range.primitives.capacity,
+        (unsigned long long)vertexBuffer.size, (unsigned long long)indexBuffer.size, (unsigned long long)primitiveBuffer.size,
+        (unsigned long long)runtimeExtent.physicalBytes[0], (unsigned long long)runtimeExtent.physicalBytes[1],
+        (unsigned long long)runtimeExtent.physicalBytes[2]);
+    PerfAuditWriteEvent("voxel_runtime_extent", PerfAuditCurrentToken(), fields);
 }
 
 void NRIPersistentVoxelResidency::ResetGeometryRanges()
@@ -108,7 +129,7 @@ void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVox
 
 bool NRIPersistentVoxelResidency::HasOverflowNoFit(uint64_t mesh) const
 {
-    if (!IsSelectedOverflowMesh(mesh) || overflowPage.Lease()) return false;
+    if (!mesh || mesh != SelectedOverflowMesh() || overflowPage.Lease()) return false;
     const auto& records = admissionReclaim.Records();
     const auto found = records.find(mesh);
     if (found == records.end()) return false;
@@ -158,7 +179,7 @@ bool NRIPersistentVoxelResidency::TryReserveOverflowPage(PersistentVoxelMeshVari
 {
     const int mode = EffectiveOverflowPageMode();
     if ((mode != 1 && mode != 2) || !(bool)nri_ptvoxelallocationbudget ||
-        !IsSelectedOverflowMesh(mesh) || retentionQuarantined || overflowPage.Lease()) return false;
+        !mesh || mesh != SelectedOverflowMesh() || retentionQuarantined || overflowPage.Lease()) return false;
     if (!runtime || !actorDemand.Upgrade(mesh, frame).requestedConsumers) return false;
     if (mode == 1)
     {

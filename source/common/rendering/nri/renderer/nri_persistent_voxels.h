@@ -17,6 +17,8 @@
 #include "nri_persistent_voxel_material_range_allocator.h"
 #include "nri_persistent_voxel_geometry_ranges.h"
 #include "nri_persistent_voxel_overflow_page.h"
+#include "nri_voxel_runtime_extent.h"
+#include "nri_voxel_page_pose_demand.h"
 #include "nri_persistent_voxel_allocation.h"
 #include "nri_persistent_voxel_allocation_policy.h"
 #include "nri_voxel_preflight_denials.h"
@@ -1500,6 +1502,9 @@ public:
 	{ return range.overflowPage ? overflowPage.Owns(range) : geometryRanges.Owns(range); }
 	bool TryReserveOverflowPage(PersistentVoxelMeshVariantResource& resource, uint64_t mesh,
 		uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime);
+	static uint64_t SelectedOverflowMesh();
+	void InvalidateRuntimeExtent();
+	void AuditRuntimeExtent(const PersistentVoxelMeshVariantResource& mesh, uint32_t frame, uint64_t fence) const;
 	bool HasOverflowNoFit(uint64_t mesh) const;
 	bool HasPublishedGeometryBuffers(const PersistentVoxelMeshVariantResource& mesh) const;
 	void ReportOverflowPage(const char* action, uint64_t fence = 0) const;
@@ -1520,6 +1525,8 @@ public:
 	NRIPersistentVoxelMaterialUploadMirror materialUploadMirror;
 	uint64_t arenaPresizeBuildSerial = 0;
 	bool arenaUsesRequiredLayout = false;
+	NRIVoxelRuntimeExtent runtimeExtent;
+	NRIVoxelPagePoseDemand pagePoseDemand;
 	uint64_t openingEnemyMaterialBuild = 0;
 	NRIVoxelStartupFamilyBudget startupFamilyBudget;
 	uint64_t blasPolicyTraceBuildSerial = 0;
