@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <utility>
 
+namespace nri { struct TopLevelInstance; }
+
 class NRIPersistentVoxelResidency;
 struct NRIPersistentVoxelSettings;
 struct NRIPersistentVoxelTlasServices;
@@ -39,7 +41,8 @@ public:
 	void FinishGeometry();
 	void RecordAssembly(uint32_t frameIndex, const NRIPersistentVoxelResidency& voxels,
 		const nri_scene::GeometryData& geometry, const std::vector<nri_scene::MaterialData>& materials,
-		const std::vector<std::pair<uint32_t, uint32_t>>& publishedRanges, bool ready) const;
+		const std::vector<std::pair<uint32_t, uint32_t>>& publishedRanges,
+		const std::vector<nri::TopLevelInstance>& instances, bool ready) const;
 	nri_scene::SceneView& Scene() { return mScene; }
 	nri_scene::GeometryData& Geometry() { return mGeometry; }
 	nri_scene::MaterialBridgeData& Materials() { return mMaterials; }

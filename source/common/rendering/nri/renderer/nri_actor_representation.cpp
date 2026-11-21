@@ -254,7 +254,8 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 
 void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersistentVoxelResidency& voxels,
 	const nri_scene::GeometryData& geometry, const std::vector<nri_scene::MaterialData>& materials,
-	const std::vector<std::pair<uint32_t, uint32_t>>& publishedRanges, bool ready) const
+	const std::vector<std::pair<uint32_t, uint32_t>>& publishedRanges,
+	const std::vector<nri::TopLevelInstance>& instances, bool ready) const
 {
 	if (mFrameIndex != frameIndex || !(bool)nri_ptactorspritefallback || !PerfAuditCurrentToken()) return;
 	std::unordered_map<int32_t, uint32_t> carrierPrimitives, materialPrimitives, primaryHiddenPrimitives, indirectPrimitives;
@@ -315,13 +316,27 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		if ((bool)nri_ptactorrepresentationtrace && traced < (int)nri_ptactorrepresentationtracelimit &&
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == row.actorIndex))
 		{
+			// The actor stores its scene record ID. Read the mask from the
+			// actual world TLAS input, including any workload filtering.
+			int voxelMask = -1;
+			if (voxelPublished)
+			{
+				const uint32_t id = actor->worldTlasInstanceIndex;
+				if (id < instances.size() && instances[id].instanceId == id) voxelMask = instances[id].mask;
+				else
+				{
+					const auto match = std::find_if(instances.begin(), instances.end(),
+						[id](const nri::TopLevelInstance& i) { return i.instanceId == id; });
+					if (match != instances.end()) voxelMask = match->mask;
+				}
+			}
 			char fields[1024];
-			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"selection\":\"%s\",\"desired_mesh\":%llu,\"desired_material\":%llu,\"selected_mesh\":%llu,\"selected_material\":%llu,\"exact_wait_frames\":%u,\"scene_ready\":%s,\"voxel_in_tlas\":%s,\"sprite_primitives\":%u,\"sprite_material_primitives\":%u,\"sprite_in_tlas\":%s,\"sprite_primary_hidden_primitives\":%u,\"sprite_indirect_primitives\":%u",
+			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"selection\":\"%s\",\"desired_mesh\":%llu,\"desired_material\":%llu,\"selected_mesh\":%llu,\"selected_material\":%llu,\"exact_wait_frames\":%u,\"scene_ready\":%s,\"voxel_in_tlas\":%s,\"voxel_tlas_mask\":%d,\"sprite_primitives\":%u,\"sprite_material_primitives\":%u,\"sprite_in_tlas\":%s,\"sprite_primary_hidden_primitives\":%u,\"sprite_indirect_primitives\":%u",
 				frameIndex, row.actorIndex, (unsigned long long)row.identity, (unsigned long long)row.world,
 				(unsigned long long)row.lifetime, row.selection, (unsigned long long)row.desiredMesh,
 				(unsigned long long)row.desiredMaterial, (unsigned long long)row.selectedMesh,
 				(unsigned long long)row.selectedMaterial, row.waitFrames, ready ? "true" : "false",
-				voxelPublished ? "true" : "false", carrierPrimitives[row.actorIndex], materialPrimitives[row.actorIndex], spritePublished ? "true" : "false", primaryHiddenPrimitives[row.actorIndex], indirectPrimitives[row.actorIndex]);
+				voxelPublished ? "true" : "false", voxelMask, carrierPrimitives[row.actorIndex], materialPrimitives[row.actorIndex], spritePublished ? "true" : "false", primaryHiddenPrimitives[row.actorIndex], indirectPrimitives[row.actorIndex]);
 			PerfAuditWriteEvent("actor_representation_assembly", PerfAuditCurrentToken(), fields);
 			++traced;
 		}

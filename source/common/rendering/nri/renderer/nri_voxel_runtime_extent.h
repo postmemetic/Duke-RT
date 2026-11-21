@@ -23,6 +23,11 @@ struct NRIVoxelRuntimeExtent
 
     bool Funded() const { return extraPrimitives != 0; }
     bool Live() const { return bool(slots[0].range) || bool(slots[1].range); }
+    bool SponsoredBy(uint64_t pageGeneration) const
+    {
+        return pageGeneration && std::any_of(slots.begin(), slots.end(),
+            [&](const auto& slot) { return slot.range && slot.pageGeneration == pageGeneration; });
+    }
     bool AwaitingMigration(uint32_t frame) const
     { return migrationMesh && frame >= migrationFrame && frame - migrationFrame <= 30; }
     uint32_t PrimitiveEnd() const
@@ -38,10 +43,10 @@ struct NRIVoxelRuntimeExtent
         migrationMesh = 0; migrationFrame = 0; migrationServiced = false;
         // Fence tickets from a previous backing can arrive after re-funding.
     }
-    NRIPersistentVoxelGeometryRangeHandle Acquire(uint64_t mesh, const std::array<nri::Buffer*, 3>& current,
+    NRIPersistentVoxelGeometryRangeHandle Acquire(uint64_t mesh, uint64_t pageGeneration, const std::array<nri::Buffer*, 3>& current,
         const std::array<uint32_t, 3>& rows)
     {
-        if (!mesh || !nextGeneration || !Funded() || buffers != current) return {};
+        if (!mesh || !pageGeneration || !nextGeneration || !Funded() || buffers != current) return {};
         const uint64_t half = extraPrimitives / slots.size();
         const std::array<uint64_t, 3> lengths{2 * half, 3 * half, half};
         for (size_t i = 0; i < rows.size(); ++i)
@@ -52,6 +57,7 @@ struct NRIVoxelRuntimeExtent
             auto& slot = slots[i];
             if (slot.range) continue;
             slot.mesh = mesh;
+            slot.pageGeneration = pageGeneration;
             auto& h = slot.range;
             h.runtimeExtent = true;
             h.transaction = nextGeneration++;
@@ -78,7 +84,7 @@ struct NRIVoxelRuntimeExtent
         for (auto& slot : slots) if (slot.range.transaction == h.transaction) { slot = {}; return true; }
         return false;
     }
-    struct Slot { uint64_t mesh = 0; NRIPersistentVoxelGeometryRangeHandle range; };
+    struct Slot { uint64_t mesh = 0, pageGeneration = 0; NRIPersistentVoxelGeometryRangeHandle range; };
     std::array<Slot, 2> slots{};
 private:
     // Distinct diagnostic IDs keep ordinary and extent retirement receipts unambiguous.

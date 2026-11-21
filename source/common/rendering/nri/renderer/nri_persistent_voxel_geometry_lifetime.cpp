@@ -54,6 +54,12 @@ void NRIPersistentVoxelResidency::ResetGeometryRanges()
     TraceGeometryLease("reset", 0, {});
 }
 
+bool NRIPersistentVoxelResidency::ProtectsRuntimeExtent(const NRIPersistentVoxelGeometryRangeHandle& range) const
+{
+    return range.runtimeExtent || (range.overflowPage && overflowPage.Owns(range) &&
+        runtimeExtent.SponsoredBy(overflowPage.PublishedGeneration()));
+}
+
 bool NRIPersistentVoxelResidency::TryReserveRuntimeExtent(PersistentVoxelMeshVariantResource& resource,
     uint64_t mesh, uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame,
     const NRIVoxelGeometryAdmissionIntent& intent)
@@ -64,7 +70,8 @@ bool NRIPersistentVoxelResidency::TryReserveRuntimeExtent(PersistentVoxelMeshVar
     if (runtimeExtent.AwaitingMigration(frame) && actorDemand.Upgrade(runtimeExtent.migrationMesh, frame).consumers) return false;
     const std::array<uint32_t, 3> rows{vertices, indices, primitives};
     if (!pagePoseDemand.Finishing(mesh, frame) && geometryRanges.FitsWithin(rows, runtimeExtent.baseRows)) return false;
-    const auto lease = runtimeExtent.Acquire(mesh, {vertexBuffer.buffer, indexBuffer.buffer, primitiveBuffer.buffer}, rows);
+    const auto lease = runtimeExtent.Acquire(mesh, overflowPage.PublishedGeneration(),
+        {vertexBuffer.buffer, indexBuffer.buffer, primitiveBuffer.buffer}, rows);
     if (!lease) return false;
     resource.geometryRange = lease;
     resource.vertexOffset = lease.vertices.offset;

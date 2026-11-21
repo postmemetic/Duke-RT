@@ -1506,6 +1506,7 @@ public:
 		uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime);
 	static uint64_t SelectedOverflowMesh();
 	void InvalidateRuntimeExtent();
+	bool ProtectsRuntimeExtent(const NRIPersistentVoxelGeometryRangeHandle& range) const;
 	void AuditRuntimeExtent(const PersistentVoxelMeshVariantResource& mesh, uint32_t frame, uint64_t fence) const;
 	bool HasOverflowNoFit(uint64_t mesh) const;
 	bool HasPublishedGeometryBuffers(const PersistentVoxelMeshVariantResource& mesh) const;

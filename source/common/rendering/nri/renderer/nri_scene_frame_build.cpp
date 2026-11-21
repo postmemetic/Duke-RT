@@ -1868,7 +1868,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			}
 
 			mActorRepresentations.RecordAssembly(mFrameIndex, mPersistentVoxels, overlayGeometry, dynamicGpuMaterials,
-				actorRepresentationPublishedRanges, paletteReady && texturesReady && buffersReady && accelerationReady);
+				actorRepresentationPublishedRanges, instances, paletteReady && texturesReady && buffersReady && accelerationReady);
 			if (actorOccurrenceFrameAvailable)
 			{
 				AppendNRIActorDynamicOccurrences(

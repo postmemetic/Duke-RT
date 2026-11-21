@@ -4521,7 +4521,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 		const PersistentVoxelMeshVariantResource& resource = pair.second;
 		PerfAuditAdd(PerfAuditMetric::VoxelPressureScannedEntries);
 		if (!resource.cold || resource.activeActorReferences != 0 || admissionMeshes.find(pair.first) != admissionMeshes.end() ||
-			(resource.geometryRange.runtimeExtent && !extentUnderPressure))
+			(!extentUnderPressure && ProtectsRuntimeExtent(resource.geometryRange)))
 		{
 			PerfAuditAdd(PerfAuditMetric::VoxelPressureRejectedEntries);
 			continue;

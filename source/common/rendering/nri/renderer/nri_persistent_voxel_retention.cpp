@@ -222,7 +222,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     {
         if (pinnedMeshes.count(pair.first)) { inactiveMeshSince.erase(pair.first); continue; }
         const auto& mesh = pair.second;
-        if (mesh.geometryRange.runtimeExtent && !authoritativeEmptyAfterWait && !extentUnderPressure) continue;
+        if (!authoritativeEmptyAfterWait && !extentUnderPressure && ProtectsRuntimeExtent(mesh.geometryRange)) continue;
         const auto* shared = sharedBlasCache.Find(pair.first);
         const auto pageBytes = mesh.geometryRange.overflowPage ?
             overflowVertex.memorySize + overflowIndex.memorySize + overflowPrimitive.memorySize : 0;
