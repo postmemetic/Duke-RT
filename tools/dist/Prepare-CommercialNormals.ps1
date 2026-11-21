@@ -1091,19 +1091,33 @@ function Invoke-HrpImport {
 
     if ($installed) {
         $providerState["installed"] = $true
-        # A different archive than the installed one (e.g. a newer release) offers an update.
-        if ($newest -and ($explicit -or $newest.Name -ne $providerState["last_archive_name"] -or $newest.Length -ne $providerState["last_archive_size"])) {
-            $update = $HrpYes -or [bool]$explicit
-            if (-not $update -and -not $Quiet) {
-                Write-Host ""
-                Write-Info "Found a High Resolution Pack archive that differs from the installed one:"
-                Write-Info "  $($newest.FullName)"
-                Write-Info "Installed from: $($providerState["last_archive_name"])"
-                $update = Prompt-YesNo -Question "Install this HRP archive"
+        # With a "skip" preference only a flag gets here: -HrpYes/-HrpZip turn the HRP
+        # back on, -HrpAsk asks again. Either way the answer is remembered.
+        if ($providerState["prompt"] -eq "skip" -and -not $HrpYes -and -not $explicit) {
+            if ($Quiet -or -not (Prompt-YesNo -Question "Use the installed High Resolution Pack")) {
+                return ""
             }
-            if ($update) {
-                Install-HrpArchive -LaunchRoot $LaunchRoot -ZipPath $newest.FullName -HrpDir $hrpDir -ProviderState $providerState
+        }
+        $providerState["prompt"] = "always-yes"
+
+        # A different archive than the installed one (e.g. a newer release) offers an
+        # update. Declining is remembered for that archive; -HrpAsk offers it again.
+        $differs = $newest -and ($newest.Name -ne $providerState["last_archive_name"] -or $newest.Length -ne $providerState["last_archive_size"])
+        $declined = $newest -and $newest.Name -eq $providerState["declined_archive_name"] -and $newest.Length -eq $providerState["declined_archive_size"]
+        $update = $differs -and ($HrpYes -or [bool]$explicit)
+        if ($differs -and -not $update -and (-not $declined -or $HrpAsk) -and -not $Quiet) {
+            Write-Host ""
+            Write-Info "Found a High Resolution Pack archive that differs from the installed one:"
+            Write-Info "  $($newest.FullName)"
+            Write-Info "Installed from: $($providerState["last_archive_name"])"
+            $update = Prompt-YesNo -Question "Install this HRP archive"
+            if (-not $update) {
+                $providerState["declined_archive_name"] = $newest.Name
+                $providerState["declined_archive_size"] = $newest.Length
             }
+        }
+        if ($update) {
+            Install-HrpArchive -LaunchRoot $LaunchRoot -ZipPath $newest.FullName -HrpDir $hrpDir -ProviderState $providerState
         } elseif (-not $Quiet) {
             Write-Info "High Resolution Pack is installed."
         }
