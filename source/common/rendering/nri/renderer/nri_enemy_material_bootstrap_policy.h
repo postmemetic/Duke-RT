@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <limits>
 
 // Conservative pre-publication backing. Existing holes are deliberately not
 // credited: the allocator remains the authority when each family commits.
@@ -27,9 +26,12 @@ struct NRIEnemyMaterialBootstrapPlan
         return true;
     }
 
-    uint64_t RequiredBytes(uint32_t stride) const
+    uint64_t RequiredBytes(uint32_t stride, uint64_t currentPoseRows = 0) const
     {
-        const uint64_t rows = cursorRows + extraRows;
-        return owners && stride && rows <= std::numeric_limits<uint64_t>::max() / stride ? rows * stride : 0;
+        if (!owners || !stride) return 0;
+        const uint64_t maxExtraRows = extraByteLimit / stride;
+        if (extraRows > maxExtraRows || currentPoseRows > maxExtraRows - extraRows ||
+            cursorRows > UINT32_MAX || extraRows + currentPoseRows > UINT32_MAX - cursorRows) return 0;
+        return (cursorRows + extraRows + currentPoseRows) * stride;
     }
 };

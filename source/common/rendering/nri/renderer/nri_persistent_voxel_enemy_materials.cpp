@@ -123,11 +123,12 @@ bool NRIPersistentVoxelResidency::PrepareEnemyMaterialCommit(const ActorPresenta
                 const auto key = nri_scene::BuildEnemyStableMaterialKey(authority.owner.ownerWorldEpoch,
                     uint64_t(authority.owner.ownerLifetimeGeneration), texture);
                 const auto range = materialPayloads.FindBinding(key);
+                const bool acquired = std::find(created.begin(), created.end(), key) != created.end();
                 std::snprintf(fields, sizeof(fields), "\"world\":%llu,\"lifetime\":%lld,\"family\":%u,"
-                    "\"texture\":%d,\"binding\":%llu,\"offset\":%u,\"capacity\":%u,\"generation\":%llu,\"backed_rows\":%u",
+                    "\"texture\":%d,\"binding\":%llu,\"offset\":%u,\"capacity\":%u,\"generation\":%llu,\"backed_rows\":%u,\"created_this_commit\":%s",
                     (unsigned long long)authority.owner.ownerWorldEpoch, (long long)authority.owner.ownerLifetimeGeneration,
                     family->id, texture, (unsigned long long)key, range.offset, range.capacity,
-                    (unsigned long long)range.generation, maximumRows);
+                    (unsigned long long)range.generation, maximumRows, acquired ? "true" : "false");
                 PerfAuditWriteEvent("enemy_material_binding", PerfAuditCurrentToken(), fields);
             }
         }
