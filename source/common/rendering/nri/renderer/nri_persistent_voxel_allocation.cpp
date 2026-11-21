@@ -581,7 +581,10 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
 
     // Preserve ordinary denials, retry history, reclaim and the pump's
     // allocation cadence. Only park work that would now allocate physically.
-    if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs))
+    const bool fundedOrdinaryFit = !growsArena && !privateBuildInputs && !overflow && arena.arenaUsesRequiredLayout &&
+        arena.arenaPresizeBuildSerial == mMapWorld.buildSerial && mMapWorld.buildSerial &&
+        (bool)r_voxels && (bool)nri_ptactorspritefallback && !(bool)nri_ptvoxelcomputepreloadstrict;
+    if (arena.ParkSupersededGeometryGrowth(mesh, mFrameIndex, intent, growsArena && !privateBuildInputs, fundedOrdinaryFit))
     {
         mesh.allocationRetryTick = NRIVoxelComputeSaturatingAdd(retryTick, 1);
         return Result::DeferredIdleGrowth;

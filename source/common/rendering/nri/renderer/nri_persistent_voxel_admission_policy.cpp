@@ -10,6 +10,7 @@ CVAR(Bool, nri_ptvoxelactoradmission, true, 0)
 CVAR(Bool, nri_ptvoxelcoalesce, true, 0)
 CVAR(Bool, nri_ptvoxelwarmretention, true, 0)
 CVAR(Bool, nri_ptvoxelparksupersededgrowth, false, 0)
+CVAR(Bool, nri_ptvoxelarenaposepriority, false, 0)
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
 EXTERN_CVAR(Int, nri_ptactorholdframes)
 
@@ -188,16 +189,19 @@ void NRIPersistentVoxelResidency::ReportGeometryReplacementConsumers(uint64_t me
 }
 
 bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMeshVariantResource& mesh, uint32_t frame,
-    const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena) const
+    const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena, bool fundedOrdinaryFit) const
 {
     NRIVoxelOptionalGrowth::Demand demand;
     NRIVoxelOptionalGrowth::Replacement replacement;
     const char* bypass = "other-work";
-    if ((bool)nri_ptvoxelparksupersededgrowth && growsArena && intent.IsUnownedGameplayRequest() &&
+    const bool preserveFit = (bool)nri_ptvoxelarenaposepriority && fundedOrdinaryFit && intent.afterHandoff;
+    if ((((bool)nri_ptvoxelparksupersededgrowth && growsArena) || preserveFit) && intent.IsUnownedGameplayRequest() &&
         !loadingWarmupActive && !preloadPending && !retentionQuarantined && mesh.resourceKey)
     {
-        replacement = GeometryGrowthReplacement();
-        if (replacement.oldBytes >= NRIVoxelOptionalGrowth::MinimumCopyBytes)
+        if (growsArena) replacement = GeometryGrowthReplacement();
+        // A fitting lease in a funded partial arena may be the last contiguous
+        // span for a visible pose. Do not spend it on an abandoned actor request.
+        if (preserveFit || replacement.oldBytes >= NRIVoxelOptionalGrowth::MinimumCopyBytes)
         {
             demand = GeometryGrowthDemand(mesh.resourceKey, frame, true);
             bypass = demand.Bypass();
@@ -215,7 +219,8 @@ bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMe
             "\"action\":\"%s\",\"reason\":\"%s\",\"current_authority\":%s,\"requested_consumers\":%u,\"active_references\":%u,"
             "\"family_pinned\":%u,\"family_staged\":%u,\"required_job\":%u,\"old_arena_bytes\":%llu,\"minimum_arena_bytes\":%llu",
             residencyMapGeneration, frame, (unsigned long long)mesh.resourceKey, (unsigned long long)intent.freshDirectPair,
-            park ? "park" : "resume", park ? "superseded-gameplay-pose" : bypass, demand.authoritative ? "true" : "false",
+            park ? "park" : "resume", park ? (preserveFit ? "preserve-funded-fit" : "superseded-gameplay-pose") : bypass,
+            demand.authoritative ? "true" : "false",
             demand.consumers, demand.active, unsigned(demand.family), unsigned(demand.staged), unsigned(demand.requiredJob),
             (unsigned long long)replacement.oldBytes, (unsigned long long)replacement.minimumBytes);
         PerfAuditWriteEvent("voxel_superseded_growth", PerfAuditCurrentToken(), fields);

@@ -1143,7 +1143,7 @@ public:
         uint64_t oldArenaBytes, uint64_t newArenaBytes) const;
     NRIVoxelOptionalGrowth::Replacement GeometryGrowthReplacement() const;
     bool ParkSupersededGeometryGrowth(PersistentVoxelMeshVariantResource& mesh, uint32_t frame,
-        const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena) const;
+        const NRIVoxelGeometryAdmissionIntent& intent, bool growsArena, bool fundedOrdinaryFit) const;
     uint64_t reclaimGeometryRevision = 0;
     bool CollectCachePins(const NRIPersistentVoxelSettings& settings, NRIVoxelCachePins& pins,
         size_t maximum = SIZE_MAX, bool authoritativeEmptyAfterWait = false, bool includeEnemyStaging = true) const;
