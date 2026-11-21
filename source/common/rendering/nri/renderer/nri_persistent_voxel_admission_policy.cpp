@@ -10,7 +10,6 @@ CVAR(Bool, nri_ptvoxelactoradmission, true, 0)
 CVAR(Bool, nri_ptvoxelcoalesce, true, 0)
 CVAR(Bool, nri_ptvoxelwarmretention, true, 0)
 CVAR(Bool, nri_ptvoxelparksupersededgrowth, false, 0)
-CVAR(Bool, nri_ptvoxelarenaposepriority, false, 0)
 EXTERN_CVAR(Bool, nri_ptactorspritefallback)
 EXTERN_CVAR(Int, nri_ptactorholdframes)
 
@@ -61,7 +60,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     const bool allowOverflowPage = EffectiveOverflowPageMode() != 0;
     const bool capturePoseRequests = (bool)nri_ptvoxelfamilyposegrace && IsEnemyFamilyRecoveryEnabled();
     const bool captureUpgrades = (bool)nri_ptvoxeladmissionreclaim || (bool)nri_ptvoxelparksupersededgrowth ||
-        allowOverflowPage || (arenaUsesRequiredLayout && (bool)nri_ptvoxelarenaposepriority);
+        allowOverflowPage || arenaUsesRequiredLayout;
     if (!policy.actorPriority && !policy.coalesce && !policy.warmRetention && !policy.heldMaximumFrames &&
         !captureUpgrades && !capturePoseRequests)
     {
@@ -195,7 +194,7 @@ bool NRIPersistentVoxelResidency::ParkSupersededGeometryGrowth(PersistentVoxelMe
     NRIVoxelOptionalGrowth::Demand demand;
     NRIVoxelOptionalGrowth::Replacement replacement;
     const char* bypass = "other-work";
-    const bool preserveFit = (bool)nri_ptvoxelarenaposepriority && fundedOrdinaryFit && intent.afterHandoff;
+    const bool preserveFit = fundedOrdinaryFit && intent.afterHandoff;
     if ((((bool)nri_ptvoxelparksupersededgrowth && growsArena) || preserveFit) && intent.IsUnownedGameplayRequest() &&
         !loadingWarmupActive && !preloadPending && !retentionQuarantined && mesh.resourceKey)
     {

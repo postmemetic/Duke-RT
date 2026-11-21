@@ -4990,8 +4990,7 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 	std::vector<uint64_t> cancelledFamilyKeys;
 	// A gameplay material may share geometry with a required preload under a
 	// different pair key. Collect outstanding obligations in the existing scan.
-	const bool trackRequiredGrowth = !loadingPhase && ((bool)nri_ptvoxelparksupersededgrowth || PerfAuditActive() ||
-		(arenaUsesRequiredLayout && (bool)nri_ptvoxelarenaposepriority));
+	const bool trackRequiredGrowth = !loadingPhase && ((bool)nri_ptvoxelparksupersededgrowth || PerfAuditActive() || arenaUsesRequiredLayout);
 	requiredGrowthMeshes.clear();
 	for (uint64_t key : admissionIndex.ActiveKeys())
 	{

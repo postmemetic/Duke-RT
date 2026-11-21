@@ -263,7 +263,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
             return Result::DeferredBudget;
         }
     }
-    const bool protectLayout = arena.arenaUsesRequiredLayout && (bool)nri_ptvoxelarenaposepriority &&
+    const bool protectLayout = arena.arenaUsesRequiredLayout &&
         arena.arenaPresizeBuildSerial == mMapWorld.buildSerial && mMapWorld.buildSerial &&
         (bool)r_voxels && (bool)nri_ptactorspritefallback && !(bool)nri_ptvoxelcomputepreloadstrict;
     const uint64_t ordinaryReserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
