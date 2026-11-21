@@ -35,7 +35,7 @@ public:
 		const NRIPersistentVoxelTlasServices& services,
 		const NRIActorOccurrencePolicyContext& occurrenceContext,
 		const NRISceneInstanceVisibilityContext& visibilityContext,
-		const nri_scene::SceneView* dynamicScene, int32_t separateReflectionActor);
+		const nri_scene::SceneView* dynamicScene, int32_t separateReflectionActor, bool* replacedReflection);
 	void FinishGeometry();
 	void RecordAssembly(uint32_t frameIndex, const NRIPersistentVoxelResidency& voxels,
 		const nri_scene::GeometryData& geometry, const std::vector<nri_scene::MaterialData>& materials,

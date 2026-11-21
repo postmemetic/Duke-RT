@@ -881,7 +881,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				persistentVoxelSettings,
 				persistentVoxelEligibilityServices);
 		NRILocalPlayerReflectionCaptureResult localPlayerReflectionResult = {};
-		const bool hasLocalPlayerReflectionScene = !deferOverlayThisFrame && [&]()
+		bool hasLocalPlayerReflectionScene = !deferOverlayThisFrame && [&]()
 		{
 			ScopedPtPerfTimer localPlayerReflectionTimer(mLastPerfShellTraceStats.localPlayerReflectionCaptureMs);
 			NRILocalPlayerReflectionCaptureRequest request = {};
@@ -1167,10 +1167,15 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			return resource.accelerationStructure != nullptr ?
 				renderer->mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*resource.accelerationStructure) : 0ull;
 		};
+		bool replacedReflection = false;
+		const bool canReplaceReflection = mPersistentVoxels.arenaUsesRequiredLayout && hasLocalPlayerReflectionScene &&
+			hasPersistentVoxelBatch && localPlayerReflectionResult.currentVoxel && !localPlayerPrimaryVisible &&
+			localPlayerReflectionCaptureStats.capturedMatchingActorSurfaces &&
+			!localPlayerReflectionCaptureStats.capturedOtherActorSurfaces && !localPlayerReflectionCaptureStats.capturedActorlessSurfaces;
 		if (!deferOverlayThisFrame && mActorRepresentations.Build(mFrameIndex, mPersistentVoxels,
 			persistentVoxelSettings, representationServices, actorOccurrencePolicyContext,
 			sceneInstanceVisibilityContext, activeDynamicSceneView,
-			hasLocalPlayerReflectionScene ? localPlayerActorIndex : -1))
+			hasLocalPlayerReflectionScene ? localPlayerActorIndex : -1, canReplaceReflection ? &replacedReflection : nullptr))
 		{
 			RebuildSceneViewStats(mActorRepresentations.Scene());
 			BuildMaterialsWithActorOverrides(mActorRepresentations.Scene(), mActorRepresentations.Materials(), "actor_fallback");
@@ -1184,6 +1189,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			sceneLightDynamicView = activeDynamicSceneView;
 			sceneLightDynamicMaterials = activeDynamicMaterials;
 		}
+
+		if (replacedReflection) hasLocalPlayerReflectionScene = false;
 
 		if (hasPersistentVoxelBatch && mPersistentVoxels.HasValidBatch())
 		{

@@ -62,8 +62,9 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 	const NRIPersistentVoxelSettings& settings, const NRIPersistentVoxelTlasServices& services,
 	const NRIActorOccurrencePolicyContext& occurrenceContext,
 	const NRISceneInstanceVisibilityContext& visibilityContext,
-	const nri_scene::SceneView* dynamicScene, int32_t separateReflectionActor)
+	const nri_scene::SceneView* dynamicScene, int32_t separateReflectionActor, bool* replacedReflection)
 {
+	if (replacedReflection) *replacedReflection = false;
 	mSelected.clear();
 	mDecisions.clear();
 	mPriorityMaterials.clear();
@@ -145,12 +146,20 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			}
 		}
 		const bool exactReady = IsNRIActorBindingExact(exact);
+		// The focused first-person reflection is captured before the admission
+		// pump. Its only occurrence can transfer to a now-exact fenced voxel.
+		// An independently captured occurrence still owns its dynamic geometry.
+		const bool replaceExactReflection = replacedReflection && candidate.actorIndex == separateReflectionActor &&
+			exactReady && actor->indirectOnly && candidate.capturedThisFrame &&
+			(!dynamicScene || std::none_of(dynamicScene->opaqueSprites.begin(), dynamicScene->opaqueSprites.end(),
+				[&](const nri_scene::SurfaceRef& s) { return s.provenance.actorIndex == candidate.actorIndex; }));
 		const auto enemy = !intentionalAbsence && !candidate.transientGeometryCaptured && candidate.actorIndex != separateReflectionActor ?
 			voxels.SelectEnemyRepresentation(candidate, frameIndex, settings, exactReady, spriteReady) : NRIEnemyRepresentationChoice{};
 		const auto selected = SelectNRIActorRepresentation({intentionalAbsence,
 			candidate.transientGeometryCaptured || candidate.actorIndex == separateReflectionActor,
 			ready && !(enemy.managed && enemy.sprite), spriteReady,
-			ForceSprite(candidate.actorIndex) || (enemy.managed && enemy.sprite)});
+			ForceSprite(candidate.actorIndex) || (enemy.managed && enemy.sprite), replaceExactReflection});
+		if (replaceExactReflection && selected == NRIActorSelection::Voxel) *replacedReflection = true;
 		// Retained emissive surfaces are not a lifetime-qualified actor body.
 		// A current voxel candidate owns this actor's body; replace any old
 		// cached sprite aliases even when the chosen voxel is already ready.
@@ -221,12 +230,12 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == candidate.actorIndex))
 		{
 			char fields[768];
-			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"placement\":%llu,\"selection\":\"%s\",\"descriptor_current\":%s,\"captured\":%s,\"voxel_ready\":%s,\"sprite_primary_hidden\":%s",
+			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"placement\":%llu,\"selection\":\"%s\",\"descriptor_current\":%s,\"captured\":%s,\"voxel_ready\":%s,\"replaced_reflection\":%s,\"sprite_primary_hidden\":%s",
 				frameIndex, candidate.actorIndex, (unsigned long long)candidate.identityKey,
 				(unsigned long long)candidate.ownerWorldEpoch, (unsigned long long)candidate.ownerLifetimeGeneration,
 				(unsigned long long)candidate.placementGeneration, selection,
 				candidate.descriptorCurrent ? "true" : "false", candidate.capturedThisFrame ? "true" : "false", ready ? "true" : "false",
-				candidate.primaryHidden ? "true" : "false");
+				replaceExactReflection && selected == NRIActorSelection::Voxel ? "true" : "false", candidate.primaryHidden ? "true" : "false");
 			PerfAuditWriteEvent("actor_representation", PerfAuditCurrentToken(), fields);
 			++traced;
 		}

@@ -32,11 +32,13 @@ struct NRIActorSelectionFacts
 	bool voxelReady = false;
 	bool descriptorValid = false;
 	bool forceSprite = false;
+	bool replaceExactReflection = false;
 };
 
 constexpr NRIActorSelection SelectNRIActorRepresentation(NRIActorSelectionFacts facts)
 {
 	if (facts.suppressed) return NRIActorSelection::Suppressed;
+	if (facts.replaceExactReflection && facts.voxelReady && !facts.forceSprite) return NRIActorSelection::Voxel;
 	if (facts.existingDynamic) return NRIActorSelection::ExistingDynamic;
 	// Fault injection must not hide a usable representation if the alternate
 	// descriptor failed validation or belongs to a different actor lifetime.
