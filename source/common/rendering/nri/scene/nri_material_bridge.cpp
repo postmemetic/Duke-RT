@@ -1039,13 +1039,14 @@ namespace
 		// tile. UVs are normalized to the tile, so any resolution maps 1:1. Lighting
 		// rules below still key off the original tile (materialRef.texture).
 		FGameTexture* baseColorTexture = materialRef.texture;
-		FGameTexture* auxTexture = materialRef.texture; // source of normal/glow/metallic/roughness
+		FGameTexture* hightile = nullptr;
 		ReplacementBake bake;
 		if (indexed && allowPaletteMips && materialRef.texture != nullptr)
 		{
 			if (FGameTexture* replacement = FindHightileForRT(materialRef.texture->GetID(), (int)material.paletteIndex, bake.tintFlags, bake.tintRGB))
 			{
 				baseColorTexture = replacement;
+				hightile = replacement;
 				indexed = false;
 				material.flags &= ~MaterialFlag_Indexed;
 				if (replacement->GetDetailmap() != nullptr)
@@ -1054,14 +1055,24 @@ namespace
 					bake.detailScale[0] = replacement->GetDetailScale().X;
 					bake.detailScale[1] = replacement->GetDetailScale().Y;
 				}
-				// DEF normal/specular/glow layers live on the replacement; without
-				// them keep the tile's own Duke-RT material overlays.
-				if (replacement->GetNormalmap() != nullptr || replacement->GetSpecularmap() != nullptr || replacement->GetGlowmap() != nullptr)
-				{
-					auxTexture = replacement;
-				}
 			}
 		}
+		// Each auxiliary layer comes from the DEF replacement when it has one, else
+		// from the tile's own Duke-RT material overlays. UVs are normalized to the
+		// tile, so overlays authored for the ART tile line up with any replacement.
+		// (All-or-nothing selection dropped e.g. Duke-RT glow maps on tiles whose
+		// HRP replacement only adds normal/specular layers.)
+		FTexture* const tileGlow = materialRef.texture != nullptr ? materialRef.texture->GetGlowmap() : nullptr;
+		FTexture* const tileMetallic = materialRef.texture != nullptr ? materialRef.texture->GetMetallic() : nullptr;
+		FTexture* const tileNormal = materialRef.texture != nullptr ? materialRef.texture->GetNormalmap() : nullptr;
+		FTexture* const tileRoughness = materialRef.texture != nullptr ? materialRef.texture->GetRoughness() : nullptr;
+		FTexture* const glowLayer = hightile != nullptr && hightile->GetGlowmap() != nullptr ? hightile->GetGlowmap() : tileGlow;
+		FTexture* const metallicLayer = hightile != nullptr && hightile->GetMetallic() != nullptr ? hightile->GetMetallic() : tileMetallic;
+		FTexture* const normalLayer = hightile != nullptr && hightile->GetNormalmap() != nullptr ? hightile->GetNormalmap() : tileNormal;
+		// Roughness: DEF roughness, else Duke-RT's authored roughness, else a DEF
+		// specular map converted (1 - luminance) as the last resort.
+		FTexture* const roughnessLayer = hightile != nullptr && hightile->GetRoughness() != nullptr ? hightile->GetRoughness() : tileRoughness;
+		FTexture* const specularForRoughness = roughnessLayer == nullptr && hightile != nullptr ? hightile->GetSpecularmap() : nullptr;
 		material.textureIndex = bake.active() ?
 			EnsureBakedTextureUploadIndex(baseColorTexture->GetTexture(), bake, textureLookup, outMaterials) :
 			EnsureTextureUploadIndex(
@@ -1087,9 +1098,9 @@ namespace
 		const bool inheritedEmissiveSource = materialRef.emissiveSourceTexture != nullptr && materialRef.emissiveSourceTexture != materialRef.texture;
 		FGameTexture* lightingTexture = inheritedEmissiveSource ? materialRef.emissiveSourceTexture : materialRef.texture;
 		const bool useAuxiliaryMaps = !IsPlainMirrorMaterial(materialRef);
-		if (!inheritedEmissiveSource && auxTexture != nullptr && auxTexture->GetGlowmap() != nullptr)
+		if (!inheritedEmissiveSource && glowLayer != nullptr)
 		{
-			glowmapTextureIndex = EnsureTextureUploadIndex(auxTexture->GetGlowmap(), false, textureLookup, outMaterials);
+			glowmapTextureIndex = EnsureTextureUploadIndex(glowLayer, false, textureLookup, outMaterials);
 			glowmapContentKey = outMaterials.textures[glowmapTextureIndex].key;
 		}
 		else if (inheritedEmissiveSource && lightingTexture != nullptr && lightingTexture->GetGlowmap() != nullptr)
@@ -1097,31 +1108,31 @@ namespace
 			glowmapTextureIndex = material.textureIndex;
 			glowmapContentKey = outMaterials.textures[material.textureIndex].key;
 		}
-		if (useAuxiliaryMaps && auxTexture != nullptr && auxTexture->GetMetallic() != nullptr)
+		if (useAuxiliaryMaps && metallicLayer != nullptr)
 		{
-			metallicTextureIndex = EnsureTextureUploadIndex(auxTexture->GetMetallic(), false, textureLookup, outMaterials);
+			metallicTextureIndex = EnsureTextureUploadIndex(metallicLayer, false, textureLookup, outMaterials);
 			metallicContentKey = outMaterials.textures[metallicTextureIndex].key;
 			outMaterials.materials.back().metallicTextureIndex = metallicTextureIndex;
 		}
-		if (useAuxiliaryMaps && auxTexture != nullptr && auxTexture->GetNormalmap() != nullptr)
+		if (useAuxiliaryMaps && normalLayer != nullptr)
 		{
-			normalTextureIndex = EnsureTextureUploadIndex(auxTexture->GetNormalmap(), false, textureLookup, outMaterials);
+			normalTextureIndex = EnsureTextureUploadIndex(normalLayer, false, textureLookup, outMaterials);
 			normalContentKey = outMaterials.textures[normalTextureIndex].key;
 			outMaterials.materials.back().normalTextureIndex = normalTextureIndex;
 		}
-		if (useAuxiliaryMaps && auxTexture != nullptr && auxTexture->GetRoughness() != nullptr)
+		if (useAuxiliaryMaps && roughnessLayer != nullptr)
 		{
-			roughnessTextureIndex = EnsureTextureUploadIndex(auxTexture->GetRoughness(), false, textureLookup, outMaterials);
+			roughnessTextureIndex = EnsureTextureUploadIndex(roughnessLayer, false, textureLookup, outMaterials);
 			roughnessContentKey = outMaterials.textures[roughnessTextureIndex].key;
 			outMaterials.materials.back().roughnessTextureIndex = roughnessTextureIndex;
 		}
-		else if (useAuxiliaryMaps && auxTexture != materialRef.texture && auxTexture->GetSpecularmap() != nullptr)
+		else if (useAuxiliaryMaps && specularForRoughness != nullptr)
 		{
 			// DEF specular map, from a replacement only (Duke-RT's own specular overlays
 			// stay unused as before): roughness = 1 - specular luminance.
 			ReplacementBake specBake;
 			specBake.specularToRoughness = true;
-			roughnessTextureIndex = EnsureBakedTextureUploadIndex(auxTexture->GetSpecularmap(), specBake, textureLookup, outMaterials);
+			roughnessTextureIndex = EnsureBakedTextureUploadIndex(specularForRoughness, specBake, textureLookup, outMaterials);
 			roughnessContentKey = outMaterials.textures[roughnessTextureIndex].key;
 			outMaterials.materials.back().roughnessTextureIndex = roughnessTextureIndex;
 		}
