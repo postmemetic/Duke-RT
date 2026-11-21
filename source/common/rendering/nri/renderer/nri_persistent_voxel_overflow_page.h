@@ -23,7 +23,7 @@ public:
     }
     bool Owns(const NRIPersistentVoxelGeometryRangeHandle& other) const
     {
-        return lease && other.overflowPage && lease.transaction == other.transaction &&
+        return lease && other.overflowPage && !other.runtimeExtent && lease.transaction == other.transaction &&
             Matches(lease.vertices, other.vertices) && Matches(lease.indices, other.indices) &&
             Matches(lease.primitives, other.primitives);
     }

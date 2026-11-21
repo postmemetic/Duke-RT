@@ -108,7 +108,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     {
         const uint64_t anchor = allowOverflowPage ? SelectedOverflowMesh() : 0;
         pagePoseDemand.Refresh(GetActorPresentationSnapshot().worldEpoch, frameIndex, anchor,
-            overflowPage.Published() && overflowPage.Owner() == anchor, inputs);
+            overflowPage.Published() && overflowPage.Owner() == anchor ? overflowPage.PublishedGeneration() : 0, inputs);
     }
     uint32_t coalesced = 0;
     if (policy.coalesce)

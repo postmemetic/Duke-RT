@@ -232,14 +232,13 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     if (overflow && (privateBuildInputs || !arena.overflowPage.Owns(mesh.geometryRange))) return Result::RequirementsUnavailable;
     const std::array<uint64_t, 3> endBytes{uint64_t(arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex),
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t), uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData)};
-    const bool spills = !overflow && (endBytes[0] > arena.vertexBuffer.size || endBytes[1] > arena.indexBuffer.size ||
-        endBytes[2] > arena.primitiveBuffer.size);
-    const bool extentUse = spills && arena.runtimeExtent.Funded() && !familyRecovery && !privateBuildInputs &&
-        intent.runtimePump && intent.afterHandoff && !arena.retentionQuarantined &&
-        arena.overflowPage.Published() && arena.overflowPage.Owner() == arena.SelectedOverflowMesh() &&
-        arena.pagePoseDemand.MayUse(mesh.resourceKey, mFrameIndex) && arena.runtimeExtent.Covers(
-            {arena.vertexBuffer.buffer, arena.indexBuffer.buffer, arena.primitiveBuffer.buffer}, requestedRows, endBytes);
-    const bool growsArena = spills && !extentUse;
+    const bool extentUse = mesh.geometryRange.runtimeExtent;
+    if (extentUse && (privateBuildInputs || familyRecovery || !arena.runtimeExtent.Owns(mesh.geometryRange)))
+        return Result::RequirementsUnavailable;
+    const bool growsArena = !overflow && !extentUse && (endBytes[0] > arena.vertexBuffer.size ||
+        endBytes[1] > arena.indexBuffer.size || endBytes[2] > arena.primitiveBuffer.size);
+    if (growsArena && arena.runtimeExtent.Funded() && intent.runtimePump && intent.afterHandoff && !privateBuildInputs && !familyRecovery)
+        arena.pagePoseDemand.ObserveOrdinarySpill(mesh.resourceKey, mFrameIndex);
     if (familyRecovery && (growsArena || overflow || privateBuildInputs)) return Result::DeferredFamilyGrowth;
     // A funded required-cohort reservation can fill unused space with optional
     // preloads. Hand the intact optional queue to gameplay at its first spill.
@@ -454,9 +453,9 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         overflow ? &arena.overflowPrimitive : &arena.primitiveBuffer,
         privateBuildInputs ? &mesh.vertexBuffer : nullptr, privateBuildInputs ? &mesh.indexBuffer : nullptr, &scratch };
     const std::array<uint64_t, 6> required = {
-        uint64_t(overflow ? vertexCount : arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex),
-        uint64_t(overflow ? indexCount : arena.arenaIndexCursor) * sizeof(uint32_t),
-        uint64_t(overflow ? primitiveCount : arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData),
+        (overflow ? vertexCount : extentUse ? uint64_t(mesh.vertexOffset) + vertexCount : arena.arenaVertexCursor) * sizeof(nri_scene::SceneVertex),
+        (overflow ? indexCount : extentUse ? uint64_t(mesh.indexOffset) + indexCount : arena.arenaIndexCursor) * sizeof(uint32_t),
+        (overflow ? primitiveCount : extentUse ? uint64_t(mesh.primitiveOffset) + primitiveCount : arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData),
         uint64_t(vertexCount) * sizeof(nri_scene::SceneVertex), uint64_t(indexCount) * sizeof(uint32_t), scratchBytes };
     const std::array<uint32_t, 6> strides = { sizeof(nri_scene::SceneVertex), sizeof(uint32_t),
         sizeof(nri_scene::PrimitiveData), sizeof(nri_scene::SceneVertex), sizeof(uint32_t), 16 };
@@ -607,6 +606,18 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     }
     if (PerfAuditActive() && !overflow && intent.runtimePump && oldArenaBytes)
         arena.ReportGeometryReplacementConsumers(mesh.resourceKey, mFrameIndex, intent, oldArenaBytes, newArenaBytes);
+    if (!overflow && newArenaBytes && arena.runtimeExtent.Live())
+    {
+        // Migrating the prefix across occupied slots would change live GPU addresses.
+        // Let the next source-authoritative sweep retire them, then reprice after the fence.
+        if (budget.liveAvailable && intent.runtimePump && arena.actorDemand.Upgrade(mesh.resourceKey, mFrameIndex).consumers)
+        {
+            arena.runtimeExtent.migrationMesh = mesh.resourceKey;
+            arena.runtimeExtent.migrationFrame = mFrameIndex;
+            arena.runtimeExtent.migrationServiced = false;
+        }
+        return report("defer-live-extent-backing", Result::DeferredBudget);
+    }
     std::array<NRIBufferResource, 6> unpublished = {};
     std::array<double, 6> allocationMs = {};
     NRIAccelerationStructureResource unpublishedAs;
@@ -771,8 +782,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         if (!targets[i]) continue;
         if (!replace[i])
         {
-            if (extentUse && i < 3) targets[i]->size = std::max(targets[i]->size, required[i]);
-            targets[i]->usedSize = std::max(targets[i]->usedSize, required[i]);
+            if (!extentUse || i >= 3) targets[i]->usedSize = std::max(targets[i]->usedSize, required[i]);
             continue;
         }
         auto& old = *targets[i];
@@ -833,10 +843,10 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
     PerfAuditSet(PerfAuditMetric::VoxelGeometryArenaOverlapBytes, oldArenaBytes + newArenaBytes);
     if (extentUse) arena.AuditRuntimeExtent(mesh, mFrameIndex, mFrameBuffer->GetRecordingCommandFenceValue());
     if (overflow) arena.ReportOverflowPage("committed", mFrameBuffer->GetRecordingCommandFenceValue());
-    else if (newArenaBytes || extentUse)
+    else if (newArenaBytes)
     {
         arena.allocationArenaRetry.BackingChanged();
-        if (newArenaBytes) arena.InvalidateRuntimeExtent();
+        arena.InvalidateRuntimeExtent();
     }
     if (!reuseAs)
     {

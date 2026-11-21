@@ -6,35 +6,46 @@
 namespace
 {
 // A short direct animation can move through several poses while an earlier
-// build is queued. Limit the observed sequence and never extend a request
-// using retained, indirect-only, or departed actors.
+// build is queued. Only primary-camera requests can establish a relationship.
 constexpr uint32_t HistoryFrames = 64;
+constexpr uint32_t FinishFrames = 32;
 constexpr size_t MaxPosesPerOwner = 32, MaxOwners = 4096, MaxSiblings = 1024;
-bool Recent(uint32_t seen, uint32_t now) { return seen != UINT32_MAX && seen <= now && now - seen <= HistoryFrames; }
+bool Recent(uint32_t seen, uint32_t now, uint32_t window = HistoryFrames)
+{
+    return seen != UINT32_MAX && seen <= now && now - seen <= window;
+}
 }
 
 void NRIVoxelPagePoseDemand::Reset()
 {
-    worldEpoch = anchor = 0;
+    worldEpoch = anchor = pageGeneration = 0;
     refreshedFrame = UINT32_MAX;
     owners.clear();
     siblings.clear();
     eligible.clear();
+    finishing.clear();
 }
 
-void NRIVoxelPagePoseDemand::Refresh(uint64_t world, uint32_t frame, uint64_t pageMesh, bool pagePublished,
+void NRIVoxelPagePoseDemand::Refresh(uint64_t world, uint32_t frame, uint64_t pageMesh, uint64_t publishedGeneration,
     const std::vector<NRIVoxelActorDemandInput>& inputs)
 {
     if (!world || !pageMesh) { Reset(); return; }
-    if (worldEpoch != world || anchor != pageMesh || frame < refreshedFrame) Reset();
+    if (worldEpoch != world || anchor != pageMesh || frame < refreshedFrame ||
+        (pageGeneration && publishedGeneration != pageGeneration)) Reset();
     worldEpoch = world;
     anchor = pageMesh;
+    pageGeneration = publishedGeneration;
     refreshedFrame = frame;
     eligible.clear();
+    finishing.clear();
     for (auto it = owners.begin(); it != owners.end();)
     {
         if (!Recent(it->second.lastSeen, frame)) it = owners.erase(it);
-        else { it->second.visibleNow = false; ++it; }
+        else
+        {
+            it->second.visibleNow = false;
+            ++it;
+        }
     }
     for (const auto& input : inputs)
     {
@@ -54,10 +65,14 @@ void NRIVoxelPagePoseDemand::Refresh(uint64_t world, uint32_t frame, uint64_t pa
         {
             auto& poses = owner.poses;
             auto pose = std::find_if(poses.begin(), poses.end(), [&](const Pose& p) { return p.mesh == input.mesh; });
-            if (pose == poses.end() && poses.size() == MaxPosesPerOwner)
-                pose = std::min_element(poses.begin(), poses.end(), [](const Pose& a, const Pose& b) { return a.frame < b.frame; });
-            if (pose == poses.end()) poses.push_back({input.mesh, frame});
-            else *pose = {input.mesh, frame};
+            if (pose != poses.end())
+            {
+                if (!Recent(pose->frame, frame)) pose->spilled = false;
+                pose->frame = frame;
+            }
+            else if (poses.size() < MaxPosesPerOwner) poses.push_back({input.mesh, frame});
+            else *std::min_element(poses.begin(), poses.end(), [](const Pose& a, const Pose& b) { return a.frame < b.frame; }) =
+                {input.mesh, frame};
         }
         if (Recent(owner.lastPage, frame))
             for (const auto& pose : owner.poses)
@@ -65,17 +80,43 @@ void NRIVoxelPagePoseDemand::Refresh(uint64_t world, uint32_t frame, uint64_t pa
     }
     // Resolve after observing the whole frame so the order of two actors
     // requesting related poses cannot change eligibility.
-    if (!pagePublished || siblings.empty()) return;
+    if (!pageGeneration || siblings.empty()) return;
     for (const auto& entry : owners)
     {
         const auto& owner = entry.second;
-        if (!owner.visibleNow) continue;
+        // A remembered pose must yield the build lane to the live animation.
+        // When the observed page owner leaves, its already witnessed sequence
+        // has one short window to finish using the two prepaid geometry slots.
+        const bool finishSequence = !owner.visibleNow && Recent(owner.lastSeen, frame, FinishFrames) &&
+            Recent(owner.lastPage, owner.lastSeen);
         for (const auto& pose : owner.poses)
-            if (Recent(pose.frame, frame) && siblings.count(pose.mesh)) eligible.insert(pose.mesh);
+        {
+            const bool current = owner.visibleNow && pose.frame == frame;
+            if (!siblings.count(pose.mesh)) continue;
+            if (current) eligible.insert(pose.mesh);
+            if (finishSequence && pose.spilled && Recent(pose.frame, owner.lastSeen)) finishing.insert(pose.mesh);
+        }
     }
 }
 
 bool NRIVoxelPagePoseDemand::MayUse(uint64_t mesh, uint32_t frame) const
 {
-    return refreshedFrame == frame && eligible.count(mesh) != 0;
+    return refreshedFrame == frame && (eligible.count(mesh) || finishing.count(mesh));
+}
+
+bool NRIVoxelPagePoseDemand::Finishing(uint64_t mesh, uint32_t frame) const
+{
+    return refreshedFrame == frame && finishing.count(mesh) != 0;
+}
+
+void NRIVoxelPagePoseDemand::ObserveOrdinarySpill(uint64_t mesh, uint32_t frame)
+{
+    if (!mesh || refreshedFrame != frame) return;
+    for (auto& entry : owners)
+    {
+        auto& owner = entry.second;
+        if (!owner.visibleNow) continue;
+        for (auto& pose : owner.poses)
+            if (pose.mesh == mesh && Recent(pose.frame, frame)) pose.spilled = true;
+    }
 }

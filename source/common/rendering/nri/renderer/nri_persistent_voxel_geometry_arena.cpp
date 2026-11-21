@@ -56,7 +56,6 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     // One attempt per map prevents a failed reservation from stalling every load tick.
     arena.arenaPresizeBuildSerial = buildSerial;
     arena.arenaUsesRequiredLayout = false;
-    arena.InvalidateRuntimeExtent();
     arena.startupFamilyBudget = {};
     NRIVoxelStartupFamilyBudget families;
     const auto start = std::chrono::steady_clock::now();
@@ -135,6 +134,7 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     if (arena.arenaVertexCursor || arena.arenaIndexCursor || arena.arenaPrimitiveCursor ||
         arena.vertexBuffer.buffer || arena.indexBuffer.buffer || arena.primitiveBuffer.buffer)
     { report("retained-arena"); return; }
+    arena.InvalidateRuntimeExtent();
     constexpr uint64_t bytesPerPrimitive = 2ull * sizeof(nri_scene::SceneVertex) +
         3ull * sizeof(uint32_t) + sizeof(nri_scene::PrimitiveData);
     if (plan.overflow || (inventorySizing && pressurePlan.overflow) || plan.targetGeometryBytes == 0 ||
@@ -340,10 +340,12 @@ void NRIRenderer::PreSizePersistentVoxelGeometryArenas(
     if (extraPrimitives)
     {
         arena.runtimeExtent.extraPrimitives = extraPrimitives;
+        arena.runtimeExtent.baseRows = ordinaryRows;
         for (size_t i = 0; i < reserved.size(); ++i)
         {
             arena.runtimeExtent.buffers[i] = reserved[i].buffer;
             arena.runtimeExtent.physicalBytes[i] = descriptors[i].size;
+            arena.runtimeExtentViews[i] = reserved[i];
             // Views already span the complete descriptor. Expose only the
             // ordinary prefix to preload, growth, and reclaim sizing.
             reserved[i].size = ordinaryRows[i] * strides[i];

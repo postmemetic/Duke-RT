@@ -143,7 +143,7 @@ void NRIPersistentVoxelResidency::ProcessAdmissionReclaim(uint32_t frameIndex,
     candidates.reserve(meshVariantResources.size());
     for (const auto& pair : meshVariantResources)
     {
-        if (pins.meshes.count(pair.first)) continue;
+        if (pins.meshes.count(pair.first) || pair.second.geometryRange.runtimeExtent) continue;
         candidates.push_back({pair.first, pair.second.geometryRange, actorDemand.WarmMeshRank(pair.first, frameIndex),
             inactiveMeshSince.emplace(pair.first, frameIndex).first->second, false});
     }

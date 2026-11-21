@@ -2207,6 +2207,7 @@ bool NRIRenderer::EnsureResidentArenaBuffer(NRIBufferResource& resource, uint64_
 	const uint64_t grownSize = GetNRIGrownBufferSize(oldResource.size, alignedRequiredSize, stride);
 	const bool voxelGeometryArena = &resource == &mPersistentVoxels.vertexBuffer ||
 		&resource == &mPersistentVoxels.indexBuffer || &resource == &mPersistentVoxels.primitiveBuffer;
+	if (voxelGeometryArena && mPersistentVoxels.runtimeExtent.Live()) return false;
 	if (voxelGeometryArena || &resource == &mPersistentVoxels.materialBuffer)
 		AuditPersistentVoxelArenaGrowthBudget(oldResource.memorySize, grownSize, stride);
 	resource = {};

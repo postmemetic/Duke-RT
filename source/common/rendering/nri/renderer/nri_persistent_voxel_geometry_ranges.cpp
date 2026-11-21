@@ -92,7 +92,7 @@ NRIVoxelFamilyRangeFit NRIPersistentVoxelGeometryRanges::PreviewFamily(
 
 bool NRIPersistentVoxelGeometryRanges::Owns(const NRIPersistentVoxelGeometryRangeHandle& handle) const
 {
-    if (!handle || handle.overflowPage) return false;
+    if (!handle || handle.overflowPage || handle.runtimeExtent) return false;
     const auto found = transactions.find(handle.transaction);
     return found != transactions.end() &&
         found->second.vertices.generation == handle.vertices.generation &&

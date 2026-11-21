@@ -29,6 +29,8 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
     // if ordinary warm-cache limits would retain this unreferenced mesh.
     if (cache.overflowPage.Published())
         cache.EvictInactiveMesh(cache.overflowPage.Owner(), services);
+    for (const auto& slot : cache.runtimeExtent.slots)
+        if (slot.mesh) cache.EvictInactiveMesh(slot.mesh, services);
     // Every ticket predates the explicit wait or belongs to the now-cancelled
     // empty scene. Reclaim without waiting for another three presented frames.
     const auto releaseMaterial = [&](NRIPersistentVoxelMaterialRangeHandle range)
@@ -60,7 +62,7 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
     for (auto it = cache.quarantinedSchedulerReservations.begin(); it != cache.quarantinedSchedulerReservations.end(); )
         if (cache.ReleaseCompletedSchedulerReservation(*it)) it = cache.quarantinedSchedulerReservations.erase(it); else ++it;
     uint64_t releasedArenaBytes = 0;
-    if (cache.meshVariantResources.empty() && cache.geometryRanges.VertexStats().liveRows == 0 &&
+    if (cache.meshVariantResources.empty() && !cache.runtimeExtent.Live() && cache.geometryRanges.VertexStats().liveRows == 0 &&
         cache.geometryRanges.IndexStats().liveRows == 0 && cache.geometryRanges.PrimitiveStats().liveRows == 0)
     {
         releasedArenaBytes = cache.vertexBuffer.memorySize + cache.indexBuffer.memorySize + cache.primitiveBuffer.memorySize;
@@ -69,6 +71,7 @@ void NRIRenderer::TrimPersistentVoxelCacheAfterLevelWait()
         DestroyBufferResource(cache.primitiveBuffer);
         cache.allocationArenaRetry.BackingChanged();
         cache.ResetGeometryRanges();
+        cache.InvalidateRuntimeExtent();
         cache.SyncGeometryCursors();
         cache.arenaPresizeBuildSerial = 0;
         cache.startupFamilyBudget = {};

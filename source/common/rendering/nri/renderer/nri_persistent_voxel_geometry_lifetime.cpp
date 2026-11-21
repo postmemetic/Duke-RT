@@ -25,7 +25,8 @@ void NRIPersistentVoxelResidency::SyncGeometryCursors()
 
 void NRIPersistentVoxelResidency::InvalidateRuntimeExtent()
 {
-    runtimeExtent = {};
+    runtimeExtent.Reset();
+    runtimeExtentViews = {};
     pagePoseDemand.Reset();
 }
 
@@ -53,11 +54,32 @@ void NRIPersistentVoxelResidency::ResetGeometryRanges()
     TraceGeometryLease("reset", 0, {});
 }
 
+bool NRIPersistentVoxelResidency::TryReserveRuntimeExtent(PersistentVoxelMeshVariantResource& resource,
+    uint64_t mesh, uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame,
+    const NRIVoxelGeometryAdmissionIntent& intent)
+{
+    if (!runtimeExtent.Funded() || !(bool)nri_ptvoxelallocationbudget || resource.geometryRange ||
+        !intent.runtimePump || !intent.afterHandoff || NRIVoxelFamilyRecoveryOnly(intent.origins) || retentionQuarantined ||
+        !overflowPage.Published() || overflowPage.Owner() != SelectedOverflowMesh() || !pagePoseDemand.MayUse(mesh, frame)) return false;
+    if (runtimeExtent.AwaitingMigration(frame) && actorDemand.Upgrade(runtimeExtent.migrationMesh, frame).consumers) return false;
+    const std::array<uint32_t, 3> rows{vertices, indices, primitives};
+    if (!pagePoseDemand.Finishing(mesh, frame) && geometryRanges.FitsWithin(rows, runtimeExtent.baseRows)) return false;
+    const auto lease = runtimeExtent.Acquire(mesh, {vertexBuffer.buffer, indexBuffer.buffer, primitiveBuffer.buffer}, rows);
+    if (!lease) return false;
+    resource.geometryRange = lease;
+    resource.vertexOffset = lease.vertices.offset;
+    resource.indexOffset = lease.indices.offset;
+    resource.primitiveOffset = lease.primitives.offset;
+    resource.vertexCapacity = vertices; resource.indexCapacity = indices; resource.primitiveCapacity = primitives;
+    TraceGeometryLease("allocate", mesh, lease);
+    return true;
+}
+
 void NRIPersistentVoxelResidency::RollbackUnsubmittedGeometryRange(PersistentVoxelMeshVariantResource& resource,
     const NRIPersistentVoxelGeometryRangeHandle& previous)
 {
     if (resource.geometryRange.transaction == previous.transaction &&
-        resource.geometryRange.overflowPage == previous.overflowPage) return;
+        resource.geometryRange.overflowPage == previous.overflowPage && resource.geometryRange.runtimeExtent == previous.runtimeExtent) return;
     // Only used before the allocation service records any copy/compute command.
     // Published and submitted ranges must continue through fence retirement.
     ReleaseCompletedGeometryRange(resource.geometryRange, false);
@@ -74,7 +96,7 @@ bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVaria
     uint32_t vertices, uint32_t indices, uint32_t primitives, NRIPersistentVoxelGeometryRangeHandle& previous)
 {
     previous = {};
-    if (geometryRanges.Owns(resource.geometryRange) && resource.vertexCapacity >= vertices &&
+    if (OwnsGeometryRange(resource.geometryRange) && resource.vertexCapacity >= vertices &&
         resource.indexCapacity >= indices && resource.primitiveCapacity >= primitives)
         return true;
     const uint64_t oldHigh[3] = { geometryRanges.VertexStats().highWaterRows,
@@ -103,6 +125,15 @@ bool NRIPersistentVoxelResidency::AllocateGeometryRange(PersistentVoxelMeshVaria
 
 void NRIPersistentVoxelResidency::ReleaseCompletedGeometryRange(NRIPersistentVoxelGeometryRangeHandle range, bool committedRetirement)
 {
+    if (range.runtimeExtent)
+    {
+        if (runtimeExtent.Release(range))
+        {
+            TraceGeometryLease(committedRetirement ? "retired" : "rollback", 0, range);
+            MarkMaintenanceMutation();
+        }
+        return;
+    }
     if (range.overflowPage)
     {
         // Unsubmitted rollback has no physical buffers. The renderer destroys
@@ -218,6 +249,7 @@ void NRIPersistentVoxelResidency::ReportOverflowPage(const char* action, uint64_
 
 bool NRIPersistentVoxelResidency::HasPublishedGeometryBuffers(const PersistentVoxelMeshVariantResource& mesh) const
 {
+    if (mesh.geometryRange.runtimeExtent && !runtimeExtent.Owns(mesh.geometryRange)) return false;
     if (mesh.geometryRange.overflowPage)
         return overflowPage.Published() && overflowPage.Owns(mesh.geometryRange) &&
             overflowVertex.shaderView && overflowIndex.shaderView && overflowPrimitive.shaderView;

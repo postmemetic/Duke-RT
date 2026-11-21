@@ -1499,7 +1499,9 @@ public:
 	NRIVoxelOverflowPage overflowPage;
 	NRIBufferResource overflowVertex, overflowIndex, overflowPrimitive; // Stable addresses for queued compute requests.
 	bool OwnsGeometryRange(const NRIPersistentVoxelGeometryRangeHandle& range) const
-	{ return range.overflowPage ? overflowPage.Owns(range) : geometryRanges.Owns(range); }
+	{ return range.overflowPage ? overflowPage.Owns(range) : range.runtimeExtent ? runtimeExtent.Owns(range) : geometryRanges.Owns(range); }
+	bool TryReserveRuntimeExtent(PersistentVoxelMeshVariantResource& resource, uint64_t mesh, uint32_t vertices,
+		uint32_t indices, uint32_t primitives, uint32_t frame, const NRIVoxelGeometryAdmissionIntent& intent);
 	bool TryReserveOverflowPage(PersistentVoxelMeshVariantResource& resource, uint64_t mesh,
 		uint32_t vertices, uint32_t indices, uint32_t primitives, uint32_t frame, bool runtime);
 	static uint64_t SelectedOverflowMesh();
@@ -1526,6 +1528,7 @@ public:
 	uint64_t arenaPresizeBuildSerial = 0;
 	bool arenaUsesRequiredLayout = false;
 	NRIVoxelRuntimeExtent runtimeExtent;
+	std::array<NRIBufferResource, 3> runtimeExtentViews; // Non-owning full-range aliases for queued direct emit.
 	NRIVoxelPagePoseDemand pagePoseDemand;
 	uint64_t openingEnemyMaterialBuild = 0;
 	NRIVoxelStartupFamilyBudget startupFamilyBudget;

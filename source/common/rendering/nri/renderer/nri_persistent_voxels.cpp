@@ -513,7 +513,7 @@ namespace
 	bool ContainsPersistentVoxelPrimitives(const PersistentVoxelMeshVariantResource& mesh,
 		uint32_t offset, uint32_t count, uint32_t arenaRows)
 	{
-		if (mesh.geometryRange.overflowPage)
+		if (mesh.geometryRange.overflowPage || mesh.geometryRange.runtimeExtent)
 			return offset == mesh.geometryRange.ShaderPrimitiveBase() && count <= mesh.geometryRange.primitives.capacity;
 		return uint64_t(offset) + count <= arenaRows;
 	}
@@ -1744,7 +1744,7 @@ void NRIPersistentVoxelResidency::ClearActorInstances(const NRIPersistentVoxelRe
 	suppressedActorIndices.clear();
 	RefreshActiveResourceReferences(0);
 	instances.clear();
-	const bool keepSharedVariantArena = !meshVariantResources.empty() ||
+	const bool keepSharedVariantArena = runtimeExtent.Live() || !meshVariantResources.empty() ||
 		geometryRanges.VertexStats().liveRows != 0 || geometryRanges.IndexStats().liveRows != 0 ||
 		geometryRanges.PrimitiveStats().liveRows != 0 || admissionIndex.HasActiveWork();
 	if (!keepSharedVariantArena)
@@ -1753,6 +1753,7 @@ void NRIPersistentVoxelResidency::ClearActorInstances(const NRIPersistentVoxelRe
 		services.RetireBuffer(vertexBuffer);
 		services.RetireBuffer(indexBuffer);
 		services.RetireBuffer(primitiveBuffer);
+		InvalidateRuntimeExtent();
 		arenaVertexCursor = 0;
 		arenaIndexCursor = 0;
 		arenaPrimitiveCursor = 0;
@@ -3897,7 +3898,7 @@ NRIPersistentVoxelDescriptorSnapshot NRIPersistentVoxelResidency::BuildDescripto
 
 uint32_t NRIPersistentVoxelResidency::BoundPrimitiveCount() const
 {
-	return primitiveBuffer.shaderView != nullptr ? arenaPrimitiveCursor : 0u;
+	return primitiveBuffer.shaderView != nullptr ? std::max(arenaPrimitiveCursor, runtimeExtent.PrimitiveEnd()) : 0u;
 }
 
 uint32_t NRIPersistentVoxelResidency::BoundMaterialCount() const
@@ -4513,11 +4514,14 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	};
 	std::vector<MeshEvictionCandidate> meshCandidates;
 	meshCandidates.reserve(meshVariantResources.size());
+	const bool extentUnderPressure = adapterLocalBudget && NRIVoxelBudgetPressure(totalTrackedBytes, adapterLocalBudget,
+		uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024) != 0;
 	for (const auto& pair : meshVariantResources)
 	{
 		const PersistentVoxelMeshVariantResource& resource = pair.second;
 		PerfAuditAdd(PerfAuditMetric::VoxelPressureScannedEntries);
-		if (!resource.cold || resource.activeActorReferences != 0 || admissionMeshes.find(pair.first) != admissionMeshes.end())
+		if (!resource.cold || resource.activeActorReferences != 0 || admissionMeshes.find(pair.first) != admissionMeshes.end() ||
+			(resource.geometryRange.runtimeExtent && !extentUnderPressure))
 		{
 			PerfAuditAdd(PerfAuditMetric::VoxelPressureRejectedEntries);
 			continue;
@@ -6209,7 +6213,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			const auto& shaderPrimitives = overflow ? overflowPrimitive : primitiveBuffer;
 			const bool directRangeValid =
 				OwnsGeometryRange(meshResource.geometryRange) &&
-				directMesh.overflowGeneration == (overflow ? meshResource.geometryRange.transaction : 0) &&
+				directMesh.overflowGeneration == meshResource.geometryRange.DedicatedGeneration() &&
 				directMesh.vertices.offset == meshResource.geometryRange.vertices.offset &&
 				directMesh.indices.offset == meshResource.geometryRange.indices.offset &&
 				directMesh.primitives.offset == meshResource.geometryRange.primitives.offset &&
@@ -6737,11 +6741,12 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				return true;
 			}
 			NRIPersistentVoxelGeometryRangeHandle previousRange;
-			if (!AllocateGeometryRange(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
+			const auto intent = allocationIntent(oldRange);
+			if (!TryReserveRuntimeExtent(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, frameIndex, intent) &&
+				!AllocateGeometryRange(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity, directPrimitiveCapacity, previousRange))
 				return rollbackAdmission("geometry-range-allocation-failed", "reserve");
 			meshResource.sourceModel = variant.model;
 			meshResource.resourceKey = meshResourceKey;
-			const auto intent = allocationIntent(oldRange);
 			if (!oldRange && !NRIVoxelFamilyRecoveryOnly(intent.origins) && EffectiveOverflowPageMode())
 				TryReserveOverflowPage(meshResource, meshResourceKey, directVertexCapacity, directIndexCapacity,
 					directPrimitiveCapacity, frameIndex, runtimePump);
@@ -6792,10 +6797,10 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				request.model = variant.model;
 				request.outputKind = NRIVoxelComputeDirectPublishOutputKind::PrivateBlasInputsAndSharedArena;
 				const auto& lease = meshResource.geometryRange;
-				request.overflowGeneration = lease.overflowPage ? lease.transaction : 0;
-				request.outputBuffers.vertices = lease.overflowPage ? &overflowVertex : &vertexBuffer;
-				request.outputBuffers.indices = lease.overflowPage ? &overflowIndex : &indexBuffer;
-				request.outputBuffers.primitives = lease.overflowPage ? &overflowPrimitive : &primitiveBuffer;
+				request.overflowGeneration = lease.DedicatedGeneration();
+				request.outputBuffers.vertices = lease.overflowPage ? &overflowVertex : lease.runtimeExtent ? &runtimeExtentViews[0] : &vertexBuffer;
+				request.outputBuffers.indices = lease.overflowPage ? &overflowIndex : lease.runtimeExtent ? &runtimeExtentViews[1] : &indexBuffer;
+				request.outputBuffers.primitives = lease.overflowPage ? &overflowPrimitive : lease.runtimeExtent ? &runtimeExtentViews[2] : &primitiveBuffer;
 				request.vertices.offset = meshResource.vertexOffset;
 				request.vertices.capacity = meshResource.vertexCapacity;
 				request.indices.offset = meshResource.indexOffset;

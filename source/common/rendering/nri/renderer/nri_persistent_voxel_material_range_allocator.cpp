@@ -16,6 +16,14 @@ NRIPersistentVoxelMaterialRangeHandle NRIPersistentVoxelMaterialRangeAllocator::
 	return AllocateWithin(capacity, std::numeric_limits<uint32_t>::max());
 }
 
+bool NRIPersistentVoxelMaterialRangeAllocator::FitsWithin(uint32_t capacity, uint64_t maximumRows) const
+{
+	if (!capacity || !nextGeneration) return false;
+	if (stats.cursorRows + capacity <= maximumRows) return true;
+	return std::any_of(freeRanges.begin(), freeRanges.end(), [&](const FreeRange& hole)
+	{ return hole.capacity >= capacity && RangeEnd(hole.offset, capacity) <= maximumRows; });
+}
+
 NRIPersistentVoxelMaterialRangeHandle NRIPersistentVoxelMaterialRangeAllocator::AllocateWithin(uint32_t capacity, uint32_t maximumRows)
 {
 	if (capacity == 0 || nextGeneration == 0)

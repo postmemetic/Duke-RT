@@ -133,14 +133,16 @@ void NRIPersistentVoxelResidency::TraceGeometryLease(const char* action, uint64_
     // Releases join to their allocation by transaction, including fence callbacks after a map change.
     char fields[768];
     std::snprintf(fields, sizeof(fields), "\"action\":\"%s\",\"map_generation\":%u,\"mesh_key\":%llu,"
-        "\"transaction\":%llu,\"live\":%zu,\"offsets\":[%u,%u,%u],\"rows\":[%u,%u,%u],"
+        "\"transaction\":%llu,\"live\":%zu,\"runtime_extent\":%s,\"offsets\":[%u,%u,%u],\"rows\":[%u,%u,%u],"
         "\"cursor\":[%llu,%llu,%llu],\"physical_capacity\":[%llu,%llu,%llu]",
-        action, residencyMapGeneration, U64(meshKey), U64(range.transaction), geometryRanges.TransactionCount(),
+        action, residencyMapGeneration, U64(meshKey), U64(range.transaction), geometryRanges.TransactionCount(), Bool(range.runtimeExtent),
         range.vertices.offset, range.indices.offset, range.primitives.offset,
         range.vertices.capacity, range.indices.capacity, range.primitives.capacity,
         U64(geometryRanges.VertexStats().cursorRows), U64(geometryRanges.IndexStats().cursorRows),
-        U64(geometryRanges.PrimitiveStats().cursorRows), U64(vertexBuffer.size / sizeof(nri_scene::SceneVertex)),
-        U64(indexBuffer.size / sizeof(uint32_t)), U64(primitiveBuffer.size / sizeof(nri_scene::PrimitiveData)));
+        U64(geometryRanges.PrimitiveStats().cursorRows),
+        U64((range.runtimeExtent ? runtimeExtent.physicalBytes[0] : vertexBuffer.size) / sizeof(nri_scene::SceneVertex)),
+        U64((range.runtimeExtent ? runtimeExtent.physicalBytes[1] : indexBuffer.size) / sizeof(uint32_t)),
+        U64((range.runtimeExtent ? runtimeExtent.physicalBytes[2] : primitiveBuffer.size) / sizeof(nri_scene::PrimitiveData)));
     PerfAuditWriteEvent("voxel_geometry_lease", PerfAuditCurrentToken(), fields);
 }
 

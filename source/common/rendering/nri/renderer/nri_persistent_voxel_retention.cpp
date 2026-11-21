@@ -119,12 +119,14 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     const NRIPersistentVoxelSettings& settings, uint64_t usageBytes, uint64_t budgetBytes,
     const NRIPersistentVoxelResetServices& services, bool authoritativeEmptyAfterWait)
 {
-    if (!(bool)nri_ptvoxelcachebounded || retentionQuarantined || !phase ||
+    const bool releaseForMigration = runtimeExtent.AwaitingMigration(frameIndex) && !runtimeExtent.migrationServiced &&
+        actorDemand.Upgrade(runtimeExtent.migrationMesh, frameIndex).consumers;
+    if ((!(bool)nri_ptvoxelcachebounded && !releaseForMigration) || retentionQuarantined || !phase ||
         (!authoritativeEmptyAfterWait && std::strcmp(phase, "runtime") != 0) ||
         preloadPending || loadingWarmupActive || !services.cacheRetirementAllowed ||
         !services.cacheRetirementAllowed(services.user)) return;
     const uint32_t interval = uint32_t(std::max(1, (int)nri_ptvoxelcacheintervalframes));
-    if (!authoritativeEmptyAfterWait && retentionLastFrame != UINT32_MAX && retentionMapGeneration == residencyMapGeneration &&
+    if (!releaseForMigration && !authoritativeEmptyAfterWait && retentionLastFrame != UINT32_MAX && retentionMapGeneration == residencyMapGeneration &&
         frameIndex >= retentionLastFrame && frameIndex - retentionLastFrame < interval) return;
     retentionLastFrame = frameIndex;
     retentionMapGeneration = residencyMapGeneration;
@@ -189,10 +191,30 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     else warmRetentionPressure = {};
     const bool pressure = warmPolicy ? (warmRetentionPressure.active && budgetBytes != 0) :
         NRIVoxelBudgetPressure(usageBytes, budgetBytes, settings.residentMinHeadroomBytes) != 0;
+    const bool extentUnderPressure = budgetBytes && NRIVoxelBudgetPressure(usageBytes, budgetBytes,
+        uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024) != 0;
 
     NRIVoxelCachePins pins;
     if (!CollectCachePins(settings, pins, SIZE_MAX, authoritativeEmptyAfterWait)) return;
     auto& pinnedMeshes = pins.meshes; auto& pinnedMaterials = pins.materials;
+    if (releaseForMigration)
+    {
+        // One free slot cannot enable migration while another retains a live
+        // consumer. Both leases stay owned until normal fence retirement.
+        const auto& slots = runtimeExtent.slots;
+        if (std::none_of(slots.begin(), slots.end(), [&](const auto& slot) { return slot.mesh && pinnedMeshes.count(slot.mesh); }))
+        {
+            for (const auto& slot : slots)
+            {
+                if (!slot.mesh || !meshVariantResources.count(slot.mesh)) continue;
+                NoteCacheMeshEviction(slot.mesh, frameIndex, "priced-arena-migration", false);
+                EvictInactiveMesh(slot.mesh, services);
+            }
+            MarkMaintenanceMutation();
+        }
+        runtimeExtent.migrationServiced = true;
+    }
+    if (!(bool)nri_ptvoxelcachebounded) return;
     std::vector<NRIVoxelSweepCandidate> meshes, materials;
     uint64_t inactiveMeshBytes = 0, inactiveMaterialBytes = 0, warmMeshBytes = 0;
     uint32_t inactiveMaterialCount = 0;
@@ -200,13 +222,14 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     {
         if (pinnedMeshes.count(pair.first)) { inactiveMeshSince.erase(pair.first); continue; }
         const auto& mesh = pair.second;
+        if (mesh.geometryRange.runtimeExtent && !authoritativeEmptyAfterWait && !extentUnderPressure) continue;
         const auto* shared = sharedBlasCache.Find(pair.first);
         const auto pageBytes = mesh.geometryRange.overflowPage ?
             overflowVertex.memorySize + overflowIndex.memorySize + overflowPrimitive.memorySize : 0;
         const uint64_t physicalBytes = pageBytes + mesh.vertexBuffer.memorySize + mesh.indexBuffer.memorySize + mesh.accelerationStructure.memorySize +
             mesh.shadowProxy.vertexBuffer.memorySize + mesh.shadowProxy.indexBuffer.memorySize +
             mesh.shadowProxy.accelerationStructure.memorySize + (shared ? shared->accelerationStructure.memorySize : 0);
-        const uint64_t ordinaryRangeBytes = mesh.geometryRange.overflowPage ? 0 :
+        const uint64_t ordinaryRangeBytes = mesh.geometryRange.overflowPage || mesh.geometryRange.runtimeExtent ? 0 :
             uint64_t(mesh.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
             uint64_t(mesh.indexCapacity) * sizeof(uint32_t) + uint64_t(mesh.primitiveCapacity) * sizeof(nri_scene::PrimitiveData);
         const uint64_t bytes = physicalBytes + ordinaryRangeBytes;
@@ -260,7 +283,7 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
         if (found == meshVariantResources.end()) continue;
         auto& resource = found->second;
         NoteCacheMeshEviction(candidate.key, frameIndex, phase, pinnedMeshes.count(candidate.key) != 0);
-        reusableBytes += resource.geometryRange.overflowPage ? 0 : uint64_t(resource.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
+        reusableBytes += resource.geometryRange.overflowPage || resource.geometryRange.runtimeExtent ? 0 : uint64_t(resource.vertexCapacity) * sizeof(nri_scene::SceneVertex) +
             uint64_t(resource.indexCapacity) * sizeof(uint32_t) + uint64_t(resource.primitiveCapacity) * sizeof(nri_scene::PrimitiveData);
         inactiveMeshBytes -= candidate.bytes;
         if (candidate.warmRank) warmMeshBytes -= candidate.bytes;
