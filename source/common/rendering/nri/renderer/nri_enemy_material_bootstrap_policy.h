@@ -2,6 +2,18 @@
 
 #include <cstdint>
 
+namespace nri { struct AdapterDesc; }
+
+// Use dedicated capacity for the tier. The driver's live budget prices each
+// allocation separately and can contract even on a large adapter.
+constexpr bool NRIShouldPreloadOpeningEnemyMaterials(int mode, bool discrete, uint64_t dedicatedBytes)
+{
+    constexpr uint64_t fourGiB = 4ull * 1024 * 1024 * 1024;
+    return mode == 1 || (mode == 2 && discrete && dedicatedBytes > 0 && dedicatedBytes <= fourGiB);
+}
+
+void PrintNRIOpeningEnemyMaterialPolicy(const nri::AdapterDesc& adapter);
+
 // Conservative pre-publication backing. Existing holes are deliberately not
 // credited: the allocator remains the authority when each family commits.
 struct NRIEnemyMaterialBootstrapPlan

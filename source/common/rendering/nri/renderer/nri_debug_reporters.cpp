@@ -8,6 +8,7 @@
 #include "../system/nri_renderdevice.h"
 #include "nri_actor_sprite_diagnostics.h"
 #include "nri_diagnostic_names.h"
+#include "nri_enemy_material_bootstrap_policy.h"
 #include "nri_frame_graph.h"
 #include "nri_renderer_settings.h"
 #include "nri_shader_contracts.h"
@@ -295,6 +296,8 @@ void NRIRenderer::SetSelfTestRouteSnapshot(const char* routeName, const char* pr
 
 void NRIRenderer::PrintStatus()
 {
+	if (mFrameBuffer && mFrameBuffer->mDevice)
+		PrintNRIOpeningEnemyMaterialPolicy(mFrameBuffer->mCore.GetDeviceDesc(*mFrameBuffer->mDevice).adapterDesc);
 	NRISyncLegacyUpscalerConfig(false);
 	const NRIMainUpscalerKind requestedMain = GetSelectedMainUpscalerKind();
 	const NRIMainUpscalerKind resolvedMain = GetResolvedMainUpscalerKindForStatus();

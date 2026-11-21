@@ -8,20 +8,40 @@
 #include "../system/nri_renderdevice.h"
 #include "actor_presentation_snapshot.h"
 #include "perf_audit.h"
+#include "printf.h"
 
 #include <algorithm>
 #include <cstdio>
 
-CVAR(Bool, nri_ptvoxelopeningmaterials, false, 0)
+// 0 disables opening backing, 1 explicitly requests it, 2 selects by adapter.
+CVAR(Int, nri_ptvoxelopeningmaterials, 2, 0)
 EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
+
+static bool OpeningEnemyMaterialsEligible(const nri::AdapterDesc& adapter)
+{
+    const int mode = nri_ptvoxelopeningmaterials;
+    if (mode == 2 && (!(bool)r_voxels || !(bool)nri_ptvoxelallocationbudget || (bool)nri_ptvoxelcomputepreloadstrict))
+        return false;
+    return (bool)nri_ptenemystablerepresentation && (bool)nri_ptactorspritefallback &&
+        NRIShouldPreloadOpeningEnemyMaterials(mode, adapter.architecture == nri::Architecture::DESCRETE, adapter.videoMemorySize);
+}
+
+void PrintNRIOpeningEnemyMaterialPolicy(const nri::AdapterDesc& adapter)
+{
+    Printf("NRI voxel opening materials: mode=%d discrete=%s dedicated_bytes=%llu eligible=%s\n",
+        (int)nri_ptvoxelopeningmaterials, adapter.architecture == nri::Architecture::DESCRETE ? "yes" : "no",
+        (unsigned long long)adapter.videoMemorySize, OpeningEnemyMaterialsEligible(adapter) ? "yes" : "no");
+}
 
 void NRIRenderer::PreloadOpeningEnemyMaterialBacking()
 {
     auto& voxels = mPersistentVoxels;
     const uint64_t build = mMapWorld.buildSerial;
-    if (!(bool)nri_ptvoxelopeningmaterials || !(bool)nri_ptenemystablerepresentation || !(bool)nri_ptactorspritefallback ||
-        !build || voxels.openingEnemyMaterialBuild == build || voxels.retentionQuarantined ||
+    if (!build || voxels.openingEnemyMaterialBuild == build || voxels.retentionQuarantined ||
         !mFrameBuffer || !mFrameBuffer->mDevice || voxels.materialBuffer.buffer) return;
+    auto& core = mFrameBuffer->mCore;
+    const auto& device = core.GetDeviceDesc(*mFrameBuffer->mDevice);
+    if (!OpeningEnemyMaterialsEligible(device.adapterDesc)) return;
     voxels.openingEnemyMaterialBuild = build;
     constexpr uint32_t stride = sizeof(nri_scene::MaterialData);
     constexpr uint32_t slots = nri_scene::VoxelPaletteMaterialSlotCount;
@@ -87,8 +107,6 @@ void NRIRenderer::PreloadOpeningEnemyMaterialBacking()
     };
     if (!plan.extraRows) { report("no-opening-demand"); return; }
     if (!required) { report("capacity-limit"); return; }
-    auto& core = mFrameBuffer->mCore;
-    const auto& device = core.GetDeviceDesc(*mFrameBuffer->mDevice);
     if (!before.liveAvailable || !core.GetBufferMemoryDesc2 || !device.features.getMemoryDesc2 ||
         (device.memory.bufferMaxSize && required > device.memory.bufferMaxSize)) { report("requirements-unavailable"); return; }
     nri::BufferDesc desc = {};
