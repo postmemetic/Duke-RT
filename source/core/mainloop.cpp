@@ -633,7 +633,7 @@ static bool TickPendingPathTracingLevelPreloadGate()
 	}
 
 	FinalizePendingLevelStart();
-	LevelLoadingProgress::SetStage(LevelLoadingProgress::Stage::FirstFrame);
+	LevelLoadingProgress::HoldLastCaption();
 	nri_scene::SetPersistentVoxelActorStartupTransientMode(true, "await-first-level-frame");
 	gPathTracingLevelPreloadFinalCheckNeeded = true;
 	gPathTracingLevelPreloadFirstLevelFrameCaptured = false;

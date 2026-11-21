@@ -1117,7 +1117,6 @@ Reading map data,TXT_LOAD_MAPDATA,,,,,,,,,,,,,,,,,,,,,,,,,,,
 Preparing geometry,TXT_LOAD_GEOMETRY,,,,,,,,,,,,,,,,,,,,,,,,,,,
 Preparing voxel actors,TXT_LOAD_ACTORS,,,,,,,,,,,,,,,,,,,,,,,,,,,
 Preparing materials,TXT_LOAD_MATERIALS,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Preparing first frame,TXT_LOAD_FIRSTFRAME,,,,,,,,,,,,,,,,,,,,,,,,,,,
 Loading User Map,TXT_LOADUM,,,,Načítání uživ. mapy,Indlæser brugerkort,Lade Benutzerlevel,,,Cargando mapa de usuario,,Ladataan,Charger carte joueur...,,Egyéni Pálya Betöltése,Caricamento mappa esterna,,,Laden van de gebruikerskaart,Laster inn brukerkart,Ładowanie Mapy Użytkownika,Carregando mapa de usuário,,Harta de Utilizatori Se Încarcă,Загрузка карты пользователя,,Laddar användarkarta,Kullanıcı Haritası Yükleniyor
 Entering,TXT_ENTERING,,,,Vstupuješ do,Indtastning af,Betrete,,Enirante,Entrando a:,,Seuraava kohde,Niveau Suivant,,Töltődik,Prossimo livello,突入開始,입장,Invoeren,Går inn,Wchodzisz,Próxima fase,Próximo nível,Începe,Переход,Следећи ниво,Ingång till,Giriş
 Multiplayer Totals,Multiplayer Totals,,,,Výsledky multiplayeru,Multiplayer totaler,Mehrspielerergebnis,,,,,Moninpelin kokonaissummat,Totaux multijoueurs,,Többjátékos Totálok,Statistiche multigiocatore,,,Multiplayer Totalen,Flerspiller-totaler,Wyniki Trybu Wieloosobowego,Resultados da partida,,Totalurile Jocului Online,Итоги сетевой игры,,Totalsummor för flera spelare,Çok Oyunculu Toplamlar
