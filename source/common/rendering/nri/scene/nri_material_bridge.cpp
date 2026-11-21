@@ -898,7 +898,9 @@ namespace
 			{
 				metadata.lightingFlags |= MaterialLightingFlag_TextureAutoGlowing;
 			}
-			if (lightingTexture->GetGlowmap() != nullptr)
+			// A chosen glow layer counts too: a DEF replacement's glow map on a tile
+			// that has no Duke-RT glow overlay of its own.
+			if (lightingTexture->GetGlowmap() != nullptr || glowmapTextureIndex != UINT32_MAX)
 			{
 				metadata.lightingFlags |= MaterialLightingFlag_HasGlowmap;
 				metadata.glowmapContentKey = glowmapContentKey;
