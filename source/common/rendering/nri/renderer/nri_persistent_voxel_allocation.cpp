@@ -514,7 +514,7 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         reclaimSignature = nri_scene::HashCombine64(reclaimSignature, uint64_t(flags));
         reclaimSignature = nri_scene::HashCombine64(reclaimSignature, privateBuildInputs);
         const auto reuseFloor = BuildNRIPersistentVoxelAllocationBudget(budget.usageBytes, budget.budgetBytes,
-            NRIVoxelComputeSaturatingAdd(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes), reserve);
+            NRIVoxelComputeSaturatingAdd(predictedBytes - std::min(predictedBytes, newArenaBytes), provider.bytes), ordinaryReserve);
         reclaimSignature = nri_scene::HashCombine64(reclaimSignature, reuseFloor.fits);
         if (reclaimEnabled && !candidateFits && arena.admissionReclaim.Suppress(mesh.resourceKey, requestedRows,
             arena.reclaimGeometryRevision, growsArena, reclaimSignature))
