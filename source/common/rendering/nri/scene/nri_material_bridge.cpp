@@ -1106,12 +1106,19 @@ namespace
 		FTexture* const tileMetallic = materialRef.texture != nullptr ? materialRef.texture->GetMetallic() : nullptr;
 		FTexture* const tileNormal = materialRef.texture != nullptr ? materialRef.texture->GetNormalmap() : nullptr;
 		FTexture* const tileRoughness = materialRef.texture != nullptr ? materialRef.texture->GetRoughness() : nullptr;
-		FTexture* const glowLayer = hightile != nullptr && hightile->GetGlowmap() != nullptr ? hightile->GetGlowmap() : tileGlow;
-		FTexture* const metallicLayer = hightile != nullptr && hightile->GetMetallic() != nullptr ? hightile->GetMetallic() : tileMetallic;
-		FTexture* const normalLayer = hightile != nullptr && hightile->GetNormalmap() != nullptr ? hightile->GetNormalmap() : tileNormal;
-		// Roughness: DEF roughness, else Duke-RT's authored roughness, else a DEF
+		// nri_hightiledeflayers picks the winner when both sources have a layer.
+		const bool preferDef = nri_hightiledeflayers;
+		auto pick = [preferDef](FTexture* fromDef, FTexture* fromTile) -> FTexture*
+		{
+			if (preferDef) return fromDef != nullptr ? fromDef : fromTile;
+			return fromTile != nullptr ? fromTile : fromDef;
+		};
+		FTexture* const glowLayer = pick(hightile != nullptr ? hightile->GetGlowmap() : nullptr, tileGlow);
+		FTexture* const metallicLayer = pick(hightile != nullptr ? hightile->GetMetallic() : nullptr, tileMetallic);
+		FTexture* const normalLayer = pick(hightile != nullptr ? hightile->GetNormalmap() : nullptr, tileNormal);
+		// Roughness: authored roughness (DEF or Duke-RT, per the cvar), else a DEF
 		// specular map converted (1 - luminance) as the last resort.
-		FTexture* const roughnessLayer = hightile != nullptr && hightile->GetRoughness() != nullptr ? hightile->GetRoughness() : tileRoughness;
+		FTexture* const roughnessLayer = pick(hightile != nullptr ? hightile->GetRoughness() : nullptr, tileRoughness);
 		FTexture* const specularForRoughness = roughnessLayer == nullptr && hightile != nullptr ? hightile->GetSpecularmap() : nullptr;
 		// Replacements get a mip chain (indexed tiles get palette-aware mips); the
 		// primary hit picks a LOD from the texture's own mip count.

@@ -112,6 +112,14 @@ namespace
 
 // Moved from source/common/rendering/nri/system/nri_renderdevice.cpp
 
+// DEF hightile replacements: which auxiliary layer wins when both the DEF
+// replacement and Duke-RT's own material overlays provide one (normal, glow,
+// metallic, roughness). true = DEF layers, false = Duke-RT layers. Missing
+// layers always fall back to the other source. Applies when materials rebuild
+// (e.g. on map load). Default false: Duke-RT's normal maps (from the World Tour
+// textures) give metal its reflections; e.g. the Duke HRP's normals flatten them.
+CVAR(Bool, nri_hightiledeflayers, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
 CVAR(Bool, nri_ptsanity, false, 0)
 
 CVAR(Bool, nri_ptscenedataring, true, 0)
