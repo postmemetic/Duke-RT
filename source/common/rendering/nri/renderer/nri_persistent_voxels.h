@@ -1519,6 +1519,7 @@ public:
 	std::vector<NRIPersistentVoxelMaterialRangeHandle> quarantinedMaterialRanges;
 	NRIPersistentVoxelMaterialUploadMirror materialUploadMirror;
 	uint64_t arenaPresizeBuildSerial = 0;
+	bool arenaUsesRequiredLayout = false;
 	NRIVoxelStartupFamilyBudget startupFamilyBudget;
 	uint64_t blasPolicyTraceBuildSerial = 0;
 	uint64_t materialResourceGeneration = 1;

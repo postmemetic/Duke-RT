@@ -234,6 +234,35 @@ NRIPersistentVoxelAllocationResult NRIRenderer::PreparePersistentVoxelGeometryAl
         uint64_t(arena.arenaIndexCursor) * sizeof(uint32_t) > arena.indexBuffer.size ||
         uint64_t(arena.arenaPrimitiveCursor) * sizeof(nri_scene::PrimitiveData) > arena.primitiveBuffer.size);
     if (familyRecovery && (growsArena || overflow || privateBuildInputs)) return Result::DeferredFamilyGrowth;
+    // A funded required-cohort reservation can fill unused space with optional
+    // preloads. Hand the intact optional queue to gameplay at its first spill.
+    if (growsArena && !intent.runtimePump && !intent.Required() && !intent.ownsWork &&
+        intent.origins == uint8_t(NRIVoxelAdmissionOrigin::Preload) && (bool)r_voxels && (bool)nri_ptactorspritefallback &&
+        !(bool)nri_ptvoxelcomputepreloadstrict && arena.arenaUsesRequiredLayout &&
+        arena.arenaPresizeBuildSerial == mMapWorld.buildSerial && mMapWorld.buildSerial)
+    {
+        const auto& active = arena.admissionIndex.ActiveKeys();
+        const bool requiredPending = std::any_of(active.begin(), active.end(), [&](uint64_t key)
+        {
+            const auto entry = arena.admissionQueue.find(key);
+            return entry != arena.admissionQueue.end() && (arena.IsRequiredAdmission(entry->second) ||
+                entry->second.requiredPreload || entry->second.preloadInputHints.HasObligation());
+        });
+        if (!requiredPending)
+        {
+            if (PerfAuditActive())
+            {
+                char fields[240];
+                std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"map_epoch\":%llu,\"mesh_key\":%llu,"
+                    "\"requested_rows\":[%u,%u,%u],\"active_bindings\":%zu", mFrameIndex,
+                    (unsigned long long)mMapWorld.buildSerial, (unsigned long long)mesh.resourceKey,
+                    vertexCount, indexCount, primitiveCount, active.size());
+                PerfAuditWriteEvent("voxel_required_layout_handoff", PerfAuditCurrentToken(), fields);
+            }
+            arena.preloadHandoff.ObserveBudgetDenial(mMapWorld.buildSerial);
+            return Result::DeferredBudget;
+        }
+    }
     const uint64_t reserve = uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024;
     const bool mayYield = intent.MayYield();
     const char* optionalReason = !mayYield ? intent.Kind() : !growsArena ? "existing-or-small" : "disabled";
