@@ -20,9 +20,9 @@ void NRIRenderer::PreloadOpeningEnemyMaterialBacking()
     auto& voxels = mPersistentVoxels;
     const uint64_t build = mMapWorld.buildSerial;
     if (!(bool)nri_ptvoxelopeningmaterials || !(bool)nri_ptenemystablerepresentation || !(bool)nri_ptactorspritefallback ||
-        !build || mOpeningEnemyMaterialBuild == build || voxels.retentionQuarantined ||
+        !build || voxels.openingEnemyMaterialBuild == build || voxels.retentionQuarantined ||
         !mFrameBuffer || !mFrameBuffer->mDevice || voxels.materialBuffer.buffer) return;
-    mOpeningEnemyMaterialBuild = build;
+    voxels.openingEnemyMaterialBuild = build;
     constexpr uint32_t stride = sizeof(nri_scene::MaterialData);
     constexpr uint32_t slots = nri_scene::VoxelPaletteMaterialSlotCount;
     const auto settings = BuildNRIPersistentVoxelSettingsFromCVars();

@@ -1520,6 +1520,7 @@ public:
 	NRIPersistentVoxelMaterialUploadMirror materialUploadMirror;
 	uint64_t arenaPresizeBuildSerial = 0;
 	bool arenaUsesRequiredLayout = false;
+	uint64_t openingEnemyMaterialBuild = 0;
 	NRIVoxelStartupFamilyBudget startupFamilyBudget;
 	uint64_t blasPolicyTraceBuildSerial = 0;
 	uint64_t materialResourceGeneration = 1;

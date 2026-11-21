@@ -2983,7 +2983,6 @@ private:
 	NRISurfaceLightOverlayCache mSurfaceLightOverlayCache;
 	DynamicSceneFrameState mDynamicSceneLastFrame = {};
 	NRIPersistentVoxelResidency mPersistentVoxels;
-	uint64_t mOpeningEnemyMaterialBuild = 0;
 	NRIActorRepresentations mActorRepresentations;
 	NRIVoxelRepresentationPolicy mVoxelRepresentationPolicy;
 	StateCommitDomainGenerations mLastStateCommitDomainGenerations = {};

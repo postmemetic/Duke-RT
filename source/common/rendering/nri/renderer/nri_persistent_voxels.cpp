@@ -3929,6 +3929,9 @@ void NRIPersistentVoxelResidency::DestroyArenaBuffers(const NRIPersistentVoxelDe
 	services.DestroyBuffer(indexBuffer);
 	services.DestroyBuffer(primitiveBuffer);
 	services.DestroyBuffer(materialBuffer);
+	arenaPresizeBuildSerial = 0;
+	arenaUsesRequiredLayout = false;
+	openingEnemyMaterialBuild = 0;
 	materialUploadMirror.Reset();
 	for (auto& pair : materialVariantResources)
 	{
@@ -10293,6 +10296,8 @@ void NRIPersistentVoxelResidency::Reset(
 	materialRangeCompactions = 0;
 	materialRangeCompactedRows = 0;
 	arenaPresizeBuildSerial = 0;
+	arenaUsesRequiredLayout = false;
+	openingEnemyMaterialBuild = 0;
 	startupFamilyBudget = {};
 	blasPolicyTraceBuildSerial = 0;
 	for (auto& pair : meshVariantResources)
