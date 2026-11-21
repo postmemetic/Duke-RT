@@ -676,25 +676,89 @@ namespace
 		}
 	}
 
-	// Baked uploads carry their own pixels, so RealizeTextureUploadPayload (which
-	// only runs for empty payloads) never rebuilds them from the unbaked source.
-	// BuildMaterials runs many times (every material rebuild, voxel/emissive caches),
-	// and textureLookup only lives for one build. Decoding + baking a hi-res DEF
-	// image on each build made HRP scenes crawl, so baked payloads are kept for the
-	// process lifetime, like gIndexedMipVariantCache. Payload copies share storage.
-	struct BakedTextureCacheEntry
+	uint32_t ComputeFullMipCount(uint32_t width, uint32_t height)
 	{
-		uint64_t contentKey = 0;
-		uint32_t width = 0;
-		uint32_t height = 0;
-		ImmutableBytePayload pixels;
-	};
-	std::unordered_map<uint64_t, BakedTextureCacheEntry> gBakedTextureCache;
-	std::mutex gBakedTextureCacheMutex;
+		uint32_t count = 1;
+		while (width > 1 || height > 1)
+		{
+			width = (std::max)(1u, width / 2u);
+			height = (std::max)(1u, height / 2u);
+			count++;
+		}
+		return count;
+	}
 
-	uint32_t EnsureBakedTextureUploadIndex(FTexture* texture, const ReplacementBake& bake, std::unordered_map<uint64_t, uint32_t>& textureLookup, MaterialBridgeData& outMaterials)
+	// Appends mips 1..mipCount-1 after mip 0 (tightly packed BGRA, the layout
+	// BuildSceneTextureSubresources expects; level sizes halve with max(1, n / 2)).
+	// 2x2 box filter weighted by alpha, so fully transparent texels (often black)
+	// don't darken the edges of cut-out textures like fences.
+	void AppendBgraMipChain(std::vector<uint8_t>& pixels, uint32_t width, uint32_t height, uint32_t mipCount)
 	{
-		const uint64_t lookupKey = MakeTextureKey(texture, false) ^ bake.key();
+		size_t srcOffset = 0;
+		uint32_t srcWidth = width;
+		uint32_t srcHeight = height;
+		for (uint32_t mip = 1; mip < mipCount; mip++)
+		{
+			const uint32_t dstWidth = (std::max)(1u, srcWidth / 2u);
+			const uint32_t dstHeight = (std::max)(1u, srcHeight / 2u);
+			const size_t dstOffset = pixels.size();
+			pixels.resize(dstOffset + (size_t)dstWidth * dstHeight * 4u);
+			for (uint32_t y = 0; y < dstHeight; y++)
+			{
+				for (uint32_t x = 0; x < dstWidth; x++)
+				{
+					float weighted[3] = { 0.0f, 0.0f, 0.0f };
+					float plain[3] = { 0.0f, 0.0f, 0.0f };
+					float alphaSum = 0.0f;
+					for (uint32_t dy = 0; dy < 2; dy++)
+					{
+						for (uint32_t dx = 0; dx < 2; dx++)
+						{
+							const uint32_t sx = (std::min)(x * 2u + dx, srcWidth - 1u);
+							const uint32_t sy = (std::min)(y * 2u + dy, srcHeight - 1u);
+							const uint8_t* s = &pixels[srcOffset + ((size_t)sy * srcWidth + sx) * 4u];
+							const float a = s[3] / 255.0f;
+							for (int c = 0; c < 3; c++)
+							{
+								weighted[c] += s[c] * a;
+								plain[c] += s[c];
+							}
+							alphaSum += a;
+						}
+					}
+					uint8_t* d = &pixels[dstOffset + ((size_t)y * dstWidth + x) * 4u];
+					for (int c = 0; c < 3; c++)
+					{
+						const float v = alphaSum > 0.0f ? weighted[c] / alphaSum : plain[c] * 0.25f;
+						d[c] = (uint8_t)clamp(v + 0.5f, 0.0f, 255.0f);
+					}
+					d[3] = (uint8_t)clamp(alphaSum * 0.25f * 255.0f + 0.5f, 0.0f, 255.0f);
+				}
+			}
+			srcOffset = dstOffset;
+			srcWidth = dstWidth;
+			srcHeight = dstHeight;
+		}
+	}
+}
+
+namespace nri_scene
+{
+	struct TextureUploadTransform
+	{
+		ReplacementBake bake;
+	};
+}
+
+namespace
+{
+	// DEF replacement uploads (bake and/or mip chain) are deferred like ordinary
+	// true-color textures: the key identifies the result without decoding, and
+	// RealizeTextureUploadPayload does the work only on a GPU texture cache miss.
+	// (Doing it per BuildMaterials call, which runs often, made HRP scenes crawl.)
+	uint32_t EnsureTransformedTextureUploadIndex(FTexture* texture, const ReplacementBake& bake, bool generateMips, std::unordered_map<uint64_t, uint32_t>& textureLookup, MaterialBridgeData& outMaterials)
+	{
+		const uint64_t lookupKey = HashCombine64(MakeTextureKey(texture, false) ^ bake.key(), generateMips ? 0x4d4950u : 0u);
 		auto it = textureLookup.find(lookupKey);
 		if (it != textureLookup.end())
 		{
@@ -706,40 +770,16 @@ namespace
 		TextureUpload upload = {};
 		upload.sourceTexture = texture;
 		upload.key = lookupKey;
-
-		BakedTextureCacheEntry cached;
-		bool found = false;
+		upload.indexed = false;
+		if (texture != nullptr && texture->GetWidth() > 0 && texture->GetHeight() > 0)
 		{
-			std::lock_guard<std::mutex> lock(gBakedTextureCacheMutex);
-			auto hit = gBakedTextureCache.find(lookupKey);
-			if (hit != gBakedTextureCache.end())
-			{
-				cached = hit->second;
-				found = true;
-			}
+			upload.width = (uint32_t)texture->GetWidth();
+			upload.height = (uint32_t)texture->GetHeight();
+			upload.mipCount = generateMips ? ComputeFullMipCount(upload.width, upload.height) : 1u;
 		}
-		if (!found)
-		{
-			FTextureBuffer texBuffer = texture->CreateTexBuffer(0, CTF_ProcessData);
-			if (texBuffer.mBuffer != nullptr && texBuffer.mWidth > 0 && texBuffer.mHeight > 0)
-			{
-				cached.width = (uint32_t)texBuffer.mWidth;
-				cached.height = (uint32_t)texBuffer.mHeight;
-				std::vector<uint8_t> pixels(texBuffer.mBuffer, texBuffer.mBuffer + (size_t)cached.width * cached.height * 4u);
-				ApplyBake(pixels.data(), cached.width, cached.height, bake);
-				cached.contentKey = Fnv1a64(pixels.data(), pixels.size()) ^ (((uint64_t)cached.width << 32) | cached.height);
-				cached.pixels.Assign(std::move(pixels), cached.contentKey);
-			}
-			std::lock_guard<std::mutex> lock(gBakedTextureCacheMutex);
-			gBakedTextureCache.emplace(lookupKey, cached);
-		}
-		if (cached.width > 0)
-		{
-			upload.width = cached.width;
-			upload.height = cached.height;
-			upload.pixels = cached.pixels;
-			upload.key = cached.contentKey;
-		}
+		auto transform = std::make_shared<TextureUploadTransform>();
+		transform->bake = bake;
+		upload.transform = std::move(transform);
 		outMaterials.textures.push_back(std::move(upload));
 		return textureIndex;
 	}
@@ -1073,8 +1113,10 @@ namespace
 		// specular map converted (1 - luminance) as the last resort.
 		FTexture* const roughnessLayer = hightile != nullptr && hightile->GetRoughness() != nullptr ? hightile->GetRoughness() : tileRoughness;
 		FTexture* const specularForRoughness = roughnessLayer == nullptr && hightile != nullptr ? hightile->GetSpecularmap() : nullptr;
-		material.textureIndex = bake.active() ?
-			EnsureBakedTextureUploadIndex(baseColorTexture->GetTexture(), bake, textureLookup, outMaterials) :
+		// Replacements get a mip chain (indexed tiles get palette-aware mips); the
+		// primary hit picks a LOD from the texture's own mip count.
+		material.textureIndex = hightile != nullptr ?
+			EnsureTransformedTextureUploadIndex(baseColorTexture->GetTexture(), bake, (material.flags & MaterialFlag_PointSampled) == 0, textureLookup, outMaterials) :
 			EnsureTextureUploadIndex(
 				baseColorTexture,
 				indexed,
@@ -1132,7 +1174,7 @@ namespace
 			// stay unused as before): roughness = 1 - specular luminance.
 			ReplacementBake specBake;
 			specBake.specularToRoughness = true;
-			roughnessTextureIndex = EnsureBakedTextureUploadIndex(specularForRoughness, specBake, textureLookup, outMaterials);
+			roughnessTextureIndex = EnsureTransformedTextureUploadIndex(specularForRoughness, specBake, false, textureLookup, outMaterials);
 			roughnessContentKey = outMaterials.textures[roughnessTextureIndex].key;
 			outMaterials.materials.back().roughnessTextureIndex = roughnessTextureIndex;
 		}
@@ -1188,6 +1230,39 @@ bool RealizeTextureUploadPayload(const TextureUpload& upload, std::vector<uint8_
 	outPixels.clear();
 	outWidth = 0;
 	outHeight = 0;
+
+	if (upload.transform != nullptr)
+	{
+		// DEF replacement: decode, bake (tint/detail/specular->roughness), mips.
+		if (upload.sourceTexture == nullptr)
+		{
+			return false;
+		}
+		FTextureBuffer texBuffer = upload.sourceTexture->CreateTexBuffer(0, CTF_ProcessData);
+		if (texBuffer.mBuffer == nullptr || texBuffer.mWidth <= 0 || texBuffer.mHeight <= 0)
+		{
+			return false;
+		}
+		const uint32_t width = (uint32_t)texBuffer.mWidth;
+		const uint32_t height = (uint32_t)texBuffer.mHeight;
+		// The uploader sizes the mip chain from upload.width/height/mipCount.
+		if (upload.mipCount > 1 && (width != upload.width || height != upload.height))
+		{
+			return false;
+		}
+		outPixels.assign(texBuffer.mBuffer, texBuffer.mBuffer + (size_t)width * height * 4u);
+		if (upload.transform->bake.active())
+		{
+			ApplyBake(outPixels.data(), width, height, upload.transform->bake);
+		}
+		if (upload.mipCount > 1)
+		{
+			AppendBgraMipChain(outPixels, width, height, upload.mipCount);
+		}
+		outWidth = width;
+		outHeight = height;
+		return !outPixels.empty();
+	}
 
 	// Palette-aware mip variants are immutable packed payloads. Recreating only
 	// mip 0 from the source texture would silently change the upload contract.
