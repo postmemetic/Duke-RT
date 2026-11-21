@@ -50,5 +50,5 @@ inline NRIVoxelPageSweepChoice NRIPriceColdPageSweep(const std::vector<NRIVoxelS
     return choice;
 }
 
-void NRIConsiderColdPageSweep(std::vector<NRIVoxelSweepCandidate>& ordered, uint64_t pageKey,
+void NRIAuditColdPageSweep(const std::vector<NRIVoxelSweepCandidate>& ordered, uint64_t pageKey,
     uint64_t generation, uint64_t target, uint32_t frame, uint32_t grace);

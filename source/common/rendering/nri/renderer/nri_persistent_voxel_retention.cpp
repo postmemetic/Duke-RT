@@ -239,8 +239,8 @@ void NRIPersistentVoxelResidency::MaintainInactiveCache(const char* phase, uint3
     const auto meshTrim = ResolveNRIVoxelInactiveMeshTrim(
         configuredMeshLimit, inactiveMeshBytes, pressure && !warmPolicy, authoritativeEmptyAfterWait);
     if (pressure && warmPolicy && !authoritativeEmptyAfterWait && configuredMeshLimit < 0 &&
-        (int)nri_ptvoxeloverflowpage == 2 && overflowPage.Published())
-        NRIConsiderColdPageSweep(meshes, overflowPage.Owner(), overflowPage.PublishedGeneration(),
+        (int)nri_ptvoxeloverflowpage == 2 && overflowPage.Published() && (bool)nri_ptvoxelmeshlifetrace && PerfAuditActive())
+        NRIAuditColdPageSweep(meshes, overflowPage.Owner(), overflowPage.PublishedGeneration(),
             warmRetentionPressure.reclaimBytes, frameIndex, grace);
     // Releasing palette aliases/CPU vectors creates reusable rows, not released
     // device backing. Honor their bounds without purging them for VRAM pressure.
