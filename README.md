@@ -13,7 +13,9 @@ Duke-RT is a fork of Raze that adds a new ray-tracing render backend based on [N
 
 The renderer supports both Direct3D 12 and Vulkan, although feature support is more complete for D3D12. It's recommended that you play in D3D12 and HDR if possible!
 
-Initial AMD support includes path tracing with FSR or native rendering. Volumetric smoke and fog are disabled on AMD GPUs while I work on fixes for them.
+Fresh installs use the **Hardware Recommended** graphics profile in SDR. On a GeForce RTX 5070 Ti this selects DLSS Ray Reconstruction at Balanced quality. On a 4 GB Radeon RX 6500 XT under Direct3D 12 it selects FSR Ultra Performance with RELAX denoising. You can also select Hardware Recommended in the graphics menu of an existing installation.
+
+The renderer targets 8 GB or more of VRAM. On 4 GB cards, enemies can appear as sprites while voxel assets load or when a family of voxel poses exceeds the available memory. AMD supports path tracing with FSR where the provider is available, and native rendering on the Linux build. Volumetric smoke and fog remain disabled on AMD GPUs.
 
 ![Duke-RT gameplay](images/1.png)
 

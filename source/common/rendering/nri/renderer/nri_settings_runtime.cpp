@@ -68,6 +68,8 @@ void NRIRefreshSettingsAvailability(const NRIRenderDevice& device)
 		nri_ptsmoke = false;
 		ReportFallback("nri_ptsmoke", 0, reason);
 	}
+	if (!previous.deviceKnown)
+		NRIInitializeSettingsDefaults(gCapabilities);
 	const auto upscalerReason = NRIGetSettingUnavailableReason("nri_upscaler", nri_upscaler);
 	if (!upscalerReason.empty())
 	{

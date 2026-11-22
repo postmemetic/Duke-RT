@@ -12,7 +12,7 @@ namespace
 		"Warning: Ray reconstruction is recommended due to visual bugs with other upscalers/denoisers";
 	bool gSkipInitialProfileApply = true;
 	bool gSetProfileIndexOnly = false;
-	int gPreviousProfile = 0;
+	int gPreviousProfile = kNRIHardwareRecommended;
 
 	void SyncProfileWarning(const NRISettingsProfilePreset& preset)
 	{
@@ -26,10 +26,10 @@ namespace
 			nri_profile::Begin(preset.name);
 		SyncProfileWarning(preset);
 		nri_upscaler = preset.upscaler;
-		nri_postsharpen = 0;
+		nri_postsharpen = plan.nativeTemporalAA ? 1 : 0;
 		nri_upscalermode = preset.upscalerMode;
 		nri_ptoutputmode = preset.outputMode;
-		nri_pttaa = false;
+		nri_pttaa = plan.nativeTemporalAA;
 		nri_denoise = preset.denoise;
 		nri_nrddenoiser = 1; // RELAX
 		nri_validation = false;
@@ -46,7 +46,7 @@ namespace
 
 CVAR(String, nri_settingsprofilewarning, "Warning: Ray reconstruction is recommended due to visual bugs with other upscalers/denoisers", CVAR_GLOBALCONFIG)
 
-CUSTOM_CVAR(Int, nri_settingsprofile, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Int, nri_settingsprofile, kNRIHardwareRecommended, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (gSetProfileIndexOnly)
 		return;
@@ -71,10 +71,40 @@ CUSTOM_CVAR(Int, nri_settingsprofile, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	if (gSkipInitialProfileApply)
 	{
 		gSkipInitialProfileApply = false;
+		// Command-line and autoexec settings are read after device creation.
+		// Resolve any defaults that depend on their final provider as well.
+		const auto caps = NRIGetSettingsCapabilities();
+		if (caps.deviceKnown) NRIInitializeSettingsDefaults(caps);
 		return;
 	}
 	// The complete plan is checked before touching any constituent setting.
 	ApplyProfile(plan);
+}
+
+void NRIInitializeSettingsDefaults(const NRISettingsCapabilities& capabilities)
+{
+	// Config, recovery and console writes clear CVAR_ISDEFAULT. The CVar default
+	// setter fills missing values while retaining those explicit choices.
+	auto plan = NRIBuildSettingsProfilePlan(capabilities, nri_settingsprofile);
+	bool recommended = nri_settingsprofile == kNRIHardwareRecommended;
+	if (!plan.unavailableReason.empty())
+	{
+		plan = NRIBuildSettingsProfilePlan(capabilities, kNRIHardwareRecommended);
+		recommended = true;
+	}
+	const auto& preset = plan.preset;
+	nri_upscaler->SetGenericRepDefault(preset.upscaler, CVAR_Int);
+	// A saved provider from another GPU is reconciled by the settings runtime.
+	int provider = nri_upscaler;
+	if (!NRIEvaluateSettingAvailability(capabilities, "nri_upscaler", provider).empty())
+		provider = capabilities.fsr ? 4 : 0;
+	const bool native = recommended && provider <= 1;
+	nri_upscalermode->SetGenericRepDefault(recommended ? NRIRecommendedUpscalerMode(capabilities, provider) : preset.upscalerMode, CVAR_Int);
+	nri_ptoutputmode->SetGenericRepDefault(preset.outputMode, CVAR_Int);
+	nri_denoise->SetGenericRepDefault(provider != 3, CVAR_Bool);
+	nri_pttaa->SetGenericRepDefault(native, CVAR_Bool);
+	nri_postsharpen->SetGenericRepDefault(native ? 1 : 0, CVAR_Int);
+	nri_settingsprofilewarning = provider == 3 ? "" : kMirrorMenuWarning;
 }
 
 void NRIReconcileSettingsProfileAvailability(const NRISettingsCapabilities& capabilities)

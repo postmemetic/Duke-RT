@@ -1,4 +1,5 @@
 #include "nri_renderdevice.h"
+#include "../nri_adapter_memory.h"
 #include "../renderer/nri_settings_availability.h"
 
 #ifdef _WIN32
@@ -32,6 +33,8 @@ NRISettingsCapabilities NRIRenderDevice::BuildSettingsCapabilities() const
 	const auto backend = BuildBackendCapabilities();
 	caps.deviceKnown = true;
 	caps.amd = desc.adapterDesc.vendor == nri::Vendor::AMD;
+	const auto& adapter = desc.adapterDesc;
+	caps.smallDiscreteGpu = NRIIsSmallDiscreteGpu(adapter.architecture == nri::Architecture::DESCRETE, adapter.videoMemorySize);
 	caps.d3d12 = backend.d3d12;
 	caps.presentationKnown = mHasSwapChainDisplayDesc || mSwapChain != nullptr || !mFrameGenerationPresentImages.empty();
 	caps.hdr = mHasSwapChainDisplayDesc && mSwapChainDisplayDesc.isHDR;

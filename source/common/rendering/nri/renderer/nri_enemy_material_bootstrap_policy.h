@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>
+#include "../nri_adapter_memory.h"
 
 namespace nri { struct AdapterDesc; }
 
@@ -8,8 +8,7 @@ namespace nri { struct AdapterDesc; }
 // allocation separately and can contract even on a large adapter.
 constexpr bool NRIShouldPreloadOpeningEnemyMaterials(int mode, bool discrete, uint64_t dedicatedBytes)
 {
-    constexpr uint64_t fourGiB = 4ull * 1024 * 1024 * 1024;
-    return mode == 1 || (mode == 2 && discrete && dedicatedBytes > 0 && dedicatedBytes <= fourGiB);
+    return mode == 1 || (mode == 2 && NRIIsSmallDiscreteGpu(discrete, dedicatedBytes));
 }
 
 void PrintNRIOpeningEnemyMaterialPolicy(const nri::AdapterDesc& adapter);

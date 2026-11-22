@@ -36,7 +36,9 @@ class OptionMenuItemSupportedOption : OptionMenuItemOption
 		Super.SetSelection(choice);
 		Menu.MenuSound("menu/change");
 		Menu.GetCurrentMenu().Close();
-		if (mAction == 'nri_settingsprofile' && choice != 0 && GetSelection() == choice)
+		// The nine named upscaler presets request HDR. Safe Mode and Hardware
+		// Recommended select SDR on every display.
+		if (mAction == 'nri_settingsprofile' && choice >= 1 && choice <= 9 && GetSelection() == choice)
 		{
 			String hdrReason = UnavailableReason('nri_ptoutputmode', 1);
 			if (hdrReason.Length() > 0)

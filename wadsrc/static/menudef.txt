@@ -1644,6 +1644,7 @@ OptionValue NRISettingsProfile
 	7, "Fast Preset - AMD FSR 3"
 	8, "Medium Preset - AMD FSR 3"
 	9, "Beautiful Preset - AMD FSR 3"
+	10, "Hardware Recommended"
 }
 
 OptionValue NRISmokeWorkProfile

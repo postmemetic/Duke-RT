@@ -26,7 +26,16 @@ inline constexpr NRISettingsProfilePreset kNRISettingsProfilePresets[] = {
 	{ "Fast Preset - AMD FSR 3", 4, 3, 1, true, true },
 	{ "Medium Preset - AMD FSR 3", 4, 2, 1, true, true },
 	{ "Beautiful Preset - AMD FSR 3", 4, 0, 1, true, true },
+	{ "Hardware Recommended", 0, 0, 0, true, true },
 };
+
+inline constexpr int kNRIHardwareRecommended = (int)std::size(kNRISettingsProfilePresets) - 1;
+
+inline int NRIRecommendedUpscalerMode(const NRISettingsCapabilities& capabilities, int upscaler)
+{
+	if (upscaler < 2) return 0; // Native
+	return capabilities.smallDiscreteGpu ? 5 : 3; // Ultra Performance or Balanced
+}
 
 inline int NRIClampSettingsProfile(int profile)
 {
@@ -38,6 +47,7 @@ struct NRISettingsProfilePlan
 	NRISettingsProfilePreset preset;
 	std::string unavailableReason;
 	bool sdrFallback = false;
+	bool nativeTemporalAA = false;
 };
 
 // Resolve every prerequisite before the caller changes any CVARs. HDR is a
@@ -45,6 +55,17 @@ struct NRISettingsProfilePlan
 inline NRISettingsProfilePlan NRIBuildSettingsProfilePlan(const NRISettingsCapabilities& capabilities, int profile)
 {
 	NRISettingsProfilePlan plan{ kNRISettingsProfilePresets[NRIClampSettingsProfile(profile)] };
+	if (profile == kNRIHardwareRecommended)
+	{
+		auto& preset = plan.preset;
+		if (capabilities.dlrr) preset.upscaler = 3;
+		else if (capabilities.dlss) preset.upscaler = 2;
+		else if (capabilities.fsr) preset.upscaler = 4;
+		preset.upscalerMode = NRIRecommendedUpscalerMode(capabilities, preset.upscaler);
+		preset.denoise = preset.mirrorWarning = preset.upscaler != 3;
+		plan.nativeTemporalAA = preset.upscaler == 0;
+		return plan;
+	}
 	if (capabilities.deviceKnown)
 		plan.unavailableReason = NRIEvaluateSettingAvailability(capabilities, "nri_settingsprofile", profile);
 	if (plan.preset.outputMode != 0 && capabilities.presentationKnown && !capabilities.hdr)

@@ -22,6 +22,7 @@ struct NRISettingsCapabilities
 	bool framegenNativeQueue = false;
 	bool framegenWindowMode = true;
 	bool smokeEnabled = true;
+	bool smallDiscreteGpu = false;
 };
 
 std::string NRIEvaluateSettingAvailability(const NRISettingsCapabilities& capabilities, const char* setting, int value);
