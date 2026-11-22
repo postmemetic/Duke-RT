@@ -54,8 +54,12 @@ bool PrepareSource(HWDrawInfo& view, const ActorPresentationState& state, tsprit
 	if (!(sprite.cstat2 & CSTAT2_SPRITE_NOANIMATE)) tileUpdatePicnum(texture, state.actorIndex & 16383);
 	sprite.setspritetexture(texture);
 	if (sprite.cstat2 & CSTAT2_SPRITE_FULLBRIGHT) sprite.shade = -127;
-	const auto& poses = state.spriteAnimation.enemyVoxelFamily->textureIds;
-	if (std::find(poses.begin(), poses.end(), texture.GetIndex()) == poses.end()) return false;
+	if (!texture.isValid() || (sprite.cstat & CSTAT_SPRITE_INVISIBLE)) return false;
+	if (state.spriteAnimation.enemy)
+	{
+		const auto& poses = state.spriteAnimation.enemyVoxelFamily->textureIds;
+		if (std::find(poses.begin(), poses.end(), texture.GetIndex()) == poses.end()) return false;
+	}
 	const int voxel = GetExtInfo(texture).tiletovox;
 	if (voxel < 0 || voxel >= MAXVOXELS || !voxmodels[voxel]) return false;
 	HWVoxelActorInputs inputs;
@@ -67,9 +71,8 @@ bool PrepareSource(HWDrawInfo& view, const ActorPresentationState& state, tsprit
 	return prepared.PrepareVoxel(&view, voxmodels[voxel], &sprite, sprite.sectp, voxrotate[voxel], inputs);
 }
 
-bool ValidateCapturedSource(HWDrawInfo& view, const HWSprite& captured, const ActorPresentationState& state)
+bool ValidateCapturedSource(HWDrawInfo& view, const HWSprite& captured, const ActorPresentationState& state, tspritetype sprite)
 {
-	tspritetype sprite = *captured.Sprite;
 	HWSprite prepared = {};
 	if (!PrepareSource(view, state, sprite, prepared) || prepared.voxel != captured.voxel ||
 		sprite.spritetexture() != captured.Sprite->spritetexture() || prepared.palette != captured.palette ||
@@ -78,6 +81,22 @@ bool ValidateCapturedSource(HWDrawInfo& view, const HWSprite& captured, const Ac
 		if (std::abs(prepared.rotmat.get()[i] - captured.rotmat.get()[i]) > 0.001f) return false;
 	return true;
 }
+}
+
+bool ValidateGenericVoxelTemplate(HWDrawInfo& view, const HWSprite& captured, const ActorPresentationState& state,
+	const tspritetype& sprite)
+{
+	return !state.spriteAnimation.enemy && state.spriteAnimation.recipeCertified &&
+		ValidateCapturedSource(view, captured, state, sprite);
+}
+
+bool PublishGenericVoxelTemplate(HWDrawInfo& view, const ActorPresentationState& state, const tspritetype& source,
+	EnemyVoxelSourceSink sink)
+{
+	if (state.spriteAnimation.enemy || !state.spriteAnimation.recipeCertified) return false;
+	tspritetype sprite = source;
+	HWSprite prepared = {};
+	return PrepareSource(view, state, sprite, prepared) && sink(state, prepared);
 }
 
 void ResetEnemyVoxelSources() { sources.clear(); }
@@ -109,7 +128,7 @@ void CaptureEnemyVoxelSource(HWDrawInfo& view, const HWSprite& sprite, const Act
 	if (source.mode == Mode::Sprite) return;
 	if (source.frame == frame && source.root && view.outer != nullptr) return;
 	source.frame = frame; source.root = view.outer == nullptr;
-	if (!ValidateCapturedSource(view, sprite, state))
+	if (!ValidateCapturedSource(view, sprite, state, *sprite.Sprite))
 	{
 		source.sprite.reset();
 		const int texture = sprite.Sprite->spritetexture().GetIndex();

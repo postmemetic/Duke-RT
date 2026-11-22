@@ -3556,6 +3556,8 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 				(unsigned long long)actor.retainedFrameAge);
 		}
 		actor.inWorldTlasThisFrame = true;
+		if (actorDemand.HasCurrentHoldHeadroom(frameIndex))
+			nri_scene::NotePublishedVoxelWithHeadroom(actor.identityKey);
 		actor.worldTlasFrameIndex = frameIndex;
 		if (meshResourceFirstPublish)
 		{

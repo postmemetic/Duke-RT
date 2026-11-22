@@ -45,7 +45,9 @@ bool CaptureActorSpriteFallbackCandidate(HWDrawInfo& di, const HWSprite& sprite,
 	uint64_t identityKey, uint32_t drawListType, bool transientVoxel, bool indirectOnly);
 void MarkActorSpriteFallbackTransientGeometry(uint64_t identityKey);
 void DiscardRetainedActorSpriteFallbackCandidate(int32_t actorIndex);
-void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& rootView);
+void NotePublishedVoxelWithHeadroom(uint64_t identity);
+void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& rootView,
+	bool (*needsVoxelSource)(uint64_t, const ActorPresentationState&), bool (*publish)(const ActorPresentationState&, HWSprite&));
 const std::vector<ActorSpriteFallbackCandidate>& GetActorSpriteFallbackCandidates();
 // Includes read-only first-capture animation metadata when the first snapshot
 // preceded recipe demand. Never substitutes another lifetime or placement.

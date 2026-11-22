@@ -180,7 +180,7 @@ bool NRIVoxelActorDemand::CanHold(uint64_t identity, uint64_t world, uint64_t li
     if (!maximumFrames) return true;
     const auto found = actors.find(identity);
     if (!valid || found == actors.end() || found->second.input.world != world || found->second.input.lifetime != lifetime) return false;
-    if (holdHeadroomAvailable && refreshedFrame == frame && found->second.input.rayEligible) return true;
+    if (HasCurrentHoldHeadroom(frame) && found->second.input.rayEligible) return true;
     return Age(frame, found->second.exactMissingSince) < maximumFrames;
 }
 

@@ -595,7 +595,7 @@ bool GameInterface::ResolveActorRetainedVoxelFrame(const ActorPresentationState&
 {
 	const auto& animation = state.spriteAnimation;
 	const auto& family = animation.enemyVoxelFamily;
-	if (!animation.enemy || !family || !family->complete || !animation.recipeCertified) return false;
+	if (!animation.recipeCertified || (animation.enemy && (!family || !family->complete))) return false;
 	sprite.ownerActor = nullptr;
 	sprite.pos = DVector3(state.position.x, state.position.y, state.position.z);
 	sprite.Angles.Yaw = DAngle::fromDeg(state.angles.yawDegrees);

@@ -52,6 +52,7 @@ public:
     void Refresh(uint64_t generation, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs,
         bool captureUpgrades = false, bool capturePoseRequests = false);
     void InvalidateAuthority() { valid = false; snapshot.authorityAvailable = false; }
+    bool HasCurrentHoldHeadroom(uint32_t frame) const { return valid && holdHeadroomAvailable && refreshedFrame == frame; }
     void SetHoldHeadroom(bool available) { holdHeadroomAvailable = available; }
     void ObserveRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,
         NRIVoxelActorRepresentation representation, uint64_t selectedMesh, uint64_t selectedMaterial, uint32_t frame);

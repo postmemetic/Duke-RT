@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <unordered_set>
 #include <cstdio>
 
 EXTERN_CVAR(Bool, nri_ptactorrepresentationtrace)
@@ -31,8 +32,10 @@ namespace
 		tspritetype sprite = {};
 		bool rootCapture = false;
 		bool luminous = false;
+		bool validatedVoxelTemplate = false;
 	};
 	std::vector<RetainedSprite> gSprites;
+	std::unordered_set<uint64_t> gPublishedVoxels, gPreviousPublishedVoxels;
 	std::vector<ActorSpriteFallbackCandidate> gCandidates;
 	uint64_t gFrame = 0;
 	uint32_t gDescriptorTraceCount = 0;
@@ -174,6 +177,8 @@ void BeginActorSpriteFallbackFrame(uint64_t frame)
 		ResetActorSpriteFallbackCandidates();
 		return;
 	}
+	gPreviousPublishedVoxels.swap(gPublishedVoxels);
+	gPublishedVoxels.clear();
 	gFrame = frame;
 	gDescriptorTraceCount = 0;
 	gSprites.erase(std::remove_if(gSprites.begin(), gSprites.end(), [](const RetainedSprite& retained)
@@ -209,6 +214,10 @@ bool CaptureActorSpriteFallbackCandidate(HWDrawInfo& di, const HWSprite& source,
 	CaptureEnemyVoxelSource(di, source, next.authority, gFrame);
 	next.sprite = *source.Sprite;
 	next.sprite.ApplySpriteFallbackFrame();
+	// The sprite template can include directional ART overrides. Verify that
+	// the pure mounted-voxel recipe reproduces the actual capture before reuse.
+	next.validatedVoxelTemplate = !transientVoxel && !indirectOnly && !gPreviousPublishedVoxels.empty() &&
+		ValidateGenericVoxelTemplate(di, source, next.authority, next.sprite);
 	next.luminous = source.Sprite->ownerActor->spr.shade <= -127;
 	next.sprite.ownerActor = nullptr;
 	next.rootCapture = di.outer == nullptr;
@@ -271,7 +280,13 @@ void DiscardRetainedActorSpriteFallbackCandidate(int32_t actorIndex)
 	}), gSprites.end());
 }
 
-void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
+void NotePublishedVoxelWithHeadroom(uint64_t identity)
+{
+	if (gFrame && (bool)nri_ptactorspritefallback) gPublishedVoxels.insert(identity);
+}
+
+void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view,
+	bool (*needsVoxelSource)(uint64_t, const ActorPresentationState&), EnemyVoxelSourceSink publish)
 {
 	if (!(bool)nri_ptactorspritefallback) return;
 	for (auto& retained : gSprites)
@@ -354,6 +369,11 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view)
 		candidate.descriptorTexture = sprite.spritetexture().GetIndex();
 		candidate.recipeCertified = actor->spriteAnimation.recipeCertified;
 		SetAuthority(candidate, *actor);
+		// Camera capture may leave a live, animated actor outside the draw list.
+		// Publish fresh source authority for its mounted pose through ordinary admission.
+		if (retained.validatedVoxelTemplate && candidate.animationCurrent &&
+			gPreviousPublishedVoxels.count(candidate.identityKey) && needsVoxelSource(candidate.identityKey, *actor))
+			PublishGenericVoxelTemplate(view, *actor, retained.sprite, publish);
 	}
 }
 
@@ -382,6 +402,7 @@ void ResetActorSpriteFallbackCandidates()
 {
 	SetActorSpriteFallbackRecipesRequested(false);
 	gSprites.clear();
+	gPublishedVoxels.clear(); gPreviousPublishedVoxels.clear();
 	gCandidates.clear();
 	gFrame = 0;
 }

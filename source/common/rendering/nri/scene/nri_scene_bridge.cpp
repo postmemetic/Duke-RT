@@ -4536,7 +4536,7 @@ namespace
 
 	const SurfaceRef* GetReadyVoxelMeshVariantSurface(uint64_t meshVariantHash);
 
-	bool PublishRetainedEnemyVoxelSource(const ActorPresentationState& authority, HWSprite& sprite)
+	bool PublishRetainedVoxelSource(const ActorPresentationState& authority, HWSprite& sprite)
 	{
 		VoxelActorCacheLookup lookup = {};
 		if (!TryBuildVoxelActorIdentity(sprite, lookup, &authority)) return false;
@@ -4670,7 +4670,17 @@ namespace
 		discardOrdinarySprites(view.opaqueSprites);
 		discardOrdinarySprites(view.opaqueWalls);
 		discardOrdinarySprites(view.opaqueFlats);
-		RefreshRetainedActorSpriteFallbackCandidates(di);
+		const auto needsVoxelSource = [](uint64_t identity, const ActorPresentationState& state)
+		{
+			const auto found = gVoxelActorCache.find(identity);
+			if (found == gVoxelActorCache.end() || !IsActorPresentationVoxelCacheOwner(state)) return false;
+			const auto& cached = found->second;
+			return !cached.pendingRemoval && cached.ownerWorldEpoch == state.owner.ownerWorldEpoch &&
+				cached.ownerLifetimeGeneration == uint64_t(state.owner.ownerLifetimeGeneration) &&
+				cached.lastSeenFrame != gVoxelActorCacheFrame &&
+				cached.presentationBasisStateHash != BuildActorPresentationBasisStateHash(state);
+		};
+		RefreshRetainedActorSpriteFallbackCandidates(di, needsVoxelSource, PublishRetainedVoxelSource);
 	}
 
 	bool BeginVoxelActorCacheFrame()
@@ -7178,9 +7188,12 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 	if (voxelCaptureMode == DynamicVoxelCaptureMode::Authoritative)
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.voxelFrameMs);
-		if (rootVoxelCacheFrame) RefreshEnemyVoxelSources(di, gVoxelActorCacheFrame, PublishRetainedEnemyVoxelSource);
+		if (rootVoxelCacheFrame)
+		{
+			RefreshEnemyVoxelSources(di, gVoxelActorCacheFrame, PublishRetainedVoxelSource);
+			RefreshActorSpriteFallbacksAfterCapture(di, outView);
+		}
 		EndVoxelActorCacheFrame(outView.stats, rootVoxelCacheFrame);
-		if (rootVoxelCacheFrame) RefreshActorSpriteFallbacksAfterCapture(di, outView);
 	}
 
 	{
@@ -8455,9 +8468,12 @@ bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 	CaptureFacingSprites(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueSprites);
 	CaptureModelSprites(di, di.drawlists[GLDL_MODELS], GLDL_MODELS, outView.opaqueSprites, outView.stats, DynamicVoxelCaptureMode::Authoritative);
 	CapturePortalViews(di, outView);
-	if (rootVoxelCacheFrame) RefreshEnemyVoxelSources(di, gVoxelActorCacheFrame, PublishRetainedEnemyVoxelSource);
+	if (rootVoxelCacheFrame)
+	{
+		RefreshEnemyVoxelSources(di, gVoxelActorCacheFrame, PublishRetainedVoxelSource);
+		RefreshActorSpriteFallbacksAfterCapture(di, outView);
+	}
 	EndVoxelActorCacheFrame(outView.stats, rootVoxelCacheFrame);
-	if (rootVoxelCacheFrame) RefreshActorSpriteFallbacksAfterCapture(di, outView);
 
 	for (const auto& wall : outView.opaqueWalls)
 	{
