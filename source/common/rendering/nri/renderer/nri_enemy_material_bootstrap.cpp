@@ -65,7 +65,7 @@ void NRIRenderer::PrepareEnemyMaterialBacking(const NRIPersistentVoxelSettings& 
     const auto addOwner = [&](uint64_t world, uint64_t lifetime, uint64_t identity)
     {
         if (!voxels.enemyMaterialTexturesReadyActors.count(identity) || !owners.insert(identity).second ||
-            voxels.enemyPolicy.Find({world, lifetime})) return;
+            !voxels.CanPrepareEnemyVoxel({world, lifetime})) return;
         const auto* authority = nri_scene::LookupActorSpriteFallbackAuthority(world, lifetime);
         if (!authority || !authority->authorityCurrent || !authority->publicationEligible ||
             !authority->spriteAnimation.enemy || !authority->spriteAnimation.recipeCertified ||

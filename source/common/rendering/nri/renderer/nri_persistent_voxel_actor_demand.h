@@ -52,6 +52,7 @@ public:
     void Refresh(uint64_t generation, uint32_t frame, const std::vector<NRIVoxelActorDemandInput>& inputs,
         bool captureUpgrades = false, bool capturePoseRequests = false);
     void InvalidateAuthority() { valid = false; snapshot.authorityAvailable = false; }
+    void SetHoldHeadroom(bool available) { holdHeadroomAvailable = available; }
     void ObserveRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,
         NRIVoxelActorRepresentation representation, uint64_t selectedMesh, uint64_t selectedMaterial, uint32_t frame);
     bool CanHold(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame, uint32_t maximumFrames) const;
@@ -90,6 +91,7 @@ private:
     std::unordered_map<uint64_t, NRIVoxelPairDemand> pairs;
     std::unordered_map<uint64_t, NRIVoxelMeshUpgradeDemand> upgrades;
     uint32_t refreshedFrame = UINT32_MAX;
+    bool holdHeadroomAvailable = false;
     bool captureUpgrades = false, capturePoseRequests = false;
     uint64_t upgradeRevision = 0, upgradeSignature = 0;
     std::unordered_map<uint64_t, Warm> meshes, materials;

@@ -1165,6 +1165,14 @@ NRIVoxelComputePreloadStats PlanNRIVoxelComputePreload(
 	return stats;
 }
 
+nri_scene::PrecachedVoxelVariantView NRIBuildEnemyPoseAdmission(const nri_scene::PrecachedVoxelRawManifestView& pose)
+{
+    auto variant = BuildDirectVariant(pose);
+    variant.surface = pose.canonicalSurface;
+    variant.directOnlyAdmission = !variant.surface;
+    return variant;
+}
+
 bool NRICompleteEnemyPreloadFits(uint64_t build, uint64_t budget, uint64_t usage, uint64_t reserve)
 {
     if (!build || build != enemyWorkingSet.build || enemyWorkingSet.geometry.empty() || reserve >= budget ||

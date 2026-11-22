@@ -41,7 +41,7 @@ bool NRIPersistentVoxelResidency::CollectCachePins(const NRIPersistentVoxelSetti
     }
     for (const auto& actor : current)
     {
-        if (IsEnemySpriteCommitted(actor.ownerWorldEpoch, actor.ownerLifetimeGeneration)) continue;
+        if (ShouldSkipEnemyVoxelPreparation(actor.ownerWorldEpoch, actor.ownerLifetimeGeneration)) continue;
         const uint64_t meshKey = BuildPersistentVoxelMeshResourceKey(actor, settings);
         pinnedMeshes.insert(meshKey);
         pinnedMaterials.insert(actor.materialKeyHash);

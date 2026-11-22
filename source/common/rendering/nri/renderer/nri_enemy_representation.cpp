@@ -17,7 +17,7 @@ namespace
 void TraceChoice(uint32_t frame, const nri_scene::ActorSpriteFallbackCandidate& candidate,
     const NRIEnemyRepresentationCommitment& choice)
 {
-    if (!(bool)nri_ptenemyrepresentationtrace) return;
+    if (!PerfAuditActive() && !(bool)nri_ptenemyrepresentationtrace) return;
     char fields[640];
     std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"family\":%u,\"selection\":\"%s\",\"reason\":\"%s\",\"emergency\":%s,\"awaiting_sprite\":%s,\"mesh_pins\":%zu,\"material_pins\":%zu",
         frame, candidate.actorIndex, (unsigned long long)candidate.identityKey,
@@ -86,12 +86,24 @@ bool NRIPersistentVoxelResidency::IsEnemySpriteCommitted(uint64_t world, uint64_
     return (bool)nri_ptenemystablerepresentation && choice && choice->mode == NRIEnemyRepresentationMode::Sprite && !choice->awaitingSprite;
 }
 
+bool NRIPersistentVoxelResidency::CanPrepareEnemyVoxel(NRIEnemyRepresentationOwner owner) const
+{
+    const auto* choice = enemyPolicy.Find(owner);
+    return !choice || (choice->MayPromote() && (enemyFamilyStaging.IsSelected(choice->familySignature) ||
+        (choice->successorSignature && enemyFamilyStaging.IsSelected(choice->successorSignature))));
+}
+
+bool NRIPersistentVoxelResidency::ShouldSkipEnemyVoxelPreparation(uint64_t world, uint64_t lifetime) const
+{
+    return IsEnemySpriteCommitted(world, lifetime) && !CanPrepareEnemyVoxel({world, lifetime});
+}
+
 void NRIPersistentVoxelResidency::FilterEnemyPublicationEntries(
     const std::vector<nri_scene::PersistentVoxelCacheEntryView>*& entries)
 {
     if (!(bool)nri_ptenemystablerepresentation || !entries) return;
     const auto excluded = [&](const nri_scene::PersistentVoxelCacheEntryView& actor)
-    { return IsEnemySpriteCommitted(actor.ownerWorldEpoch, actor.ownerLifetimeGeneration); };
+    { return ShouldSkipEnemyVoxelPreparation(actor.ownerWorldEpoch, actor.ownerLifetimeGeneration); };
     if (std::none_of(entries->begin(), entries->end(), excluded)) return;
     enemyPublicationEntries.clear();
     enemyPublicationEntries.reserve(entries->size());
@@ -183,13 +195,13 @@ const NRIEnemyFamilyResidency& NRIPersistentVoxelResidency::InspectEnemyFamily(
 
 NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentation(
     const nri_scene::ActorSpriteFallbackCandidate& candidate, uint32_t frame,
-    const NRIPersistentVoxelSettings& settings, bool exactReady, bool spriteReady)
+    const NRIPersistentVoxelSettings& settings, bool voxelReady, bool exactReady, bool spriteReady)
 {
     if (!(bool)nri_ptenemystablerepresentation) return {};
     const NRIEnemyRepresentationOwner owner{candidate.ownerWorldEpoch, candidate.ownerLifetimeGeneration};
     const auto* authority = nri_scene::LookupActorSpriteFallbackAuthority(owner.world, owner.lifetime);
     uint64_t currentMesh = 0;
-    if (exactReady)
+    if (voxelReady)
     {
         const auto slot = batch.actorIndex.Find(candidate.identityKey);
         if (slot < batch.actors.size())
@@ -211,8 +223,7 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
         {
             const auto& family = authority->spriteAnimation.enemyVoxelFamily;
             const char* failure = !family || !family->CoveredBy(committed->familySignature, committed->successorSignature) ? "family-authority-changed" :
-                !InspectEnemyFamily(*authority, frame, settings).complete ? "committed-geometry-lost" :
-                !exactReady ? "committed-current-binding-unavailable" :
+                !voxelReady ? "committed-current-binding-unavailable" :
                 !NRIEnemyFamilyContainsCurrentMesh(committed->meshes, currentMesh) ? "committed-current-pose-outside-family" : nullptr;
             // A device/resource failure has one terminal downgrade. It never
             // enables opportunistic promotion, and requires a drawable sprite.
@@ -220,10 +231,20 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
             { committed = enemyPolicy.Find(owner); nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, false);
               TraceChoice(frame, candidate, *committed); ResetActorPublicationConsumer(); }
         }
-        return {true, committed->mode == NRIEnemyRepresentationMode::Sprite && !committed->awaitingSprite};
+        if (!committed->MayPromote())
+            return {true, committed->mode == NRIEnemyRepresentationMode::Sprite && !committed->awaitingSprite};
+        const auto* certificate = authority ? authority->spriteAnimation.enemyVoxelFamily.get() : nullptr;
+        if (!certificate || !certificate->CoveredBy(committed->familySignature, committed->successorSignature) ||
+            !enemyFamilyStaging.IsSelected(certificate->signature))
+        {
+            nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, false);
+            return {true, !committed->awaitingSprite};
+        }
+        nri_scene::PrepareEnemyVoxelSource(owner.world, owner.lifetime);
     }
     if (!authority || !authority->spriteAnimation.enemy || !candidate.capturedThisFrame || candidate.primaryHidden ||
-        candidate.presentationHidden || !candidate.recipeCertified) return {};
+        candidate.presentationHidden || !candidate.recipeCertified)
+        return {committed != nullptr, committed && !committed->awaitingSprite};
     const auto& family = InspectEnemyFamily(*authority, frame, settings);
     const bool currentCovered = NRIEnemyFamilyContainsCurrentMesh(family.meshes, currentMesh);
     bool voxel = family.complete && exactReady && currentCovered;
@@ -237,17 +258,35 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
         reason = pending != enemyMaterialTextureReasons.end() ? pending->second : "family-material-textures-pending";
     }
     if (voxel && !PrepareEnemyMaterialCommit(*authority)) { voxel = false; reason = "material-capacity-unavailable"; }
-    std::vector<uint64_t> materials;
-    if (voxel) for (const auto texture : authority->spriteAnimation.enemyVoxelFamily->textureIds)
-        materials.push_back(nri_scene::BuildEnemyStableMaterialKey(owner.world, owner.lifetime, texture));
-    std::vector<uint64_t> meshes = voxel ? family.meshes : std::vector<uint64_t>{};
+    if (committed && !voxel) return {true, !committed->awaitingSprite};
+    const auto& certificate = authority->spriteAnimation.enemyVoxelFamily;
     const bool continuityFailure = !voxel && !spriteReady;
+    std::vector<uint64_t> materials, prospectiveMaterials;
+    if (certificate && certificate->complete)
+    {
+        auto& keys = voxel ? materials : prospectiveMaterials;
+        for (int32_t texture : certificate->textureIds)
+            keys.push_back(nri_scene::BuildEnemyStableMaterialKey(owner.world, owner.lifetime, texture));
+    }
+    std::vector<uint64_t> meshes = voxel ? family.meshes : std::vector<uint64_t>{};
+    if (committed)
+    {
+        if (!enemyPolicy.Promote(owner, frame, family.family, family.signature, certificate->successorSignature,
+            std::move(meshes), std::move(materials))) return {true, !committed->awaitingSprite};
+        const auto& promoted = *enemyPolicy.Find(owner);
+        for (uint64_t key : promoted.materials) enemyMaterialReleasePending.erase(key);
+        enemyFamilyStaging.ReleaseOwner(owner);
+        nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, true);
+        TraceChoice(frame, candidate, promoted);
+        ResetActorPublicationConsumer();
+        return {true, false};
+    }
     if (continuityFailure)
     {
         // Texture preparation has already tried its emergency synchronous path.
         // This is an actual fallback-resource failure, outside the stable-mode
-        // guarantee. Latch Sprite now, explicitly retain only the current body
-        // while its descriptor recovers, and never silently promote afterward.
+        // guarantee. Retain the current body until a drawable sprite or a
+        // completely prepared voxel family can take over.
         reason = "initial-fallback-resource-unavailable";
         const auto slot = batch.actorIndex.Find(candidate.identityKey);
         if (slot < batch.actors.size())
@@ -257,12 +296,13 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
             { meshes.push_back(actor.meshResourceKey); materials.push_back(actor.materialKeyHash); }
         }
     }
-    const auto& certificate = authority->spriteAnimation.enemyVoxelFamily;
     const auto& choice = enemyPolicy.Commit(owner, candidate.identityKey, family.family, family.signature, frame,
         voxel, reason, std::move(meshes), std::move(materials), continuityFailure,
-        certificate && certificate->complete, certificate ? certificate->successorSignature : 0);
-    enemyFamilyStaging.ReleaseOwner(owner);
-    nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, voxel);
+        certificate && certificate->complete, certificate ? certificate->successorSignature : 0, std::move(prospectiveMaterials));
+    if (!choice.MayPromote())
+        enemyFamilyStaging.ReleaseOwner(owner);
+    if (!choice.MayPromote() || !enemyFamilyStaging.IsSelected(family.signature))
+        nri_scene::SetEnemyVoxelSourceMode(owner.world, owner.lifetime, voxel);
     TraceChoice(frame, candidate, choice);
     if (PerfAuditActive() || (bool)nri_ptenemyrepresentationtrace)
     {
@@ -283,9 +323,8 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
     if (!voxel)
     {
         // A current pose may have acquired its stable private row before the
-        // first visible decision. It is no longer demand once Sprite commits.
-        // Include a refused pose outside the certified set. Existing body pins
-        // and retirement fences still control when its rows can be reused.
+        // first visible decision, including a pose outside the certified set.
+        // Existing body pins and retirement fences control reuse of its rows.
         const auto slot = batch.actorIndex.Find(candidate.identityKey);
         if (slot < batch.actors.size())
         {
@@ -295,7 +334,7 @@ NRIEnemyRepresentationChoice NRIPersistentVoxelResidency::SelectEnemyRepresentat
                 material != materialVariantResources.end() && material->second.enemyStableMaterialBinding)
                 enemyMaterialReleasePending.insert(actor.materialKeyHash);
         }
-        if (authority->spriteAnimation.enemyVoxelFamily)
+        if (!choice.MayPromote() && authority->spriteAnimation.enemyVoxelFamily)
             for (int32_t texture : authority->spriteAnimation.enemyVoxelFamily->textureIds)
                 enemyMaterialReleasePending.insert(nri_scene::BuildEnemyStableMaterialKey(owner.world, owner.lifetime, texture));
         ResetActorPublicationConsumer();

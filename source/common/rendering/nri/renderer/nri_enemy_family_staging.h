@@ -9,6 +9,7 @@ struct NRIEnemyStageOwner
 {
     NRIEnemyRepresentationOwner owner;
     uint64_t family = 0;
+    bool promotionRequested = false;
 };
 struct NRIEnemyStageMesh
 {
@@ -21,12 +22,14 @@ struct NRIEnemyStageFamily
     bool complete = false;
     std::vector<NRIEnemyStageMesh> meshes;
     bool startupPriced = false;
+    bool promotionRequested = false;
 };
 struct NRIEnemyStageBudget
 {
     uint64_t usage = 0, budget = 0, reserve = 0, coldPhysical = 0;
     bool completePreloadFits = false;
     uint64_t startupChargedBytes = 0, startupScratchBytes = 0, materialBytesPerPose = 0;
+    uint64_t promotionHeadroom = 0;
 };
 struct NRIEnemyStageStats
 {
@@ -59,6 +62,12 @@ public:
     const NRIEnemyStageStats& Stats() const { return stats; }
     const std::vector<NRIEnemyStageDecision>& Decisions() const { return decisions; }
     bool NeedsFamily(uint64_t signature) const;
+    bool IsSelected(uint64_t signature) const;
+    bool NeedsPromotion(uint64_t signature) const;
+    bool AllowsPromotionPair(uint64_t pair) const;
+    uint64_t PromotionPair(uint64_t signature) const;
+    void PermitPromotion(uint64_t signature, uint64_t pair);
+    void StopPromotions() { promotionPairs.clear(); }
     bool RequestSpawnPose(uint64_t signature, uint64_t pairKey);
     bool RequestedSpawnPose(uint64_t signature, uint64_t pairKey) const;
     bool NeedsSpawnPose(uint64_t pairKey) const { return liveSpawnPoses.count(pairKey) != 0; }
@@ -71,6 +80,7 @@ private:
     std::vector<NRIEnemyStageOwner> owners;
     std::unordered_map<uint64_t, std::unordered_set<uint64_t>> spawnPosesByFamily;
     std::unordered_set<uint64_t> liveSpawnPoses;
+    std::unordered_map<uint64_t, uint64_t> promotionPairs;
     std::vector<Set> selected;
     std::unordered_set<uint64_t> pins;
     std::unordered_set<uint64_t> pressureRejected;

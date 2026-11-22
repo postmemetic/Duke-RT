@@ -25,8 +25,9 @@ bool NRIPersistentVoxelResidency::PreviewEnemyFamilyMaterials(uint64_t signature
     {
         const auto& family = actor.spriteAnimation.enemyVoxelFamily;
         const NRIEnemyRepresentationOwner owner{actor.owner.ownerWorldEpoch, uint64_t(actor.owner.ownerLifetimeGeneration)};
+        const auto* choice = enemyPolicy.Find(owner);
         if (!family || family->signature != signature || !actor.owner.IsValid() || !actor.authorityCurrent ||
-            owner.world != snapshot.worldEpoch || !actor.spriteAnimation.enemy || enemyPolicy.Find(owner)) continue;
+            owner.world != snapshot.worldEpoch || !actor.spriteAnimation.enemy || (choice && !choice->MayPromote())) continue;
         if (++matched > owners || !family->complete || family->textureIds.empty() ||
             family->textureIds.size() > NRIEnemyFamilyStaging::MaximumFamilyPoses || actor.actorIndex < 0) return false;
         std::unordered_set<uint64_t> seen;
@@ -139,7 +140,8 @@ bool NRIPersistentVoxelResidency::PrepareEnemyMaterialCommit(const ActorPresenta
 void NRIPersistentVoxelResidency::ReleaseEnemyMaterialCommits(const std::vector<uint64_t>& keys,
     const NRIPersistentVoxelResetServices& services, bool authoritativeEmptyAfterWait)
 {
-    enemyMaterialReleasePending.insert(keys.begin(), keys.end());
+    for (uint64_t key : keys)
+        if (!enemyPolicy.MaterialPins().count(key)) enemyMaterialReleasePending.insert(key);
     if (enemyMaterialReleasePending.empty()) return;
     NRIVoxelCachePins pins;
     if (!CollectCachePins(BuildNRIPersistentVoxelSettingsFromCVars(), pins,

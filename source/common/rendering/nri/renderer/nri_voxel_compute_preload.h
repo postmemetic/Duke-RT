@@ -191,6 +191,7 @@ struct NRIVoxelComputePreloadClosureStats
 };
 
 NRIVoxelComputePreloadSettings BuildNRIVoxelComputePreloadSettingsFromCVars();
+nri_scene::PrecachedVoxelVariantView NRIBuildEnemyPoseAdmission(const nri_scene::PrecachedVoxelRawManifestView& pose);
 
 // Latches a guarded selection for one map build, shared by planning and enqueue.
 void SelectNRIVoxelComputePreloadForBudget(

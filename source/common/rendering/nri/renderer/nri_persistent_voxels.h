@@ -56,6 +56,8 @@
 #include <unordered_set>
 #include <vector>
 
+struct NRIVoxelComputePreloadSettings;
+
 struct PersistentVoxelBatch
 {
 	struct ActorEntry
@@ -1076,12 +1078,14 @@ public:
     void RefreshEnemyRepresentations(uint32_t frameIndex, const NRIPersistentVoxelResetServices& services);
     void ResetEnemyRepresentationsForLevelTransition();
     bool IsEnemySpriteCommitted(uint64_t world, uint64_t lifetime) const;
+    bool ShouldSkipEnemyVoxelPreparation(uint64_t world, uint64_t lifetime) const;
+    bool CanPrepareEnemyVoxel(NRIEnemyRepresentationOwner owner) const;
     void FilterEnemyPublicationEntries(const std::vector<nri_scene::PersistentVoxelCacheEntryView>*& entries);
     void InvalidateEnemyFamilyGeometry() { enemyFamilyResidency.clear(); }
     const NRIEnemyFamilyResidency& InspectEnemyFamily(const ActorPresentationState& authority,
         uint32_t frameIndex, const NRIPersistentVoxelSettings& settings);
     NRIEnemyRepresentationChoice SelectEnemyRepresentation(const nri_scene::ActorSpriteFallbackCandidate& candidate,
-        uint32_t frameIndex, const NRIPersistentVoxelSettings& settings, bool exactReady, bool spriteReady);
+        uint32_t frameIndex, const NRIPersistentVoxelSettings& settings, bool voxelReady, bool exactReady, bool spriteReady);
     bool PreviewEnemyFamilyMaterials(uint64_t signature, uint32_t owners, uint32_t& rows, uint32_t& reused) const;
     bool PrepareEnemyMaterialCommit(const ActorPresentationState& authority);
     void ReleaseEnemyMaterialCommits(const std::vector<uint64_t>& keys, const NRIPersistentVoxelResetServices& services,
@@ -1113,6 +1117,11 @@ public:
     std::array<std::pair<uint64_t, uint32_t>, 256> enemyPreparationVisits{};
     std::vector<NRIEnemyRepresentationOwner> prospectiveMaterialOwners;
     uint32_t enemyRestageAttemptFrame = UINT32_MAX;
+    uint32_t enemyPromotionScanFrame = UINT32_MAX;
+    uint64_t enemyPromotionHeadroom = 0;
+    void RequestEnemyPromotionGeometry(const ActorPresentationState& actor, uint32_t frame,
+        const NRIPersistentVoxelSettings& settings, uint64_t available, const NRIVoxelComputePreloadSettings& preload,
+        const NRIPersistentVoxelResetServices& services);
     bool TryRestageEnemyGeometry(const ActorPresentationState& actor, uint32_t frame,
         const NRIPersistentVoxelSettings& settings, uint64_t available, const NRIPersistentVoxelResetServices& services);
     uint32_t enemyStagingFrame = UINT32_MAX;

@@ -12,6 +12,7 @@ namespace nri_scene
 void BeginEnemyVoxelSourceFrame();
 void CaptureEnemyVoxelSource(HWDrawInfo&, const HWSprite&, const ActorPresentationState&, uint64_t captureFrame);
 bool HasEnemyVoxelSource(const ActorPresentationState&);
+void PrepareEnemyVoxelSource(uint64_t world, uint64_t lifetime);
 void SetEnemyVoxelSourceMode(uint64_t world, uint64_t lifetime, bool voxel);
 void ResetEnemyVoxelSources();
 using EnemyVoxelSourceSink = bool (*)(const ActorPresentationState&, HWSprite&);

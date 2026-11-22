@@ -411,6 +411,7 @@ struct PrecachedVoxelRawManifestView
 	bool cpuSurfaceReady = false;
 	FVoxelModel* model = nullptr;
 	MaterialRef material;
+	const SurfaceRef* canonicalSurface = nullptr;
 };
 
 

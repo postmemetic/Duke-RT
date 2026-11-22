@@ -17,7 +17,16 @@ void Unique(std::vector<uint64_t>& keys)
 }
 }
 
-void NRIEnemyRepresentationPolicy::Release(NRIEnemyRepresentationCommitment& commitment)
+void NRIEnemyRepresentationPolicy::Pin(NRIEnemyRepresentationCommitment& commitment,
+    std::vector<uint64_t> meshes, std::vector<uint64_t> materials)
+{
+    Unique(meshes); Unique(materials);
+    commitment.meshes = std::move(meshes); commitment.materials = std::move(materials);
+    for (uint64_t key : commitment.meshes) ++meshPins[key];
+    for (uint64_t key : commitment.materials) ++materialPins[key];
+}
+
+void NRIEnemyRepresentationPolicy::ReleasePins(NRIEnemyRepresentationCommitment& commitment)
 {
     for (uint64_t key : commitment.meshes)
     {
@@ -31,6 +40,13 @@ void NRIEnemyRepresentationPolicy::Release(NRIEnemyRepresentationCommitment& com
         { materialPins.erase(found); releasedMaterials.push_back(key); }
     }
     commitment.meshes.clear(); commitment.materials.clear();
+}
+
+void NRIEnemyRepresentationPolicy::Release(NRIEnemyRepresentationCommitment& commitment)
+{
+    ReleasePins(commitment);
+    releasedMaterials.insert(releasedMaterials.end(), commitment.prospectiveMaterials.begin(), commitment.prospectiveMaterials.end());
+    commitment.prospectiveMaterials.clear();
 }
 
 void NRIEnemyRepresentationPolicy::Reconcile(uint64_t world, const std::vector<NRIEnemyRepresentationOwner>& live)
@@ -67,11 +83,11 @@ const NRIEnemyRepresentationCommitment* NRIEnemyRepresentationPolicy::Find(NRIEn
 const NRIEnemyRepresentationCommitment& NRIEnemyRepresentationPolicy::Commit(NRIEnemyRepresentationOwner owner,
     uint64_t identity, uint32_t family, uint64_t signature, uint32_t frame, bool voxel,
     const char* reason, std::vector<uint64_t> meshes, std::vector<uint64_t> materials, bool awaitingSprite, bool supported,
-    uint64_t successorSignature)
+    uint64_t successorSignature, std::vector<uint64_t> prospectiveMaterials)
 {
     if (counters.world != owner.world) { Reset(); counters.world = owner.world; }
     auto result = owners.try_emplace(owner);
-    if (!result.second) return result.first->second; // No opportunistic promotion.
+    if (!result.second) return result.first->second;
     auto& commitment = result.first->second;
     commitment.mode = voxel ? NRIEnemyRepresentationMode::Voxel : NRIEnemyRepresentationMode::Sprite;
     commitment.identity = identity; commitment.family = family; commitment.familySignature = signature;
@@ -84,20 +100,41 @@ const NRIEnemyRepresentationCommitment& NRIEnemyRepresentationPolicy::Commit(NRI
     else { ++counters.firstSprite; ++counters.liveSprite; counters.supportedFirstSprite += supported; }
     counters.emergencies += commitment.emergency;
     if (voxel || commitment.awaitingSprite)
-    {
-        Unique(meshes); Unique(materials);
-        commitment.meshes = std::move(meshes); commitment.materials = std::move(materials);
-        for (uint64_t key : commitment.meshes) ++meshPins[key];
-        for (uint64_t key : commitment.materials) ++materialPins[key];
-    }
+        Pin(commitment, std::move(meshes), std::move(materials));
+    if (commitment.MayPromote())
+        commitment.prospectiveMaterials = std::move(prospectiveMaterials); // Retirement keys only. No residency pins.
     return commitment;
+}
+
+bool NRIEnemyRepresentationPolicy::Promote(NRIEnemyRepresentationOwner owner, uint32_t frame,
+    uint32_t family, uint64_t signature, uint64_t successor, std::vector<uint64_t> meshes, std::vector<uint64_t> materials)
+{
+    auto found = owners.find(owner);
+    if (found == owners.end() || !found->second.MayPromote() || !signature ||
+        (signature != found->second.familySignature && signature != found->second.successorSignature) ||
+        meshes.empty() || materials.empty()) return false;
+    auto& commitment = found->second;
+    if (signature == commitment.familySignature) commitment.prospectiveMaterials.clear();
+    Release(commitment);
+    Pin(commitment, std::move(meshes), std::move(materials));
+    commitment.family = family;
+    commitment.familySignature = signature;
+    commitment.successorSignature = successor;
+    commitment.awaitingSprite = false;
+    commitment.mode = NRIEnemyRepresentationMode::Voxel;
+    commitment.sinceFrame = frame;
+    commitment.reason = "prepared-after-first-sight";
+    --counters.liveSprite; ++counters.liveVoxel; ++counters.promotions;
+    return true;
 }
 
 bool NRIEnemyRepresentationPolicy::ResolveSpriteContinuity(NRIEnemyRepresentationOwner owner)
 {
     auto found = owners.find(owner);
     if (found == owners.end() || !found->second.awaitingSprite) return false;
-    Release(found->second);
+    // Resolving the temporary body releases only its pins. Preparation can
+    // still acquire rows for this owner until it promotes or leaves the world.
+    ReleasePins(found->second);
     found->second.awaitingSprite = false;
     found->second.reason = "initial-fallback-failure-resolved";
     return true;
@@ -111,6 +148,7 @@ bool NRIEnemyRepresentationPolicy::Downgrade(NRIEnemyRepresentationOwner owner, 
     found->second.mode = NRIEnemyRepresentationMode::Sprite;
     --counters.liveVoxel; ++counters.liveSprite; ++counters.emergencies;
     found->second.emergency = true;
+    found->second.downgraded = true;
     found->second.reason = reason;
     return true;
 }

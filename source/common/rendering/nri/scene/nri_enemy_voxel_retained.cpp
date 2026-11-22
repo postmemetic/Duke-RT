@@ -138,6 +138,12 @@ bool HasEnemyVoxelSource(const ActorPresentationState& state)
 		state.spriteAnimation.enemyVoxelFamily->CoveredBy(found->second.signature, found->second.successorSignature);
 }
 
+void PrepareEnemyVoxelSource(uint64_t world, uint64_t lifetime)
+{
+    const auto found = sources.find({world, lifetime});
+    if (found != sources.end() && found->second.mode == Mode::Sprite) found->second.mode = Mode::Candidate;
+}
+
 void SetEnemyVoxelSourceMode(uint64_t world, uint64_t lifetime, bool voxel)
 {
 	auto found = sources.find({world, lifetime});

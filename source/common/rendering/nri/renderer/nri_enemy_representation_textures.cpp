@@ -78,7 +78,7 @@ void NRIPrepareEnemyFamilyTextures(uint32_t frameIndex, NRIPersistentVoxelReside
         if (!authority || !authority->authorityCurrent || !authority->publicationEligible ||
             !authority->spriteAnimation.enemy || !authority->spriteAnimation.recipeCertified ||
             authority->spriteAnimation.recipeHidden) return;
-        if (voxels.enemyPolicy.Find({authority->owner.ownerWorldEpoch, uint64_t(authority->owner.ownerLifetimeGeneration)})) return;
+        if (!voxels.CanPrepareEnemyVoxel({authority->owner.ownerWorldEpoch, uint64_t(authority->owner.ownerLifetimeGeneration)})) return;
         ++eligible;
         const auto& family = authority->spriteAnimation.enemyVoxelFamily;
         const auto& geometry = voxels.InspectEnemyFamily(*authority, frameIndex, settings);

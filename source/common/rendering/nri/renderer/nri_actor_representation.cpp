@@ -154,7 +154,7 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 			(!dynamicScene || std::none_of(dynamicScene->opaqueSprites.begin(), dynamicScene->opaqueSprites.end(),
 				[&](const nri_scene::SurfaceRef& s) { return s.provenance.actorIndex == candidate.actorIndex; }));
 		const auto enemy = !intentionalAbsence && !candidate.transientGeometryCaptured && candidate.actorIndex != separateReflectionActor ?
-			voxels.SelectEnemyRepresentation(candidate, frameIndex, settings, exactReady, spriteReady) : NRIEnemyRepresentationChoice{};
+			voxels.SelectEnemyRepresentation(candidate, frameIndex, settings, ready, exactReady, spriteReady) : NRIEnemyRepresentationChoice{};
 		const auto selected = SelectNRIActorRepresentation({intentionalAbsence,
 			candidate.transientGeometryCaptured || candidate.actorIndex == separateReflectionActor,
 			ready && !(enemy.managed && enemy.sprite), spriteReady,

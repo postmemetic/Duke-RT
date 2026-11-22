@@ -15,6 +15,7 @@ void NRIVoxelActorDemand::Reset()
     valid = false;
     actors.clear(); pairs.clear(); upgrades.clear(); meshes.clear(); materials.clear(); snapshot = {};
     refreshedFrame = UINT32_MAX;
+    holdHeadroomAvailable = false;
     captureUpgrades = capturePoseRequests = false; upgradeRevision = upgradeSignature = 0;
     poseRequests.clear();
 }
@@ -72,6 +73,7 @@ void NRIVoxelActorDemand::Refresh(uint64_t nextGeneration, uint32_t frame,
 {
     if (generation != nextGeneration) { Reset(); generation = nextGeneration; }
     valid = true;
+    holdHeadroomAvailable = false;
     captureUpgrades = nextCaptureUpgrades;
     if (capturePoseRequests && !nextCapturePoseRequests) poseRequests.clear();
     capturePoseRequests = nextCapturePoseRequests;
@@ -178,6 +180,7 @@ bool NRIVoxelActorDemand::CanHold(uint64_t identity, uint64_t world, uint64_t li
     if (!maximumFrames) return true;
     const auto found = actors.find(identity);
     if (!valid || found == actors.end() || found->second.input.world != world || found->second.input.lifetime != lifetime) return false;
+    if (holdHeadroomAvailable && refreshedFrame == frame && found->second.input.rayEligible) return true;
     return Age(frame, found->second.exactMissingSince) < maximumFrames;
 }
 

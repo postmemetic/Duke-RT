@@ -17,7 +17,7 @@ uint64_t Cost(const NRIEnemyStageFamily& family)
 
 void NRIEnemyFamilyStaging::Reset()
 {
-    spawnPosesByFamily.clear(); liveSpawnPoses.clear();
+    spawnPosesByFamily.clear(); liveSpawnPoses.clear(); promotionPairs.clear();
     owners.clear(); selected.clear(); pins.clear(); previouslyStaged.clear(); previouslyPriced.clear(); pressureRejected.clear(); decisions.clear(); stats = {};
 }
 
@@ -29,6 +29,33 @@ bool NRIEnemyFamilyStaging::NeedsFamily(uint64_t signature) const
 uint32_t NRIEnemyFamilyStaging::OwnerCount(uint64_t signature) const
 {
     return uint32_t(std::count_if(owners.begin(), owners.end(), [=](const auto& item) { return item.family == signature; }));
+}
+
+bool NRIEnemyFamilyStaging::IsSelected(uint64_t signature) const
+{
+    return std::any_of(selected.begin(), selected.end(), [=](const Set& item) { return item.family.signature == signature; });
+}
+
+bool NRIEnemyFamilyStaging::NeedsPromotion(uint64_t signature) const
+{
+    return std::any_of(owners.begin(), owners.end(), [=](const auto& owner) { return owner.family == signature && owner.promotionRequested; });
+}
+
+bool NRIEnemyFamilyStaging::AllowsPromotionPair(uint64_t pair) const
+{
+    return std::any_of(promotionPairs.begin(), promotionPairs.end(), [=](const auto& permit) { return permit.second == pair; });
+}
+
+void NRIEnemyFamilyStaging::PermitPromotion(uint64_t signature, uint64_t pair)
+{
+    if (pair) promotionPairs[signature] = pair;
+    else promotionPairs.erase(signature);
+}
+
+uint64_t NRIEnemyFamilyStaging::PromotionPair(uint64_t signature) const
+{
+    const auto found = promotionPairs.find(signature);
+    return found != promotionPairs.end() ? found->second : 0;
 }
 
 bool NRIEnemyFamilyStaging::RequestSpawnPose(uint64_t signature, uint64_t pairKey)
@@ -47,6 +74,8 @@ bool NRIEnemyFamilyStaging::RequestedSpawnPose(uint64_t signature, uint64_t pair
 
 void NRIEnemyFamilyStaging::Rebuild()
 {
+    for (auto it = promotionPairs.begin(); it != promotionPairs.end();)
+        if (!NeedsPromotion(it->first)) it = promotionPairs.erase(it); else ++it;
     bool lostFamily = false;
     for (auto it = spawnPosesByFamily.begin(); it != spawnPosesByFamily.end();)
     {
@@ -116,8 +145,8 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     const uint64_t ordinaryLimit = stats.limitBytes;
     const uint64_t pricedLimit = std::min(budget.startupChargedBytes, budget.budget / 2);
     stats.limitBytes = std::max(ordinaryLimit, pricedLimit);
-    const uint32_t familyLimit = prepareAll ? MaximumPreparedFamilies : MaximumFamilies;
-    const uint32_t meshLimit = prepareAll ? MaximumPreparedFamilies * MaximumFamilyPoses : MaximumMeshes;
+    const uint64_t promotionLimit = budget.promotionHeadroom && available > budget.usage ?
+        Add(stats.chargedBytes, std::min(budget.promotionHeadroom, available - budget.usage)) : 0;
     decisions.clear();
     struct Candidate { const NRIEnemyStageFamily* family; uint64_t cost; uint32_t owners; };
     std::vector<Candidate> candidates;
@@ -131,6 +160,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
     }
     std::sort(candidates.begin(), candidates.end(), [&](const Candidate& a, const Candidate& b)
     {
+        if (a.family->promotionRequested != b.family->promotionRequested) return a.family->promotionRequested;
         if (pricedLimit > ordinaryLimit && a.family->startupPriced != b.family->startupPriced)
             return a.family->startupPriced;
         if (a.cost != b.cost) return a.cost < b.cost;
@@ -162,7 +192,11 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
             { extra = Add(extra, Add(mesh.geometryBytes, mesh.physicalBytes)); cold = Add(cold, mesh.coldPhysicalBytes); }
         }
         const bool credit = family->startupPriced && pricedLimit > ordinaryLimit;
-        const uint64_t limit = credit ? stats.limitBytes : ordinaryLimit;
+        const bool promotion = family->promotionRequested && promotionLimit;
+        const uint64_t limit = std::max(credit ? pricedLimit : ordinaryLimit, promotion ? promotionLimit : uint64_t{0});
+        stats.limitBytes = std::max(stats.limitBytes, limit);
+        const uint32_t familyLimit = prepareAll || promotion ? MaximumPreparedFamilies : MaximumFamilies;
+        const uint32_t meshLimit = prepareAll || promotion ? MaximumPreparedFamilies * MaximumFamilyPoses : MaximumMeshes;
         if (!valid || family->poses > MaximumFamilyPoses || selected.size() >= familyLimit ||
             keys.size() > meshLimit - std::min<size_t>(meshLimit, pins.size()) || extra > limit - std::min(charged, limit))
         {
@@ -174,7 +208,7 @@ void NRIEnemyFamilyStaging::Select(const std::vector<NRIEnemyStageFamily>& famil
         const uint64_t retainedCold = Add(protectedCold, cold);
         const uint64_t remainingCold = budget.coldPhysical - std::min(retainedCold, budget.coldPhysical);
         uint64_t materials = prospectiveMaterials;
-        if (credit)
+        if (credit || promotion)
         {
             // Limits above bound owners and poses. The caller supplies the actual palette stride.
             const uint64_t bindings = uint64_t(candidate.owners) * family->poses;

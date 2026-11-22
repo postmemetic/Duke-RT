@@ -2893,7 +2893,7 @@ bool NRIPersistentVoxelResidency::AppendTlasInstances(
 	{
 		PersistentVoxelBatch::ActorEntry& actor = *actorPtr;
 		persistentVoxelTlasCandidateCount++;
-		if (UsesSpriteFallback(actor.identityKey, frameIndex))
+		if (UsesSpriteFallback(actor.identityKey, frameIndex) || IsEnemySpriteCommitted(actor.ownerWorldEpoch, actor.ownerLifetimeGeneration))
 		{
 			persistentVoxelTlasSkippedCount++;
 			recordOccurrenceCandidate(actor, false, "sprite-fallback");
@@ -4487,7 +4487,7 @@ void NRIPersistentVoxelResidency::ApplyPressurePolicy(
 	}
 	for (const auto& entry : currentSourceEntries)
 	{
-		if (IsEnemySpriteCommitted(entry.ownerWorldEpoch, entry.ownerLifetimeGeneration)) continue;
+		if (ShouldSkipEnemyVoxelPreparation(entry.ownerWorldEpoch, entry.ownerLifetimeGeneration)) continue;
 		admissionMeshes.insert(BuildPersistentVoxelMeshResourceKey(entry, settings));
 		admissionMaterials.insert(entry.materialKeyHash);
 	}
@@ -4837,6 +4837,12 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 		resetServices);
 	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::CacheMaintenance);
 	MaintainInactiveCache(phase, frameIndex, settings, totalTrackedBytes, adapterLocalBudget, resetServices);
+	// A drawable pose can bridge the whole admission wait while the effective
+	// budget has room. Under pressure the normal grace period releases its references.
+	const uint64_t holdReserve = std::max(settings.residentMinHeadroomBytes,
+		uint64_t(std::max(0, (int)nri_ptvoxelallocationreservemb)) * 1024 * 1024);
+	actorDemand.SetHoldHeadroom(!loadingPhase && !pressureProtectionBlocked && !warmRetentionPressure.active &&
+		adapterLocalBudget > totalTrackedBytes && adapterLocalBudget - totalTrackedBytes > holdReserve);
 	diagnostic.TimingStage(NRIVoxelAdmissionTimingStage::None);
 	const uint32_t variantBudget = loadingPhase ?
 		settings.admissionLoadVariants :
@@ -5008,7 +5014,9 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			continue;
 		}
 		PersistentVoxelAdmissionEntry& entry = found->second;
-		if (NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins) && !AllowsEnemyFamilyRecoveryPair(key) &&
+		const bool withdrawnFamilyRequest = (NRIVoxelFamilyRecoveryOnly(entry.admissionOrigins) && !AllowsEnemyFamilyRecoveryPair(key)) ||
+			(entry.admissionOrigins == uint8_t(NRIVoxelAdmissionOrigin::EnemyPromotion) && !enemyFamilyStaging.AllowsPromotionPair(key));
+		if (withdrawnFamilyRequest &&
 			CanDiscardUnsubmittedVoxelAdmission(entry, admissionScheduler))
 		{
 			cancelledFamilyKeys.push_back(key);
@@ -5214,7 +5222,8 @@ bool NRIPersistentVoxelResidency::PumpAdmissionQueue(
 			continue;
 		}
 		const bool requiredAdmission = IsRequiredAdmission(*entry) || (!loadingPhase &&
-			(enemyFamilyStaging.NeedsSpawnPose(entry->pairKey) || NRIVoxelFamilyRecoveryOnly(entry->admissionOrigins) ||
+			(enemyFamilyStaging.NeedsSpawnPose(entry->pairKey) || enemyFamilyStaging.AllowsPromotionPair(entry->pairKey) ||
+			 NRIVoxelFamilyRecoveryOnly(entry->admissionOrigins) ||
 			 (runtimePump && CanWakeParkedEnemyFamilyPose(*entry))));
 		const bool uploadState = isUploadState(entry->state);
 		const bool parkUnstartedOptional = !loadingPhase || (loadingWarmupActive && !BlockOptionalVoxelPreloadAdmissions());
@@ -5805,6 +5814,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 			existingMeshIt->second.indexCount != 0 &&
 			existingMeshIt->second.primitiveCount != 0 &&
 			existingMeshIt->second.accelerationStructure.accelerationStructure != nullptr &&
+			existingMeshIt->second.accelerationStructure.buildVertexBuffer != nullptr &&
 			HasPublishedGeometryBuffers(existingMeshIt->second);
 		const bool existingPrivateBuffersReady =
 			existingMeshPresent &&
@@ -5844,9 +5854,10 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 	// The admission pump may still own a previous actor request after its pose
 	// leaves view. The allocation owner checks the current mesh census.
 	const bool liveSpawnPose = runtimePump && enemyFamilyStaging.NeedsSpawnPose(entry.pairKey);
+	const bool livePromotion = runtimePump && enemyFamilyStaging.AllowsPromotionPair(entry.pairKey);
 	// Preserve the parked preload's provenance. Only this speculative start
 	// borrows the permit; a later actor request keeps its normal allocation path.
-	const bool wakeParkedFamilyPose = runtimePump && CanWakeParkedEnemyFamilyPose(entry);
+	const bool wakeParkedFamilyPose = runtimePump && !livePromotion && CanWakeParkedEnemyFamilyPose(entry);
 	uint64_t newPreflightToken = 0;
 	const auto allocationIntent = [&](const NRIPersistentVoxelGeometryRangeHandle& oldRange)
 	{
@@ -5880,7 +5891,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 				}
 		}
 		if (newPreflightToken && newPreflightToken == entry.schedulerTokenId) intent.freshDirectPair = entry.pairKey;
-		if (liveSpawnPose)
+		if (liveSpawnPose || livePromotion)
 		{
 			// Record the current service obligation without adding it to the
 			// persistent preload record or the per-actor material binding.
@@ -5962,7 +5973,7 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		schedulerRequest.reservation.blasScratchBytes = (uint64_t)variant.primitiveCount * 12ull;
 		schedulerRequest.fairnessClass = entry.runtimeRequested ?
 			NRIVoxelAdmissionFairnessClass::VisibleNoFallback :
-			((liveSpawnPose || IsRequiredAdmission(entry)) ? NRIVoxelAdmissionFairnessClass::RequiredLoading : NRIVoxelAdmissionFairnessClass::OptionalLoading);
+			((liveSpawnPose || livePromotion || IsRequiredAdmission(entry)) ? NRIVoxelAdmissionFairnessClass::RequiredLoading : NRIVoxelAdmissionFairnessClass::OptionalLoading);
 		schedulerRequest.age = entry.firstQueuedFrame != UINT32_MAX && frameIndex >= entry.firstQueuedFrame ?
 			(uint64_t)(frameIndex - entry.firstQueuedFrame) : 0u;
 		if (entry.runtimeRequested && GetNRIVoxelAdmissionPolicySettings().actorPriority && actorDemand.AuthorityAvailable())
@@ -6623,22 +6634,9 @@ bool NRIPersistentVoxelResidency::AdmitVariantResource(
 		}
 		outReusedMaterial = outReusedMaterial || canonicalMaterialReused;
 
-		auto existingMeshIt = meshVariantResources.find(meshResourceKey);
-		const bool existingMeshPresent =
-			existingMeshIt != meshVariantResources.end() &&
-			existingMeshIt->second.resourceKey == meshResourceKey &&
-			existingMeshIt->second.vertexCount != 0 &&
-			existingMeshIt->second.indexCount != 0 &&
-			existingMeshIt->second.primitiveCount != 0 &&
-			existingMeshIt->second.accelerationStructure.accelerationStructure != nullptr &&
-			HasPublishedGeometryBuffers(existingMeshIt->second);
-		const bool existingMeshReady =
-			existingMeshPresent &&
-			((existingMeshIt->second.vertexBuffer.buffer != nullptr &&
-				existingMeshIt->second.indexBuffer.buffer != nullptr) ||
-			 existingMeshIt->second.directComputePublished);
-		if (existingMeshReady)
+		if (existingMeshResourceReady())
 		{
+			auto existingMeshIt = meshVariantResources.find(meshResourceKey);
 			existingMeshIt->second.geometrySignature = ResolvePersistentVoxelVariantGeometrySignature(variant);
 			existingMeshIt->second.geometryContentHash = variant.geometryContentHash;
 			existingMeshIt->second.renderPrimitiveHash = variant.renderPrimitiveHash;
@@ -8304,8 +8302,15 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 		{
 			PersistentVoxelScopedTimer perfTimer(outStats.persistentVoxelBatchMeshAdmissionMs);
 			auto reusableMeshResourceIt = meshVariantResources.find(baseMeshResourceKey);
+			const bool replacingMesh = existingActor && existingActor->meshResourceKey != baseMeshResourceKey &&
+				existingActor->ownerWorldEpoch == cacheEntry.ownerWorldEpoch &&
+				existingActor->ownerLifetimeGeneration == cacheEntry.ownerLifetimeGeneration;
+			// Leave the old binding in place through admission and the first legal TLAS frame.
+			// A new actor can still drive the existing build-from-uploaded-geometry path.
 			if (reusableMeshResourceIt != meshVariantResources.end() &&
 				reusableMeshResourceIt->second.resourceKey == baseMeshResourceKey &&
+				(!replacingMesh || (reusableMeshResourceIt->second.accelerationStructure.accelerationStructure &&
+				 reusableMeshResourceIt->second.accelerationStructure.buildVertexBuffer)) &&
 				reusableMeshResourceIt->second.vertexCount != 0 &&
 				reusableMeshResourceIt->second.indexCount != 0 &&
 				reusableMeshResourceIt->second.primitiveCount != 0 &&
@@ -8315,6 +8320,12 @@ bool NRIPersistentVoxelResidency::EnsureBatch(
 				HasPublishedGeometryBuffers(reusableMeshResourceIt->second))
 			{
 				PersistentVoxelMeshVariantResource& meshResource = reusableMeshResourceIt->second;
+				if (replacingMesh && !meshResource.tlasPublished && meshResource.tlasReadyFrame > frameIndex)
+				{
+					if (outDeferredReason) *outDeferredReason = PersistentVoxelActorDeferredReason::AdmissionPending;
+					NoteCacheActorDeferred(cacheEntry.identityKey, "replacement-tlas-frame");
+					return true;
+				}
 				meshResource.lastDesiredMapGeneration = residencyMapGeneration;
 				meshResource.lastUsedMapGeneration = residencyMapGeneration;
 				meshResource.lastUsedFrame = frameIndex;
@@ -11016,7 +11027,7 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		inputHints = variant.inputHints;
 		if (!inputHints.bits) inputHints.bits = nri_scene::VoxelPreloadInputHints::Unknown;
 	}
-	const char* sourceLabel = familyRecovery ? "family-recovery" :
+	const char* sourceLabel = familyRecovery ? "family-recovery" : origin == NRIVoxelAdmissionOrigin::EnemyPromotion ? "enemy-promotion" :
 		(origin == NRIVoxelAdmissionOrigin::Preload ? "preload" : "runtime-actor");
 	// Warmup requests synthesize mounted/force flags. Preserve the actual
 	// preload obligation before requests for the same material pair merge.
@@ -11107,7 +11118,10 @@ bool NRIPersistentVoxelResidency::EnqueueAdmission(
 		MarkMaintenanceMutation();
 		found = admissionQueue.end();
 	}
-	if (familyRecovery && found != admissionQueue.end())
+	const bool retryPromotion = origin == NRIVoxelAdmissionOrigin::EnemyPromotion && found != admissionQueue.end() &&
+		found->second.admissionOrigins == uint8_t(NRIVoxelAdmissionOrigin::EnemyPromotion) &&
+		found->second.state == PersistentVoxelAdmissionState::Failed;
+	if ((familyRecovery || retryPromotion) && found != admissionQueue.end())
 	{
 		const auto& prior = found->second;
 		const bool terminal = prior.state == PersistentVoxelAdmissionState::Ready || prior.state == PersistentVoxelAdmissionState::Failed;

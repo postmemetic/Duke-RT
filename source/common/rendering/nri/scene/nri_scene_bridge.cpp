@@ -8387,6 +8387,7 @@ bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 			false, true, directPublish, lookup, model);
 		VoxelGeometryContentHashes hashes;
 		uint32_t primitiveCount = 0;
+		const SurfaceRef* canonical = nullptr;
 		if (routing.directOnlyAdmission)
 		{
 			hashes = BuildRawVoxelGeometryContentHashes(raw, texture, voxelIndex);
@@ -8396,10 +8397,10 @@ bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 		{
 			// CPU canonical payload hashes differ from raw direct-compute hashes.
 			// Select the same new-pose route as actor capture, never any resident key.
-			const auto* surface = GetReadyVoxelMeshVariantSurface(meshVariantHash);
-			if (surface && GetReadyVoxelMeshVariantContentHashes(meshVariantHash,
+			canonical = GetReadyVoxelMeshVariantSurface(meshVariantHash);
+			if (canonical && GetReadyVoxelMeshVariantContentHashes(meshVariantHash,
 				hashes.geometryContentHash, hashes.renderPrimitiveHash))
-				primitiveCount = CountSurfacePrimitives(*surface);
+				primitiveCount = CountSurfacePrimitives(*canonical);
 		}
 		if (!primitiveCount) return reject(routing.directOnlyAdmission ? "raw-primitives-unavailable" : "cpu-surface-unavailable");
 		if (!hashes.geometryContentHash || !hashes.renderPrimitiveHash) return reject("geometry-key-unavailable");
@@ -8415,6 +8416,8 @@ bool BuildEnemyVoxelFamilyViews(const ActorPresentationState& actor,
 		view.primitiveCount = primitiveCount;
 		view.rawBytes = raw.rawByteCount; view.rawSlabCount = raw.slabCount;
 		view.rawStatsReady = view.rawSourceResident = rawStatsReady;
+		view.canonicalSurface = canonical;
+		view.cpuSurfaceReady = canonical != nullptr;
 		view.material = MakeVoxelPaletteMaterialRef(model, texture, palette, art,
 			actor.spriteAnimation.recipePalette, actor.spriteAnimation.recipeShade,
 			alpha, MaterialFlag_Sprite);

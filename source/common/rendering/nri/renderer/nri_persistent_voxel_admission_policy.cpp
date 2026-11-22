@@ -74,7 +74,7 @@ void NRIPersistentVoxelResidency::RefreshActorDemand(uint32_t frameIndex,
     inputs.reserve(source.size());
     for (const auto& item : source)
     {
-        if (IsEnemySpriteCommitted(item.ownerWorldEpoch, item.ownerLifetimeGeneration)) continue;
+        if (ShouldSkipEnemyVoxelPreparation(item.ownerWorldEpoch, item.ownerLifetimeGeneration)) continue;
         // Every source-owned desired pair protects coalescing, including
         // retained/offscreen and not-yet-publication-eligible demand.
         if (!item.identityKey || !item.ownerWorldEpoch)
