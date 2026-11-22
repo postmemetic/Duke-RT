@@ -1171,7 +1171,8 @@ namespace
 		FTexture* const tileMetallic = tileLayers ? materialRef.texture->GetMetallic() : nullptr;
 		FTexture* const tileNormal = tileLayers ? materialRef.texture->GetNormalmap() : nullptr;
 		FTexture* const tileRoughness = tileLayers ? materialRef.texture->GetRoughness() : nullptr;
-		// nri_hightiledeflayers picks the winner when both sources have a layer.
+		// nri_hightiledeflayers picks the winner when both sources have a glow,
+		// metallic or roughness layer (normals: see below).
 		const bool preferDef = nri_hightiledeflayers;
 		auto pick = [preferDef](FTexture* fromDef, FTexture* fromTile) -> FTexture*
 		{
@@ -1185,7 +1186,12 @@ namespace
 			IsPictureGlow(materialRef.texture, tileGlow);
 		FTexture* const glowLayer = glowFromBase ? nullptr : pick(defGlow, tileGlow);
 		FTexture* const metallicLayer = pick(hightile != nullptr ? hightile->GetMetallic() : nullptr, tileMetallic);
-		FTexture* const normalLayer = pick(hightile != nullptr ? hightile->GetNormalmap() : nullptr, tileNormal);
+		// A DEF normal map always wins: relief must match the image it was drawn for.
+		// Duke-RT's (World Tour) normals follow the ART layout, and the HRP redraws
+		// some tiles with a different one (749's plank seams, 341's vent hole, the
+		// 787 curtain folds), which showed relief that didn't match the colour.
+		FTexture* const defNormal = hightile != nullptr ? hightile->GetNormalmap() : nullptr;
+		FTexture* const normalLayer = defNormal != nullptr ? defNormal : tileNormal;
 		// Roughness: authored roughness (DEF or Duke-RT, per the cvar), else a DEF
 		// specular map converted (1 - luminance) as the last resort.
 		FTexture* const roughnessLayer = pick(hightile != nullptr ? hightile->GetRoughness() : nullptr, tileRoughness);
