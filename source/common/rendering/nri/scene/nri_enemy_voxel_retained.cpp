@@ -43,38 +43,41 @@ bool Certified(const ActorPresentationState& state)
 		family && family->complete && family->signature != 0 && !family->textureIds.empty() && family->textureIds.size() <= 64;
 }
 
-bool PrepareSource(HWDrawInfo& view, const ActorPresentationState& state, tspritetype& sprite, HWSprite& prepared)
+const char* PrepareSource(HWDrawInfo& view, const ActorPresentationState& state, tspritetype& sprite, HWSprite& prepared, int* resolvedTexture = nullptr)
 {
-	if (state.physicalSectorIndex < 0 || unsigned(state.physicalSectorIndex) >= sector.Size()) return false;
+	if (state.physicalSectorIndex < 0 || unsigned(state.physicalSectorIndex) >= sector.Size()) return "invalid-sector";
 	sprite.ownerActor = nullptr;
 	sprite.sectp = &sector[state.physicalSectorIndex];
-	if (!gi || !gi->ResolveActorRetainedVoxelFrame(state, sprite, view.Viewpoint.TicFrac) ||
-		sprite.scale.X == 0 || sprite.scale.Y == 0) return false;
+	if (!gi || !gi->ResolveActorRetainedVoxelFrame(state, sprite, view.Viewpoint.TicFrac)) return "recipe-unavailable";
+	if (sprite.scale.X == 0 || sprite.scale.Y == 0) return "authored-hidden";
 	auto texture = sprite.spritetexture();
 	if (!(sprite.cstat2 & CSTAT2_SPRITE_NOANIMATE)) tileUpdatePicnum(texture, state.actorIndex & 16383);
 	sprite.setspritetexture(texture);
 	if (sprite.cstat2 & CSTAT2_SPRITE_FULLBRIGHT) sprite.shade = -127;
-	if (!texture.isValid() || (sprite.cstat & CSTAT_SPRITE_INVISIBLE)) return false;
+	if (resolvedTexture) *resolvedTexture = texture.GetIndex();
+	if (!texture.isValid()) return "invalid-texture";
+	if (sprite.cstat & CSTAT_SPRITE_INVISIBLE) return "authored-hidden";
 	if (state.spriteAnimation.enemy)
 	{
 		const auto& poses = state.spriteAnimation.enemyVoxelFamily->textureIds;
-		if (std::find(poses.begin(), poses.end(), texture.GetIndex()) == poses.end()) return false;
+		if (std::find(poses.begin(), poses.end(), texture.GetIndex()) == poses.end()) return "outside-enemy-family";
 	}
 	const int voxel = GetExtInfo(texture).tiletovox;
-	if (voxel < 0 || voxel >= MAXVOXELS || !voxmodels[voxel]) return false;
+	if (voxel < 0) return "unmapped-voxel-art";
+	if (voxel >= MAXVOXELS || !voxmodels[voxel]) return "voxel-model-unavailable";
 	HWVoxelActorInputs inputs;
 	inputs.modelRotation.Yaw = DAngle::fromDeg(state.modelRotation.yawDegrees);
 	inputs.modelRotation.Pitch = DAngle::fromDeg(state.modelRotation.pitchDegrees);
 	inputs.modelRotation.Roll = DAngle::fromDeg(state.modelRotation.rollDegrees);
 	inputs.modelPositionOffset = DVector3(state.modelPositionOffset.x, state.modelPositionOffset.y, state.modelPositionOffset.z);
 	inputs.cstat = int(state.cstat); inputs.alpha = state.alpha;
-	return prepared.PrepareVoxel(&view, voxmodels[voxel], &sprite, sprite.sectp, voxrotate[voxel], inputs);
+	return prepared.PrepareVoxel(&view, voxmodels[voxel], &sprite, sprite.sectp, voxrotate[voxel], inputs) ? nullptr : "voxel-transform-refused";
 }
 
 bool ValidateCapturedSource(HWDrawInfo& view, const HWSprite& captured, const ActorPresentationState& state, tspritetype sprite)
 {
 	HWSprite prepared = {};
-	if (!PrepareSource(view, state, sprite, prepared) || prepared.voxel != captured.voxel ||
+	if (PrepareSource(view, state, sprite, prepared) || prepared.voxel != captured.voxel ||
 		sprite.spritetexture() != captured.Sprite->spritetexture() || prepared.palette != captured.palette ||
 		prepared.shade != captured.shade || std::abs(prepared.alpha - captured.alpha) > 0.0001f) return false;
 	for (int i = 0; i < 16; ++i)
@@ -90,13 +93,14 @@ bool ValidateGenericVoxelTemplate(HWDrawInfo& view, const HWSprite& captured, co
 		ValidateCapturedSource(view, captured, state, sprite);
 }
 
-bool PublishGenericVoxelTemplate(HWDrawInfo& view, const ActorPresentationState& state, const tspritetype& source,
-	EnemyVoxelSourceSink sink)
+const char* PublishGenericVoxelTemplate(HWDrawInfo& view, const ActorPresentationState& state, const tspritetype& source,
+	EnemyVoxelSourceSink sink, int& texture)
 {
-	if (state.spriteAnimation.enemy || !state.spriteAnimation.recipeCertified) return false;
+	if (state.spriteAnimation.enemy || !state.spriteAnimation.recipeCertified) return "recipe-unavailable";
 	tspritetype sprite = source;
 	HWSprite prepared = {};
-	return PrepareSource(view, state, sprite, prepared) && sink(state, prepared);
+	if (const char* refusal = PrepareSource(view, state, sprite, prepared, &texture)) return refusal;
+	return sink(state, prepared) ? "published" : "source-publication-refused";
 }
 
 void ResetEnemyVoxelSources() { sources.clear(); }
@@ -190,7 +194,7 @@ void RefreshEnemyVoxelSources(HWDrawInfo& view, uint64_t frame, EnemyVoxelSource
 		{ ++rejected; continue; }
 		tspritetype sprite = *source.sprite;
 		HWSprite prepared = {};
-		const bool ready = PrepareSource(view, *state, sprite, prepared) && sink(*state, prepared);
+		const bool ready = !PrepareSource(view, *state, sprite, prepared) && sink(*state, prepared);
 		if (ready) ++refreshed; else ++rejected;
 	}
 	if ((bool)nri_ptenemyrepresentationtrace && (refreshed || rejected))

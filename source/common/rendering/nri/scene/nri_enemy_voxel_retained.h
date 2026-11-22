@@ -18,6 +18,6 @@ void SetEnemyVoxelSourceMode(uint64_t world, uint64_t lifetime, bool voxel);
 void ResetEnemyVoxelSources();
 using EnemyVoxelSourceSink = bool (*)(const ActorPresentationState&, HWSprite&);
 bool ValidateGenericVoxelTemplate(HWDrawInfo&, const HWSprite&, const ActorPresentationState&, const tspritetype&);
-bool PublishGenericVoxelTemplate(HWDrawInfo&, const ActorPresentationState&, const tspritetype&, EnemyVoxelSourceSink);
+const char* PublishGenericVoxelTemplate(HWDrawInfo&, const ActorPresentationState&, const tspritetype&, EnemyVoxelSourceSink, int& texture);
 void RefreshEnemyVoxelSources(HWDrawInfo&, uint64_t captureFrame, EnemyVoxelSourceSink);
 }

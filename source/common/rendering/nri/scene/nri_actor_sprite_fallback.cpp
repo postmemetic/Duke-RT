@@ -10,6 +10,7 @@
 #include "texturemanager.h"
 #include "gametexture.h"
 #include "buildtiles.h"
+#include "texinfo.h"
 #include "c_dispatch.h"
 #include "perf_audit.h"
 
@@ -38,7 +39,7 @@ namespace
 	std::unordered_set<uint64_t> gPublishedVoxels, gPreviousPublishedVoxels;
 	std::vector<ActorSpriteFallbackCandidate> gCandidates;
 	uint64_t gFrame = 0;
-	uint32_t gDescriptorTraceCount = 0;
+	uint32_t gDescriptorTraceCount = 0, gGenericVoxelTraceCount = 0;
 
 	void TraceDescriptorRejection(ActorSpriteFallbackCandidate& candidate, const ActorPresentationState& actor,
 		const tspritetype& sprite, const HWDrawInfo& view, const char* reason)
@@ -180,7 +181,7 @@ void BeginActorSpriteFallbackFrame(uint64_t frame)
 	gPreviousPublishedVoxels.swap(gPublishedVoxels);
 	gPublishedVoxels.clear();
 	gFrame = frame;
-	gDescriptorTraceCount = 0;
+	gDescriptorTraceCount = gGenericVoxelTraceCount = 0;
 	gSprites.erase(std::remove_if(gSprites.begin(), gSprites.end(), [](const RetainedSprite& retained)
 	{
 		const auto* actor = LookupActorPresentationByOwnerKey(retained.authority.owner);
@@ -371,9 +372,25 @@ void RefreshRetainedActorSpriteFallbackCandidates(HWDrawInfo& view,
 		SetAuthority(candidate, *actor);
 		// Camera capture may leave a live, animated actor outside the draw list.
 		// Publish fresh source authority for its mounted pose through ordinary admission.
-		if (retained.validatedVoxelTemplate && candidate.animationCurrent &&
-			gPreviousPublishedVoxels.count(candidate.identityKey) && needsVoxelSource(candidate.identityKey, *actor))
-			PublishGenericVoxelTemplate(view, *actor, retained.sprite, publish);
+		if (candidate.animationCurrent && !actor->spriteAnimation.enemy && gPreviousPublishedVoxels.count(candidate.identityKey) &&
+			needsVoxelSource(candidate.identityKey, *actor))
+		{
+			int texture = -1;
+			const char* reason = retained.validatedVoxelTemplate ?
+				PublishGenericVoxelTemplate(view, *actor, retained.sprite, publish, texture) : "capture-unverified";
+			if ((bool)nri_ptactorrepresentationtrace && PerfAuditActive() && gGenericVoxelTraceCount < 32 &&
+				((int)nri_ptactorrepresentationactor < 0 || (int)nri_ptactorrepresentationactor == actor->actorIndex))
+			{
+				const int tile = texture >= firstarttile && texture < firstarttile + maxarttile ? texture - firstarttile : -1;
+				char fields[384];
+				std::snprintf(fields, sizeof(fields), "\"actor\":%d,\"world\":%llu,\"lifetime\":%llu,\"capture_frame\":%llu,"
+					"\"reason\":\"%s\",\"resolved_texture\":%d,\"build_tile\":%d,\"descriptor_texture\":%d",
+					actor->actorIndex, (unsigned long long)candidate.ownerWorldEpoch, (unsigned long long)candidate.ownerLifetimeGeneration,
+					(unsigned long long)gFrame, reason, texture, tile, candidate.descriptorTexture);
+				PerfAuditWriteEvent("generic_voxel_source", PerfAuditCurrentToken(), fields);
+				++gGenericVoxelTraceCount;
+			}
+		}
 	}
 }
 
