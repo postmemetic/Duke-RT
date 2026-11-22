@@ -149,13 +149,16 @@ static HightileReplacement* FindReplacement(FTextureID texid, int palnum, bool s
 // the indexed ART tile: no replacement, ALWAYSUSEART, or only a pal 0 image for
 // a pal without a tint (it would show the wrong colors; the ART remap is right).
 // outTintFlags is -1 when no tint applies; outTintRGB is 0xRRGGBB.
+// outScaled is true when the DEF gave the image an xscale/yscale other than 1:
+// it is meant to span more (or less) than one tile, which Raze doesn't apply.
 //
 //===========================================================================
 
-FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB)
+FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB, bool& outScaled)
 {
 	outTintFlags = -1;
 	outTintRGB = 0xffffff;
+	outScaled = false;
 	if (!hw_hightile || (unsigned)palnum >= MAXPALOOKUPS) return nullptr;
 	auto& h = lookups.tables[palnum];
 	if (h.tintFlags & TINTF_ALWAYSUSEART) return nullptr;
@@ -168,6 +171,7 @@ FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags,
 		outTintFlags = h.tintFlags;
 		outTintRGB = (uint32_t(h.tintColor.r) << 16) | (uint32_t(h.tintColor.g) << 8) | h.tintColor.b;
 	}
+	outScaled = rep->scale.X != 1.f || rep->scale.Y != 1.f;
 	return rep->image;
 }
 

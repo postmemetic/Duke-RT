@@ -24,7 +24,7 @@
 #include <cstring>
 #include <unordered_map>
 
-FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB); // core/textures/hightile.cpp
+FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB, bool& outScaled); // core/textures/hightile.cpp
 
 
 namespace
@@ -1085,9 +1085,10 @@ namespace
 		FGameTexture* baseColorTexture = materialRef.texture;
 		FGameTexture* hightile = nullptr;
 		ReplacementBake bake;
+		bool hightileScaled = false;
 		if (indexed && allowPaletteMips && materialRef.texture != nullptr)
 		{
-			if (FGameTexture* replacement = FindHightileForRT(materialRef.texture->GetID(), (int)material.paletteIndex, bake.tintFlags, bake.tintRGB))
+			if (FGameTexture* replacement = FindHightileForRT(materialRef.texture->GetID(), (int)material.paletteIndex, bake.tintFlags, bake.tintRGB, hightileScaled))
 			{
 				baseColorTexture = replacement;
 				hightile = replacement;
@@ -1103,13 +1104,19 @@ namespace
 		}
 		// Each auxiliary layer comes from the DEF replacement when it has one, else
 		// from the tile's own Duke-RT material overlays. UVs are normalized to the
-		// tile, so overlays authored for the ART tile line up with any replacement.
-		// (All-or-nothing selection dropped e.g. Duke-RT glow maps on tiles whose
-		// HRP replacement only adds normal/specular layers.)
-		FTexture* const tileGlow = materialRef.texture != nullptr ? materialRef.texture->GetGlowmap() : nullptr;
-		FTexture* const tileMetallic = materialRef.texture != nullptr ? materialRef.texture->GetMetallic() : nullptr;
-		FTexture* const tileNormal = materialRef.texture != nullptr ? materialRef.texture->GetNormalmap() : nullptr;
-		FTexture* const tileRoughness = materialRef.texture != nullptr ? materialRef.texture->GetRoughness() : nullptr;
+		// tile, so overlays authored for the ART tile line up with a replacement
+		// that follows the ART layout. (All-or-nothing selection dropped e.g.
+		// Duke-RT glow maps on tiles whose HRP replacement only adds normal/specular
+		// layers.)
+		// Exception: a DEF image with xscale/yscale != 1 is laid out for a different
+		// tile span (e.g. the HRP's 755 floor packs 2x2 tiles of diamond plate into
+		// one image). Raze draws it once per tile regardless, so Duke-RT's ART-layout
+		// layers can't line up with it: take every layer from the DEF instead.
+		const bool tileLayers = materialRef.texture != nullptr && !hightileScaled;
+		FTexture* const tileGlow = tileLayers ? materialRef.texture->GetGlowmap() : nullptr;
+		FTexture* const tileMetallic = tileLayers ? materialRef.texture->GetMetallic() : nullptr;
+		FTexture* const tileNormal = tileLayers ? materialRef.texture->GetNormalmap() : nullptr;
+		FTexture* const tileRoughness = tileLayers ? materialRef.texture->GetRoughness() : nullptr;
 		// nri_hightiledeflayers picks the winner when both sources have a layer.
 		const bool preferDef = nri_hightiledeflayers;
 		auto pick = [preferDef](FTexture* fromDef, FTexture* fromTile) -> FTexture*
