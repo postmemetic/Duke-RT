@@ -14,6 +14,7 @@
 #include "nri_texture_signature.h"
 
 #include "palette.h"
+#include "palettecontainer.h"
 #include "tiletexture.h"
 #include "textures.h"
 
@@ -22,6 +23,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <unordered_map>
 
 FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB, bool& outScaled); // core/textures/hightile.cpp
@@ -615,6 +617,58 @@ namespace
 		for (int i = 0; i < 3; i++) c[i] = clamp(out[i] / 255.0f, 0.0f, 1.0f);
 	}
 
+	// Duke-RT's auto glow overlays are the tile's fullbright pixels. For screens,
+	// posters and signs that is the whole picture: every lit glow pixel copies
+	// the ART pixel and everything left unlit is black. Such a glow means "this
+	// picture shines", so with a DEF replacement the replacement itself should
+	// glow; the overlay would show the old ART picture through a redrawn one (the
+	// HRP's E1L1 dancer, tile 1280). Glows that mask part of the tile (a lamp in
+	// a lit frame) or don't copy the ART return false and are kept as they are.
+	bool IsPictureGlow(FGameTexture* tile, FTexture* glow)
+	{
+		static std::mutex cacheMutex;
+		static std::unordered_map<const FTexture*, bool> cache;
+		{
+			std::lock_guard<std::mutex> lock(cacheMutex);
+			auto found = cache.find(glow);
+			if (found != cache.end()) return found->second;
+		}
+
+		bool picture = false;
+		FTexture* const art = tile != nullptr ? tile->GetTexture() : nullptr;
+		if (art != nullptr && glow != nullptr)
+		{
+			FTextureBuffer artBuffer = art->CreateTexBuffer(0, CTF_Indexed);
+			FTextureBuffer glowBuffer = glow->CreateTexBuffer(0, CTF_ProcessData);
+			if (artBuffer.mBuffer != nullptr && glowBuffer.mBuffer != nullptr && artBuffer.mWidth > 0 && artBuffer.mHeight > 0 &&
+				artBuffer.mWidth == glowBuffer.mWidth && artBuffer.mHeight == glowBuffer.mHeight)
+			{
+				const size_t count = (size_t)artBuffer.mWidth * artBuffer.mHeight;
+				size_t lit = 0, copied = 0, unlit = 0, unlitDark = 0;
+				for (size_t i = 0; i < count; i++)
+				{
+					const uint8_t* g = glowBuffer.mBuffer + i * 4u; // BGRA
+					const uint8_t index = artBuffer.mBuffer[i];
+					const PalEntry c = GPalette.BaseColors[index];
+					if (std::max({ g[0], g[1], g[2] }) < 24)
+					{
+						if (index == 0 || index == 255) continue; // transparent (engine or Build convention)
+						unlit++;
+						if (std::max({ c.r, c.g, c.b }) < 64) unlitDark++;
+						continue;
+					}
+					lit++;
+					if (abs(g[2] - c.r) + abs(g[1] - c.g) + abs(g[0] - c.b) < 60) copied++;
+				}
+				picture = lit > 0 && copied >= lit * 95 / 100 && unlitDark >= unlit * 90 / 100;
+			}
+		}
+
+		std::lock_guard<std::mutex> lock(cacheMutex);
+		cache[glow] = picture;
+		return picture;
+	}
+
 	void ApplyBake(uint8_t* bgra, uint32_t width, uint32_t height, const ReplacementBake& bake)
 	{
 		std::vector<uint8_t> detail;
@@ -1124,7 +1178,12 @@ namespace
 			if (preferDef) return fromDef != nullptr ? fromDef : fromTile;
 			return fromTile != nullptr ? fromTile : fromDef;
 		};
-		FTexture* const glowLayer = pick(hightile != nullptr ? hightile->GetGlowmap() : nullptr, tileGlow);
+		// A Duke-RT picture glow (see IsPictureGlow) becomes the replacement image
+		// itself, unless the DEF has a glow map of its own, which is drawn for it.
+		FTexture* const defGlow = hightile != nullptr ? hightile->GetGlowmap() : nullptr;
+		const bool glowFromBase = hightile != nullptr && defGlow == nullptr && tileGlow != nullptr &&
+			IsPictureGlow(materialRef.texture, tileGlow);
+		FTexture* const glowLayer = glowFromBase ? nullptr : pick(defGlow, tileGlow);
 		FTexture* const metallicLayer = pick(hightile != nullptr ? hightile->GetMetallic() : nullptr, tileMetallic);
 		FTexture* const normalLayer = pick(hightile != nullptr ? hightile->GetNormalmap() : nullptr, tileNormal);
 		// Roughness: authored roughness (DEF or Duke-RT, per the cvar), else a DEF
@@ -1163,7 +1222,7 @@ namespace
 			glowmapTextureIndex = EnsureTextureUploadIndex(glowLayer, false, textureLookup, outMaterials);
 			glowmapContentKey = outMaterials.textures[glowmapTextureIndex].key;
 		}
-		else if (inheritedEmissiveSource && lightingTexture != nullptr && lightingTexture->GetGlowmap() != nullptr)
+		else if ((inheritedEmissiveSource && lightingTexture != nullptr && lightingTexture->GetGlowmap() != nullptr) || glowFromBase)
 		{
 			glowmapTextureIndex = material.textureIndex;
 			glowmapContentKey = outMaterials.textures[material.textureIndex].key;
