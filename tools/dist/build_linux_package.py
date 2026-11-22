@@ -50,7 +50,7 @@ def build(runtime, product, output):
         # Only the authored baseline belongs in a public package. Optional imports
         # always live in userdata and are never taken from the build machine.
         overlay = product / 'release-overlay'
-        for name in ('LIGHTOVR', 'VOXELPRELOAD'):
+        for name in ('FLUIDOVR', 'LIGHTOVR', 'VOXELPRELOAD'):
             destination = stage / 'release-overlay' / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(overlay / name, destination)
