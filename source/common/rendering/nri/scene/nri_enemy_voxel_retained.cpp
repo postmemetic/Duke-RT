@@ -48,7 +48,8 @@ const char* PrepareSource(HWDrawInfo& view, const ActorPresentationState& state,
 	if (state.physicalSectorIndex < 0 || unsigned(state.physicalSectorIndex) >= sector.Size()) return "invalid-sector";
 	sprite.ownerActor = nullptr;
 	sprite.sectp = &sector[state.physicalSectorIndex];
-	if (!gi || !gi->ResolveActorRetainedVoxelFrame(state, sprite, view.Viewpoint.TicFrac)) return "recipe-unavailable";
+	if (!gi || !gi->ResolveActorRetainedVoxelFrame(state, sprite, view.Viewpoint.TicFrac,
+		DVector2(view.Viewpoint.Pos.X, -view.Viewpoint.Pos.Y), DAngle::fromBam(view.Viewpoint.RotAngle))) return "recipe-unavailable";
 	if (sprite.scale.X == 0 || sprite.scale.Y == 0) return "authored-hidden";
 	auto texture = sprite.spritetexture();
 	if (!(sprite.cstat2 & CSTAT2_SPRITE_NOANIMATE)) tileUpdatePicnum(texture, state.actorIndex & 16383);

@@ -591,7 +591,7 @@ static bool ApplySpritePresentationRecipe(const ActorPresentationState& state, t
 }
 
 bool GameInterface::ResolveActorRetainedVoxelFrame(const ActorPresentationState& state, tspritetype& sprite,
-	double interpolation) const
+	double interpolation, const DVector2& viewVec, DAngle viewang) const
 {
 	const auto& animation = state.spriteAnimation;
 	const auto& family = animation.enemyVoxelFamily;
@@ -611,12 +611,25 @@ bool GameInterface::ResolveActorRetainedVoxelFrame(const ActorPresentationState&
 	sprite.statnum = state.statNumber;
 	FTextureID base; base.SetIndex(state.textureId); sprite.setspritetexture(base);
 	if (!ApplySpritePresentationRecipe(state, sprite)) return false;
-	// The ordinary mounted-voxel path suppresses directional ART selection.
-	// Reuse its action resolver; do not run Animate or any gameplay callback.
-	if (animation.forcedRotation != 0 || (sprite.clipdist & (TSPR_ROTATE8FRAMES | TSPR_ROTATE12FRAMES)))
-		sprite.cstat &= ~CSTAT_SPRITE_XFLIP;
+	// Native rotation and CON animation test the actor's base image. A later
+	// action image can have a mounted voxel even when its base is ordinary ART.
+	const bool suppressDirection = tilehasmodelorvoxel(base, state.spritePalette) != 0;
+	const int forced = (animation.forcedRotation == 8 || (sprite.clipdist & TSPR_ROTATE8FRAMES)) ? 8 :
+		(animation.forcedRotation == 12 || (sprite.clipdist & TSPR_ROTATE12FRAMES)) ? 12 : 0;
+	if (forced && suppressDirection) sprite.cstat &= ~CSTAT_SPRITE_XFLIP;
+	else if (forced == 8) ResolveSpriteRotation1(nullptr, &sprite, viewang, base, false);
+	else if (forced == 12) ResolveSpriteRotation2(nullptr, &sprite, viewang, base, false);
 	if (animation.recipeFloorPalette >= 0 && !(sprite.clipdist & TSPR_NOFLOORPAL)) sprite.pal = animation.recipeFloorPalette;
-	if (!animation.recipeHandled) ResolveSpriteAnimationFrame(&sprite, animation, {}, {}, true);
+	if (!animation.recipeHandled)
+	{
+		ResolveSpriteAnimationFrame(&sprite, animation, viewVec, viewang, suppressDirection);
+		if (animation.recipeTextureId >= 0)
+		{
+			FTextureID start;
+			start.SetIndex(animation.recipeTextureId);
+			sprite.setspritetexture(start);
+		}
+	}
 	if (animation.heatVision) { sprite.pal = 6; sprite.shade = 0; }
 	if (animation.recipeNativeHidden) sprite.scale = DVector2(0, 0);
 	return true;
