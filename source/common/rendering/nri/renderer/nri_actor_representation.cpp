@@ -30,6 +30,14 @@ EXTERN_CVAR(Bool, nri_ptenemystablerepresentation)
 
 namespace
 {
+	int PublishedVoxelMask(const std::vector<nri::TopLevelInstance>& instances, uint32_t id)
+	{
+		if (id < instances.size() && instances[id].instanceId == id) return instances[id].mask;
+		const auto match = std::find_if(instances.begin(), instances.end(),
+			[id](const nri::TopLevelInstance& instance) { return instance.instanceId == id; });
+		return match != instances.end() ? int(match->mask) : -1;
+	}
+
 	bool ForceSprite(int32_t actorIndex)
 	{
 		return (int)nri_ptactorspriteforce == -2 || (int)nri_ptactorspriteforce == actorIndex;
@@ -67,6 +75,7 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 	if (replacedReflection) *replacedReflection = false;
 	mSelected.clear();
 	mDecisions.clear();
+	mExactArrivals.clear();
 	mPriorityMaterials.clear();
 	mFrameIndex = frameIndex;
 	mStats = {};
@@ -188,6 +197,8 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 		}
 		else if (selected == NRIActorSelection::Voxel)
 		{
+			if (exactReady && currentDemand.representation != NRIVoxelActorRepresentation::Exact)
+				mExactArrivals.push_back(uint32_t(mDecisions.size()));
 			selection = "voxel";
 			++mStats.voxel;
 		}
@@ -250,6 +261,27 @@ bool NRIActorRepresentations::Build(uint32_t frameIndex, NRIPersistentVoxelResid
 		PerfAuditWriteEvent("actor_representation_summary", PerfAuditCurrentToken(), fields);
 	}
 	return sceneEdited;
+}
+
+void NRIActorRepresentations::CreditPublishedExact(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
+	const std::vector<nri::TopLevelInstance>& instances) const
+{
+	if (mFrameIndex != frameIndex) return;
+	// Admission observes the old binding before assembly. The next pump may
+	// already request a third pose, so credit a one-frame exact landing here.
+	for (const uint32_t index : mExactArrivals)
+	{
+		const auto& row = mDecisions[index];
+		const uint32_t slot = voxels.batch.actorIndex.Find(row.identity);
+		if (slot >= voxels.batch.actors.size()) continue;
+		const auto& actor = voxels.batch.actors[slot];
+		if (actor.ownerWorldEpoch == row.world && actor.ownerLifetimeGeneration == row.lifetime &&
+			actor.inWorldTlasThisFrame && actor.worldTlasFrameIndex == frameIndex &&
+			actor.meshResourceKey == row.desiredMesh && actor.materialKeyHash == row.desiredMaterial &&
+			PublishedVoxelMask(instances, actor.worldTlasInstanceIndex) > 0)
+			voxels.actorDemand.NotePublishedExact(row.identity, row.world, row.lifetime,
+				actor.meshResourceKey, actor.materialKeyHash, frameIndex);
+	}
 }
 
 void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersistentVoxelResidency& voxels,
@@ -318,18 +350,7 @@ void NRIActorRepresentations::RecordAssembly(uint32_t frameIndex, const NRIPersi
 		{
 			// The actor stores its scene record ID. Read the mask from the
 			// actual world TLAS input, including any workload filtering.
-			int voxelMask = -1;
-			if (voxelPublished)
-			{
-				const uint32_t id = actor->worldTlasInstanceIndex;
-				if (id < instances.size() && instances[id].instanceId == id) voxelMask = instances[id].mask;
-				else
-				{
-					const auto match = std::find_if(instances.begin(), instances.end(),
-						[id](const nri::TopLevelInstance& i) { return i.instanceId == id; });
-					if (match != instances.end()) voxelMask = match->mask;
-				}
-			}
+			const int voxelMask = voxelPublished ? PublishedVoxelMask(instances, actor->worldTlasInstanceIndex) : -1;
 			char fields[1024];
 			std::snprintf(fields, sizeof(fields), "\"renderer_frame\":%u,\"actor\":%d,\"identity\":%llu,\"world\":%llu,\"lifetime\":%llu,\"selection\":\"%s\",\"desired_mesh\":%llu,\"desired_material\":%llu,\"selected_mesh\":%llu,\"selected_material\":%llu,\"exact_wait_frames\":%u,\"scene_ready\":%s,\"voxel_in_tlas\":%s,\"voxel_tlas_mask\":%d,\"sprite_primitives\":%u,\"sprite_material_primitives\":%u,\"sprite_in_tlas\":%s,\"sprite_primary_hidden_primitives\":%u,\"sprite_indirect_primitives\":%u",
 				frameIndex, row.actorIndex, (unsigned long long)row.identity, (unsigned long long)row.world,

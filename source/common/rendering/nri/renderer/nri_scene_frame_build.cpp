@@ -1867,8 +1867,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				}
 			}
 
+			const bool sceneAssemblyReady = paletteReady && texturesReady && buffersReady && accelerationReady;
+			if (!preserveHistory && sceneAssemblyReady)
+				mActorRepresentations.CreditPublishedExact(mFrameIndex, mPersistentVoxels, instances);
 			mActorRepresentations.RecordAssembly(mFrameIndex, mPersistentVoxels, overlayGeometry, dynamicGpuMaterials,
-				actorRepresentationPublishedRanges, instances, paletteReady && texturesReady && buffersReady && accelerationReady);
+				actorRepresentationPublishedRanges, instances, sceneAssemblyReady);
 			if (actorOccurrenceFrameAvailable)
 			{
 				AppendNRIActorDynamicOccurrences(

@@ -39,6 +39,8 @@ public:
 		const NRISceneInstanceVisibilityContext& visibilityContext,
 		const nri_scene::SceneView* dynamicScene, int32_t separateReflectionActor, bool* replacedReflection);
 	void FinishGeometry();
+	void CreditPublishedExact(uint32_t frameIndex, NRIPersistentVoxelResidency& voxels,
+		const std::vector<nri::TopLevelInstance>& instances) const;
 	void RecordAssembly(uint32_t frameIndex, const NRIPersistentVoxelResidency& voxels,
 		const nri_scene::GeometryData& geometry, const std::vector<nri_scene::MaterialData>& materials,
 		const std::vector<std::pair<uint32_t, uint32_t>>& publishedRanges,
@@ -67,6 +69,7 @@ private:
 	uint32_t mFrameIndex = UINT32_MAX;
 	mutable uint64_t mAssemblyOrdinal = 0;
 	std::vector<Decision> mDecisions;
+	std::vector<uint32_t> mExactArrivals;
 	std::vector<uint32_t> mPriorityMaterials;
 	std::unordered_map<int32_t, SelectedSprite> mSelected;
 	nri_scene::SceneView mScene;

@@ -56,6 +56,8 @@ public:
     void SetHoldHeadroom(bool available) { holdHeadroomAvailable = available; }
     void ObserveRepresentation(uint64_t identity, uint64_t world, uint64_t lifetime,
         NRIVoxelActorRepresentation representation, uint64_t selectedMesh, uint64_t selectedMaterial, uint32_t frame);
+    void NotePublishedExact(uint64_t identity, uint64_t world, uint64_t lifetime,
+        uint64_t mesh, uint64_t material, uint32_t frame);
     bool CanHold(uint64_t identity, uint64_t world, uint64_t lifetime, uint32_t frame, uint32_t maximumFrames) const;
     NRIVoxelPairDemand Pair(uint64_t key) const;
     NRIVoxelMeshUpgradeDemand Upgrade(uint64_t mesh, uint32_t frame) const;

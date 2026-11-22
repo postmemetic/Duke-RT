@@ -131,6 +131,18 @@ void NRIVoxelActorDemand::ObserveRepresentation(uint64_t identity, uint64_t worl
     // Pair aggregation is rebuilt once by the next pump, not once per actor.
 }
 
+void NRIVoxelActorDemand::NotePublishedExact(uint64_t identity, uint64_t world, uint64_t lifetime,
+    uint64_t mesh, uint64_t material, uint32_t frame)
+{
+    if (!valid || refreshedFrame != frame || !mesh || !material) return;
+    const auto found = actors.find(identity);
+    if (found == actors.end()) return;
+    const auto& input = found->second.input;
+    if (input.rayEligible && input.world == world && input.lifetime == lifetime &&
+        input.mesh == mesh && input.material == material)
+        found->second.exactMissingSince = UINT32_MAX;
+}
+
 void NRIVoxelActorDemand::RebuildPairs(uint32_t frame)
 {
     pairs.clear(); upgrades.clear(); refreshedFrame = frame;
