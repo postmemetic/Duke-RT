@@ -1024,21 +1024,31 @@ function Install-HrpArchive {
         }
 
         # Swap by renames, so a locked file in the old pack can't leave a half-deleted HRP behind.
+        # Directory.Move is a single rename that fails whole. Move-Item isn't: when the rename
+        # fails it moves the folder's contents one by one, splitting the pack around the lock.
         $oldDir = "$HrpDir.old"
         if (Test-Path -LiteralPath $oldDir) {
             Remove-Item -LiteralPath $oldDir -Recurse -Force
         }
-        if (Test-Path -LiteralPath $HrpDir) {
-            Move-Item -LiteralPath $HrpDir -Destination $oldDir
-        }
         try {
-            Move-Item -LiteralPath $contentRoot -Destination $HrpDir
+            if (Test-Path -LiteralPath $HrpDir) {
+                [System.IO.Directory]::Move($HrpDir, $oldDir)
+            }
+            try {
+                [System.IO.Directory]::Move($contentRoot, $HrpDir)
+            }
+            catch {
+                if (Test-Path -LiteralPath $oldDir) {
+                    [System.IO.Directory]::Move($oldDir, $HrpDir)
+                }
+                throw
+            }
         }
         catch {
-            if (Test-Path -LiteralPath $oldDir) {
-                Move-Item -LiteralPath $oldDir -Destination $HrpDir
-            }
-            throw
+            # Unwrap "Exception calling Move ..." to the system message.
+            $inner = $_.Exception
+            while ($inner.InnerException) { $inner = $inner.InnerException }
+            throw "Could not replace the installed HRP at ${HrpDir}: $($inner.Message) Close any program using its files and launch again."
         }
         if (Test-Path -LiteralPath $oldDir) {
             try {
