@@ -1023,10 +1023,31 @@ function Install-HrpArchive {
             throw "The selected archive did not contain the expected HRP files (duke3d.def and highres)."
         }
 
-        if (Test-Path -LiteralPath $HrpDir) {
-            Remove-Item -LiteralPath $HrpDir -Recurse -Force
+        # Swap by renames, so a locked file in the old pack can't leave a half-deleted HRP behind.
+        $oldDir = "$HrpDir.old"
+        if (Test-Path -LiteralPath $oldDir) {
+            Remove-Item -LiteralPath $oldDir -Recurse -Force
         }
-        Move-Item -LiteralPath $contentRoot -Destination $HrpDir
+        if (Test-Path -LiteralPath $HrpDir) {
+            Move-Item -LiteralPath $HrpDir -Destination $oldDir
+        }
+        try {
+            Move-Item -LiteralPath $contentRoot -Destination $HrpDir
+        }
+        catch {
+            if (Test-Path -LiteralPath $oldDir) {
+                Move-Item -LiteralPath $oldDir -Destination $HrpDir
+            }
+            throw
+        }
+        if (Test-Path -LiteralPath $oldDir) {
+            try {
+                Remove-Item -LiteralPath $oldDir -Recurse -Force
+            }
+            catch {
+                Write-Warning "Could not remove the previous HRP at ${oldDir}: $($_.Exception.Message)"
+            }
+        }
 
         $archive = Get-Item -LiteralPath $ZipPath
         $ProviderState["installed"] = $true
@@ -1180,8 +1201,15 @@ function Invoke-HrpImport {
         }
     }
 
+    try {
+        Install-HrpArchive -LaunchRoot $LaunchRoot -ZipPath $newest.FullName -HrpDir $hrpDir -ProviderState $providerState
+    }
+    catch {
+        # Ask again next launch instead of silently re-extracting a failing archive every time.
+        $providerState["prompt"] = "ask"
+        throw
+    }
     $providerState["prompt"] = "always-yes"
-    Install-HrpArchive -LaunchRoot $LaunchRoot -ZipPath $newest.FullName -HrpDir $hrpDir -ProviderState $providerState
     return $hrpDir
 }
 
