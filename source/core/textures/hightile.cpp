@@ -142,6 +142,39 @@ static HightileReplacement* FindReplacement(FTextureID texid, int palnum, bool s
 	return nullptr;	// no replacement found
 }
 
+//===========================================================================
+//
+// For the RT backend, which has no shader-side tint: resolve a DEF replacement
+// the way PickTexture does and report the tint to bake. Returns nullptr to keep
+// the indexed ART tile: no replacement, ALWAYSUSEART, or only a pal 0 image for
+// a pal without a tint (it would show the wrong colors; the ART remap is right).
+// outTintFlags is -1 when no tint applies; outTintRGB is 0xRRGGBB.
+// outScaled is true when the DEF gave the image an xscale/yscale other than 1:
+// it is meant to span more (or less) than one tile, which Raze doesn't apply.
+//
+//===========================================================================
+
+FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB, bool& outScaled)
+{
+	outTintFlags = -1;
+	outTintRGB = 0xffffff;
+	outScaled = false;
+	if (!hw_hightile || (unsigned)palnum >= MAXPALOOKUPS) return nullptr;
+	auto& h = lookups.tables[palnum];
+	if (h.tintFlags & TINTF_ALWAYSUSEART) return nullptr;
+	auto rep = FindReplacement(texid, palnum, false);
+	if (!rep || !rep->image || rep->image->GetTexelWidth() <= 0) return nullptr;
+	const bool altpal = rep->palnum != palnum;
+	if (altpal && !h.tintFlags) return nullptr;
+	if (h.tintFlags && (altpal || (h.tintFlags & TINTF_APPLYOVERALTPAL)))
+	{
+		outTintFlags = h.tintFlags;
+		outTintRGB = (uint32_t(h.tintColor.r) << 16) | (uint32_t(h.tintColor.g) << 8) | h.tintColor.b;
+	}
+	outScaled = rep->scale.X != 1.f || rep->scale.Y != 1.f;
+	return rep->image;
+}
+
 int checkTranslucentReplacement(FTextureID texid, int pal)
 {
 	FGameTexture* tex = nullptr;

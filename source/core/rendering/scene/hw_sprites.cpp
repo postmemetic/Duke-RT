@@ -530,6 +530,11 @@ bool HWSprite::ProcessVoxel(HWDrawInfo* di, voxmodel_t* vox, tspritetype* spr, s
 	{
 		return false;
 	}
-	PutSprite(di, spriteHasTranslucency(Sprite));
+	// A voxel doesn't draw the tile's image, so a hightile replacement with
+	// partial alpha (checkTranslucentReplacement, part of spriteHasTranslucency)
+	// must not make it translucent. That moved voxels into GLDL_TRANSLUCENT,
+	// where the RT capture drops them (e.g. voxel fences/ammo with the Duke HRP).
+	const bool translucent = (Sprite->cstat & CSTAT_SPRITE_TRANSLUCENT) || Sprite->ownerActor->sprext.alpha;
+	PutSprite(di, translucent);
 	return true;
 }

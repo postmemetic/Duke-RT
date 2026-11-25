@@ -93,6 +93,31 @@ if /I "%~1"=="-VoxelZip" (
     shift
     goto parse_args
 )
+if /I "%~1"=="-HrpAsk" (
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -HrpAsk
+    shift
+    goto parse_args
+)
+if /I "%~1"=="-HrpYes" (
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -HrpYes
+    shift
+    goto parse_args
+)
+if /I "%~1"=="-HrpNo" (
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -HrpNo
+    shift
+    goto parse_args
+)
+if /I "%~1"=="-HrpZip" (
+    if "%~2"=="" (
+        echo [duke-rt] -HrpZip requires a path argument.
+        exit /b 1
+    )
+    set PREFLIGHT_ARGS=%PREFLIGHT_ARGS% -HrpZip "%~2"
+    shift
+    shift
+    goto parse_args
+)
 if /I "%~1"=="-SourceRoot" (
     if "%~2"=="" (
         echo [duke-rt] -SourceRoot requires a path argument.
@@ -153,5 +178,14 @@ if not exist "%DUKE_RT_GRP%" (
     exit /b 1
 )
 
-"%RAZE_EXE%" -gamegrp "%DUKE_RT_GRP%" -file "%OVERLAY_DIR%" %GAME_ARGS%
+rem The installed High Resolution Pack is mounted after the overlay. Raze loads only
+rem one duke3d.def (the last mounted), so the overlay has none and the voxel pack's
+rem DEFs (voxels and maphacks) are always added with -adddef: a DEF pack (the HRP, or
+rem any user -file folder or archive with its own duke3d.def) can't shadow them.
+set "CONTENT_ARGS="
+if defined DUKE_RT_HRP_DIR if exist "%DUKE_RT_HRP_DIR%\duke3d.def" set CONTENT_ARGS=-file "%DUKE_RT_HRP_DIR%"
+if exist "%OVERLAY_DIR%\duke3d_maphacks.def" set CONTENT_ARGS=%CONTENT_ARGS% -adddef duke3d_maphacks.def
+if exist "%OVERLAY_DIR%\duke3d_voxels.def" set CONTENT_ARGS=%CONTENT_ARGS% -adddef duke3d_voxels.def
+
+"%RAZE_EXE%" -gamegrp "%DUKE_RT_GRP%" -file "%OVERLAY_DIR%" %CONTENT_ARGS% %GAME_ARGS%
 exit /b %errorlevel%

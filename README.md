@@ -393,7 +393,7 @@ The target PC also needs the Microsoft Visual C++ x64 runtime compatible with
 the build toolchain. The source-built NRI DLL uses that runtime; the package
 does not include the Visual C++ redistributable installer.
 
-`launch-duke-rt.cmd` resolves a valid `DUKE3D.GRP` once, stores the verified install root under `generated-content\state\content-preferences.json`, and passes the resolved file to Raze with `-gamegrp`. Optional World Tour normal-map import uses the same install root's `textures` folder; failure to find or convert normals does not block launch when `DUKE3D.GRP` is valid. Optional Cheello voxel staging can be controlled with `-VoxelAsk`, `-VoxelYes`, `-VoxelNo`, `-VoxelZip "path\to\voxel_duke3d.zip"`, and `-ForceVoxels`.
+`launch-duke-rt.cmd` resolves a valid `DUKE3D.GRP` once, stores the verified install root under `generated-content\state\content-preferences.json`, and passes the resolved file to Raze with `-gamegrp`. Optional World Tour normal-map import uses the same install root's `textures` folder; failure to find or convert normals does not block launch when `DUKE3D.GRP` is valid. Optional Cheello voxel staging can be controlled with `-VoxelAsk`, `-VoxelYes`, `-VoxelNo`, `-VoxelZip "path\to\voxel_duke3d.zip"`, and `-ForceVoxels`. The optional High Resolution Pack (extracted to `generated-content\hrp`) can be controlled with `-HrpAsk`, `-HrpYes`, `-HrpNo`, and `-HrpZip "path\to\duke3d_hrp.zip"`; to reinstall the same archive, delete `generated-content\hrp` first.
 
 ##### Fast rebuild command
 
@@ -413,4 +413,10 @@ Example local overlay launch:
 
 ```powershell
 build\terminal-ninja\raze.exe -file .\release-overlay
+```
+
+With the voxel pack staged in the overlay, add its DEFs (the overlay has no `duke3d.def`):
+
+```powershell
+build\terminal-ninja\raze.exe -file .\release-overlay -adddef duke3d_voxels.def -adddef duke3d_maphacks.def
 ```

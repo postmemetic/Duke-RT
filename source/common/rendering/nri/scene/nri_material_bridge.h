@@ -307,6 +307,11 @@ struct MaterialLightingMetadata
 	float visibleFullbrightBoost = 1.0f;
 };
 
+// Optional deferred processing of a true-color source (DEF hightile bakes, mip
+// chain). Applied by RealizeTextureUploadPayload, so the work only happens when
+// the GPU texture cache misses; the upload key already identifies the result.
+struct TextureUploadTransform;
+
 struct TextureUpload
 {
 	uint64_t key = 0;
@@ -316,6 +321,7 @@ struct TextureUpload
 	bool indexed = false;
 	FTexture* sourceTexture = nullptr;
 	ImmutableBytePayload pixels;
+	std::shared_ptr<const TextureUploadTransform> transform;
 };
 
 struct MaterialBridgeBuildStats

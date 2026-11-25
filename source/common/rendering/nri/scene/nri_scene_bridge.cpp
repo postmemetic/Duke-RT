@@ -1526,7 +1526,13 @@ namespace
 				IsTranslucentEffect(wall->Sprite, wall->RenderStyle, wall->alpha, wall->shade);
 			// This new draw-list route is only for effect sprites; texture-alpha
 			// walls can also enter it with alpha == 1 and have other scene owners.
-			if (drawListType == GLDL_TRANSLUCENT && !translucentEffect) continue;
+			// Exception: wall-aligned sprites with an opaque style land here only
+			// because a DEF hightile replacement has partial alpha
+			// (spriteHasTranslucency -> checkTranslucentReplacement). Nothing else
+			// owns them, so dropping them made e.g. HRP fences vanish. They are
+			// captured as ordinary alpha-clipped sprites below.
+			const bool hightileAlphaSprite = wall != nullptr && wall->Sprite != nullptr && IsOpaqueSurface(*wall);
+			if (drawListType == GLDL_TRANSLUCENT && !translucentEffect && !hightileAlphaSprite) continue;
 			if (wall == nullptr || (!IsOpaqueSurface(*wall) && !translucentEffect))
 			{
 				continue;
@@ -7157,6 +7163,9 @@ bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCapture
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.flatsMs);
 		CaptureSpriteFlats(di, di.drawlists[GLDL_MASKEDFLATS], GLDL_MASKEDFLATS, outView.opaqueFlats);
 		CaptureSpriteFlats(di, di.drawlists[GLDL_MASKEDSLOPEFLATS], GLDL_MASKEDSLOPEFLATS, outView.opaqueFlats);
+		// Floor sprites with an opaque style land here only because a DEF hightile
+		// replacement has partial alpha; CaptureSpriteFlats takes just those.
+		CaptureSpriteFlats(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueFlats);
 	}
 	{
 		ScopedDynamicCaptureTimer timer(gDynamicCapturePerfStats.facingSpritesMs);
@@ -8464,6 +8473,7 @@ bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 	CaptureFlats(di, di.drawlists[GLDL_MASKEDSLOPEFLATS], GLDL_MASKEDSLOPEFLATS, outView.opaqueFlats, outView.stats, outView);
 	CaptureSpriteFlats(di, di.drawlists[GLDL_MASKEDFLATS], GLDL_MASKEDFLATS, outView.opaqueFlats);
 	CaptureSpriteFlats(di, di.drawlists[GLDL_MASKEDSLOPEFLATS], GLDL_MASKEDSLOPEFLATS, outView.opaqueFlats);
+	CaptureSpriteFlats(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueFlats); // hightile-alpha floor sprites
 
 	CaptureFacingSprites(di, di.drawlists[GLDL_TRANSLUCENT], GLDL_TRANSLUCENT, outView.opaqueSprites);
 	CaptureModelSprites(di, di.drawlists[GLDL_MODELS], GLDL_MODELS, outView.opaqueSprites, outView.stats, DynamicVoxelCaptureMode::Authoritative);

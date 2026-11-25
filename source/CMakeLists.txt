@@ -2451,6 +2451,11 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.spirv"
 		SOURCES ${NRI_SHADER_FILES}
 		VERBATIM)
+	# Listing the shaders as SOURCES makes the Visual Studio generator (used by
+	# auto-setup-windows.cmd) compile them itself with FXC, without include paths,
+	# which fails on NRI.hlsl. The DXC rules above already build them; other
+	# generators ignore this property.
+	set_source_files_properties(${NRI_SHADER_FILES} PROPERTIES VS_TOOL_OVERRIDE "None")
 	if(RAZE_NRI_SHADER_PROFILE_RESOLVED STREQUAL "DEVELOPER")
 		set(RAZE_NRI_DIAGNOSTIC_SHADER_DIR "${RAZE_NRI_SHADER_OUTPUT_DIR}/variants/diagnostic")
 		raze_add_trace_opaque_shaders(RAZE_NRI_DIAGNOSTIC_TRACE_BLOBS "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}" DIAGNOSTIC)

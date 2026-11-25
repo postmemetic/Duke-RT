@@ -14,13 +14,19 @@
 #include "nri_texture_signature.h"
 
 #include "palette.h"
+#include "palettecontainer.h"
 #include "tiletexture.h"
 #include "textures.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <cstring>
+#include <mutex>
 #include <unordered_map>
+
+FGameTexture* FindHightileForRT(FTextureID texid, int palnum, int& outTintFlags, uint32_t& outTintRGB, bool& outScaled); // core/textures/hightile.cpp
 
 
 namespace
@@ -537,6 +543,303 @@ namespace
 		return it->second;
 	}
 
+	// DEF replacements carry effects Raze applies in its GL shader (main.fp:
+	// ApplyTextureManipulation for `tint`, TEXF_Detailmap for `detail`). The RT
+	// shaders have neither, so they are baked into the uploaded BGRA pixels here.
+	// The RT also has no specular input, so a DEF specular map becomes roughness.
+	struct ReplacementBake
+	{
+		int tintFlags = -1;
+		uint32_t tintRGB = 0xffffff;
+		FTexture* detail = nullptr;
+		float detailScale[2] = { 1.0f, 1.0f };
+		bool specularToRoughness = false;
+
+		bool active() const { return tintFlags != -1 || detail != nullptr || specularToRoughness; }
+
+		uint64_t key() const
+		{
+			uint64_t k = HashCombine64(0x52544842414b45ull, (uint64_t)(uint32_t)tintFlags << 32 | tintRGB);
+			k = HashCombine64(k, (uint64_t)(uintptr_t)detail);
+			uint32_t sx, sy;
+			memcpy(&sx, &detailScale[0], 4);
+			memcpy(&sy, &detailScale[1], 4);
+			k = HashCombine64(k, (uint64_t)sx << 32 | sy);
+			return HashCombine64(k, specularToRoughness ? 1u : 0u);
+		}
+	};
+
+	// Raze main.fp ApplyTextureManipulation, with the uniforms PreBindTexture
+	// derives from a tint (basepal tint left at white). c is RGB in [0,1].
+	void ApplyTint(float c[3], int flags, uint32_t tintRGB)
+	{
+		float mod[3] = { 1.0f, 1.0f, 1.0f };
+		if (flags & TINTF_COLORIZE)
+		{
+			mod[0] = ((tintRGB >> 16) & 255) / 64.0f;
+			mod[1] = ((tintRGB >> 8) & 255) / 64.0f;
+			mod[2] = (tintRGB & 255) / 64.0f;
+		}
+		const float desat = (flags & TINTF_GRAYSCALE) ? 1.0f : 0.0f;
+		const float gray = c[0] * 0.3f + c[1] * 0.56f + c[2] * 0.14f;
+		for (int i = 0; i < 3; i++)
+		{
+			c[i] += (gray - c[i]) * desat;
+			if (flags & TINTF_INVERT) c[i] = 1.0f - c[i];
+			c[i] = clamp(c[i] * mod[i], 0.0f, 1.0f);
+		}
+
+		const int blend = (flags & TINTF_BLENDMASK) ? ((((flags & TINTF_BLENDMASK) >> 6) + 1) & 7) : 0;
+		if (blend == 0) return;
+		float t[3], tc[3];
+		for (int i = 0; i < 3; i++) { t[i] = mod[i] * 255.0f; tc[i] = c[i] * 255.0f; }
+		float out[3];
+		switch (blend)
+		{
+		default: // alpha blend; the blend alpha is the desaturation factor, as in Raze
+			for (int i = 0; i < 3; i++) out[i] = tc[i] * (1.0f - desat) + t[i] * desat;
+			break;
+		case 2: // screen; Raze swaps the r/b tint channels here, kept for parity
+			out[2] = 255.0f - (((255.0f - tc[2]) * (255.0f - t[0])) / 256.0f);
+			out[1] = 255.0f - (((255.0f - tc[1]) * (255.0f - t[1])) / 256.0f);
+			out[0] = 255.0f - (((255.0f - tc[0]) * (255.0f - t[2])) / 256.0f);
+			break;
+		case 3: // overlay
+			for (int i = 0; i < 3; i++)
+				out[i] = tc[i] < 128.0f ? (tc[i] * t[i]) / 128.0f : 255.0f - (((255.0f - tc[i]) * (255.0f - t[i])) / 128.0f);
+			break;
+		case 4: // hardlight
+			for (int i = 0; i < 3; i++)
+				out[i] = t[i] < 128.0f ? (tc[i] * t[i]) / 128.0f : 255.0f - (((255.0f - tc[i]) * (255.0f - t[i])) / 128.0f);
+			break;
+		}
+		// Colorize tints go up to ~4x, so blends can leave [0,255]; the bake stores bytes.
+		for (int i = 0; i < 3; i++) c[i] = clamp(out[i] / 255.0f, 0.0f, 1.0f);
+	}
+
+	// Duke-RT's auto glow overlays are the tile's fullbright pixels. For screens,
+	// posters and signs that is the whole picture: every lit glow pixel copies
+	// the ART pixel and everything left unlit is black. Such a glow means "this
+	// picture shines", so with a DEF replacement the replacement itself should
+	// glow; the overlay would show the old ART picture through a redrawn one (the
+	// HRP's E1L1 dancer, tile 1280). Glows that mask part of the tile (a lamp in
+	// a lit frame) or don't copy the ART return false and are kept as they are.
+	bool IsPictureGlow(FGameTexture* tile, FTexture* glow)
+	{
+		static std::mutex cacheMutex;
+		static std::unordered_map<const FTexture*, bool> cache;
+		{
+			std::lock_guard<std::mutex> lock(cacheMutex);
+			auto found = cache.find(glow);
+			if (found != cache.end()) return found->second;
+		}
+
+		bool picture = false;
+		FTexture* const art = tile != nullptr ? tile->GetTexture() : nullptr;
+		if (art != nullptr && glow != nullptr)
+		{
+			FTextureBuffer artBuffer = art->CreateTexBuffer(0, CTF_Indexed);
+			FTextureBuffer glowBuffer = glow->CreateTexBuffer(0, CTF_ProcessData);
+			if (artBuffer.mBuffer != nullptr && glowBuffer.mBuffer != nullptr && artBuffer.mWidth > 0 && artBuffer.mHeight > 0 &&
+				artBuffer.mWidth == glowBuffer.mWidth && artBuffer.mHeight == glowBuffer.mHeight)
+			{
+				const size_t count = (size_t)artBuffer.mWidth * artBuffer.mHeight;
+				size_t lit = 0, copied = 0, unlit = 0, unlitDark = 0;
+				for (size_t i = 0; i < count; i++)
+				{
+					const uint8_t* g = glowBuffer.mBuffer + i * 4u; // BGRA
+					const uint8_t index = artBuffer.mBuffer[i];
+					const PalEntry c = GPalette.BaseColors[index];
+					if (std::max({ g[0], g[1], g[2] }) < 24)
+					{
+						if (index == 0 || index == 255) continue; // transparent (engine or Build convention)
+						unlit++;
+						if (std::max({ c.r, c.g, c.b }) < 64) unlitDark++;
+						continue;
+					}
+					lit++;
+					if (abs(g[2] - c.r) + abs(g[1] - c.g) + abs(g[0] - c.b) < 60) copied++;
+				}
+				picture = lit > 0 && copied >= lit * 95 / 100 && unlitDark >= unlit * 90 / 100;
+			}
+		}
+
+		std::lock_guard<std::mutex> lock(cacheMutex);
+		cache[glow] = picture;
+		return picture;
+	}
+
+	void ApplyBake(uint8_t* bgra, uint32_t width, uint32_t height, const ReplacementBake& bake)
+	{
+		std::vector<uint8_t> detail;
+		int dw = 0, dh = 0;
+		if (bake.detail != nullptr)
+		{
+			FTextureBuffer db = bake.detail->CreateTexBuffer(0, CTF_ProcessData);
+			if (db.mBuffer != nullptr && db.mWidth > 0 && db.mHeight > 0)
+			{
+				dw = db.mWidth;
+				dh = db.mHeight;
+				detail.assign(db.mBuffer, db.mBuffer + (size_t)dw * dh * 4u);
+			}
+		}
+
+		for (uint32_t y = 0; y < height; y++)
+		{
+			for (uint32_t x = 0; x < width; x++)
+			{
+				uint8_t* p = bgra + ((size_t)y * width + x) * 4u;
+				float c[3] = { p[2] / 255.0f, p[1] / 255.0f, p[0] / 255.0f };
+
+				if (bake.specularToRoughness)
+				{
+					const float r = clamp(1.0f - (c[0] * 0.3f + c[1] * 0.56f + c[2] * 0.14f), 0.02f, 1.0f);
+					c[0] = c[1] = c[2] = r;
+					p[3] = 255;
+				}
+				// main.fp order: the tint is applied to the texel (getTexel), detail after.
+				if (bake.tintFlags != -1)
+				{
+					ApplyTint(c, bake.tintFlags, bake.tintRGB);
+				}
+				if (!detail.empty())
+				{
+					// main.fp: Base.rgb *= texture(detail, uv * scale) * 2 (bias 2, from PreBindTexture)
+					const float u = (x + 0.5f) / width * bake.detailScale[0] * dw - 0.5f;
+					const float v = (y + 0.5f) / height * bake.detailScale[1] * dh - 0.5f;
+					const float fu = floorf(u), fv = floorf(v);
+					const float ax = u - fu, ay = v - fv;
+					auto texel = [&](int tx, int ty, int ch)
+					{
+						tx = ((tx % dw) + dw) % dw;
+						ty = ((ty % dh) + dh) % dh;
+						return detail[((size_t)ty * dw + tx) * 4u + ch] / 255.0f;
+					};
+					for (int i = 0; i < 3; i++)
+					{
+						const int ch = 2 - i; // BGRA
+						const float d =
+							(texel((int)fu, (int)fv, ch) * (1 - ax) + texel((int)fu + 1, (int)fv, ch) * ax) * (1 - ay) +
+							(texel((int)fu, (int)fv + 1, ch) * (1 - ax) + texel((int)fu + 1, (int)fv + 1, ch) * ax) * ay;
+						c[i] = clamp(c[i] * d * 2.0f, 0.0f, 1.0f);
+					}
+				}
+
+				p[2] = (uint8_t)(c[0] * 255.0f + 0.5f);
+				p[1] = (uint8_t)(c[1] * 255.0f + 0.5f);
+				p[0] = (uint8_t)(c[2] * 255.0f + 0.5f);
+			}
+		}
+	}
+
+	uint32_t ComputeFullMipCount(uint32_t width, uint32_t height)
+	{
+		uint32_t count = 1;
+		while (width > 1 || height > 1)
+		{
+			width = (std::max)(1u, width / 2u);
+			height = (std::max)(1u, height / 2u);
+			count++;
+		}
+		return count;
+	}
+
+	// Appends mips 1..mipCount-1 after mip 0 (tightly packed BGRA, the layout
+	// BuildSceneTextureSubresources expects; level sizes halve with max(1, n / 2)).
+	// 2x2 box filter weighted by alpha, so fully transparent texels (often black)
+	// don't darken the edges of cut-out textures like fences.
+	void AppendBgraMipChain(std::vector<uint8_t>& pixels, uint32_t width, uint32_t height, uint32_t mipCount)
+	{
+		size_t srcOffset = 0;
+		uint32_t srcWidth = width;
+		uint32_t srcHeight = height;
+		for (uint32_t mip = 1; mip < mipCount; mip++)
+		{
+			const uint32_t dstWidth = (std::max)(1u, srcWidth / 2u);
+			const uint32_t dstHeight = (std::max)(1u, srcHeight / 2u);
+			const size_t dstOffset = pixels.size();
+			pixels.resize(dstOffset + (size_t)dstWidth * dstHeight * 4u);
+			for (uint32_t y = 0; y < dstHeight; y++)
+			{
+				for (uint32_t x = 0; x < dstWidth; x++)
+				{
+					float weighted[3] = { 0.0f, 0.0f, 0.0f };
+					float plain[3] = { 0.0f, 0.0f, 0.0f };
+					float alphaSum = 0.0f;
+					for (uint32_t dy = 0; dy < 2; dy++)
+					{
+						for (uint32_t dx = 0; dx < 2; dx++)
+						{
+							const uint32_t sx = (std::min)(x * 2u + dx, srcWidth - 1u);
+							const uint32_t sy = (std::min)(y * 2u + dy, srcHeight - 1u);
+							const uint8_t* s = &pixels[srcOffset + ((size_t)sy * srcWidth + sx) * 4u];
+							const float a = s[3] / 255.0f;
+							for (int c = 0; c < 3; c++)
+							{
+								weighted[c] += s[c] * a;
+								plain[c] += s[c];
+							}
+							alphaSum += a;
+						}
+					}
+					uint8_t* d = &pixels[dstOffset + ((size_t)y * dstWidth + x) * 4u];
+					for (int c = 0; c < 3; c++)
+					{
+						const float v = alphaSum > 0.0f ? weighted[c] / alphaSum : plain[c] * 0.25f;
+						d[c] = (uint8_t)clamp(v + 0.5f, 0.0f, 255.0f);
+					}
+					d[3] = (uint8_t)clamp(alphaSum * 0.25f * 255.0f + 0.5f, 0.0f, 255.0f);
+				}
+			}
+			srcOffset = dstOffset;
+			srcWidth = dstWidth;
+			srcHeight = dstHeight;
+		}
+	}
+}
+
+namespace nri_scene
+{
+	struct TextureUploadTransform
+	{
+		ReplacementBake bake;
+	};
+}
+
+namespace
+{
+	// DEF replacement uploads (bake and/or mip chain) are deferred like ordinary
+	// true-color textures: the key identifies the result without decoding, and
+	// RealizeTextureUploadPayload does the work only on a GPU texture cache miss.
+	// (Doing it per BuildMaterials call, which runs often, made HRP scenes crawl.)
+	uint32_t EnsureTransformedTextureUploadIndex(FTexture* texture, const ReplacementBake& bake, bool generateMips, std::unordered_map<uint64_t, uint32_t>& textureLookup, MaterialBridgeData& outMaterials)
+	{
+		const uint64_t lookupKey = HashCombine64(MakeTextureKey(texture, false) ^ bake.key(), generateMips ? 0x4d4950u : 0u);
+		auto it = textureLookup.find(lookupKey);
+		if (it != textureLookup.end())
+		{
+			return it->second;
+		}
+
+		const uint32_t textureIndex = (uint32_t)outMaterials.textures.size();
+		textureLookup.emplace(lookupKey, textureIndex);
+		TextureUpload upload = {};
+		upload.sourceTexture = texture;
+		upload.key = lookupKey;
+		upload.indexed = false;
+		if (texture != nullptr && texture->GetWidth() > 0 && texture->GetHeight() > 0)
+		{
+			upload.width = (uint32_t)texture->GetWidth();
+			upload.height = (uint32_t)texture->GetHeight();
+			upload.mipCount = generateMips ? ComputeFullMipCount(upload.width, upload.height) : 1u;
+		}
+		auto transform = std::make_shared<TextureUploadTransform>();
+		transform->bake = bake;
+		upload.transform = std::move(transform);
+		outMaterials.textures.push_back(std::move(upload));
+		return textureIndex;
+	}
+
 	uint64_t ComputeMaterialKey(const MaterialRef& materialRef, const MaterialLightingMetadata& metadata)
 	{
 		uint64_t key = 1469598103934665603ull;
@@ -651,7 +954,9 @@ namespace
 			{
 				metadata.lightingFlags |= MaterialLightingFlag_TextureAutoGlowing;
 			}
-			if (lightingTexture->GetGlowmap() != nullptr)
+			// A chosen glow layer counts too: a DEF replacement's glow map on a tile
+			// that has no Duke-RT glow overlay of its own.
+			if (lightingTexture->GetGlowmap() != nullptr || glowmapTextureIndex != UINT32_MAX)
 			{
 				metadata.lightingFlags |= MaterialLightingFlag_HasGlowmap;
 				metadata.glowmapContentKey = glowmapContentKey;
@@ -823,19 +1128,81 @@ namespace
 		material.metalnessHint = ComputeMetalnessHint(materialRef);
 		material.materialClass = ComputeMaterialClass(materialRef);
 
-		const bool indexed = (materialRef.flags & MaterialFlag_Indexed) != 0;
+		bool indexed = (materialRef.flags & MaterialFlag_Indexed) != 0;
 		// Voxel palette policies expand this surface into many material rows which
 		// currently share one texture index. Keep that texture single-mip until the
 		// policy rows can own palette-specific indexed mip variants.
 		const bool allowPaletteMips = materialRef.voxelPalettePolicy == nullptr;
-		material.textureIndex = EnsureTextureUploadIndex(
-			materialRef.texture,
-			indexed,
-			material.paletteIndex,
-			material.flags,
-			allowPaletteMips,
-			textureLookup,
-			outMaterials);
+		// DEF `texture` replacement: upload the true-color image instead of the ART
+		// tile. UVs are normalized to the tile, so any resolution maps 1:1. Lighting
+		// rules below still key off the original tile (materialRef.texture).
+		FGameTexture* baseColorTexture = materialRef.texture;
+		FGameTexture* hightile = nullptr;
+		ReplacementBake bake;
+		bool hightileScaled = false;
+		if (indexed && allowPaletteMips && materialRef.texture != nullptr)
+		{
+			if (FGameTexture* replacement = FindHightileForRT(materialRef.texture->GetID(), (int)material.paletteIndex, bake.tintFlags, bake.tintRGB, hightileScaled))
+			{
+				baseColorTexture = replacement;
+				hightile = replacement;
+				indexed = false;
+				material.flags &= ~MaterialFlag_Indexed;
+				if (replacement->GetDetailmap() != nullptr)
+				{
+					bake.detail = replacement->GetDetailmap();
+					bake.detailScale[0] = replacement->GetDetailScale().X;
+					bake.detailScale[1] = replacement->GetDetailScale().Y;
+				}
+			}
+		}
+		// Auxiliary layers (normal, glow, metallic, roughness), one by one: a layer
+		// that comes with the DEF replacement wins, because it is drawn for that
+		// image. Duke-RT's own material overlays fill the gaps; they follow the ART
+		// tile's layout, and UVs are normalized to the tile, so they line up with a
+		// replacement that keeps that layout (most HRP textures; e.g. the glow on
+		// lamp tiles whose HRP replacement only adds normal/specular layers).
+		// Exceptions:
+		// - A DEF image with xscale/yscale != 1 is laid out for a different tile
+		//   span (e.g. the HRP's 755 floor packs 2x2 tiles of diamond plate into one
+		//   image). Raze draws it once per tile regardless, so Duke-RT's ART-layout
+		//   layers can't line up with it: take no layer from Duke-RT.
+		// - A Duke-RT picture glow (see IsPictureGlow) becomes the replacement
+		//   image itself, when the DEF has no glow map of its own.
+		const bool tileLayers = materialRef.texture != nullptr && !hightileScaled;
+		FTexture* const tileGlow = tileLayers ? materialRef.texture->GetGlowmap() : nullptr;
+		FTexture* const tileMetallic = tileLayers ? materialRef.texture->GetMetallic() : nullptr;
+		FTexture* const tileNormal = tileLayers ? materialRef.texture->GetNormalmap() : nullptr;
+		FTexture* const tileRoughness = tileLayers ? materialRef.texture->GetRoughness() : nullptr;
+		auto pick = [](FTexture* fromDef, FTexture* fromTile) -> FTexture*
+		{
+			return fromDef != nullptr ? fromDef : fromTile;
+		};
+		FTexture* const defGlow = hightile != nullptr ? hightile->GetGlowmap() : nullptr;
+		const bool glowFromBase = hightile != nullptr && defGlow == nullptr && tileGlow != nullptr &&
+			IsPictureGlow(materialRef.texture, tileGlow);
+		FTexture* const glowLayer = glowFromBase ? nullptr : pick(defGlow, tileGlow);
+		FTexture* const metallicLayer = pick(hightile != nullptr ? hightile->GetMetallic() : nullptr, tileMetallic);
+		// The HRP redraws some tiles with a different layout than Duke-RT's (World
+		// Tour) normal maps: 749's plank seams, 341's vent hole, the 787 curtain
+		// folds. Relief from the DEF matches the colour.
+		FTexture* const normalLayer = pick(hightile != nullptr ? hightile->GetNormalmap() : nullptr, tileNormal);
+		// Roughness: authored roughness (DEF, else Duke-RT), else a DEF specular map
+		// converted (1 - luminance) as the last resort.
+		FTexture* const roughnessLayer = pick(hightile != nullptr ? hightile->GetRoughness() : nullptr, tileRoughness);
+		FTexture* const specularForRoughness = roughnessLayer == nullptr && hightile != nullptr ? hightile->GetSpecularmap() : nullptr;
+		// Replacements get a mip chain (indexed tiles get palette-aware mips); the
+		// primary hit picks a LOD from the texture's own mip count.
+		material.textureIndex = hightile != nullptr ?
+			EnsureTransformedTextureUploadIndex(baseColorTexture->GetTexture(), bake, (material.flags & MaterialFlag_PointSampled) == 0, textureLookup, outMaterials) :
+			EnsureTextureUploadIndex(
+				baseColorTexture,
+				indexed,
+				material.paletteIndex,
+				material.flags,
+				allowPaletteMips,
+				textureLookup,
+				outMaterials);
 
 		material.sectorIndex = surface.provenance.sectorIndex >= 0 ? (uint32_t)surface.provenance.sectorIndex : UINT32_MAX;
 		material.wallIndex = surface.provenance.wallIndex >= 0 ? (uint32_t)surface.provenance.wallIndex : UINT32_MAX;
@@ -851,31 +1218,41 @@ namespace
 		const bool inheritedEmissiveSource = materialRef.emissiveSourceTexture != nullptr && materialRef.emissiveSourceTexture != materialRef.texture;
 		FGameTexture* lightingTexture = inheritedEmissiveSource ? materialRef.emissiveSourceTexture : materialRef.texture;
 		const bool useAuxiliaryMaps = !IsPlainMirrorMaterial(materialRef);
-		if (!inheritedEmissiveSource && materialRef.texture != nullptr && materialRef.texture->GetGlowmap() != nullptr)
+		if (!inheritedEmissiveSource && glowLayer != nullptr)
 		{
-			glowmapTextureIndex = EnsureTextureUploadIndex(materialRef.texture->GetGlowmap(), false, textureLookup, outMaterials);
+			glowmapTextureIndex = EnsureTextureUploadIndex(glowLayer, false, textureLookup, outMaterials);
 			glowmapContentKey = outMaterials.textures[glowmapTextureIndex].key;
 		}
-		else if (inheritedEmissiveSource && lightingTexture != nullptr && lightingTexture->GetGlowmap() != nullptr)
+		else if ((inheritedEmissiveSource && lightingTexture != nullptr && lightingTexture->GetGlowmap() != nullptr) || glowFromBase)
 		{
 			glowmapTextureIndex = material.textureIndex;
 			glowmapContentKey = outMaterials.textures[material.textureIndex].key;
 		}
-		if (useAuxiliaryMaps && materialRef.texture != nullptr && materialRef.texture->GetMetallic() != nullptr)
+		if (useAuxiliaryMaps && metallicLayer != nullptr)
 		{
-			metallicTextureIndex = EnsureTextureUploadIndex(materialRef.texture->GetMetallic(), false, textureLookup, outMaterials);
+			metallicTextureIndex = EnsureTextureUploadIndex(metallicLayer, false, textureLookup, outMaterials);
 			metallicContentKey = outMaterials.textures[metallicTextureIndex].key;
 			outMaterials.materials.back().metallicTextureIndex = metallicTextureIndex;
 		}
-		if (useAuxiliaryMaps && materialRef.texture != nullptr && materialRef.texture->GetNormalmap() != nullptr)
+		if (useAuxiliaryMaps && normalLayer != nullptr)
 		{
-			normalTextureIndex = EnsureTextureUploadIndex(materialRef.texture->GetNormalmap(), false, textureLookup, outMaterials);
+			normalTextureIndex = EnsureTextureUploadIndex(normalLayer, false, textureLookup, outMaterials);
 			normalContentKey = outMaterials.textures[normalTextureIndex].key;
 			outMaterials.materials.back().normalTextureIndex = normalTextureIndex;
 		}
-		if (useAuxiliaryMaps && materialRef.texture != nullptr && materialRef.texture->GetRoughness() != nullptr)
+		if (useAuxiliaryMaps && roughnessLayer != nullptr)
 		{
-			roughnessTextureIndex = EnsureTextureUploadIndex(materialRef.texture->GetRoughness(), false, textureLookup, outMaterials);
+			roughnessTextureIndex = EnsureTextureUploadIndex(roughnessLayer, false, textureLookup, outMaterials);
+			roughnessContentKey = outMaterials.textures[roughnessTextureIndex].key;
+			outMaterials.materials.back().roughnessTextureIndex = roughnessTextureIndex;
+		}
+		else if (useAuxiliaryMaps && specularForRoughness != nullptr)
+		{
+			// DEF specular map, from a replacement only (Duke-RT's own specular overlays
+			// stay unused as before): roughness = 1 - specular luminance.
+			ReplacementBake specBake;
+			specBake.specularToRoughness = true;
+			roughnessTextureIndex = EnsureTransformedTextureUploadIndex(specularForRoughness, specBake, false, textureLookup, outMaterials);
 			roughnessContentKey = outMaterials.textures[roughnessTextureIndex].key;
 			outMaterials.materials.back().roughnessTextureIndex = roughnessTextureIndex;
 		}
@@ -931,6 +1308,39 @@ bool RealizeTextureUploadPayload(const TextureUpload& upload, std::vector<uint8_
 	outPixels.clear();
 	outWidth = 0;
 	outHeight = 0;
+
+	if (upload.transform != nullptr)
+	{
+		// DEF replacement: decode, bake (tint/detail/specular->roughness), mips.
+		if (upload.sourceTexture == nullptr)
+		{
+			return false;
+		}
+		FTextureBuffer texBuffer = upload.sourceTexture->CreateTexBuffer(0, CTF_ProcessData);
+		if (texBuffer.mBuffer == nullptr || texBuffer.mWidth <= 0 || texBuffer.mHeight <= 0)
+		{
+			return false;
+		}
+		const uint32_t width = (uint32_t)texBuffer.mWidth;
+		const uint32_t height = (uint32_t)texBuffer.mHeight;
+		// The uploader sizes the mip chain from upload.width/height/mipCount.
+		if (upload.mipCount > 1 && (width != upload.width || height != upload.height))
+		{
+			return false;
+		}
+		outPixels.assign(texBuffer.mBuffer, texBuffer.mBuffer + (size_t)width * height * 4u);
+		if (upload.transform->bake.active())
+		{
+			ApplyBake(outPixels.data(), width, height, upload.transform->bake);
+		}
+		if (upload.mipCount > 1)
+		{
+			AppendBgraMipChain(outPixels, width, height, upload.mipCount);
+		}
+		outWidth = width;
+		outHeight = height;
+		return !outPixels.empty();
+	}
 
 	// Palette-aware mip variants are immutable packed payloads. Recreating only
 	// mip 0 from the source texture would silently change the upload contract.
